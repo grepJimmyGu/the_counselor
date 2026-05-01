@@ -146,7 +146,7 @@ Create a Railway project from the GitHub repo and set the service root to `apps/
 Railway service settings:
 
 - Root directory: `apps/api`
-- Start command: handled by [apps/api/railway.json](/Users/jimmygu/Documents/New%20project/apps/api/railway.json)
+- Start command: handled by `apps/api/railway.json`
 - Health check path: `/health`
 
 Railway environment variables:
