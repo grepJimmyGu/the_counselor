@@ -8,13 +8,15 @@ from app.api.routes.insights import router as insights_router
 from app.api.routes.market_data import router as market_data_router
 from app.api.routes.strategy import router as strategy_router
 from app.core.config import get_settings
+from app.db.migrations import run_startup_migrations
 from app.db.session import Base, engine
-from app.models import BacktestRecord, PriceBar, SymbolCache  # noqa: F401
+from app.models import BacktestRecord, DataFetchLog, PriceBar, SymbolCache  # noqa: F401
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    Base.metadata.create_all(bind=engine)
+    run_startup_migrations(engine)   # ADD COLUMN IF NOT EXISTS on symbols
+    Base.metadata.create_all(bind=engine)  # creates new tables (data_fetch_logs, etc.)
     yield
 
 

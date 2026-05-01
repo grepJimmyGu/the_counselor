@@ -35,14 +35,39 @@ class BacktestEngine:
     def __init__(self) -> None:
         self.market_data = MarketDataService()
 
+    def _compute_lookback(self, strategy: StrategyJSON) -> int:
+        """Calendar days of pre-start history needed for indicator warmup."""
+        stype = strategy.strategy_type
+        rules = strategy.rules
+
+        if stype == "moving_average_filter":
+            window = rules[0].lookback_days or 200 if rules else 200
+            return int(window * 1.5) + 5
+        if stype == "moving_average_crossover":
+            slow = rules[0].slow_window or 200 if rules else 200
+            return int(slow * 1.5) + 5
+        if stype == "rsi_mean_reversion":
+            window = rules[0].lookback_days or 14 if rules else 14
+            return int(window * 1.5) + 5
+        if stype == "breakout":
+            entry_w = rules[0].entry_window or 60 if rules else 60
+            return int(entry_w * 1.5) + 5
+        if stype == "momentum_rotation":
+            lookback = rules[0].ranking_lookback_days or 126 if rules else 126
+            return int(lookback * 1.5) + 5
+        if stype == "static_allocation":
+            return 5
+        return 252
+
     async def _load_prices(self, db: Session, strategy: StrategyJSON) -> tuple[dict[str, pd.DataFrame], pd.DataFrame]:
+        lookback = self._compute_lookback(strategy)
         universe_frames: dict[str, pd.DataFrame] = {}
         for symbol in strategy.universe:
             universe_frames[symbol] = await self.market_data.get_price_frame(
-                db, symbol, strategy.start_date, strategy.end_date
+                db, symbol, strategy.start_date, strategy.end_date, lookback_days=lookback
             )
         benchmark_frame = await self.market_data.get_price_frame(
-            db, strategy.benchmark, strategy.start_date, strategy.end_date
+            db, strategy.benchmark, strategy.start_date, strategy.end_date, lookback_days=lookback
         )
         return universe_frames, benchmark_frame
 
@@ -192,6 +217,14 @@ class BacktestEngine:
         close_matrix, aligned_frames = self._build_price_matrix(universe_frames)
         if close_matrix.empty:
             raise ValueError("No historical data was available for the requested symbols.")
+
+        # Trim warmup rows before computing P&L (they exist only for indicator seeding)
+        strategy_start = pd.Timestamp(strategy.start_date)
+        close_matrix = close_matrix[close_matrix.index >= strategy_start]
+        aligned_frames = {
+            sym: frame[frame.index >= strategy_start]
+            for sym, frame in aligned_frames.items()
+        }
 
         benchmark_close = benchmark_frame["adjusted_close"].reindex(close_matrix.index).ffill().dropna()
         close_matrix = close_matrix.reindex(benchmark_close.index).ffill().dropna(how="all")

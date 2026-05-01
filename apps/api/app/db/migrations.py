@@ -1,0 +1,43 @@
+from __future__ import annotations
+
+from sqlalchemy import text
+from sqlalchemy.engine import Engine
+
+
+def run_startup_migrations(engine: Engine) -> None:
+    """Idempotent DDL for columns added after initial deploy. Safe to run every startup."""
+    is_sqlite = engine.dialect.name == "sqlite"
+
+    # New columns for the symbols table (already exists in production)
+    new_columns = [
+        ("exchange", "VARCHAR(32)"),
+        ("timezone", "VARCHAR(64)"),
+        ("alpha_vantage_match_score", "FLOAT"),
+        ("is_active", "BOOLEAN"),
+        ("last_validated_at", "TIMESTAMP"),
+        ("created_at", "TIMESTAMP"),
+        ("updated_at", "TIMESTAMP"),
+    ]
+
+    with engine.begin() as conn:
+        for col_name, col_type in new_columns:
+            try:
+                conn.execute(
+                    text(f"ALTER TABLE symbols ADD COLUMN IF NOT EXISTS {col_name} {col_type}")
+                )
+            except Exception:
+                # Older SQLite builds (< 3.35) don't support IF NOT EXISTS on ALTER TABLE;
+                # catch the "duplicate column" error and continue.
+                pass
+
+        # Backfill so is_active is never NULL going forward
+        conn.execute(text("UPDATE symbols SET is_active = TRUE WHERE is_active IS NULL"))
+
+        # PostgreSQL: enforce NOT NULL + default retroactively
+        if not is_sqlite:
+            try:
+                conn.execute(
+                    text("ALTER TABLE symbols ALTER COLUMN is_active SET DEFAULT TRUE")
+                )
+            except Exception:
+                pass

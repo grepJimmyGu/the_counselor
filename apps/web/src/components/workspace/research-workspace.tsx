@@ -37,7 +37,9 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { DrawdownChart, EquityCurveChart } from "@/components/workspace/charts";
+import { DataStatusBadge } from "@/components/workspace/data-status-badge";
 import { MonthlyHeatmap } from "@/components/workspace/monthly-heatmap";
+import { TickerSearch } from "@/components/workspace/ticker-search";
 
 type ChatMessage = {
   role: "user" | "assistant";
@@ -419,21 +421,21 @@ export function ResearchWorkspace() {
                         }
                       />
                     </label>
-                    <label className="space-y-2 text-sm">
-                      <span className="text-muted-foreground">Universe</span>
-                      <Input
-                        value={strategy.universe.join(", ")}
-                        onChange={(event) =>
-                          updateStrategyField(
-                            "universe",
-                            event.target.value
-                              .split(",")
-                              .map((item) => item.trim().toUpperCase())
-                              .filter(Boolean),
-                          )
-                        }
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-muted-foreground">Universe</span>
+                        <div className="flex flex-wrap justify-end gap-1">
+                          {strategy.universe.map((sym) => (
+                            <DataStatusBadge key={sym} symbol={sym} />
+                          ))}
+                        </div>
+                      </div>
+                      <TickerSearch
+                        value={strategy.universe}
+                        onChange={(universe) => updateStrategyField("universe", universe)}
+                        disabled={isRunning}
                       />
-                    </label>
+                    </div>
                     <label className="space-y-2 text-sm">
                       <span className="text-muted-foreground">Transaction Cost (bps)</span>
                       <Input

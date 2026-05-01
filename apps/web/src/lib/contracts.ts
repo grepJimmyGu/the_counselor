@@ -140,6 +140,44 @@ export interface SandboxReviewResponse {
   final_warning: string;
 }
 
+export interface SymbolSearchItem {
+  symbol: string;
+  name: string;
+  region?: string | null;
+  currency?: string | null;
+  instrument_type?: string | null;
+  exchange?: string | null;
+  timezone?: string | null;
+  alpha_vantage_match_score?: number | null;
+}
+
+export interface SymbolDetailResponse extends SymbolSearchItem {
+  is_active: boolean;
+  last_seen_at?: string | null;
+  last_validated_at?: string | null;
+}
+
+export interface DataStatusResponse {
+  symbol: string;
+  bar_count: number;
+  earliest_date?: string | null;
+  latest_date?: string | null;
+  is_stale: boolean;
+  last_fetch_status?: "success" | "error" | "rate_limited" | null;
+  last_fetched_at?: string | null;
+}
+
+export interface WarmupRequest {
+  symbols: string[];
+  lookback_days?: number;
+}
+
+export interface WarmupResponse {
+  queued: string[];
+  already_fresh: string[];
+  errors: Record<string, string>;
+}
+
 export const demoPrompts = [
   "Buy AAPL when price is above its 200-day moving average. Sell when below.",
   "Buy NVDA when 50-day moving average is above 200-day moving average. Sell when below.",

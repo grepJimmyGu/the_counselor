@@ -1,9 +1,12 @@
 import type {
   BacktestResult,
+  DataStatusResponse,
   ExplanationResponse,
   SandboxReviewResponse,
   StrategyChatResponse,
   StrategyJson,
+  SymbolSearchItem,
+  WarmupResponse,
 } from "@/lib/contracts";
 
 const API_BASE_URL =
@@ -80,5 +83,25 @@ export async function reviewSandbox(
       backtest_result: backtestResult,
       prior_iterations: priorIterations,
     }),
+  });
+}
+
+export async function searchSymbols(query: string): Promise<SymbolSearchItem[]> {
+  return fetchApi<SymbolSearchItem[]>(
+    `/api/symbols/search?query=${encodeURIComponent(query)}`,
+  );
+}
+
+export async function getDataStatus(symbol: string): Promise<DataStatusResponse> {
+  return fetchApi<DataStatusResponse>(`/api/data/status/${symbol}`);
+}
+
+export async function warmupSymbols(
+  symbols: string[],
+  lookbackDays = 252,
+): Promise<WarmupResponse> {
+  return fetchApi<WarmupResponse>("/api/data/warmup", {
+    method: "POST",
+    body: JSON.stringify({ symbols, lookback_days: lookbackDays }),
   });
 }

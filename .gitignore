@@ -14,3 +14,7 @@ build/
 coverage/
 *.sqlite3
 *.db
+
+# Local logs
+prompt_log.md
+project_log.md

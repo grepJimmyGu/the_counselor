@@ -12,6 +12,10 @@ class AlphaVantageError(RuntimeError):
     pass
 
 
+class AlphaVantageRateLimitError(AlphaVantageError):
+    pass
+
+
 class AlphaVantageClient:
     def __init__(self) -> None:
         self.settings = get_settings()
@@ -28,45 +32,48 @@ class AlphaVantageClient:
                 response.raise_for_status()
                 payload = response.json()
 
-                info_message = payload.get("Information", "")
-                if "Note" in payload:
-                    raise AlphaVantageError(payload["Note"])
                 if "Error Message" in payload:
                     raise AlphaVantageError(payload["Error Message"])
-                if (
-                    info_message
-                    and "1 request per second" in info_message.lower()
-                    and attempt < 2
-                ):
-                    await asyncio.sleep(1.2)
-                    continue
+                if "Note" in payload:
+                    raise AlphaVantageError(payload["Note"])
+
+                info = payload.get("Information", "")
+                if info and "api call frequency" in info.lower():
+                    if attempt < 2:
+                        await asyncio.sleep(1.2 * (attempt + 1))
+                        continue
+                    raise AlphaVantageRateLimitError(info)
+
                 return payload
 
         raise AlphaVantageError("Alpha Vantage request failed after retries.")
 
-    async def fetch_daily_adjusted(self, symbol: str) -> list[dict]:
+    async def fetch_daily_adjusted(self, symbol: str, outputsize: str = "full") -> list[dict]:
         payload = await self._request(
             {
-                "function": "TIME_SERIES_DAILY",
+                "function": "TIME_SERIES_DAILY_ADJUSTED",
                 "symbol": symbol,
-                "outputsize": "compact",
+                "outputsize": outputsize,
             }
         )
         raw_series = payload.get("Time Series (Daily)", {})
+        if not raw_series:
+            raise AlphaVantageError(
+                f"No price data returned for {symbol}. "
+                "The symbol may be invalid or delisted."
+            )
         bars = []
         for trading_date, values in raw_series.items():
-            adjusted_close = float(values.get("5. adjusted close", values["4. close"]))
-            volume_key = "6. volume" if "6. volume" in values else "5. volume"
             bars.append(
                 {
-                    "symbol": symbol,
+                    "symbol": symbol.upper(),
                     "trading_date": datetime.strptime(trading_date, "%Y-%m-%d").date(),
                     "open": float(values["1. open"]),
                     "high": float(values["2. high"]),
                     "low": float(values["3. low"]),
                     "close": float(values["4. close"]),
-                    "adjusted_close": adjusted_close,
-                    "volume": int(float(values[volume_key])),
+                    "adjusted_close": float(values["5. adjusted close"]),
+                    "volume": int(float(values["6. volume"])),
                     "dividend_amount": float(values.get("7. dividend amount", 0.0)),
                     "split_coefficient": float(values.get("8. split coefficient", 1.0)),
                 }
@@ -78,13 +85,17 @@ class AlphaVantageClient:
         matches = payload.get("bestMatches", [])
         results = []
         for match in matches[:10]:
+            raw_score = match.get("9. matchScore")
             results.append(
                 {
                     "symbol": match.get("1. symbol", "").upper(),
                     "name": match.get("2. name", ""),
                     "instrument_type": match.get("3. type"),
                     "region": match.get("4. region"),
+                    "timezone": match.get("7. timezone"),
                     "currency": match.get("8. currency"),
+                    "alpha_vantage_match_score": float(raw_score) if raw_score else None,
+                    "exchange": None,  # AV SYMBOL_SEARCH v1 does not expose a clean exchange field
                 }
             )
         return results
