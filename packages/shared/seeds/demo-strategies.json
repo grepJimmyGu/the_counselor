@@ -1,0 +1,58 @@
+[
+  {
+    "strategy_name": "AAPL 200-Day Trend Filter",
+    "strategy_type": "moving_average_filter",
+    "universe": ["AAPL"],
+    "benchmark": "SPY",
+    "start_date": "2018-01-01",
+    "end_date": "2024-12-31",
+    "initial_capital": 100000,
+    "rebalance_frequency": "daily",
+    "transaction_cost_bps": 5,
+    "slippage_bps": 5,
+    "rules": [
+      {
+        "indicator": "moving_average",
+        "lookback_days": 200,
+        "operator": "gt",
+        "source": "adjusted_close"
+      }
+    ],
+    "position_sizing": {
+      "method": "equal_weight",
+      "max_positions": 1
+    },
+    "risk_management": {},
+    "cash_management": {
+      "hold_cash_when_no_signal": true
+    }
+  },
+  {
+    "strategy_name": "Mega-Cap Momentum Rotation",
+    "strategy_type": "momentum_rotation",
+    "universe": ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"],
+    "benchmark": "SPY",
+    "start_date": "2019-01-01",
+    "end_date": "2024-12-31",
+    "initial_capital": 100000,
+    "rebalance_frequency": "monthly",
+    "transaction_cost_bps": 10,
+    "slippage_bps": 10,
+    "rules": [
+      {
+        "top_n": 3,
+        "ranking_measure": "total_return",
+        "ranking_lookback_days": 126
+      }
+    ],
+    "position_sizing": {
+      "method": "equal_weight",
+      "max_positions": 3
+    },
+    "risk_management": {},
+    "cash_management": {
+      "hold_cash_when_no_signal": false
+    }
+  }
+]
+
