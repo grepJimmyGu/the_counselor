@@ -6,6 +6,7 @@
     "packages/shared"
   ],
   "scripts": {
+    "build": "npm run web:build",
     "web:dev": "npm --prefix apps/web run dev",
     "web:build": "npm --prefix apps/web run build",
     "web:lint": "npm --prefix apps/web run lint",
@@ -14,4 +15,3 @@
     "dev": "echo \"Run npm run web:dev and npm run api:dev in separate terminals.\""
   }
 }
-
