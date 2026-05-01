@@ -5,7 +5,8 @@ from typing import Union
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
-ROOT_ENV_FILE = Path(__file__).resolve().parents[4] / ".env"
+_parents = Path(__file__).resolve().parents
+ROOT_ENV_FILE = _parents[min(4, len(_parents) - 1)] / ".env"
 
 
 class Settings(BaseSettings):
