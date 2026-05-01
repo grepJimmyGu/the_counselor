@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./strategylab_ai.db"
     api_timeout_seconds: float = 20.0
     price_cache_stale_hours: int = 24
-    allowed_origins: list[str] = [
+    allowed_origins: Union[str, list[str]] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:3001",
@@ -35,7 +35,6 @@ class Settings(BaseSettings):
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
-        env_parse_enlist="always",
     )
 
 
