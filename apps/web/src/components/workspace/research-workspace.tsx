@@ -1,23 +1,33 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, type ChangeEvent } from "react";
 import {
   ArrowRight,
   Bot,
   CircleAlert,
+  FileText,
   FlaskConical,
   LineChart,
   Loader2,
   Play,
+  Upload,
   WandSparkles,
 } from "lucide-react";
 
-import { explainStrategy, parseStrategy, reviewSandbox, runBacktest } from "@/lib/api";
 import {
+  explainStrategy,
+  parseStrategy,
+  parseStrategyMarkdown,
+  reviewSandbox,
+  runBacktest,
+} from "@/lib/api";
+import {
+  demoMarkdownStrategy,
   demoPrompts,
   type BacktestResult,
   type ExplanationResponse,
   type SandboxReviewResponse,
+  type StrategyMarkdownParseResponse,
   type StrategyJson,
 } from "@/lib/contracts";
 import { cn } from "@/lib/utils";
@@ -96,6 +106,8 @@ function buildComparison(
 
 export function ResearchWorkspace() {
   const [prompt, setPrompt] = useState(defaultPrompt);
+  const [strategyDoc, setStrategyDoc] = useState(demoMarkdownStrategy);
+  const [strategyDocName, setStrategyDocName] = useState("research-memo.md");
   const [chat, setChat] = useState<ChatMessage[]>([
     {
       role: "assistant",
@@ -108,10 +120,13 @@ export function ResearchWorkspace() {
   const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
   const [explanation, setExplanation] = useState<ExplanationResponse | null>(null);
   const [sandboxReview, setSandboxReview] = useState<SandboxReviewResponse | null>(null);
+  const [markdownParseResult, setMarkdownParseResult] =
+    useState<StrategyMarkdownParseResponse | null>(null);
   const [validationIssues, setValidationIssues] = useState<string[]>([]);
   const [clarifications, setClarifications] = useState<string[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isParsing, setIsParsing] = useState(false);
+  const [isParsingMarkdown, setIsParsingMarkdown] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
 
   const comparisonRows = useMemo(
@@ -161,6 +176,7 @@ export function ResearchWorkspace() {
         { role: "assistant", content: parsed.assistant_message },
       ]);
       setStrategy(parsed.strategy_json);
+      setMarkdownParseResult(null);
       setValidationIssues(parsed.missing_fields);
       setClarifications(parsed.clarification_questions);
     } catch (error) {
@@ -170,6 +186,41 @@ export function ResearchWorkspace() {
     } finally {
       setIsParsing(false);
     }
+  }
+
+  async function handleParseMarkdownStrategy() {
+    setIsParsingMarkdown(true);
+    setErrorMessage(null);
+
+    try {
+      const parsed = await parseStrategyMarkdown(strategyDoc, strategyDocName);
+      setMarkdownParseResult(parsed);
+      setStrategy(parsed.strategy_json);
+      setValidationIssues(parsed.missing_fields);
+      setClarifications(parsed.clarification_questions);
+      setChat((current) => [
+        ...current,
+        {
+          role: "assistant",
+          content: `[${strategyDocName}] ${parsed.assistant_message}`,
+        },
+      ]);
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : "Could not parse the markdown strategy memo.",
+      );
+    } finally {
+      setIsParsingMarkdown(false);
+    }
+  }
+
+  async function handleMarkdownFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    setStrategyDocName(file.name);
+    setStrategyDoc(await file.text());
+    event.target.value = "";
   }
 
   async function handleRunBacktest() {
@@ -302,6 +353,78 @@ export function ResearchWorkspace() {
                   ))}
                 </div>
               </ScrollArea>
+            </section>
+
+            <section className="rounded-lg border border-border bg-card/70">
+              <div className="flex items-center justify-between border-b border-border px-4 py-3">
+                <div className="flex items-center gap-2">
+                  <FileText className="h-4 w-4 text-primary" />
+                  <h2 className="text-sm font-medium">Strategy Doc</h2>
+                </div>
+                <Badge variant="outline">Markdown Intake</Badge>
+              </div>
+              <div className="space-y-4 p-4">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="text-sm font-medium">{strategyDocName}</div>
+                    <p className="text-xs text-muted-foreground">
+                      Paste a research memo or upload a `.md` file. The parser will extract what is explicit and log every inferred default.
+                    </p>
+                  </div>
+                  <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground">
+                    <Upload className="h-3.5 w-3.5" />
+                    Upload .md
+                    <input
+                      type="file"
+                      accept=".md,text/markdown,text/plain"
+                      className="hidden"
+                      onChange={handleMarkdownFileChange}
+                    />
+                  </label>
+                </div>
+                <Textarea
+                  value={strategyDoc}
+                  onChange={(event) => setStrategyDoc(event.target.value)}
+                  className="min-h-64 resize-y font-mono text-xs leading-6"
+                  placeholder="Paste a strategy memo in markdown..."
+                />
+                <div className="flex items-center justify-between gap-3">
+                  <span className="text-xs text-muted-foreground">
+                    Best for real strategy memos that still map into the supported strategy families.
+                  </span>
+                  <Button onClick={handleParseMarkdownStrategy} disabled={isParsingMarkdown}>
+                    {isParsingMarkdown ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Parsing Memo
+                      </>
+                    ) : (
+                      <>
+                        <FileText className="h-4 w-4" />
+                        Parse Memo
+                      </>
+                    )}
+                  </Button>
+                </div>
+                {markdownParseResult ? (
+                  <div className="rounded-md border border-border bg-background p-3 text-sm text-muted-foreground">
+                    <p>{markdownParseResult.source_summary}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Badge variant="outline">
+                        {markdownParseResult.extracted_fields.length} extracted fields
+                      </Badge>
+                      <Badge variant="outline">
+                        {markdownParseResult.assumption_log.length} assumptions
+                      </Badge>
+                      <Badge
+                        variant={markdownParseResult.ambiguities.length ? "destructive" : "outline"}
+                      >
+                        {markdownParseResult.ambiguities.length} ambiguities
+                      </Badge>
+                    </div>
+                  </div>
+                ) : null}
+              </div>
             </section>
 
             <section className="rounded-lg border border-border bg-card/70 p-4">
@@ -458,11 +581,76 @@ export function ResearchWorkspace() {
                       />
                     </label>
                   </div>
-                  <div className="space-y-3">
-                    <div className="text-sm font-medium">Structured Strategy JSON</div>
-                    <pre className="max-h-[420px] overflow-auto rounded-lg border border-border bg-background p-3 text-xs leading-6 text-muted-foreground">
-                      {JSON.stringify(strategy, null, 2)}
-                    </pre>
+                  <div className="space-y-4">
+                    <div className="space-y-3">
+                      <div className="text-sm font-medium">Structured Strategy JSON</div>
+                      <pre className="max-h-[280px] overflow-auto rounded-lg border border-border bg-background p-3 text-xs leading-6 text-muted-foreground">
+                        {JSON.stringify(strategy, null, 2)}
+                      </pre>
+                    </div>
+                    {markdownParseResult ? (
+                      <>
+                        <div className="rounded-lg border border-border bg-background p-3">
+                          <div className="text-sm font-medium">Source Summary</div>
+                          <p className="mt-2 text-xs leading-6 text-muted-foreground">
+                            {markdownParseResult.source_summary}
+                          </p>
+                        </div>
+                        <div className="grid gap-3 md:grid-cols-2">
+                          <div className="rounded-lg border border-border bg-background p-3">
+                            <div className="text-sm font-medium">Assumptions</div>
+                            <ul className="mt-2 space-y-2 text-xs leading-5 text-muted-foreground">
+                              {markdownParseResult.assumption_log.length ? (
+                                markdownParseResult.assumption_log.map((item) => (
+                                  <li key={item}>• {item}</li>
+                                ))
+                              ) : (
+                                <li>No inferred defaults were needed.</li>
+                              )}
+                            </ul>
+                          </div>
+                          <div className="rounded-lg border border-border bg-background p-3">
+                            <div className="text-sm font-medium">Ambiguities</div>
+                            <ul className="mt-2 space-y-2 text-xs leading-5 text-muted-foreground">
+                              {markdownParseResult.ambiguities.length ? (
+                                markdownParseResult.ambiguities.map((item) => (
+                                  <li key={item}>• {item}</li>
+                                ))
+                              ) : (
+                                <li>No obvious ambiguity triggers were detected.</li>
+                              )}
+                            </ul>
+                          </div>
+                        </div>
+                        <div className="rounded-lg border border-border bg-background p-3">
+                          <div className="mb-2 text-sm font-medium">Extraction Trace</div>
+                          <ScrollArea className="h-[220px]">
+                            <Table>
+                              <TableHeader>
+                                <TableRow>
+                                  <TableHead>Field</TableHead>
+                                  <TableHead>Status</TableHead>
+                                  <TableHead>Value</TableHead>
+                                </TableRow>
+                              </TableHeader>
+                              <TableBody>
+                                {markdownParseResult.extracted_fields.map((field) => (
+                                  <TableRow key={field.field}>
+                                    <TableCell>{field.field}</TableCell>
+                                    <TableCell>
+                                      <Badge variant="outline">{field.status}</Badge>
+                                    </TableCell>
+                                    <TableCell className="text-xs text-muted-foreground">
+                                      {field.value}
+                                    </TableCell>
+                                  </TableRow>
+                                ))}
+                              </TableBody>
+                            </Table>
+                          </ScrollArea>
+                        </div>
+                      </>
+                    ) : null}
                   </div>
                 </div>
               ) : (
