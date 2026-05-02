@@ -89,7 +89,7 @@ function buildComparison(
 export function ResearchWorkspace() {
   const { locale, t } = useLocale();
 
-  const [prompt, setPrompt] = useState(t.demoPrompts[0]);
+  const [prompt, setPrompt] = useState<string>(t.demoPrompts[0]);
   const [strategyDoc, setStrategyDoc] = useState(demoMarkdownStrategy);
   const [strategyDocName, setStrategyDocName] = useState("research-memo.md");
   const [chat, setChat] = useState<ChatMessage[]>([

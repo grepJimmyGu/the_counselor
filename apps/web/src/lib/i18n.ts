@@ -1,6 +1,48 @@
 export type Locale = "en" | "zh";
 
-const translations = {
+export interface Translations {
+  appName: string; localMvp: string; workspaceTitle: string; workspaceDesc: string;
+  noLiveTrading: string; priceBasedOnly: string; deterministicEngine: string;
+  chatBuilderTitle: string; strategyParser: string; chatPlaceholder: string;
+  chatSupported: string; interpret: string; interpreting: string;
+  aiLabel: string; youLabel: string; chatWelcome: string;
+  strategyDocTitle: string; markdownIntake: string; strategyDocDesc: string;
+  uploadMd: string; strategyDocHint: string; parseMemo: string; parsingMemo: string;
+  extractedFields: string; assumptions: string; ambiguities: string;
+  validationTitle: string; needsAttention: string; readyToBacktest: string;
+  clarificationPrompts: string; parserReady: string;
+  strategyPreviewTitle: string; strategyPreviewDesc: string;
+  runBacktest: string; runningBacktest: string;
+  strategyName: string; benchmark: string; startDate: string; endDate: string;
+  initialCapital: string; universe: string; transactionCost: string; slippage: string;
+  strategyJson: string; sourceSummary: string; assumptionsTitle: string;
+  ambiguitiesTitle: string; noAssumptions: string; noAmbiguities: string;
+  extractionTrace: string; field: string; status: string; value: string; parseFirst: string;
+  tabBacktest: string; tabExplanation: string; tabSandbox: string; tabComparison: string;
+  totalReturn: string; sharpe: string; maxDrawdown: string; excessVsBenchmark: string;
+  trades: string; equityCurve: string; metricsDetail: string; drawdownCurve: string;
+  annualReturns: string; year: string; return: string; monthlyHeatmap: string;
+  tradeLog: string; warningCount: string; symbol: string; entry: string; exit: string;
+  holdDays: string; backtestEmpty: string; explanationEmpty: string;
+  sandboxEmpty: string; trustScore: string;
+  benchmarkConcerns: string; regimeDependence: string; sensitivityConcerns: string;
+  transactionCostConcerns: string; sampleSizeConcerns: string;
+  robustnessTests: string; suggestedNextTests: string;
+  strengths: string; weaknesses: string; marketRegimeNotes: string; suggestedIterations: string;
+  comparisonTitle: string; metric: string; current: string; previous: string; comparisonEmpty: string;
+  errorInterpret: string; errorParseMemo: string; errorBacktest: string;
+  searchPlaceholder: string; searching: string;
+  maxSymbols: (n: number) => string;
+  removeSymbol: (sym: string) => string;
+  stale: (sym: string) => string;
+  bars: (sym: string, n: number) => string;
+  staleTitle: (n: number) => string;
+  barsTitle: (n: number, date: string) => string;
+  months: readonly string[];
+  demoPrompts: readonly string[];
+}
+
+const translations: Record<Locale, Translations> = {
   en: {
     // Header
     appName: "StrategyLab AI",
@@ -303,7 +345,6 @@ const translations = {
       "60% SPY / 40% TLT 每月再平衡",
     ],
   },
-} as const;
+};
 
-export type Translations = typeof translations.en;
 export { translations };
