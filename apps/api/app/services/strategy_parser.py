@@ -101,7 +101,7 @@ _CHAT_PARSE_SYSTEM_PROMPT: str = (
     "total market → VTI. "
     "Always replace index names with their ETF ticker in the universe field. "
     "Use these defaults for any field the user does not specify: "
-    "benchmark=SPY, start_date=one year before today, end_date=today, "
+    "benchmark=SPY, start_date=five years before today, end_date=today, "
     "initial_capital=100000, rebalance_frequency=daily, transaction_cost_bps=5, slippage_bps=5, "
     "position_sizing.method=equal_weight. "
     "Only set validation_status to needs_clarification if the user has not provided "
@@ -451,7 +451,7 @@ def _base_strategy(
     position_sizing: PositionSizing,
 ) -> StrategyJSON:
     end_date = date.today()
-    start_date = end_date - timedelta(days=365)
+    start_date = end_date - timedelta(days=365 * 5)
     return StrategyJSON(
         strategy_name=strategy_name,
         strategy_type=strategy_type,
