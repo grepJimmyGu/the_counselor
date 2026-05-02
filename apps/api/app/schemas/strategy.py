@@ -101,6 +101,7 @@ class StrategyChatRequest(BaseModel):
     user_message: str = Field(..., min_length=3)
     previous_strategy_json: Optional[StrategyJSON] = None
     previous_backtest_id: Optional[str] = None
+    locale: str = "en"
 
 
 class StrategyChatResponse(BaseModel):
@@ -121,6 +122,7 @@ class StrategyMarkdownParseRequest(BaseModel):
     markdown_content: str = Field(..., min_length=20)
     document_name: Optional[str] = None
     previous_strategy_json: Optional[StrategyJSON] = None
+    locale: str = "en"
 
 
 class StrategyMarkdownParseResponse(BaseModel):

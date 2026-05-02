@@ -152,8 +152,12 @@ def build_sandbox_review_fallback(
     )
 
 
+def _locale_instruction(locale: str) -> str:
+    return " Respond in Simplified Chinese (中文)." if locale == "zh" else ""
+
+
 async def build_explanation(
-    strategy: StrategyJSON, backtest_result: BacktestResult
+    strategy: StrategyJSON, backtest_result: BacktestResult, locale: str = "en"
 ) -> ExplanationResponse:
     gateway = get_llm_gateway()
     if not gateway.is_enabled:
@@ -162,7 +166,7 @@ async def build_explanation(
     try:
         return await gateway.generate_structured(
             model=get_settings().llm_model,
-            system_prompt=_EXPLANATION_SYSTEM_PROMPT,
+            system_prompt=_EXPLANATION_SYSTEM_PROMPT + _locale_instruction(locale),
             user_prompt=_explanation_user_prompt(strategy, backtest_result),
             response_model=ExplanationResponse,
             temperature=0.2,
@@ -172,7 +176,7 @@ async def build_explanation(
 
 
 async def build_sandbox_review(
-    strategy: StrategyJSON, backtest_result: BacktestResult
+    strategy: StrategyJSON, backtest_result: BacktestResult, locale: str = "en"
 ) -> SandboxReviewResponse:
     gateway = get_llm_gateway()
     if not gateway.is_enabled:
@@ -181,7 +185,7 @@ async def build_sandbox_review(
     try:
         return await gateway.generate_structured(
             model=get_settings().llm_model,
-            system_prompt=_REVIEW_SYSTEM_PROMPT,
+            system_prompt=_REVIEW_SYSTEM_PROMPT + _locale_instruction(locale),
             user_prompt=_review_user_prompt(strategy, backtest_result),
             response_model=SandboxReviewResponse,
             temperature=0.2,

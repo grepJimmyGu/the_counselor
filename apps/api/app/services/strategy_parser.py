@@ -640,17 +640,24 @@ def parse_strategy_markdown_fallback(
     )
 
 
+def _locale_instruction(locale: str) -> str:
+    return " Respond in Simplified Chinese (中文)." if locale == "zh" else ""
+
+
 async def parse_strategy_message(
-    user_message: str, previous_strategy_json: Optional[StrategyJSON] = None
+    user_message: str,
+    previous_strategy_json: Optional[StrategyJSON] = None,
+    locale: str = "en",
 ) -> StrategyChatResponse:
     gateway = get_llm_gateway()
     if not gateway.is_enabled:
         return parse_strategy_message_fallback(user_message, previous_strategy_json)
 
+    system_prompt = _CHAT_PARSE_SYSTEM_PROMPT + _locale_instruction(locale)
     try:
         return await gateway.generate_structured(
             model=get_settings().llm_model,
-            system_prompt=_CHAT_PARSE_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             user_prompt=_chat_parse_user_prompt(user_message, previous_strategy_json),
             response_model=StrategyChatResponse,
             temperature=0.1,
@@ -662,15 +669,17 @@ async def parse_strategy_message(
 async def parse_strategy_markdown(
     markdown_content: str,
     document_name: Optional[str] = None,
+    locale: str = "en",
 ) -> StrategyMarkdownParseResponse:
     gateway = get_llm_gateway()
     if not gateway.is_enabled:
         return parse_strategy_markdown_fallback(markdown_content, document_name)
 
+    system_prompt = _MARKDOWN_PARSE_SYSTEM_PROMPT + _locale_instruction(locale)
     try:
         return await gateway.generate_structured(
             model=get_settings().llm_model,
-            system_prompt=_MARKDOWN_PARSE_SYSTEM_PROMPT,
+            system_prompt=system_prompt,
             user_prompt=_markdown_parse_user_prompt(markdown_content, document_name),
             response_model=StrategyMarkdownParseResponse,
             temperature=0.1,

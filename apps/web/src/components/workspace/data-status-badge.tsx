@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { getDataStatus } from "@/lib/api";
 import type { DataStatusResponse } from "@/lib/contracts";
 import { Badge } from "@/components/ui/badge";
+import { useLocale } from "@/lib/locale-context";
 
 interface DataStatusBadgeProps {
   symbol: string;
@@ -21,16 +22,18 @@ export function DataStatusBadge({ symbol }: DataStatusBadgeProps) {
       .catch(() => setStatus(null));
   }, [symbol]);
 
+  const { t } = useLocale();
+
   if (!status) return null;
 
   if (status.is_stale || status.bar_count === 0) {
     return (
       <Badge
         variant="destructive"
-        title={`${status.bar_count} bars — stale or missing`}
+        title={t.staleTitle(status.bar_count)}
         className="text-[10px]"
       >
-        {symbol} stale
+        {t.stale(symbol)}
       </Badge>
     );
   }
@@ -38,10 +41,10 @@ export function DataStatusBadge({ symbol }: DataStatusBadgeProps) {
   return (
     <Badge
       variant="outline"
-      title={`${status.bar_count} bars through ${status.latest_date ?? "unknown"}`}
+      title={t.barsTitle(status.bar_count, status.latest_date ?? "unknown")}
       className="text-[10px]"
     >
-      {symbol} {status.bar_count}d
+      {t.bars(symbol, status.bar_count)}
     </Badge>
   );
 }

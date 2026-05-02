@@ -1,6 +1,5 @@
 import type { BacktestResult } from "@/lib/contracts";
-
-const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+import { useLocale } from "@/lib/locale-context";
 
 function colorForValue(value: number) {
   if (value > 0.08) return "bg-emerald-500/35 text-emerald-100";
@@ -11,6 +10,8 @@ function colorForValue(value: number) {
 }
 
 export function MonthlyHeatmap({ result }: { result: BacktestResult }) {
+  const { t } = useLocale();
+  const monthLabels = t.months;
   const grouped = new Map<number, Map<number, number>>();
 
   result.monthly_returns.forEach((item) => {

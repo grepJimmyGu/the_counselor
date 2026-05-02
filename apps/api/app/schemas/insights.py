@@ -9,6 +9,7 @@ from app.schemas.strategy import StrategyJSON
 class ExplainRequest(BaseModel):
     strategy_json: StrategyJSON
     backtest_result: BacktestResult
+    locale: str = "en"
 
 
 class ExplanationResponse(BaseModel):
@@ -25,6 +26,7 @@ class SandboxReviewRequest(BaseModel):
     strategy_json: StrategyJSON
     backtest_result: BacktestResult
     prior_iterations: Optional[list[str]] = None
+    locale: str = "en"
 
 
 class SandboxReviewResponse(BaseModel):

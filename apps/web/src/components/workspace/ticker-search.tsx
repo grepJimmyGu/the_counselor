@@ -8,6 +8,7 @@ import type { SymbolSearchItem } from "@/lib/contracts";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { useLocale } from "@/lib/locale-context";
 
 interface TickerSearchProps {
   value: string[];
@@ -78,6 +79,7 @@ export function TickerSearch({
   }
 
   const atLimit = value.length >= maxSymbols;
+  const { t } = useLocale();
 
   return (
     <div ref={containerRef} className="relative space-y-2">
@@ -91,7 +93,7 @@ export function TickerSearch({
                 onClick={() => removeSymbol(sym)}
                 disabled={disabled}
                 className="ml-0.5 rounded-sm opacity-60 transition hover:opacity-100 disabled:pointer-events-none"
-                aria-label={`Remove ${sym}`}
+                aria-label={t.removeSymbol(sym)}
               >
                 <X className="h-3 w-3" />
               </button>
@@ -102,12 +104,12 @@ export function TickerSearch({
       <Input
         value={query}
         onChange={(e) => setQuery(e.target.value)}
-        placeholder={atLimit ? `Max ${maxSymbols} symbols` : "Search ticker or company name..."}
+        placeholder={atLimit ? t.maxSymbols(maxSymbols) : t.searchPlaceholder}
         disabled={disabled || atLimit}
         autoComplete="off"
       />
       {isLoading && (
-        <p className="text-xs text-muted-foreground">Searching…</p>
+        <p className="text-xs text-muted-foreground">{t.searching}</p>
       )}
       {isOpen && results.length > 0 && (
         <div className="absolute z-50 w-full overflow-hidden rounded-lg border border-border bg-background shadow-lg">

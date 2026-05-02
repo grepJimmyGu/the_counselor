@@ -41,6 +41,7 @@ export async function parseStrategy(
   userMessage: string,
   previousStrategyJson?: StrategyJson | null,
   previousBacktestId?: string | null,
+  locale = "en",
 ) {
   return fetchApi<StrategyChatResponse>("/api/chat/strategy", {
     method: "POST",
@@ -48,6 +49,7 @@ export async function parseStrategy(
       user_message: userMessage,
       previous_strategy_json: previousStrategyJson ?? undefined,
       previous_backtest_id: previousBacktestId ?? undefined,
+      locale,
     }),
   });
 }
@@ -55,12 +57,14 @@ export async function parseStrategy(
 export async function parseStrategyMarkdown(
   markdownContent: string,
   documentName?: string | null,
+  locale = "en",
 ) {
   return fetchApi<StrategyMarkdownParseResponse>("/api/strategy/parse-markdown", {
     method: "POST",
     body: JSON.stringify({
       markdown_content: markdownContent,
       document_name: documentName ?? undefined,
+      locale,
     }),
   });
 }
@@ -75,12 +79,14 @@ export async function runBacktest(strategyJson: StrategyJson) {
 export async function explainStrategy(
   strategyJson: StrategyJson,
   backtestResult: BacktestResult,
+  locale = "en",
 ) {
   return fetchApi<ExplanationResponse>("/api/insights/explain", {
     method: "POST",
     body: JSON.stringify({
       strategy_json: strategyJson,
       backtest_result: backtestResult,
+      locale,
     }),
   });
 }
@@ -89,6 +95,7 @@ export async function reviewSandbox(
   strategyJson: StrategyJson,
   backtestResult: BacktestResult,
   priorIterations: string[] = [],
+  locale = "en",
 ) {
   return fetchApi<SandboxReviewResponse>("/api/review/sandbox", {
     method: "POST",
@@ -96,6 +103,7 @@ export async function reviewSandbox(
       strategy_json: strategyJson,
       backtest_result: backtestResult,
       prior_iterations: priorIterations,
+      locale,
     }),
   });
 }

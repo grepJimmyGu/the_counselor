@@ -23,13 +23,14 @@ import {
 } from "@/lib/api";
 import {
   demoMarkdownStrategy,
-  demoPrompts,
   type BacktestResult,
   type ExplanationResponse,
   type SandboxReviewResponse,
   type StrategyMarkdownParseResponse,
   type StrategyJson,
 } from "@/lib/contracts";
+import { useLocale } from "@/lib/locale-context";
+import { LanguageSwitcher } from "@/components/language-switcher";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -62,8 +63,6 @@ type ComparisonRow = {
   previous: number;
 };
 
-const defaultPrompt = demoPrompts[0];
-
 function formatPercent(value: number) {
   return `${(value * 100).toFixed(2)}%`;
 }
@@ -75,55 +74,33 @@ function formatNumber(value: number) {
 function buildComparison(
   current: BacktestResult | null,
   previous: BacktestResult | null,
+  labels: { totalReturn: string; sharpe: string; maxDrawdown: string; trades: string },
 ): ComparisonRow[] {
   if (!current || !previous) return [];
   return [
-    {
-      label: "Total Return",
-      current: current.metrics.total_return,
-      previous: previous.metrics.total_return,
-    },
-    {
-      label: "Sharpe Ratio",
-      current: current.metrics.sharpe_ratio,
-      previous: previous.metrics.sharpe_ratio,
-    },
-    {
-      label: "Max Drawdown",
-      current: current.metrics.max_drawdown,
-      previous: previous.metrics.max_drawdown,
-    },
-    {
-      label: "Win Rate",
-      current: current.metrics.win_rate,
-      previous: previous.metrics.win_rate,
-    },
-    {
-      label: "Turnover",
-      current: current.metrics.turnover,
-      previous: previous.metrics.turnover,
-    },
+    { label: labels.totalReturn, current: current.metrics.total_return, previous: previous.metrics.total_return },
+    { label: labels.sharpe, current: current.metrics.sharpe_ratio, previous: previous.metrics.sharpe_ratio },
+    { label: labels.maxDrawdown, current: current.metrics.max_drawdown, previous: previous.metrics.max_drawdown },
+    { label: "Win Rate", current: current.metrics.win_rate, previous: previous.metrics.win_rate },
+    { label: "Turnover", current: current.metrics.turnover, previous: previous.metrics.turnover },
   ];
 }
 
 export function ResearchWorkspace() {
-  const [prompt, setPrompt] = useState(defaultPrompt);
+  const { locale, t } = useLocale();
+
+  const [prompt, setPrompt] = useState(t.demoPrompts[0]);
   const [strategyDoc, setStrategyDoc] = useState(demoMarkdownStrategy);
   const [strategyDocName, setStrategyDocName] = useState("research-memo.md");
   const [chat, setChat] = useState<ChatMessage[]>([
-    {
-      role: "assistant",
-      content:
-        "Describe a price-based investment rule and I’ll turn it into structured strategy JSON, run a deterministic backtest, and then let a skeptical sandbox reviewer challenge the result.",
-    },
+    { role: "assistant", content: t.chatWelcome },
   ]);
   const [strategy, setStrategy] = useState<StrategyJson | null>(null);
   const [previousResult, setPreviousResult] = useState<BacktestResult | null>(null);
   const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
   const [explanation, setExplanation] = useState<ExplanationResponse | null>(null);
   const [sandboxReview, setSandboxReview] = useState<SandboxReviewResponse | null>(null);
-  const [markdownParseResult, setMarkdownParseResult] =
-    useState<StrategyMarkdownParseResponse | null>(null);
+  const [markdownParseResult, setMarkdownParseResult] = useState<StrategyMarkdownParseResponse | null>(null);
   const [validationIssues, setValidationIssues] = useState<string[]>([]);
   const [clarifications, setClarifications] = useState<string[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -132,32 +109,28 @@ export function ResearchWorkspace() {
   const [isRunning, setIsRunning] = useState(false);
 
   const comparisonRows = useMemo(
-    () => buildComparison(backtestResult, previousResult),
-    [backtestResult, previousResult],
+    () => buildComparison(backtestResult, previousResult, { totalReturn: t.totalReturn, sharpe: t.sharpe, maxDrawdown: t.maxDrawdown, trades: t.trades }),
+    [backtestResult, previousResult, t],
   );
+
   const explanationSections: { title: string; items: string[] }[] = explanation
     ? [
-        { title: "Strengths", items: explanation.strengths },
-        { title: "Weaknesses", items: explanation.weaknesses },
-        { title: "Market Regime Notes", items: explanation.market_regime_notes },
-        { title: "Suggested Iterations", items: explanation.suggested_iterations },
+        { title: t.strengths, items: explanation.strengths },
+        { title: t.weaknesses, items: explanation.weaknesses },
+        { title: t.marketRegimeNotes, items: explanation.market_regime_notes },
+        { title: t.suggestedIterations, items: explanation.suggested_iterations },
       ]
     : [];
+
   const sandboxSections: { title: string; items: string[] }[] = sandboxReview
     ? [
-        { title: "Benchmark Concerns", items: sandboxReview.benchmark_concerns },
-        { title: "Regime Dependence", items: sandboxReview.regime_dependence },
-        {
-          title: "Sensitivity Concerns",
-          items: sandboxReview.parameter_sensitivity_concerns,
-        },
-        {
-          title: "Transaction Cost Concerns",
-          items: sandboxReview.transaction_cost_concerns,
-        },
-        { title: "Sample Size Concerns", items: sandboxReview.sample_size_concerns },
-        { title: "Required Robustness Tests", items: sandboxReview.robustness_tests },
-        { title: "Suggested Next Tests", items: sandboxReview.suggested_next_tests },
+        { title: t.benchmarkConcerns, items: sandboxReview.benchmark_concerns },
+        { title: t.regimeDependence, items: sandboxReview.regime_dependence },
+        { title: t.sensitivityConcerns, items: sandboxReview.parameter_sensitivity_concerns },
+        { title: t.transactionCostConcerns, items: sandboxReview.transaction_cost_concerns },
+        { title: t.sampleSizeConcerns, items: sandboxReview.sample_size_concerns },
+        { title: t.robustnessTests, items: sandboxReview.robustness_tests },
+        { title: t.suggestedNextTests, items: sandboxReview.suggested_next_tests },
       ]
     : [];
 
@@ -168,23 +141,14 @@ export function ResearchWorkspace() {
     setChat((current) => [...current, { role: "user", content: activePrompt }]);
 
     try {
-      const parsed = await parseStrategy(
-        activePrompt,
-        strategy,
-        backtestResult?.backtest_id ?? null,
-      );
-      setChat((current) => [
-        ...current,
-        { role: "assistant", content: parsed.assistant_message },
-      ]);
+      const parsed = await parseStrategy(activePrompt, strategy, backtestResult?.backtest_id ?? null, locale);
+      setChat((current) => [...current, { role: "assistant", content: parsed.assistant_message }]);
       setStrategy(parsed.strategy_json);
       setMarkdownParseResult(null);
       setValidationIssues(parsed.missing_fields);
       setClarifications(parsed.clarification_questions);
     } catch (error) {
-      setErrorMessage(
-        error instanceof Error ? error.message : "Could not interpret the strategy.",
-      );
+      setErrorMessage(error instanceof Error ? error.message : t.errorInterpret);
     } finally {
       setIsParsing(false);
     }
@@ -195,22 +159,17 @@ export function ResearchWorkspace() {
     setErrorMessage(null);
 
     try {
-      const parsed = await parseStrategyMarkdown(strategyDoc, strategyDocName);
+      const parsed = await parseStrategyMarkdown(strategyDoc, strategyDocName, locale);
       setMarkdownParseResult(parsed);
       setStrategy(parsed.strategy_json);
       setValidationIssues(parsed.missing_fields);
       setClarifications(parsed.clarification_questions);
       setChat((current) => [
         ...current,
-        {
-          role: "assistant",
-          content: `[${strategyDocName}] ${parsed.assistant_message}`,
-        },
+        { role: "assistant", content: `[${strategyDocName}] ${parsed.assistant_message}` },
       ]);
     } catch (error) {
-      setErrorMessage(
-        error instanceof Error ? error.message : "Could not parse the markdown strategy memo.",
-      );
+      setErrorMessage(error instanceof Error ? error.message : t.errorParseMemo);
     } finally {
       setIsParsingMarkdown(false);
     }
@@ -219,7 +178,6 @@ export function ResearchWorkspace() {
   async function handleMarkdownFileChange(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     if (!file) return;
-
     setStrategyDocName(file.name);
     setStrategyDoc(await file.text());
     event.target.value = "";
@@ -227,7 +185,6 @@ export function ResearchWorkspace() {
 
   async function handleRunBacktest() {
     if (!strategy) return;
-
     setIsRunning(true);
     setErrorMessage(null);
     try {
@@ -235,22 +192,19 @@ export function ResearchWorkspace() {
       const result = await runBacktest(strategy);
       setBacktestResult(result);
       const [explainerPayload, reviewerPayload] = await Promise.all([
-        explainStrategy(strategy, result),
-        reviewSandbox(strategy, result, previousResult ? [previousResult.backtest_id] : []),
+        explainStrategy(strategy, result, locale),
+        reviewSandbox(strategy, result, previousResult ? [previousResult.backtest_id] : [], locale),
       ]);
       setExplanation(explainerPayload);
       setSandboxReview(reviewerPayload);
     } catch (error) {
-      setErrorMessage(error instanceof Error ? error.message : "Backtest run failed.");
+      setErrorMessage(error instanceof Error ? error.message : t.errorBacktest);
     } finally {
       setIsRunning(false);
     }
   }
 
-  function updateStrategyField<K extends keyof StrategyJson>(
-    key: K,
-    value: StrategyJson[K],
-  ) {
+  function updateStrategyField<K extends keyof StrategyJson>(key: K, value: StrategyJson[K]) {
     setStrategy((current) => (current ? { ...current, [key]: value } : current));
   }
 
@@ -260,22 +214,19 @@ export function ResearchWorkspace() {
         <header className="flex flex-col gap-3 border-b border-border pb-5 lg:flex-row lg:items-end lg:justify-between">
           <div className="space-y-2">
             <div className="flex items-center gap-2">
-              <Badge className="bg-primary/15 text-primary hover:bg-primary/15">
-                StrategyLab AI
-              </Badge>
-              <Badge variant="outline">Local MVP</Badge>
+              <Badge className="bg-primary/15 text-primary hover:bg-primary/15">{t.appName}</Badge>
+              <Badge variant="outline">{t.localMvp}</Badge>
             </div>
             <div>
-              <h1 className="text-3xl font-semibold tracking-tight">Research Workspace</h1>
-              <p className="max-w-3xl text-sm text-muted-foreground">
-                Turn a natural-language investment idea into validated strategy JSON, a deterministic backtest, and a skeptical sandbox review that pushes back on false confidence.
-              </p>
+              <h1 className="text-3xl font-semibold tracking-tight">{t.workspaceTitle}</h1>
+              <p className="max-w-3xl text-sm text-muted-foreground">{t.workspaceDesc}</p>
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <div className="rounded-md border border-border px-3 py-1.5">No live trading</div>
-            <div className="rounded-md border border-border px-3 py-1.5">Price-based strategies only</div>
-            <div className="rounded-md border border-border px-3 py-1.5">Deterministic backend engine</div>
+            <div className="rounded-md border border-border px-3 py-1.5">{t.noLiveTrading}</div>
+            <div className="rounded-md border border-border px-3 py-1.5">{t.priceBasedOnly}</div>
+            <div className="rounded-md border border-border px-3 py-1.5">{t.deterministicEngine}</div>
+            <LanguageSwitcher />
           </div>
         </header>
 
@@ -288,17 +239,18 @@ export function ResearchWorkspace() {
 
         <section className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
           <div className="grid gap-6">
+            {/* Chat Builder */}
             <section className="rounded-lg border border-border bg-card/70">
               <div className="flex items-center justify-between border-b border-border px-4 py-3">
                 <div className="flex items-center gap-2">
                   <Bot className="h-4 w-4 text-primary" />
-                  <h2 className="text-sm font-medium">Chat Builder</h2>
+                  <h2 className="text-sm font-medium">{t.chatBuilderTitle}</h2>
                 </div>
-                <Badge variant="outline">Strategy Parser</Badge>
+                <Badge variant="outline">{t.strategyParser}</Badge>
               </div>
               <div className="space-y-4 p-4">
                 <div className="flex flex-wrap gap-2">
-                  {demoPrompts.map((item) => (
+                  {t.demoPrompts.map((item) => (
                     <button
                       key={item}
                       type="button"
@@ -313,23 +265,15 @@ export function ResearchWorkspace() {
                   value={prompt}
                   onChange={(event) => setPrompt(event.target.value)}
                   className="min-h-36 resize-none"
-                  placeholder="Describe a price-based strategy..."
+                  placeholder={t.chatPlaceholder}
                 />
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs text-muted-foreground">
-                    Supported: moving averages, crossover, momentum, RSI, breakout, static allocation
-                  </span>
+                  <span className="text-xs text-muted-foreground">{t.chatSupported}</span>
                   <Button onClick={() => handleInterpretStrategy()} disabled={isParsing}>
                     {isParsing ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Interpreting
-                      </>
+                      <><Loader2 className="h-4 w-4 animate-spin" />{t.interpreting}</>
                     ) : (
-                      <>
-                        <WandSparkles className="h-4 w-4" />
-                        Interpret
-                      </>
+                      <><WandSparkles className="h-4 w-4" />{t.interpret}</>
                     )}
                   </Button>
                 </div>
@@ -348,7 +292,7 @@ export function ResearchWorkspace() {
                       )}
                     >
                       <div className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">
-                        {message.role === "assistant" ? "AI Builder" : "You"}
+                        {message.role === "assistant" ? t.aiLabel : t.youLabel}
                       </div>
                       <p className="whitespace-pre-wrap leading-6">{message.content}</p>
                     </div>
@@ -357,25 +301,24 @@ export function ResearchWorkspace() {
               </ScrollArea>
             </section>
 
+            {/* Strategy Doc */}
             <section className="rounded-lg border border-border bg-card/70">
               <div className="flex items-center justify-between border-b border-border px-4 py-3">
                 <div className="flex items-center gap-2">
                   <FileText className="h-4 w-4 text-primary" />
-                  <h2 className="text-sm font-medium">Strategy Doc</h2>
+                  <h2 className="text-sm font-medium">{t.strategyDocTitle}</h2>
                 </div>
-                <Badge variant="outline">Markdown Intake</Badge>
+                <Badge variant="outline">{t.markdownIntake}</Badge>
               </div>
               <div className="space-y-4 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="space-y-1">
                     <div className="text-sm font-medium">{strategyDocName}</div>
-                    <p className="text-xs text-muted-foreground">
-                      Paste a research memo or upload a `.md` file. The parser will extract what is explicit and log every inferred default.
-                    </p>
+                    <p className="text-xs text-muted-foreground">{t.strategyDocDesc}</p>
                   </div>
                   <label className="inline-flex cursor-pointer items-center gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground">
                     <Upload className="h-3.5 w-3.5" />
-                    Upload .md
+                    {t.uploadMd}
                     <input
                       type="file"
                       accept=".md,text/markdown,text/plain"
@@ -388,23 +331,15 @@ export function ResearchWorkspace() {
                   value={strategyDoc}
                   onChange={(event) => setStrategyDoc(event.target.value)}
                   className="min-h-64 resize-y font-mono text-xs leading-6"
-                  placeholder="Paste a strategy memo in markdown..."
+                  placeholder={t.chatPlaceholder}
                 />
                 <div className="flex items-center justify-between gap-3">
-                  <span className="text-xs text-muted-foreground">
-                    Best for real strategy memos that still map into the supported strategy families.
-                  </span>
+                  <span className="text-xs text-muted-foreground">{t.strategyDocHint}</span>
                   <Button onClick={handleParseMarkdownStrategy} disabled={isParsingMarkdown}>
                     {isParsingMarkdown ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Parsing Memo
-                      </>
+                      <><Loader2 className="h-4 w-4 animate-spin" />{t.parsingMemo}</>
                     ) : (
-                      <>
-                        <FileText className="h-4 w-4" />
-                        Parse Memo
-                      </>
+                      <><FileText className="h-4 w-4" />{t.parseMemo}</>
                     )}
                   </Button>
                 </div>
@@ -413,15 +348,13 @@ export function ResearchWorkspace() {
                     <p>{markdownParseResult.source_summary}</p>
                     <div className="mt-3 flex flex-wrap gap-2">
                       <Badge variant="outline">
-                        {markdownParseResult.extracted_fields.length} extracted fields
+                        {markdownParseResult.extracted_fields.length} {t.extractedFields}
                       </Badge>
                       <Badge variant="outline">
-                        {markdownParseResult.assumption_log.length} assumptions
+                        {markdownParseResult.assumption_log.length} {t.assumptions}
                       </Badge>
-                      <Badge
-                        variant={markdownParseResult.ambiguities.length ? "destructive" : "outline"}
-                      >
-                        {markdownParseResult.ambiguities.length} ambiguities
+                      <Badge variant={markdownParseResult.ambiguities.length ? "destructive" : "outline"}>
+                        {markdownParseResult.ambiguities.length} {t.ambiguities}
                       </Badge>
                     </div>
                   </div>
@@ -429,19 +362,20 @@ export function ResearchWorkspace() {
               </div>
             </section>
 
+            {/* Validation State */}
             <section className="rounded-lg border border-border bg-card/70 p-4">
               <div className="mb-3 flex items-center gap-2">
                 <FlaskConical className="h-4 w-4 text-primary" />
-                <h2 className="text-sm font-medium">Validation State</h2>
+                <h2 className="text-sm font-medium">{t.validationTitle}</h2>
               </div>
               <div className="space-y-3 text-sm">
                 <div className="flex flex-wrap gap-2">
                   <Badge variant={validationIssues.length ? "destructive" : "outline"}>
-                    {validationIssues.length ? "Needs attention" : "Ready to backtest"}
+                    {validationIssues.length ? t.needsAttention : t.readyToBacktest}
                   </Badge>
                   {clarifications.length ? (
                     <Badge variant="outline">
-                      {clarifications.length} clarification prompt(s)
+                      {clarifications.length} {t.clarificationPrompts}
                     </Badge>
                   ) : null}
                 </div>
@@ -452,9 +386,7 @@ export function ResearchWorkspace() {
                     ))}
                   </ul>
                 ) : (
-                  <p className="text-muted-foreground">
-                    The parser has enough structure to produce a deterministic backtest request.
-                  </p>
+                  <p className="text-muted-foreground">{t.parserReady}</p>
                 )}
                 {clarifications.length ? (
                   <div className="rounded-md border border-border bg-background p-3 text-muted-foreground">
@@ -468,25 +400,18 @@ export function ResearchWorkspace() {
           </div>
 
           <div className="grid gap-6">
+            {/* Strategy Preview */}
             <section className="rounded-lg border border-border bg-card/70">
               <div className="flex flex-col gap-3 border-b border-border px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
-                  <h2 className="text-sm font-medium">Strategy Preview</h2>
-                  <p className="text-xs text-muted-foreground">
-                    Confirm the parsed structure and adjust simple fields before the run.
-                  </p>
+                  <h2 className="text-sm font-medium">{t.strategyPreviewTitle}</h2>
+                  <p className="text-xs text-muted-foreground">{t.strategyPreviewDesc}</p>
                 </div>
                 <Button onClick={handleRunBacktest} disabled={!strategy || isRunning}>
                   {isRunning ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Running Backtest
-                    </>
+                    <><Loader2 className="h-4 w-4 animate-spin" />{t.runningBacktest}</>
                   ) : (
-                    <>
-                      <Play className="h-4 w-4" />
-                      Run Backtest
-                    </>
+                    <><Play className="h-4 w-4" />{t.runBacktest}</>
                   )}
                 </Button>
               </div>
@@ -494,59 +419,46 @@ export function ResearchWorkspace() {
                 <div className="grid gap-6 p-4 lg:grid-cols-[minmax(0,1fr)_360px]">
                   <div className="grid gap-4 md:grid-cols-2">
                     <label className="space-y-2 text-sm">
-                      <span className="text-muted-foreground">Strategy Name</span>
+                      <span className="text-muted-foreground">{t.strategyName}</span>
                       <Input
                         value={strategy.strategy_name}
-                        onChange={(event) =>
-                          updateStrategyField("strategy_name", event.target.value)
-                        }
+                        onChange={(event) => updateStrategyField("strategy_name", event.target.value)}
                       />
                     </label>
                     <label className="space-y-2 text-sm">
-                      <span className="text-muted-foreground">Benchmark</span>
+                      <span className="text-muted-foreground">{t.benchmark}</span>
                       <Input
                         value={strategy.benchmark}
-                        onChange={(event) =>
-                          updateStrategyField("benchmark", event.target.value.toUpperCase())
-                        }
+                        onChange={(event) => updateStrategyField("benchmark", event.target.value.toUpperCase())}
                       />
                     </label>
                     <label className="space-y-2 text-sm">
-                      <span className="text-muted-foreground">Start Date</span>
+                      <span className="text-muted-foreground">{t.startDate}</span>
                       <Input
                         type="date"
                         value={strategy.start_date}
-                        onChange={(event) =>
-                          updateStrategyField("start_date", event.target.value)
-                        }
+                        onChange={(event) => updateStrategyField("start_date", event.target.value)}
                       />
                     </label>
                     <label className="space-y-2 text-sm">
-                      <span className="text-muted-foreground">End Date</span>
+                      <span className="text-muted-foreground">{t.endDate}</span>
                       <Input
                         type="date"
                         value={strategy.end_date}
-                        onChange={(event) =>
-                          updateStrategyField("end_date", event.target.value)
-                        }
+                        onChange={(event) => updateStrategyField("end_date", event.target.value)}
                       />
                     </label>
                     <label className="space-y-2 text-sm">
-                      <span className="text-muted-foreground">Initial Capital</span>
+                      <span className="text-muted-foreground">{t.initialCapital}</span>
                       <Input
                         type="number"
                         value={strategy.initial_capital}
-                        onChange={(event) =>
-                          updateStrategyField(
-                            "initial_capital",
-                            Number(event.target.value),
-                          )
-                        }
+                        onChange={(event) => updateStrategyField("initial_capital", Number(event.target.value))}
                       />
                     </label>
                     <div className="space-y-2 text-sm">
                       <div className="flex items-center justify-between gap-2">
-                        <span className="text-muted-foreground">Universe</span>
+                        <span className="text-muted-foreground">{t.universe}</span>
                         <div className="flex flex-wrap justify-end gap-1">
                           {strategy.universe.map((sym) => (
                             <DataStatusBadge key={sym} symbol={sym} />
@@ -560,32 +472,25 @@ export function ResearchWorkspace() {
                       />
                     </div>
                     <label className="space-y-2 text-sm">
-                      <span className="text-muted-foreground">Transaction Cost (bps)</span>
+                      <span className="text-muted-foreground">{t.transactionCost}</span>
                       <Input
                         type="number"
                         value={strategy.transaction_cost_bps}
-                        onChange={(event) =>
-                          updateStrategyField(
-                            "transaction_cost_bps",
-                            Number(event.target.value),
-                          )
-                        }
+                        onChange={(event) => updateStrategyField("transaction_cost_bps", Number(event.target.value))}
                       />
                     </label>
                     <label className="space-y-2 text-sm">
-                      <span className="text-muted-foreground">Slippage (bps)</span>
+                      <span className="text-muted-foreground">{t.slippage}</span>
                       <Input
                         type="number"
                         value={strategy.slippage_bps}
-                        onChange={(event) =>
-                          updateStrategyField("slippage_bps", Number(event.target.value))
-                        }
+                        onChange={(event) => updateStrategyField("slippage_bps", Number(event.target.value))}
                       />
                     </label>
                   </div>
                   <div className="space-y-4">
                     <div className="space-y-3">
-                      <div className="text-sm font-medium">Structured Strategy JSON</div>
+                      <div className="text-sm font-medium">{t.strategyJson}</div>
                       <pre className="max-h-[280px] overflow-auto rounded-lg border border-border bg-background p-3 text-xs leading-6 text-muted-foreground">
                         {JSON.stringify(strategy, null, 2)}
                       </pre>
@@ -593,58 +498,54 @@ export function ResearchWorkspace() {
                     {markdownParseResult ? (
                       <>
                         <div className="rounded-lg border border-border bg-background p-3">
-                          <div className="text-sm font-medium">Source Summary</div>
+                          <div className="text-sm font-medium">{t.sourceSummary}</div>
                           <p className="mt-2 text-xs leading-6 text-muted-foreground">
                             {markdownParseResult.source_summary}
                           </p>
                         </div>
                         <div className="grid gap-3 md:grid-cols-2">
                           <div className="rounded-lg border border-border bg-background p-3">
-                            <div className="text-sm font-medium">Assumptions</div>
+                            <div className="text-sm font-medium">{t.assumptionsTitle}</div>
                             <ul className="mt-2 space-y-2 text-xs leading-5 text-muted-foreground">
                               {markdownParseResult.assumption_log.length ? (
                                 markdownParseResult.assumption_log.map((item) => (
                                   <li key={item}>• {item}</li>
                                 ))
                               ) : (
-                                <li>No inferred defaults were needed.</li>
+                                <li>{t.noAssumptions}</li>
                               )}
                             </ul>
                           </div>
                           <div className="rounded-lg border border-border bg-background p-3">
-                            <div className="text-sm font-medium">Ambiguities</div>
+                            <div className="text-sm font-medium">{t.ambiguitiesTitle}</div>
                             <ul className="mt-2 space-y-2 text-xs leading-5 text-muted-foreground">
                               {markdownParseResult.ambiguities.length ? (
                                 markdownParseResult.ambiguities.map((item) => (
                                   <li key={item}>• {item}</li>
                                 ))
                               ) : (
-                                <li>No obvious ambiguity triggers were detected.</li>
+                                <li>{t.noAmbiguities}</li>
                               )}
                             </ul>
                           </div>
                         </div>
                         <div className="rounded-lg border border-border bg-background p-3">
-                          <div className="mb-2 text-sm font-medium">Extraction Trace</div>
+                          <div className="mb-2 text-sm font-medium">{t.extractionTrace}</div>
                           <ScrollArea className="h-[220px]">
                             <Table>
                               <TableHeader>
                                 <TableRow>
-                                  <TableHead>Field</TableHead>
-                                  <TableHead>Status</TableHead>
-                                  <TableHead>Value</TableHead>
+                                  <TableHead>{t.field}</TableHead>
+                                  <TableHead>{t.status}</TableHead>
+                                  <TableHead>{t.value}</TableHead>
                                 </TableRow>
                               </TableHeader>
                               <TableBody>
-                                {markdownParseResult.extracted_fields.map((field) => (
-                                  <TableRow key={field.field}>
-                                    <TableCell>{field.field}</TableCell>
-                                    <TableCell>
-                                      <Badge variant="outline">{field.status}</Badge>
-                                    </TableCell>
-                                    <TableCell className="text-xs text-muted-foreground">
-                                      {field.value}
-                                    </TableCell>
+                                {markdownParseResult.extracted_fields.map((f) => (
+                                  <TableRow key={f.field}>
+                                    <TableCell>{f.field}</TableCell>
+                                    <TableCell><Badge variant="outline">{f.status}</Badge></TableCell>
+                                    <TableCell className="text-xs text-muted-foreground">{f.value}</TableCell>
                                   </TableRow>
                                 ))}
                               </TableBody>
@@ -656,19 +557,18 @@ export function ResearchWorkspace() {
                   </div>
                 </div>
               ) : (
-                <div className="p-8 text-sm text-muted-foreground">
-                  Parse a strategy idea first to populate the preview and controls.
-                </div>
+                <div className="p-8 text-sm text-muted-foreground">{t.parseFirst}</div>
               )}
             </section>
 
+            {/* Results Tabs */}
             <section className="rounded-lg border border-border bg-card/70 p-4">
               <Tabs defaultValue="dashboard" className="space-y-4">
                 <TabsList className="grid w-full grid-cols-4">
-                  <TabsTrigger value="dashboard">Backtest</TabsTrigger>
-                  <TabsTrigger value="explanation">Explanation</TabsTrigger>
-                  <TabsTrigger value="sandbox">Sandbox Review</TabsTrigger>
-                  <TabsTrigger value="comparison">Comparison</TabsTrigger>
+                  <TabsTrigger value="dashboard">{t.tabBacktest}</TabsTrigger>
+                  <TabsTrigger value="explanation">{t.tabExplanation}</TabsTrigger>
+                  <TabsTrigger value="sandbox">{t.tabSandbox}</TabsTrigger>
+                  <TabsTrigger value="comparison">{t.tabComparison}</TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="dashboard" className="space-y-6">
@@ -676,19 +576,13 @@ export function ResearchWorkspace() {
                     <>
                       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                         {[
-                          ["Total Return", formatPercent(backtestResult.metrics.total_return)],
-                          ["Sharpe", backtestResult.metrics.sharpe_ratio.toFixed(2)],
-                          ["Max Drawdown", formatPercent(backtestResult.metrics.max_drawdown)],
-                          [
-                            "Excess vs Benchmark",
-                            formatPercent(backtestResult.metrics.excess_return_vs_benchmark),
-                          ],
-                          ["Trades", String(backtestResult.metrics.number_of_trades)],
+                          [t.totalReturn, formatPercent(backtestResult.metrics.total_return)],
+                          [t.sharpe, backtestResult.metrics.sharpe_ratio.toFixed(2)],
+                          [t.maxDrawdown, formatPercent(backtestResult.metrics.max_drawdown)],
+                          [t.excessVsBenchmark, formatPercent(backtestResult.metrics.excess_return_vs_benchmark)],
+                          [t.trades, String(backtestResult.metrics.number_of_trades)],
                         ].map(([label, value]) => (
-                          <div
-                            key={label}
-                            className="rounded-lg border border-border bg-background px-4 py-3"
-                          >
+                          <div key={label} className="rounded-lg border border-border bg-background px-4 py-3">
                             <div className="text-xs text-muted-foreground">{label}</div>
                             <div className="mt-2 text-2xl font-semibold tracking-tight">{value}</div>
                           </div>
@@ -699,18 +593,16 @@ export function ResearchWorkspace() {
                         <div className="rounded-lg border border-border bg-background p-4">
                           <div className="mb-4 flex items-center gap-2">
                             <LineChart className="h-4 w-4 text-primary" />
-                            <h3 className="text-sm font-medium">Equity Curve</h3>
+                            <h3 className="text-sm font-medium">{t.equityCurve}</h3>
                           </div>
                           <EquityCurveChart result={backtestResult} />
                         </div>
                         <div className="rounded-lg border border-border bg-background p-4">
-                          <h3 className="mb-4 text-sm font-medium">Metrics Detail</h3>
+                          <h3 className="mb-4 text-sm font-medium">{t.metricsDetail}</h3>
                           <div className="space-y-2 text-sm">
                             {Object.entries(backtestResult.metrics).map(([key, value]) => (
                               <div key={key} className="flex items-center justify-between gap-4">
-                                <span className="text-muted-foreground">
-                                  {key.replaceAll("_", " ")}
-                                </span>
+                                <span className="text-muted-foreground">{key.replaceAll("_", " ")}</span>
                                 <span className="font-medium">
                                   {typeof value === "number" ? formatNumber(value) : value}
                                 </span>
@@ -722,25 +614,23 @@ export function ResearchWorkspace() {
 
                       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
                         <div className="rounded-lg border border-border bg-background p-4">
-                          <h3 className="mb-4 text-sm font-medium">Drawdown Curve</h3>
+                          <h3 className="mb-4 text-sm font-medium">{t.drawdownCurve}</h3>
                           <DrawdownChart result={backtestResult} />
                         </div>
                         <div className="rounded-lg border border-border bg-background p-4">
-                          <h3 className="mb-4 text-sm font-medium">Annual Returns</h3>
+                          <h3 className="mb-4 text-sm font-medium">{t.annualReturns}</h3>
                           <Table>
                             <TableHeader>
                               <TableRow>
-                                <TableHead>Year</TableHead>
-                                <TableHead className="text-right">Return</TableHead>
+                                <TableHead>{t.year}</TableHead>
+                                <TableHead className="text-right">{t.return}</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
                               {backtestResult.annual_returns.map((item) => (
                                 <TableRow key={item.year}>
                                   <TableCell>{item.year}</TableCell>
-                                  <TableCell className="text-right">
-                                    {formatPercent(item.return_pct)}
-                                  </TableCell>
+                                  <TableCell className="text-right">{formatPercent(item.return_pct)}</TableCell>
                                 </TableRow>
                               ))}
                             </TableBody>
@@ -749,16 +639,16 @@ export function ResearchWorkspace() {
                       </div>
 
                       <div className="rounded-lg border border-border bg-background p-4">
-                        <h3 className="mb-4 text-sm font-medium">Monthly Return Heatmap</h3>
+                        <h3 className="mb-4 text-sm font-medium">{t.monthlyHeatmap}</h3>
                         <MonthlyHeatmap result={backtestResult} />
                       </div>
 
                       <div className="rounded-lg border border-border bg-background p-4">
                         <div className="mb-4 flex items-center justify-between">
-                          <h3 className="text-sm font-medium">Trade Log</h3>
+                          <h3 className="text-sm font-medium">{t.tradeLog}</h3>
                           {backtestResult.warnings.length ? (
                             <Badge variant="outline">
-                              {backtestResult.warnings.length} warning(s)
+                              {backtestResult.warnings.length} {t.warningCount}
                             </Badge>
                           ) : null}
                         </div>
@@ -766,11 +656,11 @@ export function ResearchWorkspace() {
                           <Table>
                             <TableHeader>
                               <TableRow>
-                                <TableHead>Symbol</TableHead>
-                                <TableHead>Entry</TableHead>
-                                <TableHead>Exit</TableHead>
-                                <TableHead className="text-right">Return</TableHead>
-                                <TableHead className="text-right">Hold Days</TableHead>
+                                <TableHead>{t.symbol}</TableHead>
+                                <TableHead>{t.entry}</TableHead>
+                                <TableHead>{t.exit}</TableHead>
+                                <TableHead className="text-right">{t.return}</TableHead>
+                                <TableHead className="text-right">{t.holdDays}</TableHead>
                               </TableRow>
                             </TableHeader>
                             <TableBody>
@@ -779,12 +669,8 @@ export function ResearchWorkspace() {
                                   <TableCell>{trade.symbol}</TableCell>
                                   <TableCell>{trade.entry_date}</TableCell>
                                   <TableCell>{trade.exit_date}</TableCell>
-                                  <TableCell className="text-right">
-                                    {formatPercent(trade.return_pct)}
-                                  </TableCell>
-                                  <TableCell className="text-right">
-                                    {trade.holding_period_days}
-                                  </TableCell>
+                                  <TableCell className="text-right">{formatPercent(trade.return_pct)}</TableCell>
+                                  <TableCell className="text-right">{trade.holding_period_days}</TableCell>
                                 </TableRow>
                               ))}
                             </TableBody>
@@ -794,7 +680,7 @@ export function ResearchWorkspace() {
                     </>
                   ) : (
                     <div className="rounded-lg border border-dashed border-border p-8 text-sm text-muted-foreground">
-                      Run a backtest to populate curves, metrics, annual returns, and the trade log.
+                      {t.backtestEmpty}
                     </div>
                   )}
                 </TabsContent>
@@ -810,10 +696,7 @@ export function ResearchWorkspace() {
                       </section>
                       <div className="grid gap-4 lg:grid-cols-2">
                         {explanationSections.map(({ title, items }) => (
-                          <section
-                            key={title}
-                            className="rounded-lg border border-border bg-background p-4"
-                          >
+                          <section key={title} className="rounded-lg border border-border bg-background p-4">
                             <h3 className="text-sm font-medium">{title}</h3>
                             <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
                               {(items as string[]).map((item) => (
@@ -827,7 +710,7 @@ export function ResearchWorkspace() {
                     </>
                   ) : (
                     <div className="rounded-lg border border-dashed border-border p-8 text-sm text-muted-foreground">
-                      The explainer populates after a successful backtest run.
+                      {t.explanationEmpty}
                     </div>
                   )}
                 </TabsContent>
@@ -841,7 +724,7 @@ export function ResearchWorkspace() {
                             {sandboxReview.review_verdict}
                           </Badge>
                           <div className="text-sm text-muted-foreground">
-                            Trust score:{" "}
+                            {t.trustScore}{" "}
                             <span className="font-semibold text-foreground">
                               {sandboxReview.trust_score}/100
                             </span>
@@ -853,10 +736,7 @@ export function ResearchWorkspace() {
                       </section>
                       <div className="grid gap-4 lg:grid-cols-2">
                         {sandboxSections.map(({ title, items }) => (
-                          <section
-                            key={title}
-                            className="rounded-lg border border-border bg-background p-4"
-                          >
+                          <section key={title} className="rounded-lg border border-border bg-background p-4">
                             <h3 className="text-sm font-medium">{title}</h3>
                             <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
                               {(items as string[]).map((item) => (
@@ -870,7 +750,7 @@ export function ResearchWorkspace() {
                     </>
                   ) : (
                     <div className="rounded-lg border border-dashed border-border p-8 text-sm text-muted-foreground">
-                      The sandbox reviewer appears after the backtest so it can critique actual results instead of guessing.
+                      {t.sandboxEmpty}
                     </div>
                   )}
                 </TabsContent>
@@ -880,28 +760,22 @@ export function ResearchWorkspace() {
                     <section className="rounded-lg border border-border bg-background p-4">
                       <div className="mb-4 flex items-center gap-2">
                         <ArrowRight className="h-4 w-4 text-primary" />
-                        <h3 className="text-sm font-medium">
-                          Current vs Previous Iteration
-                        </h3>
+                        <h3 className="text-sm font-medium">{t.comparisonTitle}</h3>
                       </div>
                       <Table>
                         <TableHeader>
                           <TableRow>
-                            <TableHead>Metric</TableHead>
-                            <TableHead className="text-right">Current</TableHead>
-                            <TableHead className="text-right">Previous</TableHead>
+                            <TableHead>{t.metric}</TableHead>
+                            <TableHead className="text-right">{t.current}</TableHead>
+                            <TableHead className="text-right">{t.previous}</TableHead>
                           </TableRow>
                         </TableHeader>
                         <TableBody>
                           {comparisonRows.map(({ label, current, previous }) => (
                             <TableRow key={label}>
                               <TableCell>{label}</TableCell>
-                              <TableCell className="text-right">
-                                {formatNumber(current)}
-                              </TableCell>
-                              <TableCell className="text-right">
-                                {formatNumber(previous)}
-                              </TableCell>
+                              <TableCell className="text-right">{formatNumber(current)}</TableCell>
+                              <TableCell className="text-right">{formatNumber(previous)}</TableCell>
                             </TableRow>
                           ))}
                         </TableBody>
@@ -909,7 +783,7 @@ export function ResearchWorkspace() {
                     </section>
                   ) : (
                     <div className="rounded-lg border border-dashed border-border p-8 text-sm text-muted-foreground">
-                      Re-run the strategy after a change to compare iterations side by side.
+                      {t.comparisonEmpty}
                     </div>
                   )}
                 </TabsContent>
