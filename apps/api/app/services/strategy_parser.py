@@ -135,6 +135,7 @@ def _chat_parse_user_prompt(
         else "null"
     )
     return (
+        f"Today: {date.today().isoformat()}\n"
         f"User message:\n{user_message}\n\n"
         f"Previous strategy JSON:\n{previous_payload}\n\n"
         "Interpret this into the response schema."
