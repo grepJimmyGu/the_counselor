@@ -13,6 +13,11 @@ class Settings(BaseSettings):
     app_name: str = "StrategyLab AI API"
     app_env: str = "development"
     alpha_vantage_api_key: str = ""
+    llm_provider: str = "disabled"
+    llm_api_key: str = ""
+    llm_base_url: str = "https://api.openai.com/v1"
+    llm_model: str = ""
+    llm_timeout_seconds: float = 45.0
     database_url: str = "sqlite:///./strategylab_ai.db"
     api_timeout_seconds: float = 20.0
     price_cache_stale_hours: int = 24

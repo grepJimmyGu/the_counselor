@@ -4,6 +4,7 @@ import type {
   ExplanationResponse,
   SandboxReviewResponse,
   StrategyChatResponse,
+  StrategyMarkdownParseResponse,
   StrategyJson,
   SymbolSearchItem,
   WarmupResponse,
@@ -47,6 +48,19 @@ export async function parseStrategy(
       user_message: userMessage,
       previous_strategy_json: previousStrategyJson ?? undefined,
       previous_backtest_id: previousBacktestId ?? undefined,
+    }),
+  });
+}
+
+export async function parseStrategyMarkdown(
+  markdownContent: string,
+  documentName?: string | null,
+) {
+  return fetchApi<StrategyMarkdownParseResponse>("/api/strategy/parse-markdown", {
+    method: "POST",
+    body: JSON.stringify({
+      markdown_content: markdownContent,
+      document_name: documentName ?? undefined,
     }),
   });
 }

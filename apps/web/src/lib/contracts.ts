@@ -66,6 +66,24 @@ export interface StrategyChatResponse {
   clarification_questions: string[];
 }
 
+export interface StrategyExtractedField {
+  field: string;
+  value: string;
+  status: "explicit" | "inferred" | "missing";
+}
+
+export interface StrategyMarkdownParseResponse {
+  assistant_message: string;
+  strategy_json: StrategyJson | null;
+  validation_status: "valid" | "needs_clarification" | "invalid";
+  extracted_fields: StrategyExtractedField[];
+  ambiguities: string[];
+  assumption_log: string[];
+  missing_fields: string[];
+  clarification_questions: string[];
+  source_summary: string;
+}
+
 export interface CurvePoint {
   date: string;
   value: number;
@@ -185,3 +203,27 @@ export const demoPrompts = [
   "Buy TSLA when RSI is below 30. Sell when RSI is above 60.",
 ];
 
+export const demoMarkdownStrategy = `# Momentum Rotation Research Memo
+
+## Objective
+Test a simple monthly rotation model for large-cap technology leaders.
+
+## Universe
+AAPL, MSFT, NVDA, AMZN, GOOGL
+
+## Portfolio Construction
+- Rebalance monthly
+- Hold the top 3 names by trailing 6-month return
+- Equal weight selected positions
+
+## Benchmark
+QQQ
+
+## Risk and Frictions
+- Transaction cost: 10 bps
+- Slippage: 10 bps
+
+## Backtest Window
+- Start Date: 2024-01-01
+- End Date: 2025-01-31
+`;

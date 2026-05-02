@@ -109,3 +109,27 @@ class StrategyChatResponse(BaseModel):
     validation_status: Literal["valid", "needs_clarification", "invalid"]
     missing_fields: list[str]
     clarification_questions: list[str]
+
+
+class StrategyExtractedField(BaseModel):
+    field: str
+    value: str
+    status: Literal["explicit", "inferred", "missing"]
+
+
+class StrategyMarkdownParseRequest(BaseModel):
+    markdown_content: str = Field(..., min_length=20)
+    document_name: Optional[str] = None
+    previous_strategy_json: Optional[StrategyJSON] = None
+
+
+class StrategyMarkdownParseResponse(BaseModel):
+    assistant_message: str
+    strategy_json: Optional[StrategyJSON]
+    validation_status: Literal["valid", "needs_clarification", "invalid"]
+    extracted_fields: list[StrategyExtractedField]
+    ambiguities: list[str]
+    assumption_log: list[str]
+    missing_fields: list[str]
+    clarification_questions: list[str]
+    source_summary: str

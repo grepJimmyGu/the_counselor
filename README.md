@@ -21,7 +21,7 @@ packages/
 
 - FastAPI backend with the requested MVP endpoints
 - Alpha Vantage market data service with local persistence
-- Mock natural-language strategy parser for the six supported strategy families
+- Strategy parser with deterministic fallback plus provider-adaptable LLM support
 - Deterministic backtesting engine for:
   - moving average filter
   - moving average crossover
@@ -30,7 +30,7 @@ packages/
   - breakout
   - static allocation
 - Metrics engine with risk and benchmark comparisons
-- Mock explainer and mock independent sandbox reviewer
+- Explainer and sandbox reviewer with deterministic fallback plus provider-adaptable LLM support
 - Next.js frontend research workspace with:
   - chat builder
   - strategy preview and editable simple fields
@@ -58,6 +58,15 @@ Database configuration:
 - `DATABASE_URL`
 - `ALLOWED_ORIGINS`
 
+Optional LLM configuration:
+
+- `LLM_PROVIDER`
+- `LLM_API_KEY`
+- `LLM_BASE_URL`
+- `LLM_STRATEGY_MODEL`
+- `LLM_EXPLAINER_MODEL`
+- `LLM_REVIEWER_MODEL`
+
 ### Database Note
 
 The intended stack is PostgreSQL and the example environment file points there.
@@ -67,6 +76,21 @@ For local convenience, the backend currently falls back to a SQLite database fil
 ### CORS Note
 
 The backend accepts a comma-separated `ALLOWED_ORIGINS` value. For production, set this to your Vercel frontend URL and any custom domain you attach later.
+
+### LLM Adapter Note
+
+The backend can run with no LLM configured at all. In that case it falls back to the local deterministic parser, explainer, and reviewer logic.
+
+To enable live LLM calls, set:
+
+- `LLM_PROVIDER=openai_compatible`
+- `LLM_API_KEY=...`
+- `LLM_BASE_URL=https://api.openai.com/v1` or another OpenAI-compatible endpoint
+- `LLM_STRATEGY_MODEL=...`
+- optionally `LLM_EXPLAINER_MODEL=...`
+- optionally `LLM_REVIEWER_MODEL=...`
+
+This keeps the integration adaptable: the app talks through one provider interface, and the current implementation targets OpenAI-compatible chat completion APIs instead of hardwiring one vendor-specific SDK into the product surface.
 
 ## Local Setup
 
@@ -154,6 +178,7 @@ Railway environment variables:
 - `ALPHA_VANTAGE_API_KEY`
 - `DATABASE_URL`
 - `ALLOWED_ORIGINS`
+- optional LLM variables if you want production LLM-backed parsing and commentary
 
 Recommended production `ALLOWED_ORIGINS` example:
 
@@ -191,8 +216,8 @@ The current Alpha Vantage integration is tuned for free-tier compatibility and m
 
 ## Current MVP Caveats
 
-- The strategy parser is a mock recognizer, not a full LLM integration yet.
-- The explainer and sandbox reviewer are deterministic mock layers.
+- The live LLM path currently expects an OpenAI-compatible chat completions API.
+- If the LLM is unconfigured or returns invalid JSON, the backend falls back to deterministic local logic.
 - Alpha Vantage rate limits still apply.
 - Local symbol search is cached opportunistically as searches are made.
 - Production deployment targets are not wired yet; this repo is focused on a local working MVP.
