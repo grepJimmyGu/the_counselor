@@ -94,6 +94,9 @@ class PriceCacheService:
             duration_ms = int((time.monotonic() - start_ms) * 1000)
             self._log(db, symbol, fetch_status, bars_upserted, error_msg, duration_ms)
 
+    # PostgreSQL caps query parameters at 65535; 12 columns per row → 5461 rows max per batch.
+    _UPSERT_CHUNK_SIZE = 1000
+
     def _upsert_bars(self, db: Session, symbol: str, bars: list[dict]) -> int:
         if not bars:
             return 0
@@ -118,19 +121,23 @@ class PriceCacheService:
             for bar in bars
         ]
 
-        if is_sqlite:
-            from sqlalchemy.dialects.sqlite import insert as sqlite_insert
-            stmt = sqlite_insert(PriceBar).prefix_with("OR IGNORE").values(rows)
-        else:
-            from sqlalchemy.dialects.postgresql import insert as pg_insert
-            stmt = (
-                pg_insert(PriceBar)
-                .values(rows)
-                .on_conflict_do_nothing(index_elements=["symbol", "trading_date"])
-            )
+        total = 0
+        for i in range(0, len(rows), self._UPSERT_CHUNK_SIZE):
+            chunk = rows[i : i + self._UPSERT_CHUNK_SIZE]
+            if is_sqlite:
+                from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+                stmt = sqlite_insert(PriceBar).prefix_with("OR IGNORE").values(chunk)
+            else:
+                from sqlalchemy.dialects.postgresql import insert as pg_insert
+                stmt = (
+                    pg_insert(PriceBar)
+                    .values(chunk)
+                    .on_conflict_do_nothing(index_elements=["symbol", "trading_date"])
+                )
+            result = db.execute(stmt)
+            total += result.rowcount if result.rowcount >= 0 else len(chunk)
 
-        result = db.execute(stmt)
-        return result.rowcount if result.rowcount >= 0 else len(rows)
+        return total
 
     def _log(
         self,
