@@ -10,7 +10,7 @@ ROOT_ENV_FILE = _parents[min(4, len(_parents) - 1)] / ".env"
 
 
 class Settings(BaseSettings):
-    app_name: str = "StrategyLab AI API"
+    app_name: str = "Livermore API"
     app_env: str = "development"
     alpha_vantage_api_key: str = ""
     llm_provider: str = "disabled"

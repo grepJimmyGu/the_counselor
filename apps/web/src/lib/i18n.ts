@@ -45,7 +45,7 @@ export interface Translations {
 const translations: Record<Locale, Translations> = {
   en: {
     // Header
-    appName: "StrategyLab AI",
+    appName: "Livermore",
     localMvp: "Local MVP",
     workspaceTitle: "Research Workspace",
     workspaceDesc:
@@ -197,7 +197,7 @@ const translations: Record<Locale, Translations> = {
 
   zh: {
     // Header
-    appName: "StrategyLab AI",
+    appName: "谋士",
     localMvp: "本地测试版",
     workspaceTitle: "研究工作台",
     workspaceDesc:

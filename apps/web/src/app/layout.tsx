@@ -3,7 +3,7 @@ import "./globals.css";
 import { LocaleProvider } from "@/lib/locale-context";
 
 export const metadata: Metadata = {
-  title: "StrategyLab AI",
+  title: "Livermore",
   description: "AI-powered investment strategy research and backtesting workspace.",
 };
 
