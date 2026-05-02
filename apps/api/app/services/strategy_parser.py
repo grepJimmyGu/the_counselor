@@ -100,6 +100,8 @@ _CHAT_PARSE_SYSTEM_PROMPT: str = (
     "real estate / REITs → VNQ; "
     "total market → VTI. "
     "Always replace index names with their ETF ticker in the universe field. "
+    "If the universe contains any Shanghai (.SHH) or Shenzhen (.SHZ) tickers, "
+    "default the benchmark to 000300.SHH (CSI 300) instead of SPY. "
     "Use these defaults for any field the user does not specify: "
     "benchmark=SPY, start_date=five years before today, end_date=today, "
     "initial_capital=100000, rebalance_frequency=daily, transaction_cost_bps=5, slippage_bps=5, "

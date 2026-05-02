@@ -189,9 +189,9 @@ const translations: Record<Locale, Translations> = {
     // Demo prompts
     demoPrompts: [
       "Buy SPY when 50-day MA crosses above 200-day MA",
+      "Buy 600519.SHH when price is above 200-day moving average",
       "Rotate into top 3 momentum stocks monthly from QQQ, IWM, EEM",
       "RSI mean reversion on AAPL: buy below 30, sell above 60",
-      "60% SPY / 40% TLT rebalanced monthly",
     ],
   },
 
@@ -340,9 +340,9 @@ const translations: Record<Locale, Translations> = {
     // Demo prompts
     demoPrompts: [
       "当SPY的50日均线上穿200日均线时买入",
+      "当600519.SHH价格高于200日均线时买入",
       "每月从QQQ、IWM、EEM中轮动买入动量最强的3只",
       "AAPL的RSI均值回归：RSI低于30时买入，高于60时卖出",
-      "60% SPY / 40% TLT 每月再平衡",
     ],
   },
 };
