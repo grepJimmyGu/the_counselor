@@ -51,10 +51,13 @@ class PriceCacheService:
         db: Session,
         symbol: str,
         required_from: date,
+        required_through: Optional[date] = None,
     ) -> None:
         """
         Fetches TIME_SERIES_DAILY_ADJUSTED (full) if cache is stale relative to required_from.
         Uses INSERT OR IGNORE / ON CONFLICT DO NOTHING — never deletes existing rows.
+        If the fetch fails but cached data covers the required date range, the error is
+        logged but not re-raised so the backtest can proceed with cached data.
         """
         latest = self.get_latest_date(db, symbol)
         earliest = self.get_earliest_date(db, symbol)
@@ -74,16 +77,19 @@ class PriceCacheService:
             bars = await self.client.fetch_daily_adjusted(symbol, outputsize="full")
             bars_upserted = self._upsert_bars(db, symbol, bars)
             db.commit()
-        except AlphaVantageRateLimitError as exc:
-            fetch_status = "rate_limited"
+        except (AlphaVantageRateLimitError, AlphaVantageError) as exc:
+            fetch_status = "rate_limited" if isinstance(exc, AlphaVantageRateLimitError) else "error"
             error_msg = str(exc)
             db.rollback()
-            raise
-        except AlphaVantageError as exc:
-            fetch_status = "error"
-            error_msg = str(exc)
-            db.rollback()
-            raise
+            end_date = required_through or date.today()
+            cache_covers_range = (
+                earliest is not None
+                and earliest <= required_from
+                and latest is not None
+                and latest >= end_date
+            )
+            if not cache_covers_range:
+                raise
         finally:
             duration_ms = int((time.monotonic() - start_ms) * 1000)
             self._log(db, symbol, fetch_status, bars_upserted, error_msg, duration_ms)

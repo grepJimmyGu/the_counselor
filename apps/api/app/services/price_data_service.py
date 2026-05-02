@@ -34,7 +34,7 @@ class PriceDataService:
         """
         symbol = symbol.upper()
         fetch_from = start_date - timedelta(days=lookback_days + 10)
-        await self.cache_svc.ensure_history(db, symbol, fetch_from)
+        await self.cache_svc.ensure_history(db, symbol, fetch_from, required_through=end_date)
 
         rows = db.execute(
             select(PriceBar)
