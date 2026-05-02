@@ -41,3 +41,12 @@ def run_startup_migrations(engine: Engine) -> None:
                 )
             except Exception:
                 pass
+
+        # A-share volumes exceed INTEGER range — widen to BIGINT
+        if not is_sqlite:
+            try:
+                conn.execute(
+                    text("ALTER TABLE price_bars ALTER COLUMN volume TYPE BIGINT")
+                )
+            except Exception:
+                pass
