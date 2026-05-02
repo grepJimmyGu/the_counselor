@@ -4,6 +4,7 @@ import re
 from datetime import date, timedelta
 from typing import Optional
 
+from app.core.config import get_settings
 from app.schemas.strategy import (
     CashManagement,
     PositionSizing,
@@ -14,6 +15,7 @@ from app.schemas.strategy import (
     StrategyMarkdownParseResponse,
     StrategyRule,
 )
+from app.services.llm_adapter import LLMAdapterError, get_llm_gateway
 
 
 DEFAULT_BENCHMARK = "SPY"
@@ -61,6 +63,70 @@ AMBIGUOUS_TERMS = {
     "liquid": "The memo mentions liquidity without a concrete liquidity screen.",
     "may": "The memo uses discretionary language like 'may', which is not directly backtestable.",
 }
+SUPPORTED_STRATEGY_FAMILIES = (
+    "moving_average_filter, moving_average_crossover, momentum_rotation, "
+    "rsi_mean_reversion, breakout, static_allocation"
+)
+
+
+def _json_schema_text(model_type: type[object]) -> str:
+    return str(model_type.model_json_schema())  # type: ignore[attr-defined]
+
+
+def _chat_parse_system_prompt() -> str:
+    return (
+        "You are a strategy parsing assistant for a deterministic backtesting engine. "
+        "Convert the user's request into JSON matching the provided schema. "
+        "Only use supported strategy families: "
+        f"{SUPPORTED_STRATEGY_FAMILIES}. "
+        "If the user leaves critical fields unclear, set validation_status to needs_clarification, "
+        "provide missing_fields and clarification_questions, and set strategy_json to null. "
+        "Do not invent unsupported rules or arbitrary code. Return JSON only.\n\n"
+        f"Response schema: {_json_schema_text(StrategyChatResponse)}"
+    )
+
+
+def _markdown_parse_system_prompt() -> str:
+    return (
+        "You are a quant research memo parser. Read the markdown memo and convert it into "
+        "structured strategy JSON for a deterministic backtester. "
+        "The markdown is human intent, not executable code. "
+        "Only map the memo into supported strategy families: "
+        f"{SUPPORTED_STRATEGY_FAMILIES}. "
+        "Preserve uncertainty with ambiguities, assumption_log, missing_fields, and clarification_questions. "
+        "When you have enough structure, include a valid strategy_json. Return JSON only.\n\n"
+        f"Response schema: {_json_schema_text(StrategyMarkdownParseResponse)}"
+    )
+
+
+def _chat_parse_user_prompt(
+    user_message: str, previous_strategy_json: Optional[StrategyJSON]
+) -> str:
+    previous_payload = (
+        previous_strategy_json.model_dump_json(indent=2)
+        if previous_strategy_json is not None
+        else "null"
+    )
+    return (
+        f"User message:\n{user_message}\n\n"
+        f"Previous strategy JSON:\n{previous_payload}\n\n"
+        "Interpret this into the response schema."
+    )
+
+
+def _markdown_parse_user_prompt(markdown_content: str, document_name: Optional[str]) -> str:
+    settings = get_settings()
+    return (
+        f"Document name: {document_name or 'strategy-memo.md'}\n"
+        f"Default benchmark if missing: {DEFAULT_BENCHMARK}\n"
+        f"Default initial capital if missing: 100000\n"
+        f"Default transaction cost if missing: 5 bps\n"
+        f"Default slippage if missing: 5 bps\n"
+        f"Today: {date.today().isoformat()}\n"
+        f"LLM provider mode: {settings.llm_provider}\n\n"
+        f"Markdown memo:\n{markdown_content}\n\n"
+        "Extract the strategy into the response schema."
+    )
 
 
 def _find_first_number(pattern: str, text: str) -> Optional[int]:
@@ -382,7 +448,7 @@ def _base_strategy(
     )
 
 
-def parse_strategy_message(
+def parse_strategy_message_fallback(
     user_message: str, previous_strategy_json: Optional[StrategyJSON] = None
 ) -> StrategyChatResponse:
     message = user_message.strip()
@@ -529,7 +595,7 @@ def parse_strategy_message(
     )
 
 
-def parse_strategy_markdown(
+def parse_strategy_markdown_fallback(
     markdown_content: str,
     document_name: Optional[str] = None,
 ) -> StrategyMarkdownParseResponse:
@@ -635,3 +701,46 @@ def parse_strategy_markdown(
         clarification_questions=clarification_questions,
         source_summary=source_summary,
     )
+
+
+def parse_strategy_message(
+    user_message: str, previous_strategy_json: Optional[StrategyJSON] = None
+) -> StrategyChatResponse:
+    gateway = get_llm_gateway()
+    if not gateway.is_enabled:
+        return parse_strategy_message_fallback(user_message, previous_strategy_json)
+
+    settings = get_settings()
+    try:
+        response = gateway.generate_structured(
+            model=settings.llm_strategy_model,
+            system_prompt=_chat_parse_system_prompt(),
+            user_prompt=_chat_parse_user_prompt(user_message, previous_strategy_json),
+            response_model=StrategyChatResponse,
+            temperature=0.1,
+        )
+        return response
+    except LLMAdapterError:
+        return parse_strategy_message_fallback(user_message, previous_strategy_json)
+
+
+def parse_strategy_markdown(
+    markdown_content: str,
+    document_name: Optional[str] = None,
+) -> StrategyMarkdownParseResponse:
+    gateway = get_llm_gateway()
+    if not gateway.is_enabled:
+        return parse_strategy_markdown_fallback(markdown_content, document_name)
+
+    settings = get_settings()
+    try:
+        response = gateway.generate_structured(
+            model=settings.llm_strategy_model,
+            system_prompt=_markdown_parse_system_prompt(),
+            user_prompt=_markdown_parse_user_prompt(markdown_content, document_name),
+            response_model=StrategyMarkdownParseResponse,
+            temperature=0.1,
+        )
+        return response
+    except LLMAdapterError:
+        return parse_strategy_markdown_fallback(markdown_content, document_name)

@@ -1,11 +1,57 @@
 from __future__ import annotations
 
+import json
+
+from app.core.config import get_settings
 from app.schemas.backtest import BacktestResult
 from app.schemas.insights import ExplanationResponse, SandboxReviewResponse
 from app.schemas.strategy import StrategyJSON
+from app.services.llm_adapter import LLMAdapterError, get_llm_gateway
 
 
-def build_explanation(strategy: StrategyJSON, backtest_result: BacktestResult) -> ExplanationResponse:
+def _explanation_system_prompt() -> str:
+    return (
+        "You are the friendly strategy explainer for a quantitative research app. "
+        "Explain the backtest clearly without giving trading advice. "
+        "Use the provided strategy JSON and backtest result only. "
+        "Return JSON only matching this schema:\n"
+        f"{json.dumps(ExplanationResponse.model_json_schema(), indent=2)}"
+    )
+
+
+def _review_system_prompt() -> str:
+    return (
+        "You are the independent sandbox reviewer for a quantitative research app. "
+        "Be skeptical, benchmark-aware, and explicit about overfitting and robustness risk. "
+        "Do not assume positive returns imply trustworthiness. "
+        "Return JSON only matching this schema:\n"
+        f"{json.dumps(SandboxReviewResponse.model_json_schema(), indent=2)}"
+    )
+
+
+def _build_explanation_user_prompt(
+    strategy: StrategyJSON, backtest_result: BacktestResult
+) -> str:
+    return (
+        f"Strategy JSON:\n{strategy.model_dump_json(indent=2)}\n\n"
+        f"Backtest result:\n{backtest_result.model_dump_json(indent=2)}\n\n"
+        "Explain the result and suggest the next research iterations."
+    )
+
+
+def _build_review_user_prompt(
+    strategy: StrategyJSON, backtest_result: BacktestResult
+) -> str:
+    return (
+        f"Strategy JSON:\n{strategy.model_dump_json(indent=2)}\n\n"
+        f"Backtest result:\n{backtest_result.model_dump_json(indent=2)}\n\n"
+        "Critique the result as an independent reviewer."
+    )
+
+
+def build_explanation_fallback(
+    strategy: StrategyJSON, backtest_result: BacktestResult
+) -> ExplanationResponse:
     metrics = backtest_result.metrics
     strengths = []
     weaknesses = []
@@ -41,7 +87,9 @@ def build_explanation(strategy: StrategyJSON, backtest_result: BacktestResult) -
     )
 
 
-def build_sandbox_review(strategy: StrategyJSON, backtest_result: BacktestResult) -> SandboxReviewResponse:
+def build_sandbox_review_fallback(
+    strategy: StrategyJSON, backtest_result: BacktestResult
+) -> SandboxReviewResponse:
     metrics = backtest_result.metrics
     trust_score = 55
     concerns: list[str] = []
@@ -101,3 +149,42 @@ def build_sandbox_review(strategy: StrategyJSON, backtest_result: BacktestResult
         final_warning="A profitable backtest is not evidence of a durable edge until it survives benchmark, regime, and sensitivity checks.",
     )
 
+
+def build_explanation(
+    strategy: StrategyJSON, backtest_result: BacktestResult
+) -> ExplanationResponse:
+    gateway = get_llm_gateway()
+    if not gateway.is_enabled:
+        return build_explanation_fallback(strategy, backtest_result)
+
+    settings = get_settings()
+    try:
+        return gateway.generate_structured(
+            model=settings.llm_explainer_model or settings.llm_strategy_model,
+            system_prompt=_explanation_system_prompt(),
+            user_prompt=_build_explanation_user_prompt(strategy, backtest_result),
+            response_model=ExplanationResponse,
+            temperature=0.2,
+        )
+    except LLMAdapterError:
+        return build_explanation_fallback(strategy, backtest_result)
+
+
+def build_sandbox_review(
+    strategy: StrategyJSON, backtest_result: BacktestResult
+) -> SandboxReviewResponse:
+    gateway = get_llm_gateway()
+    if not gateway.is_enabled:
+        return build_sandbox_review_fallback(strategy, backtest_result)
+
+    settings = get_settings()
+    try:
+        return gateway.generate_structured(
+            model=settings.llm_reviewer_model or settings.llm_strategy_model,
+            system_prompt=_review_system_prompt(),
+            user_prompt=_build_review_user_prompt(strategy, backtest_result),
+            response_model=SandboxReviewResponse,
+            temperature=0.2,
+        )
+    except LLMAdapterError:
+        return build_sandbox_review_fallback(strategy, backtest_result)
