@@ -16,14 +16,12 @@ class Settings(BaseSettings):
     llm_provider: str = "disabled"
     llm_api_key: str = ""
     llm_base_url: str = "https://api.openai.com/v1"
-    llm_strategy_model: str = ""
-    llm_explainer_model: str = ""
-    llm_reviewer_model: str = ""
+    llm_model: str = ""
     llm_timeout_seconds: float = 45.0
     database_url: str = "sqlite:///./strategylab_ai.db"
     api_timeout_seconds: float = 20.0
     price_cache_stale_hours: int = 24
-    allowed_origins: list[str] = [
+    allowed_origins: Union[str, list[str]] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",
         "http://localhost:3001",

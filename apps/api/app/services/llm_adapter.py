@@ -20,7 +20,7 @@ class LLMAdapterError(RuntimeError):
 
 
 class LLMProvider(Protocol):
-    def generate(
+    async def generate(
         self,
         *,
         model: str,
@@ -34,7 +34,7 @@ class LLMProvider(Protocol):
 class OpenAICompatibleProvider:
     settings: Settings
 
-    def generate(
+    async def generate(
         self,
         *,
         model: str,
@@ -47,7 +47,7 @@ class OpenAICompatibleProvider:
             "Authorization": f"Bearer {self.settings.llm_api_key}",
             "Content-Type": "application/json",
         }
-        payload = {
+        body = {
             "model": model,
             "messages": [
                 {"role": "system", "content": system_prompt},
@@ -57,25 +57,26 @@ class OpenAICompatibleProvider:
         }
 
         try:
-            with httpx.Client(timeout=self.settings.llm_timeout_seconds) as client:
-                response = client.post(endpoint, headers=headers, json=payload)
+            async with httpx.AsyncClient(timeout=self.settings.llm_timeout_seconds) as client:
+                response = await client.post(endpoint, headers=headers, json=body)
                 response.raise_for_status()
         except httpx.HTTPError as exc:
             raise LLMAdapterError(f"LLM request failed: {exc}") from exc
 
         try:
-            payload = response.json()
-            content = payload["choices"][0]["message"]["content"]
+            data = response.json()
+            content = data["choices"][0]["message"]["content"]
         except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
-            raise LLMAdapterError("LLM response did not match the expected chat completion shape.") from exc
+            raise LLMAdapterError(
+                "LLM response did not match the expected chat completion shape."
+            ) from exc
 
         if isinstance(content, list):
-            text_parts = [
+            content = "\n".join(
                 part.get("text", "")
                 for part in content
                 if isinstance(part, dict) and part.get("type") == "text"
-            ]
-            content = "\n".join(part for part in text_parts if part)
+            )
 
         if not isinstance(content, str) or not content.strip():
             raise LLMAdapterError("LLM returned an empty completion.")
@@ -90,13 +91,14 @@ class LLMGateway:
 
     @staticmethod
     def _build_provider(settings: Settings) -> LLMProvider | None:
-        provider_name = settings.llm_provider.lower().strip()
-        if provider_name == "disabled" or not settings.llm_api_key:
+        name = settings.llm_provider.lower().strip()
+        if name == "disabled" or not settings.llm_api_key:
             return None
-        if provider_name == "openai_compatible":
+        if name == "openai_compatible":
             return OpenAICompatibleProvider(settings)
         raise LLMAdapterError(
-            f"Unsupported llm_provider '{settings.llm_provider}'. Supported values: disabled, openai_compatible."
+            f"Unsupported llm_provider '{settings.llm_provider}'. "
+            "Supported values: disabled, openai_compatible."
         )
 
     @property
@@ -110,23 +112,23 @@ class LLMGateway:
 
     @staticmethod
     def _extract_json_object(text: str) -> str:
-        fenced_match = re.search(r"```json\s*(\{.*?\})\s*```", text, flags=re.DOTALL)
-        if fenced_match:
-            return fenced_match.group(1)
+        fenced = re.search(r"```json\s*(\{.*?\})\s*```", text, flags=re.DOTALL)
+        if fenced:
+            return fenced.group(1)
 
         decoder = json.JSONDecoder()
-        for index, char in enumerate(text):
-            if char != "{":
+        for i, ch in enumerate(text):
+            if ch != "{":
                 continue
             try:
-                _, end = decoder.raw_decode(text[index:])
-                return text[index : index + end]
+                _, end = decoder.raw_decode(text[i:])
+                return text[i : i + end]
             except json.JSONDecodeError:
                 continue
 
         raise LLMAdapterError("LLM response did not contain a valid JSON object.")
 
-    def generate_structured(
+    async def generate_structured(
         self,
         *,
         model: str,
@@ -139,7 +141,7 @@ class LLMGateway:
             raise LLMAdapterError("No model is configured for this LLM task.")
 
         provider = self._require_provider()
-        raw_text = provider.generate(
+        raw_text = await provider.generate(
             model=model,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
@@ -150,7 +152,9 @@ class LLMGateway:
             payload = json.loads(json_text)
             return response_model.model_validate(payload)
         except (json.JSONDecodeError, ValidationError, LLMAdapterError) as exc:
-            raise LLMAdapterError(f"Could not validate structured LLM output: {exc}") from exc
+            raise LLMAdapterError(
+                f"Could not validate structured LLM output: {exc}"
+            ) from exc
 
 
 @lru_cache(maxsize=1)

@@ -1,50 +1,48 @@
 from __future__ import annotations
 
-import json
-
 from app.core.config import get_settings
 from app.schemas.backtest import BacktestResult
 from app.schemas.insights import ExplanationResponse, SandboxReviewResponse
 from app.schemas.strategy import StrategyJSON
 from app.services.llm_adapter import LLMAdapterError, get_llm_gateway
 
+_EXPLANATION_SYSTEM_PROMPT = (
+    "You are the friendly strategy explainer for a quantitative research app. "
+    "Explain the backtest clearly without giving trading advice. "
+    "Use only the strategy JSON and backtest result provided. "
+    "Return a JSON object with exactly these keys: "
+    "strategy_summary (str), performance_explanation (str), "
+    "strengths (list[str]), weaknesses (list[str]), "
+    "market_regime_notes (list[str]), suggested_iterations (list[str]), "
+    "disclaimer (str)."
+)
 
-def _explanation_system_prompt() -> str:
-    return (
-        "You are the friendly strategy explainer for a quantitative research app. "
-        "Explain the backtest clearly without giving trading advice. "
-        "Use the provided strategy JSON and backtest result only. "
-        "Return JSON only matching this schema:\n"
-        f"{json.dumps(ExplanationResponse.model_json_schema(), indent=2)}"
-    )
+_REVIEW_SYSTEM_PROMPT = (
+    "You are the independent sandbox reviewer for a quantitative research app. "
+    "Be skeptical, benchmark-aware, and explicit about overfitting and robustness risk. "
+    "Do not assume positive returns imply trustworthiness. "
+    "Return a JSON object with exactly these keys: "
+    "review_verdict (one of: promising, mixed, skeptical, untrusted), "
+    "trust_score (int 0-100), overfitting_risk (str), "
+    "benchmark_concerns (list[str]), regime_dependence (list[str]), "
+    "parameter_sensitivity_concerns (list[str]), transaction_cost_concerns (list[str]), "
+    "sample_size_concerns (list[str]), robustness_tests (list[str]), "
+    "suggested_next_tests (list[str]), final_warning (str)."
+)
 
 
-def _review_system_prompt() -> str:
-    return (
-        "You are the independent sandbox reviewer for a quantitative research app. "
-        "Be skeptical, benchmark-aware, and explicit about overfitting and robustness risk. "
-        "Do not assume positive returns imply trustworthiness. "
-        "Return JSON only matching this schema:\n"
-        f"{json.dumps(SandboxReviewResponse.model_json_schema(), indent=2)}"
-    )
-
-
-def _build_explanation_user_prompt(
-    strategy: StrategyJSON, backtest_result: BacktestResult
-) -> str:
+def _explanation_user_prompt(strategy: StrategyJSON, result: BacktestResult) -> str:
     return (
         f"Strategy JSON:\n{strategy.model_dump_json(indent=2)}\n\n"
-        f"Backtest result:\n{backtest_result.model_dump_json(indent=2)}\n\n"
+        f"Backtest result:\n{result.model_dump_json(indent=2)}\n\n"
         "Explain the result and suggest the next research iterations."
     )
 
 
-def _build_review_user_prompt(
-    strategy: StrategyJSON, backtest_result: BacktestResult
-) -> str:
+def _review_user_prompt(strategy: StrategyJSON, result: BacktestResult) -> str:
     return (
         f"Strategy JSON:\n{strategy.model_dump_json(indent=2)}\n\n"
-        f"Backtest result:\n{backtest_result.model_dump_json(indent=2)}\n\n"
+        f"Backtest result:\n{result.model_dump_json(indent=2)}\n\n"
         "Critique the result as an independent reviewer."
     )
 
@@ -65,10 +63,13 @@ def build_explanation_fallback(
         weaknesses.append("The trade sample is small, so the result may be noisy.")
 
     return ExplanationResponse(
-        strategy_summary=f"{strategy.strategy_name} is a {strategy.strategy_type.replace('_', ' ')} strategy over {', '.join(strategy.universe)} versus {strategy.benchmark}.",
+        strategy_summary=(
+            f"{strategy.strategy_name} is a {strategy.strategy_type.replace('_', ' ')} "
+            f"strategy over {', '.join(strategy.universe)} versus {strategy.benchmark}."
+        ),
         performance_explanation=(
-            f"The backtest returned {metrics.total_return:.1%} total return with {metrics.max_drawdown:.1%} max drawdown "
-            f"and a Sharpe ratio of {metrics.sharpe_ratio:.2f}."
+            f"The backtest returned {metrics.total_return:.1%} total return with "
+            f"{metrics.max_drawdown:.1%} max drawdown and a Sharpe ratio of {metrics.sharpe_ratio:.2f}."
         ),
         strengths=strengths or ["The rules are deterministic and easy to reason about."],
         weaknesses=weaknesses or ["The result still needs broader robustness testing before it deserves much trust."],
@@ -76,7 +77,7 @@ def build_explanation_fallback(
             "Trend-following strategies often shine in persistent uptrends and lag in choppy sideways markets.",
             "Mean-reversion strategies can deteriorate quickly when volatility regimes shift."
             if strategy.strategy_type == "rsi_mean_reversion"
-            else "A single backtest window cannot guarantee regime robustness."
+            else "A single backtest window cannot guarantee regime robustness.",
         ],
         suggested_iterations=[
             "Try a different but related benchmark and compare excess return stability.",
@@ -106,13 +107,14 @@ def build_sandbox_review_fallback(
         trust_score -= 5
         concerns.append("Execution frictions may still be understated.")
 
-    verdict = "mixed"
     if trust_score >= 70:
         verdict = "promising"
-    elif trust_score < 40:
-        verdict = "skeptical"
     elif trust_score < 25:
         verdict = "untrusted"
+    elif trust_score < 40:
+        verdict = "skeptical"
+    else:
+        verdict = "mixed"
 
     return SandboxReviewResponse(
         review_verdict=verdict,
@@ -150,19 +152,18 @@ def build_sandbox_review_fallback(
     )
 
 
-def build_explanation(
+async def build_explanation(
     strategy: StrategyJSON, backtest_result: BacktestResult
 ) -> ExplanationResponse:
     gateway = get_llm_gateway()
     if not gateway.is_enabled:
         return build_explanation_fallback(strategy, backtest_result)
 
-    settings = get_settings()
     try:
-        return gateway.generate_structured(
-            model=settings.llm_explainer_model or settings.llm_strategy_model,
-            system_prompt=_explanation_system_prompt(),
-            user_prompt=_build_explanation_user_prompt(strategy, backtest_result),
+        return await gateway.generate_structured(
+            model=get_settings().llm_model,
+            system_prompt=_EXPLANATION_SYSTEM_PROMPT,
+            user_prompt=_explanation_user_prompt(strategy, backtest_result),
             response_model=ExplanationResponse,
             temperature=0.2,
         )
@@ -170,19 +171,18 @@ def build_explanation(
         return build_explanation_fallback(strategy, backtest_result)
 
 
-def build_sandbox_review(
+async def build_sandbox_review(
     strategy: StrategyJSON, backtest_result: BacktestResult
 ) -> SandboxReviewResponse:
     gateway = get_llm_gateway()
     if not gateway.is_enabled:
         return build_sandbox_review_fallback(strategy, backtest_result)
 
-    settings = get_settings()
     try:
-        return gateway.generate_structured(
-            model=settings.llm_reviewer_model or settings.llm_strategy_model,
-            system_prompt=_review_system_prompt(),
-            user_prompt=_build_review_user_prompt(strategy, backtest_result),
+        return await gateway.generate_structured(
+            model=get_settings().llm_model,
+            system_prompt=_REVIEW_SYSTEM_PROMPT,
+            user_prompt=_review_user_prompt(strategy, backtest_result),
             response_model=SandboxReviewResponse,
             temperature=0.2,
         )

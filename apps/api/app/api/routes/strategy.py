@@ -16,7 +16,7 @@ router = APIRouter(prefix="/api", tags=["strategy"])
 
 @router.post("/chat/strategy", response_model=StrategyChatResponse)
 async def chat_strategy(payload: StrategyChatRequest) -> StrategyChatResponse:
-    return parse_strategy_message(payload.user_message, payload.previous_strategy_json)
+    return await parse_strategy_message(payload.user_message, payload.previous_strategy_json)
 
 
 @router.post(
@@ -26,4 +26,4 @@ async def chat_strategy(payload: StrategyChatRequest) -> StrategyChatResponse:
 async def parse_markdown_strategy(
     payload: StrategyMarkdownParseRequest,
 ) -> StrategyMarkdownParseResponse:
-    return parse_strategy_markdown(payload.markdown_content, payload.document_name)
+    return await parse_strategy_markdown(payload.markdown_content, payload.document_name)

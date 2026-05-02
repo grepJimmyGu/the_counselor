@@ -73,30 +73,28 @@ def _json_schema_text(model_type: type[object]) -> str:
     return str(model_type.model_json_schema())  # type: ignore[attr-defined]
 
 
-def _chat_parse_system_prompt() -> str:
-    return (
-        "You are a strategy parsing assistant for a deterministic backtesting engine. "
-        "Convert the user's request into JSON matching the provided schema. "
-        "Only use supported strategy families: "
-        f"{SUPPORTED_STRATEGY_FAMILIES}. "
-        "If the user leaves critical fields unclear, set validation_status to needs_clarification, "
-        "provide missing_fields and clarification_questions, and set strategy_json to null. "
-        "Do not invent unsupported rules or arbitrary code. Return JSON only.\n\n"
-        f"Response schema: {_json_schema_text(StrategyChatResponse)}"
-    )
+# Computed once at import time — avoids rebuilding the Pydantic schema on every request
+_CHAT_PARSE_SYSTEM_PROMPT: str = (
+    "You are a strategy parsing assistant for a deterministic backtesting engine. "
+    "Convert the user's request into JSON matching the provided schema. "
+    "Only use supported strategy families: "
+    f"{SUPPORTED_STRATEGY_FAMILIES}. "
+    "If the user leaves critical fields unclear, set validation_status to needs_clarification, "
+    "provide missing_fields and clarification_questions, and set strategy_json to null. "
+    "Do not invent unsupported rules or arbitrary code. Return JSON only.\n\n"
+    f"Response schema: {_json_schema_text(StrategyChatResponse)}"
+)
 
-
-def _markdown_parse_system_prompt() -> str:
-    return (
-        "You are a quant research memo parser. Read the markdown memo and convert it into "
-        "structured strategy JSON for a deterministic backtester. "
-        "The markdown is human intent, not executable code. "
-        "Only map the memo into supported strategy families: "
-        f"{SUPPORTED_STRATEGY_FAMILIES}. "
-        "Preserve uncertainty with ambiguities, assumption_log, missing_fields, and clarification_questions. "
-        "When you have enough structure, include a valid strategy_json. Return JSON only.\n\n"
-        f"Response schema: {_json_schema_text(StrategyMarkdownParseResponse)}"
-    )
+_MARKDOWN_PARSE_SYSTEM_PROMPT: str = (
+    "You are a quant research memo parser. Read the markdown memo and convert it into "
+    "structured strategy JSON for a deterministic backtester. "
+    "The markdown is human intent, not executable code. "
+    "Only map the memo into supported strategy families: "
+    f"{SUPPORTED_STRATEGY_FAMILIES}. "
+    "Preserve uncertainty with ambiguities, assumption_log, missing_fields, and clarification_questions. "
+    "When you have enough structure, include a valid strategy_json. Return JSON only.\n\n"
+    f"Response schema: {_json_schema_text(StrategyMarkdownParseResponse)}"
+)
 
 
 def _chat_parse_user_prompt(
@@ -115,15 +113,13 @@ def _chat_parse_user_prompt(
 
 
 def _markdown_parse_user_prompt(markdown_content: str, document_name: Optional[str]) -> str:
-    settings = get_settings()
     return (
         f"Document name: {document_name or 'strategy-memo.md'}\n"
         f"Default benchmark if missing: {DEFAULT_BENCHMARK}\n"
         f"Default initial capital if missing: 100000\n"
         f"Default transaction cost if missing: 5 bps\n"
         f"Default slippage if missing: 5 bps\n"
-        f"Today: {date.today().isoformat()}\n"
-        f"LLM provider mode: {settings.llm_provider}\n\n"
+        f"Today: {date.today().isoformat()}\n\n"
         f"Markdown memo:\n{markdown_content}\n\n"
         "Extract the strategy into the response schema."
     )
@@ -455,6 +451,7 @@ def parse_strategy_message_fallback(
     lowered = message.lower()
     symbols = _extract_symbols(message)
 
+    # Shortcut: user is updating the benchmark on an existing strategy
     if previous_strategy_json and "benchmark" in lowered and symbols:
         updated = previous_strategy_json.model_copy(deep=True)
         updated.benchmark = symbols[0]
@@ -475,109 +472,23 @@ def parse_strategy_message_fallback(
             clarification_questions=["Which stock symbols should this strategy trade?"],
         )
 
+    strategy_type = _extract_strategy_type(message)
+    if not strategy_type:
+        return StrategyChatResponse(
+            assistant_message="I recognized the tickers, but I need the strategy style. Try describing a moving average, crossover, momentum, RSI, breakout, or allocation rule.",
+            strategy_json=None,
+            validation_status="needs_clarification",
+            missing_fields=["strategy_type", "rules"],
+            clarification_questions=[
+                "Which supported strategy type should I use: moving average filter, crossover, momentum rotation, RSI mean reversion, breakout, or static allocation?"
+            ],
+        )
+
     try:
-        if "above" in lowered and "moving average" in lowered and "crossover" not in lowered:
-            lookback = int(re.search(r"(\d+)[-\s]?day", lowered).group(1)) if re.search(r"(\d+)[-\s]?day", lowered) else 200
-            strategy = _base_strategy(
-                strategy_name=f"{symbols[0]} {lookback}-Day Moving Average Filter",
-                strategy_type="moving_average_filter",
-                universe=[symbols[0]],
-                rebalance_frequency="daily",
-                rules=[
-                    StrategyRule(
-                        indicator="moving_average",
-                        lookback_days=lookback,
-                        operator="gt",
-                        source="adjusted_close",
-                    )
-                ],
-                position_sizing=PositionSizing(method="equal_weight", max_positions=1),
-            )
-        elif "crossover" in lowered or ("50" in lowered and "200" in lowered and "moving average" in lowered):
-            windows = re.findall(r"(\d+)[-\s]?day", lowered)
-            fast_window = int(windows[0]) if len(windows) > 0 else 50
-            slow_window = int(windows[1]) if len(windows) > 1 else 200
-            strategy = _base_strategy(
-                strategy_name=f"{symbols[0]} {fast_window}/{slow_window} Moving Average Crossover",
-                strategy_type="moving_average_crossover",
-                universe=[symbols[0]],
-                rebalance_frequency="daily",
-                rules=[StrategyRule(indicator="moving_average", fast_window=fast_window, slow_window=slow_window)],
-                position_sizing=PositionSizing(method="equal_weight", max_positions=1),
-            )
-        elif "momentum" in lowered or "top" in lowered:
-            top_match = re.search(r"top\s+(\d+)", lowered)
-            top_n = int(top_match.group(1)) if top_match else min(3, len(symbols))
-            lookback_match = re.search(r"(\d+)[-\s]?month", lowered)
-            lookback_days = (int(lookback_match.group(1)) * 21) if lookback_match else 126
-            strategy = _base_strategy(
-                strategy_name="Momentum Rotation",
-                strategy_type="momentum_rotation",
-                universe=symbols,
-                rebalance_frequency="monthly",
-                rules=[
-                    StrategyRule(top_n=top_n, ranking_measure="total_return", ranking_lookback_days=lookback_days)
-                ],
-                position_sizing=PositionSizing(method="equal_weight", max_positions=top_n),
-            )
-            strategy.cash_management.hold_cash_when_no_signal = False
-        elif "rsi" in lowered:
-            buy_match = re.search(r"below\s+(\d+)", lowered)
-            sell_match = re.search(r"above\s+(\d+)", lowered)
-            buy_level = int(buy_match.group(1)) if buy_match else 30
-            sell_level = int(sell_match.group(1)) if sell_match else 60
-            strategy = _base_strategy(
-                strategy_name=f"{symbols[0]} RSI Mean Reversion",
-                strategy_type="rsi_mean_reversion",
-                universe=[symbols[0]],
-                rebalance_frequency="daily",
-                rules=[
-                    StrategyRule(indicator="rsi", lookback_days=14, operator="lt", threshold=buy_level),
-                    StrategyRule(indicator="rsi", lookback_days=14, operator="gt", threshold=sell_level),
-                ],
-                position_sizing=PositionSizing(method="equal_weight", max_positions=1),
-            )
-        elif "breakout" in lowered or ("high" in lowered and "low" in lowered):
-            windows = re.findall(r"(\d+)[-\s]?day", lowered)
-            entry_window = int(windows[0]) if len(windows) > 0 else 60
-            exit_window = int(windows[1]) if len(windows) > 1 else 20
-            strategy = _base_strategy(
-                strategy_name=f"{symbols[0]} Breakout Strategy",
-                strategy_type="breakout",
-                universe=[symbols[0]],
-                rebalance_frequency="daily",
-                rules=[StrategyRule(entry_window=entry_window, exit_window=exit_window)],
-                position_sizing=PositionSizing(method="equal_weight", max_positions=1),
-            )
-        elif "hold" in lowered or "%" in lowered or "allocation" in lowered:
-            weights = {}
-            for symbol in symbols:
-                percent_match = re.search(rf"(\d+)%\s+{symbol.lower()}", lowered)
-                if percent_match:
-                    weights[symbol] = int(percent_match.group(1)) / 100
-            if not weights:
-                equal_weight = round(1 / len(symbols), 4)
-                weights = {symbol: equal_weight for symbol in symbols}
-            strategy = _base_strategy(
-                strategy_name="Static Allocation",
-                strategy_type="static_allocation",
-                universe=list(weights.keys()),
-                rebalance_frequency="monthly",
-                rules=[],
-                position_sizing=PositionSizing(method="fixed_weight", weights=weights),
-            )
-            strategy.cash_management.hold_cash_when_no_signal = False
-        else:
-            return StrategyChatResponse(
-                assistant_message="I recognized the tickers, but I need the strategy style. Try describing a moving average, crossover, momentum, RSI, breakout, or allocation rule.",
-                strategy_json=None,
-                validation_status="needs_clarification",
-                missing_fields=["strategy_type", "rules"],
-                clarification_questions=[
-                    "Which supported strategy type should I use: moving average filter, crossover, momentum rotation, RSI mean reversion, breakout, or static allocation?"
-                ],
-            )
-    except Exception as exc:  # pragma: no cover - defensive parser fallback
+        strategy = _infer_strategy_from_text(
+            message, symbols, strategy_type, _extract_rebalance_frequency(message)
+        )
+    except Exception as exc:  # pragma: no cover - defensive fallback
         return StrategyChatResponse(
             assistant_message=f"I couldn't safely translate that into the supported schema yet: {exc}",
             strategy_json=None,
@@ -703,28 +614,26 @@ def parse_strategy_markdown_fallback(
     )
 
 
-def parse_strategy_message(
+async def parse_strategy_message(
     user_message: str, previous_strategy_json: Optional[StrategyJSON] = None
 ) -> StrategyChatResponse:
     gateway = get_llm_gateway()
     if not gateway.is_enabled:
         return parse_strategy_message_fallback(user_message, previous_strategy_json)
 
-    settings = get_settings()
     try:
-        response = gateway.generate_structured(
-            model=settings.llm_strategy_model,
-            system_prompt=_chat_parse_system_prompt(),
+        return await gateway.generate_structured(
+            model=get_settings().llm_model,
+            system_prompt=_CHAT_PARSE_SYSTEM_PROMPT,
             user_prompt=_chat_parse_user_prompt(user_message, previous_strategy_json),
             response_model=StrategyChatResponse,
             temperature=0.1,
         )
-        return response
     except LLMAdapterError:
         return parse_strategy_message_fallback(user_message, previous_strategy_json)
 
 
-def parse_strategy_markdown(
+async def parse_strategy_markdown(
     markdown_content: str,
     document_name: Optional[str] = None,
 ) -> StrategyMarkdownParseResponse:
@@ -732,15 +641,13 @@ def parse_strategy_markdown(
     if not gateway.is_enabled:
         return parse_strategy_markdown_fallback(markdown_content, document_name)
 
-    settings = get_settings()
     try:
-        response = gateway.generate_structured(
-            model=settings.llm_strategy_model,
-            system_prompt=_markdown_parse_system_prompt(),
+        return await gateway.generate_structured(
+            model=get_settings().llm_model,
+            system_prompt=_MARKDOWN_PARSE_SYSTEM_PROMPT,
             user_prompt=_markdown_parse_user_prompt(markdown_content, document_name),
             response_model=StrategyMarkdownParseResponse,
             temperature=0.1,
         )
-        return response
     except LLMAdapterError:
         return parse_strategy_markdown_fallback(markdown_content, document_name)
