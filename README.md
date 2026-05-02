@@ -1,4 +1,4 @@
-# StrategyLab AI
+# Livermore AI
 
 StrategyLab AI is a local MVP for natural-language investment strategy research. A user describes a price-based strategy in chat, the backend turns it into validated strategy JSON, a deterministic backtester runs it on historical data, and two separate AI-style layers respond:
 
