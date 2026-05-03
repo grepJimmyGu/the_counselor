@@ -8,6 +8,58 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-05-03 — MVP Optimization (Areas 6–8)
+
+### New Frontend Features
+| Feature | Description |
+|---|---|
+| **Robustness Tab** | 5th tab in results; "Run All" button + peer tickers input; polls every 2s; shows up to 5 result tables |
+| **Demo Picker** | 3 pre-seeded strategy cards above Chat Builder; loads strategy JSON + triggers quality fetch instantly |
+| **VerdictBadge** | Color-coded: green=better/strong/robust, red=worse/weak/breaks_down, neutral=similar/acceptable |
+
+### New / Changed Frontend Types (`contracts.ts`)
+| Type | Added |
+|---|---|
+| `ParameterSensitivityRow` | New |
+| `SubperiodRow` | New |
+| `TransactionCostRow` | New |
+| `BenchmarkComparisonRow` | New |
+| `PeerTickerRow` | New |
+| `RobustnessResults` | New |
+| `RobustnessJobResponse` | New |
+| `DemoStrategy` | New |
+| `demoStrategies` | 3 pre-seeded strategies: NVDA MA filter, QQQ RSI, mega-cap momentum |
+
+### New API Functions (`api.ts`)
+| Function | Endpoint |
+|---|---|
+| `runRobustness()` | `POST /api/robustness/run` |
+| `getRobustnessJob()` | `GET /api/robustness/{run_id}` |
+
+### Tests Added
+| File | Tests | Coverage |
+|---|---|---|
+| `tests/test_metrics.py` | 10 | compute_metrics, trade diagnostics, buy-and-hold |
+| `tests/test_data_quality.py` | 7 | all DataQualityService check paths (mocked DB) |
+| `tests/test_robustness.py` | 6 | output shapes for each robustness test type |
+| **Total** | **24 passing** | |
+
+### Bugs Fixed This Session
+| Bug | Fix |
+|---|---|
+| Quality gate blocked before data fetch ("No cached data for MUA") | Backtest route now auto-fetches uncached tickers before quality gate |
+| Quality badges never appeared after LLM parse | `fetchQualityForSymbols` called after every parse, not just manual universe edits |
+| `iteration_count` never sent to sandbox reviewer | Added to `api.ts` `reviewSandbox()`, tracked in workspace state |
+| `Mapped[str \| None]` syntax error on Python 3.9 | Changed to `Mapped[Optional[str]]` in `robustness_job.py` |
+| Frontend page crash after sandbox schema change | Updated `contracts.ts` + `research-workspace.tsx` field references |
+
+### Discipline Applied
+- All TypeScript types defined before UI components — no schema drift
+- `npm run build` verified before every commit — no broken builds pushed
+- Backend tests run and pass before commit
+
+---
+
 ## 2026-05-03 — MVP Optimization (Areas 1–4)
 
 ### New API Routes
