@@ -175,6 +175,19 @@ export interface SandboxReviewResponse {
   final_warning: string;
 }
 
+export interface DataQualityReport {
+  symbol: string;
+  status: "ready" | "warning" | "blocked";
+  warnings: string[];
+  blocking_errors: string[];
+  earliest_available_date?: string | null;
+  latest_available_date?: string | null;
+  row_count: number;
+  missing_date_count?: number | null;
+  adjusted_close_coverage: number;
+  volume_coverage: number;
+}
+
 export interface SymbolSearchItem {
   symbol: string;
   name: string;

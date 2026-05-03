@@ -1,5 +1,6 @@
 import type {
   BacktestResult,
+  DataQualityReport,
   DataStatusResponse,
   ExplanationResponse,
   SandboxReviewResponse,
@@ -118,6 +119,10 @@ export async function searchSymbols(query: string): Promise<SymbolSearchItem[]> 
 
 export async function getDataStatus(symbol: string): Promise<DataStatusResponse> {
   return fetchApi<DataStatusResponse>(`/api/data/status/${symbol}`);
+}
+
+export async function getDataQuality(symbol: string): Promise<DataQualityReport> {
+  return fetchApi<DataQualityReport>(`/api/data/quality/${symbol}`);
 }
 
 export async function warmupSymbols(

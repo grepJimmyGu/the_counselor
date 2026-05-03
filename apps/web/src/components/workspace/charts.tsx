@@ -18,6 +18,7 @@ function chartData(result: BacktestResult) {
     date: point.date,
     strategy: point.value,
     benchmark: result.benchmark_curve[index]?.value ?? null,
+    buy_and_hold: result.buy_and_hold_curve[index]?.value ?? null,
     drawdown: result.drawdown_curve[index]?.value ?? null,
   }));
 }
@@ -36,6 +37,7 @@ export function EquityCurveChart({ result }: { result: BacktestResult }) {
           <Legend />
           <Line type="monotone" dataKey="strategy" stroke="var(--color-chart-1)" dot={false} strokeWidth={2} />
           <Line type="monotone" dataKey="benchmark" stroke="var(--color-chart-2)" dot={false} strokeWidth={2} />
+          <Line type="monotone" dataKey="buy_and_hold" stroke="var(--color-chart-3)" dot={false} strokeWidth={2} strokeDasharray="4 2" />
         </LineChart>
       </ResponsiveContainer>
     </div>

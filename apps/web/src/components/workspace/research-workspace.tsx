@@ -16,6 +16,7 @@ import {
 
 import {
   explainStrategy,
+  getDataQuality,
   parseStrategy,
   parseStrategyMarkdown,
   reviewSandbox,
@@ -24,6 +25,7 @@ import {
 import {
   demoMarkdownStrategy,
   type BacktestResult,
+  type DataQualityReport,
   type ExplanationResponse,
   type SandboxReviewResponse,
   type StrategyMarkdownParseResponse,
@@ -108,6 +110,7 @@ export function ResearchWorkspace() {
   const [isParsingMarkdown, setIsParsingMarkdown] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [iterationCount, setIterationCount] = useState(0);
+  const [qualityReports, setQualityReports] = useState<Record<string, DataQualityReport>>({});
 
   const comparisonRows = useMemo(
     () => buildComparison(backtestResult, previousResult, { totalReturn: t.totalReturn, sharpe: t.sharpe, maxDrawdown: t.maxDrawdown, trades: t.trades }),
@@ -217,6 +220,16 @@ export function ResearchWorkspace() {
 
   function updateStrategyField<K extends keyof StrategyJson>(key: K, value: StrategyJson[K]) {
     setStrategy((current) => (current ? { ...current, [key]: value } : current));
+    if (key === "universe") {
+      const symbols = value as string[];
+      symbols.forEach((sym) => {
+        if (!qualityReports[sym]) {
+          getDataQuality(sym).then((r) =>
+            setQualityReports((prev) => ({ ...prev, [sym]: r }))
+          ).catch(() => {});
+        }
+      });
+    }
   }
 
   return (
@@ -481,6 +494,26 @@ export function ResearchWorkspace() {
                         onChange={(universe) => updateStrategyField("universe", universe)}
                         disabled={isRunning}
                       />
+                      {strategy.universe.some((sym) => qualityReports[sym]) && (
+                        <div className="mt-2 space-y-1">
+                          {strategy.universe.map((sym) => {
+                            const q = qualityReports[sym];
+                            if (!q) return null;
+                            return (
+                              <div key={sym} className="flex flex-wrap items-start gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs">
+                                <Badge variant={q.status === "blocked" ? "destructive" : q.status === "warning" ? "outline" : "outline"}
+                                  className={q.status === "warning" ? "border-yellow-500/50 text-yellow-400" : q.status === "ready" ? "border-emerald-500/50 text-emerald-400" : ""}>
+                                  {sym} · {q.status}
+                                </Badge>
+                                <span className="text-muted-foreground">{q.row_count} bars · {q.earliest_available_date} → {q.latest_available_date}</span>
+                                {[...q.blocking_errors, ...q.warnings].slice(0, 1).map((msg) => (
+                                  <span key={msg} className="w-full text-muted-foreground">{msg}</span>
+                                ))}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                     <label className="space-y-2 text-sm">
                       <span className="text-muted-foreground">{t.transactionCost}</span>
@@ -592,6 +625,9 @@ export function ResearchWorkspace() {
                           [t.maxDrawdown, formatPercent(backtestResult.metrics.max_drawdown)],
                           [t.excessVsBenchmark, formatPercent(backtestResult.metrics.excess_return_vs_benchmark)],
                           [t.trades, String(backtestResult.metrics.number_of_trades)],
+                          ...(backtestResult.metrics.buy_and_hold_return != null
+                            ? [["Buy & Hold", formatPercent(backtestResult.metrics.buy_and_hold_return)]]
+                            : []),
                         ].map(([label, value]) => (
                           <div key={label} className="rounded-lg border border-border bg-background px-4 py-3">
                             <div className="text-xs text-muted-foreground">{label}</div>
