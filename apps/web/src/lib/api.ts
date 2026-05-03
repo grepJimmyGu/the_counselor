@@ -3,6 +3,7 @@ import type {
   DataQualityReport,
   DataStatusResponse,
   ExplanationResponse,
+  RobustnessJobResponse,
   SandboxReviewResponse,
   StrategyChatResponse,
   StrategyMarkdownParseResponse,
@@ -133,4 +134,23 @@ export async function warmupSymbols(
     method: "POST",
     body: JSON.stringify({ symbols, lookback_days: lookbackDays }),
   });
+}
+
+export async function runRobustness(
+  strategyJson: StrategyJson,
+  testsToRun: string[],
+  peerTickers: string[] = [],
+): Promise<RobustnessJobResponse> {
+  return fetchApi<RobustnessJobResponse>("/api/robustness/run", {
+    method: "POST",
+    body: JSON.stringify({
+      strategy_json: strategyJson,
+      tests_to_run: testsToRun,
+      peer_tickers: peerTickers,
+    }),
+  });
+}
+
+export async function getRobustnessJob(runId: string): Promise<RobustnessJobResponse> {
+  return fetchApi<RobustnessJobResponse>(`/api/robustness/${runId}`);
 }

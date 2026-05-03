@@ -226,6 +226,157 @@ export interface WarmupResponse {
   errors: Record<string, string>;
 }
 
+// ── Robustness ────────────────────────────────────────────────────────────────
+
+export interface ParameterSensitivityRow {
+  parameter_set: Record<string, number | string>;
+  total_return: number;
+  sharpe_ratio: number;
+  max_drawdown: number;
+  trade_count: number;
+  verdict: "better" | "similar" | "worse";
+}
+
+export interface SubperiodRow {
+  period: string;
+  start_date: string;
+  end_date: string;
+  total_return: number;
+  annualized_return: number;
+  sharpe_ratio: number;
+  max_drawdown: number;
+  verdict: "strong" | "acceptable" | "weak" | "insufficient_data";
+}
+
+export interface TransactionCostRow {
+  cost_bps: number;
+  total_return: number;
+  sharpe_ratio: number;
+  max_drawdown: number;
+  turnover_impact: number;
+  verdict: "robust" | "sensitive" | "breaks_down";
+}
+
+export interface BenchmarkComparisonRow {
+  name: string;
+  symbol: string;
+  total_return: number;
+  sharpe_ratio: number;
+  max_drawdown: number;
+  excess_return_vs_strategy: number;
+}
+
+export interface PeerTickerRow {
+  ticker: string;
+  total_return: number;
+  sharpe_ratio: number;
+  max_drawdown: number;
+  trade_count: number;
+  verdict: "better" | "similar" | "worse" | "error";
+  error?: string | null;
+}
+
+export interface RobustnessResults {
+  parameter_sensitivity: ParameterSensitivityRow[];
+  subperiod: SubperiodRow[];
+  transaction_cost: TransactionCostRow[];
+  benchmark_comparison: BenchmarkComparisonRow[];
+  peer_ticker: PeerTickerRow[];
+  summary: string;
+  warnings: string[];
+}
+
+export interface RobustnessJobResponse {
+  run_id: string;
+  status: "pending" | "running" | "completed" | "failed";
+  results?: RobustnessResults | null;
+  error?: string | null;
+  created_at: string;
+  completed_at?: string | null;
+}
+
+// ── Demo strategies ───────────────────────────────────────────────────────────
+
+export interface DemoStrategy {
+  label: string;
+  labelZh: string;
+  prompt: string;
+  strategy: StrategyJson;
+}
+
+const today = new Date().toISOString().slice(0, 10);
+const oneYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+const threeYearsAgo = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+export const demoStrategies: DemoStrategy[] = [
+  {
+    label: "NVDA Trend Following",
+    labelZh: "英伟达趋势跟踪",
+    prompt: "Buy NVDA when price is above its 100-day moving average, sell when below. Compare against NVDA buy-and-hold and SPY.",
+    strategy: {
+      strategy_name: "NVDA 100-Day MA Filter",
+      strategy_type: "moving_average_filter",
+      universe: ["NVDA"],
+      benchmark: "SPY",
+      start_date: threeYearsAgo,
+      end_date: today,
+      initial_capital: 100000,
+      rebalance_frequency: "daily",
+      transaction_cost_bps: 5,
+      slippage_bps: 5,
+      rules: [{ indicator: "moving_average", lookback_days: 100, operator: "gt", source: "adjusted_close" }],
+      position_sizing: { method: "equal_weight", max_positions: 1 },
+      risk_management: {},
+      cash_management: { hold_cash_when_no_signal: true },
+    },
+  },
+  {
+    label: "QQQ RSI Mean-Reversion",
+    labelZh: "纳指RSI均值回归",
+    prompt: "Buy QQQ when RSI drops below 30, sell when RSI rises above 60. Compare against QQQ buy-and-hold.",
+    strategy: {
+      strategy_name: "QQQ RSI Mean-Reversion",
+      strategy_type: "rsi_mean_reversion",
+      universe: ["QQQ"],
+      benchmark: "QQQ",
+      start_date: threeYearsAgo,
+      end_date: today,
+      initial_capital: 100000,
+      rebalance_frequency: "daily",
+      transaction_cost_bps: 5,
+      slippage_bps: 5,
+      rules: [
+        { indicator: "rsi", lookback_days: 14, operator: "lt", threshold: 30 },
+        { indicator: "rsi", lookback_days: 14, operator: "gt", threshold: 60 },
+      ],
+      position_sizing: { method: "equal_weight", max_positions: 1 },
+      risk_management: {},
+      cash_management: { hold_cash_when_no_signal: true },
+    },
+  },
+  {
+    label: "Mega-Cap Momentum Rotation",
+    labelZh: "大盘动量轮动",
+    prompt: "Every month, rotate into the top 3 mega-cap stocks by 6-month momentum from AAPL, MSFT, NVDA, AMZN, GOOGL, META.",
+    strategy: {
+      strategy_name: "Mega-Cap Momentum Rotation",
+      strategy_type: "momentum_rotation",
+      universe: ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META"],
+      benchmark: "QQQ",
+      start_date: threeYearsAgo,
+      end_date: today,
+      initial_capital: 100000,
+      rebalance_frequency: "monthly",
+      transaction_cost_bps: 10,
+      slippage_bps: 10,
+      rules: [{ top_n: 3, ranking_measure: "total_return", ranking_lookback_days: 126 }],
+      position_sizing: { method: "equal_weight", max_positions: 3 },
+      risk_management: {},
+      cash_management: { hold_cash_when_no_signal: false },
+    },
+  },
+];
+
 export const demoPrompts = [
   "Buy AAPL when price is above its 200-day moving average. Sell when below.",
   "Buy NVDA when 50-day moving average is above 200-day moving average. Sell when below.",

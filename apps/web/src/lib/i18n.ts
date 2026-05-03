@@ -42,6 +42,20 @@ export interface Translations {
   barsTitle: (n: number, date: string) => string;
   months: readonly string[];
   demoPrompts: readonly string[];
+  // Robustness tab
+  tabRobustness: string;
+  runRobustness: string; runningRobustness: string;
+  peerTickersPlaceholder: string; peerTickersLabel: string;
+  robustnessSummary: string; robustnessEmpty: string; robustnessFailed: string;
+  paramSensitivityTitle: string; subperiodTitle: string;
+  txCostTitle: string; benchmarkCompTitle: string; peerTickerTitle: string;
+  colParamSet: string; colPeriod: string; colCostBps: string;
+  colTotalReturn: string; colSharpe: string; colMaxDrawdown: string;
+  colTradeCount: string; colVerdict: string; colStart: string; colEnd: string;
+  colAnnualReturn: string; colName: string; colExcess: string;
+  colTicker: string; colTurnoverImpact: string;
+  // Demo picker
+  demosTitle: string; demosSubtitle: string;
 }
 
 const translations: Record<Locale, Translations> = {
@@ -201,6 +215,30 @@ const translations: Record<Locale, Translations> = {
       "Rotate into top 3 momentum stocks monthly from QQQ, IWM, EEM",
       "RSI mean reversion on AAPL: buy below 30, sell above 60",
     ],
+
+    // Robustness tab
+    tabRobustness: "Robustness",
+    runRobustness: "Run Robustness Tests",
+    runningRobustness: "Running Tests…",
+    peerTickersLabel: "Peer Tickers (optional)",
+    peerTickersPlaceholder: "e.g. MSFT, AMZN, TSLA",
+    robustnessSummary: "Summary",
+    robustnessEmpty: "Run robustness tests to stress-test the strategy across parameters, time periods, and cost assumptions.",
+    robustnessFailed: "Robustness tests failed.",
+    paramSensitivityTitle: "Parameter Sensitivity",
+    subperiodTitle: "Sub-Period Performance",
+    txCostTitle: "Transaction Cost Sensitivity",
+    benchmarkCompTitle: "Benchmark Comparison",
+    peerTickerTitle: "Peer Ticker Test",
+    colParamSet: "Parameters", colPeriod: "Period", colCostBps: "Cost (bps)",
+    colTotalReturn: "Total Return", colSharpe: "Sharpe", colMaxDrawdown: "Max DD",
+    colTradeCount: "Trades", colVerdict: "Verdict", colStart: "Start", colEnd: "End",
+    colAnnualReturn: "Ann. Return", colName: "Name", colExcess: "Excess vs Strategy",
+    colTicker: "Ticker", colTurnoverImpact: "Turnover Impact",
+
+    // Demo picker
+    demosTitle: "Demo Strategies",
+    demosSubtitle: "Load a pre-built strategy to explore the full workflow.",
   },
 
   zh: {
@@ -358,6 +396,30 @@ const translations: Record<Locale, Translations> = {
       "每月从QQQ、IWM、EEM中轮动买入动量最强的3只",
       "AAPL的RSI均值回归：RSI低于30时买入，高于60时卖出",
     ],
+
+    // Robustness tab
+    tabRobustness: "稳健性测试",
+    runRobustness: "运行稳健性测试",
+    runningRobustness: "测试运行中…",
+    peerTickersLabel: "同类标的（可选）",
+    peerTickersPlaceholder: "例如 MSFT, AMZN, TSLA",
+    robustnessSummary: "测试摘要",
+    robustnessEmpty: "运行稳健性测试，对策略的参数、时间段及成本假设进行压力测试。",
+    robustnessFailed: "稳健性测试失败。",
+    paramSensitivityTitle: "参数敏感性",
+    subperiodTitle: "子区间表现",
+    txCostTitle: "交易成本敏感性",
+    benchmarkCompTitle: "基准对比",
+    peerTickerTitle: "同类标的测试",
+    colParamSet: "参数", colPeriod: "区间", colCostBps: "成本 (bps)",
+    colTotalReturn: "总收益", colSharpe: "夏普", colMaxDrawdown: "最大回撤",
+    colTradeCount: "交易次数", colVerdict: "结论", colStart: "开始", colEnd: "结束",
+    colAnnualReturn: "年化收益", colName: "名称", colExcess: "相对策略超额",
+    colTicker: "标的", colTurnoverImpact: "换手影响",
+
+    // Demo picker
+    demosTitle: "演示策略",
+    demosSubtitle: "加载预设策略，快速体验完整工作流程。",
   },
 };
 

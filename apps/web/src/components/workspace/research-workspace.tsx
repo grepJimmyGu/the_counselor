@@ -17,16 +17,20 @@ import {
 import {
   explainStrategy,
   getDataQuality,
+  getRobustnessJob,
   parseStrategy,
   parseStrategyMarkdown,
   reviewSandbox,
   runBacktest,
+  runRobustness,
 } from "@/lib/api";
 import {
   demoMarkdownStrategy,
+  demoStrategies,
   type BacktestResult,
   type DataQualityReport,
   type ExplanationResponse,
+  type RobustnessJobResponse,
   type SandboxReviewResponse,
   type StrategyMarkdownParseResponse,
   type StrategyJson,
@@ -64,6 +68,27 @@ type ComparisonRow = {
   current: number;
   previous: number;
 };
+
+function RobustnessTable({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div className="rounded-lg border border-border bg-background p-4">
+      <h3 className="mb-3 text-sm font-medium">{title}</h3>
+      <div className="overflow-x-auto">
+        <Table>{children}</Table>
+      </div>
+    </div>
+  );
+}
+
+function VerdictBadge({ verdict }: { verdict: string }) {
+  const color =
+    verdict === "better" || verdict === "strong" || verdict === "robust" || verdict === "promising"
+      ? "border-emerald-500/50 text-emerald-400"
+      : verdict === "worse" || verdict === "weak" || verdict === "breaks_down" || verdict === "untrusted"
+      ? "border-rose-500/50 text-rose-400"
+      : "text-muted-foreground";
+  return <Badge variant="outline" className={`capitalize text-xs ${color}`}>{verdict.replace(/_/g, " ")}</Badge>;
+}
 
 function formatPercent(value: number) {
   return `${(value * 100).toFixed(2)}%`;
@@ -111,6 +136,9 @@ export function ResearchWorkspace() {
   const [isRunning, setIsRunning] = useState(false);
   const [iterationCount, setIterationCount] = useState(0);
   const [qualityReports, setQualityReports] = useState<Record<string, DataQualityReport>>({});
+  const [robustnessJob, setRobustnessJob] = useState<RobustnessJobResponse | null>(null);
+  const [isRunningRobustness, setIsRunningRobustness] = useState(false);
+  const [peerTickers, setPeerTickers] = useState("");
 
   const comparisonRows = useMemo(
     () => buildComparison(backtestResult, previousResult, { totalReturn: t.totalReturn, sharpe: t.sharpe, maxDrawdown: t.maxDrawdown, trades: t.trades }),
@@ -235,6 +263,53 @@ export function ResearchWorkspace() {
     if (key === "universe") fetchQualityForSymbols(value as string[]);
   }
 
+  function handleLoadDemo(demo: typeof demoStrategies[number]) {
+    const displayPrompt = locale === "zh" ? demo.labelZh : demo.label;
+    setStrategy(demo.strategy);
+    setPrompt(demo.prompt);
+    setRobustnessJob(null);
+    setBacktestResult(null);
+    setExplanation(null);
+    setSandboxReview(null);
+    setMarkdownParseResult(null);
+    setValidationIssues([]);
+    setClarifications([]);
+    setChat([
+      { role: "assistant", content: t.chatWelcome },
+      { role: "user", content: demo.prompt },
+      { role: "assistant", content: `Loaded: ${displayPrompt}. Review the strategy and click Run Backtest.` },
+    ]);
+    fetchQualityForSymbols(demo.strategy.universe);
+  }
+
+  async function handleRunRobustness() {
+    if (!strategy) return;
+    setIsRunningRobustness(true);
+    setRobustnessJob(null);
+    const peers = peerTickers.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
+    try {
+      const job = await runRobustness(
+        strategy,
+        ["parameter_sensitivity", "subperiod", "transaction_cost", "benchmark_comparison", ...(peers.length ? ["peer_ticker"] : [])],
+        peers,
+      );
+      setRobustnessJob(job);
+      // Poll until done
+      const poll = setInterval(async () => {
+        try {
+          const updated = await getRobustnessJob(job.run_id);
+          setRobustnessJob(updated);
+          if (updated.status === "completed" || updated.status === "failed") {
+            clearInterval(poll);
+            setIsRunningRobustness(false);
+          }
+        } catch { clearInterval(poll); setIsRunningRobustness(false); }
+      }, 2000);
+    } catch {
+      setIsRunningRobustness(false);
+    }
+  }
+
   return (
     <main className="min-h-screen bg-background">
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 px-4 py-4 md:px-6 lg:px-8">
@@ -263,6 +338,26 @@ export function ResearchWorkspace() {
             <span>{errorMessage}</span>
           </div>
         ) : null}
+
+        {/* Demo picker */}
+        <section className="rounded-lg border border-border bg-card/70 p-4">
+          <div className="mb-3">
+            <div className="text-sm font-medium">{t.demosTitle}</div>
+            <p className="text-xs text-muted-foreground">{t.demosSubtitle}</p>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {demoStrategies.map((demo) => (
+              <button
+                key={demo.label}
+                type="button"
+                onClick={() => handleLoadDemo(demo)}
+                className="rounded-md border border-border bg-background px-3 py-2 text-left text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+              >
+                {locale === "zh" ? demo.labelZh : demo.label}
+              </button>
+            ))}
+          </div>
+        </section>
 
         <section className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
           <div className="grid gap-6">
@@ -611,10 +706,11 @@ export function ResearchWorkspace() {
             {/* Results Tabs */}
             <section className="rounded-lg border border-border bg-card/70 p-4">
               <Tabs defaultValue="dashboard" className="space-y-4">
-                <TabsList className="grid w-full grid-cols-4">
+                <TabsList className="grid w-full grid-cols-5">
                   <TabsTrigger value="dashboard">{t.tabBacktest}</TabsTrigger>
                   <TabsTrigger value="explanation">{t.tabExplanation}</TabsTrigger>
                   <TabsTrigger value="sandbox">{t.tabSandbox}</TabsTrigger>
+                  <TabsTrigger value="robustness">{t.tabRobustness}</TabsTrigger>
                   <TabsTrigger value="comparison">{t.tabComparison}</TabsTrigger>
                 </TabsList>
 
@@ -836,6 +932,161 @@ export function ResearchWorkspace() {
                       {t.sandboxEmpty}
                     </div>
                   )}
+                </TabsContent>
+
+                <TabsContent value="robustness" className="space-y-4">
+                  {/* Controls */}
+                  <div className="flex flex-col gap-3 rounded-lg border border-border bg-background p-4 sm:flex-row sm:items-end">
+                    <div className="flex-1 space-y-1">
+                      <label className="text-xs text-muted-foreground">{t.peerTickersLabel}</label>
+                      <input
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                        placeholder={t.peerTickersPlaceholder}
+                        value={peerTickers}
+                        onChange={(e) => setPeerTickers(e.target.value)}
+                        disabled={isRunningRobustness}
+                      />
+                    </div>
+                    <Button onClick={handleRunRobustness} disabled={!strategy || isRunningRobustness}>
+                      {isRunningRobustness
+                        ? <><Loader2 className="h-4 w-4 animate-spin" />{t.runningRobustness}</>
+                        : t.runRobustness}
+                    </Button>
+                  </div>
+
+                  {/* Results */}
+                  {!robustnessJob && (
+                    <div className="rounded-lg border border-dashed border-border p-8 text-sm text-muted-foreground">
+                      {t.robustnessEmpty}
+                    </div>
+                  )}
+                  {robustnessJob?.status === "failed" && (
+                    <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+                      {t.robustnessFailed} {robustnessJob.error}
+                    </div>
+                  )}
+                  {robustnessJob && (robustnessJob.status === "pending" || robustnessJob.status === "running") && (
+                    <div className="flex items-center gap-2 rounded-lg border border-border p-4 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      {t.runningRobustness}
+                    </div>
+                  )}
+                  {robustnessJob?.status === "completed" && robustnessJob.results && (() => {
+                    const r = robustnessJob.results;
+                    return (
+                      <div className="space-y-4">
+                        {r.summary && (
+                          <div className="rounded-lg border border-border bg-background px-4 py-3 text-sm text-muted-foreground">
+                            <span className="font-medium text-foreground">{t.robustnessSummary}: </span>{r.summary}
+                          </div>
+                        )}
+                        {r.parameter_sensitivity.length > 0 && (
+                          <RobustnessTable title={t.paramSensitivityTitle}>
+                            <TableHeader><TableRow>
+                              <TableHead>{t.colParamSet}</TableHead>
+                              <TableHead className="text-right">{t.colTotalReturn}</TableHead>
+                              <TableHead className="text-right">{t.colSharpe}</TableHead>
+                              <TableHead className="text-right">{t.colMaxDrawdown}</TableHead>
+                              <TableHead>{t.colVerdict}</TableHead>
+                            </TableRow></TableHeader>
+                            <TableBody>{r.parameter_sensitivity.map((row, i) => (
+                              <TableRow key={i}>
+                                <TableCell className="font-mono text-xs">{Object.entries(row.parameter_set).map(([k,v]) => `${k}=${v}`).join(", ")}</TableCell>
+                                <TableCell className="text-right">{formatPercent(row.total_return)}</TableCell>
+                                <TableCell className="text-right">{row.sharpe_ratio.toFixed(2)}</TableCell>
+                                <TableCell className="text-right">{formatPercent(row.max_drawdown)}</TableCell>
+                                <TableCell><VerdictBadge verdict={row.verdict} /></TableCell>
+                              </TableRow>
+                            ))}</TableBody>
+                          </RobustnessTable>
+                        )}
+                        {r.subperiod.length > 0 && (
+                          <RobustnessTable title={t.subperiodTitle}>
+                            <TableHeader><TableRow>
+                              <TableHead>{t.colPeriod}</TableHead>
+                              <TableHead>{t.colStart}</TableHead>
+                              <TableHead>{t.colEnd}</TableHead>
+                              <TableHead className="text-right">{t.colTotalReturn}</TableHead>
+                              <TableHead className="text-right">{t.colSharpe}</TableHead>
+                              <TableHead className="text-right">{t.colMaxDrawdown}</TableHead>
+                              <TableHead>{t.colVerdict}</TableHead>
+                            </TableRow></TableHeader>
+                            <TableBody>{r.subperiod.map((row, i) => (
+                              <TableRow key={i}>
+                                <TableCell className="font-medium">{row.period}</TableCell>
+                                <TableCell className="text-xs text-muted-foreground">{row.start_date}</TableCell>
+                                <TableCell className="text-xs text-muted-foreground">{row.end_date}</TableCell>
+                                <TableCell className="text-right">{formatPercent(row.total_return)}</TableCell>
+                                <TableCell className="text-right">{row.sharpe_ratio.toFixed(2)}</TableCell>
+                                <TableCell className="text-right">{formatPercent(row.max_drawdown)}</TableCell>
+                                <TableCell><VerdictBadge verdict={row.verdict} /></TableCell>
+                              </TableRow>
+                            ))}</TableBody>
+                          </RobustnessTable>
+                        )}
+                        {r.transaction_cost.length > 0 && (
+                          <RobustnessTable title={t.txCostTitle}>
+                            <TableHeader><TableRow>
+                              <TableHead>{t.colCostBps}</TableHead>
+                              <TableHead className="text-right">{t.colTotalReturn}</TableHead>
+                              <TableHead className="text-right">{t.colSharpe}</TableHead>
+                              <TableHead className="text-right">{t.colMaxDrawdown}</TableHead>
+                              <TableHead>{t.colVerdict}</TableHead>
+                            </TableRow></TableHeader>
+                            <TableBody>{r.transaction_cost.map((row, i) => (
+                              <TableRow key={i}>
+                                <TableCell>{row.cost_bps}</TableCell>
+                                <TableCell className="text-right">{formatPercent(row.total_return)}</TableCell>
+                                <TableCell className="text-right">{row.sharpe_ratio.toFixed(2)}</TableCell>
+                                <TableCell className="text-right">{formatPercent(row.max_drawdown)}</TableCell>
+                                <TableCell><VerdictBadge verdict={row.verdict} /></TableCell>
+                              </TableRow>
+                            ))}</TableBody>
+                          </RobustnessTable>
+                        )}
+                        {r.benchmark_comparison.length > 0 && (
+                          <RobustnessTable title={t.benchmarkCompTitle}>
+                            <TableHeader><TableRow>
+                              <TableHead>{t.colName}</TableHead>
+                              <TableHead className="text-right">{t.colTotalReturn}</TableHead>
+                              <TableHead className="text-right">{t.colSharpe}</TableHead>
+                              <TableHead className="text-right">{t.colMaxDrawdown}</TableHead>
+                              <TableHead className="text-right">{t.colExcess}</TableHead>
+                            </TableRow></TableHeader>
+                            <TableBody>{r.benchmark_comparison.map((row, i) => (
+                              <TableRow key={i}>
+                                <TableCell className="font-medium">{row.name} <span className="text-xs text-muted-foreground">({row.symbol})</span></TableCell>
+                                <TableCell className="text-right">{formatPercent(row.total_return)}</TableCell>
+                                <TableCell className="text-right">{row.sharpe_ratio.toFixed(2)}</TableCell>
+                                <TableCell className="text-right">{formatPercent(row.max_drawdown)}</TableCell>
+                                <TableCell className="text-right">{formatPercent(row.excess_return_vs_strategy)}</TableCell>
+                              </TableRow>
+                            ))}</TableBody>
+                          </RobustnessTable>
+                        )}
+                        {r.peer_ticker.length > 0 && (
+                          <RobustnessTable title={t.peerTickerTitle}>
+                            <TableHeader><TableRow>
+                              <TableHead>{t.colTicker}</TableHead>
+                              <TableHead className="text-right">{t.colTotalReturn}</TableHead>
+                              <TableHead className="text-right">{t.colSharpe}</TableHead>
+                              <TableHead className="text-right">{t.colMaxDrawdown}</TableHead>
+                              <TableHead>{t.colVerdict}</TableHead>
+                            </TableRow></TableHeader>
+                            <TableBody>{r.peer_ticker.map((row, i) => (
+                              <TableRow key={i}>
+                                <TableCell className="font-medium">{row.ticker}</TableCell>
+                                <TableCell className="text-right">{row.verdict === "error" ? "—" : formatPercent(row.total_return)}</TableCell>
+                                <TableCell className="text-right">{row.verdict === "error" ? "—" : row.sharpe_ratio.toFixed(2)}</TableCell>
+                                <TableCell className="text-right">{row.verdict === "error" ? "—" : formatPercent(row.max_drawdown)}</TableCell>
+                                <TableCell><VerdictBadge verdict={row.verdict} /></TableCell>
+                              </TableRow>
+                            ))}</TableBody>
+                          </RobustnessTable>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </TabsContent>
 
                 <TabsContent value="comparison" className="space-y-4">
