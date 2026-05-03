@@ -24,9 +24,11 @@ export interface Translations {
   annualReturns: string; year: string; return: string; monthlyHeatmap: string;
   tradeLog: string; warningCount: string; symbol: string; entry: string; exit: string;
   holdDays: string; backtestEmpty: string; explanationEmpty: string;
-  sandboxEmpty: string; trustScore: string;
+  sandboxEmpty: string; trustScore: string; confidenceLevel: string;
+  overfittingRisk: string; overfittingRiskLabel: string;
   benchmarkConcerns: string; regimeDependence: string; sensitivityConcerns: string;
-  transactionCostConcerns: string; sampleSizeConcerns: string;
+  transactionCostConcerns: string; sampleSizeConcerns: string; dataQualityConcerns: string;
+  reasonsToTrust: string; reasonsToDistrust: string;
   robustnessTests: string; suggestedNextTests: string;
   strengths: string; weaknesses: string; marketRegimeNotes: string; suggestedIterations: string;
   comparisonTitle: string; metric: string; current: string; previous: string; comparisonEmpty: string;
@@ -145,13 +147,19 @@ const translations: Record<Locale, Translations> = {
     sandboxEmpty:
       "The sandbox reviewer appears after the backtest so it can critique actual results instead of guessing.",
     trustScore: "Trust score:",
+    confidenceLevel: "Confidence:",
+    overfittingRisk: "Overfitting risk:",
+    overfittingRiskLabel: "Overfitting Risk",
     benchmarkConcerns: "Benchmark Concerns",
     regimeDependence: "Regime Dependence",
     sensitivityConcerns: "Sensitivity Concerns",
     transactionCostConcerns: "Transaction Cost Concerns",
     sampleSizeConcerns: "Sample Size Concerns",
-    robustnessTests: "Required Robustness Tests",
-    suggestedNextTests: "Suggested Next Tests",
+    dataQualityConcerns: "Data Quality Concerns",
+    reasonsToTrust: "Reasons to Trust",
+    reasonsToDistrust: "Reasons to Distrust",
+    robustnessTests: "Required Next Tests",
+    suggestedNextTests: "Suggested Experiments",
 
     // Explanation sections
     strengths: "Strengths",
@@ -296,13 +304,19 @@ const translations: Record<Locale, Translations> = {
     // Sandbox tab
     sandboxEmpty: "沙盒评审员将在回测完成后对实际结果进行评估，而非凭空猜测。",
     trustScore: "信任评分：",
+    confidenceLevel: "置信度：",
+    overfittingRisk: "过拟合风险：",
+    overfittingRiskLabel: "过拟合风险",
     benchmarkConcerns: "基准问题",
     regimeDependence: "市场环境依赖",
     sensitivityConcerns: "参数敏感性问题",
     transactionCostConcerns: "交易成本问题",
     sampleSizeConcerns: "样本量问题",
-    robustnessTests: "需要的稳健性测试",
-    suggestedNextTests: "建议后续测试",
+    dataQualityConcerns: "数据质量问题",
+    reasonsToTrust: "可信理由",
+    reasonsToDistrust: "存疑理由",
+    robustnessTests: "必要后续测试",
+    suggestedNextTests: "建议实验方向",
 
     // Explanation sections
     strengths: "优势",

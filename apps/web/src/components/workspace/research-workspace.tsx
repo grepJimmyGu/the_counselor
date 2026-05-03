@@ -123,16 +123,24 @@ export function ResearchWorkspace() {
       ]
     : [];
 
-  const sandboxSections: { title: string; items: string[] }[] = sandboxReview
+  const sandboxConcernSections: { title: string; items: string[] }[] = sandboxReview
     ? [
+        { title: t.reasonsToTrust, items: sandboxReview.main_reasons_to_trust },
+        { title: t.reasonsToDistrust, items: sandboxReview.main_reasons_to_distrust },
         { title: t.benchmarkConcerns, items: sandboxReview.benchmark_concerns },
         { title: t.regimeDependence, items: sandboxReview.regime_dependence_concerns },
         { title: t.sensitivityConcerns, items: sandboxReview.parameter_sensitivity_concerns },
         { title: t.transactionCostConcerns, items: sandboxReview.transaction_cost_concerns },
         { title: t.sampleSizeConcerns, items: sandboxReview.sample_size_concerns },
+        { title: t.dataQualityConcerns, items: sandboxReview.data_quality_concerns },
+      ].filter(s => s.items?.length > 0)
+    : [];
+
+  const sandboxNextSteps: { title: string; items: string[] }[] = sandboxReview
+    ? [
         { title: t.robustnessTests, items: sandboxReview.required_next_tests },
         { title: t.suggestedNextTests, items: sandboxReview.suggested_next_experiments },
-      ]
+      ].filter(s => s.items?.length > 0)
     : [];
 
   async function handleInterpretStrategy(nextPrompt?: string) {
@@ -721,10 +729,18 @@ export function ResearchWorkspace() {
                 <TabsContent value="sandbox" className="space-y-4">
                   {sandboxReview ? (
                     <>
+                      {/* Verdict header */}
                       <section className="rounded-lg border border-border bg-background p-4">
-                        <div className="flex flex-wrap items-center gap-3">
-                          <Badge className="bg-primary/15 text-primary hover:bg-primary/15">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Badge className="bg-primary/15 text-primary hover:bg-primary/15 capitalize">
                             {sandboxReview.review_verdict}
+                          </Badge>
+                          <Badge variant={
+                            sandboxReview.overfitting_risk === "high" ? "destructive"
+                            : sandboxReview.overfitting_risk === "medium" ? "outline"
+                            : "outline"
+                          } className={sandboxReview.overfitting_risk === "medium" ? "border-yellow-500/50 text-yellow-400" : ""}>
+                            {t.overfittingRiskLabel}: {sandboxReview.overfitting_risk}
                           </Badge>
                           <div className="text-sm text-muted-foreground">
                             {t.trustScore}{" "}
@@ -732,24 +748,49 @@ export function ResearchWorkspace() {
                               {sandboxReview.trust_score}/100
                             </span>
                           </div>
+                          <div className="text-sm text-muted-foreground">
+                            {t.confidenceLevel}{" "}
+                            <span className="font-semibold text-foreground">
+                              {sandboxReview.confidence_level}
+                            </span>
+                          </div>
                         </div>
                         <p className="mt-4 text-sm leading-6 text-muted-foreground">
                           {sandboxReview.overfitting_risk_explanation}
                         </p>
                       </section>
+
+                      {/* Trust / distrust + all concerns */}
                       <div className="grid gap-4 lg:grid-cols-2">
-                        {sandboxSections.map(({ title, items }) => (
+                        {sandboxConcernSections.map(({ title, items }) => (
                           <section key={title} className="rounded-lg border border-border bg-background p-4">
                             <h3 className="text-sm font-medium">{title}</h3>
                             <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-                              {(items as string[]).map((item) => (
+                              {items.map((item) => (
                                 <li key={item}>• {item}</li>
                               ))}
                             </ul>
                           </section>
                         ))}
                       </div>
-                      <p className="text-sm text-rose-200">{sandboxReview.final_warning}</p>
+
+                      {/* Next steps */}
+                      {sandboxNextSteps.length > 0 && (
+                        <div className="grid gap-4 lg:grid-cols-2">
+                          {sandboxNextSteps.map(({ title, items }) => (
+                            <section key={title} className="rounded-lg border border-border bg-background p-4">
+                              <h3 className="text-sm font-medium">{title}</h3>
+                              <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
+                                {items.map((item) => (
+                                  <li key={item}>• {item}</li>
+                                ))}
+                              </ul>
+                            </section>
+                          ))}
+                        </div>
+                      )}
+
+                      <p className="text-sm text-rose-300">{sandboxReview.final_warning}</p>
                     </>
                   ) : (
                     <div className="rounded-lg border border-dashed border-border p-8 text-sm text-muted-foreground">
