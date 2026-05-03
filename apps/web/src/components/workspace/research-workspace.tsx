@@ -146,6 +146,16 @@ export function ResearchWorkspace() {
       ].filter(s => s.items?.length > 0)
     : [];
 
+  function fetchQualityForSymbols(symbols: string[]) {
+    symbols.forEach((sym) => {
+      if (!qualityReports[sym]) {
+        getDataQuality(sym)
+          .then((r) => setQualityReports((prev) => ({ ...prev, [sym]: r })))
+          .catch(() => {});
+      }
+    });
+  }
+
   async function handleInterpretStrategy(nextPrompt?: string) {
     const activePrompt = nextPrompt ?? prompt;
     setIsParsing(true);
@@ -156,6 +166,7 @@ export function ResearchWorkspace() {
       const parsed = await parseStrategy(activePrompt, strategy, backtestResult?.backtest_id ?? null, locale);
       setChat((current) => [...current, { role: "assistant", content: parsed.assistant_message }]);
       setStrategy(parsed.strategy_json);
+      if (parsed.strategy_json) fetchQualityForSymbols(parsed.strategy_json.universe);
       setMarkdownParseResult(null);
       setValidationIssues(parsed.missing_fields);
       setClarifications(parsed.clarification_questions);
@@ -174,6 +185,7 @@ export function ResearchWorkspace() {
       const parsed = await parseStrategyMarkdown(strategyDoc, strategyDocName, locale);
       setMarkdownParseResult(parsed);
       setStrategy(parsed.strategy_json);
+      if (parsed.strategy_json) fetchQualityForSymbols(parsed.strategy_json.universe);
       setValidationIssues(parsed.missing_fields);
       setClarifications(parsed.clarification_questions);
       setChat((current) => [
@@ -220,16 +232,7 @@ export function ResearchWorkspace() {
 
   function updateStrategyField<K extends keyof StrategyJson>(key: K, value: StrategyJson[K]) {
     setStrategy((current) => (current ? { ...current, [key]: value } : current));
-    if (key === "universe") {
-      const symbols = value as string[];
-      symbols.forEach((sym) => {
-        if (!qualityReports[sym]) {
-          getDataQuality(sym).then((r) =>
-            setQualityReports((prev) => ({ ...prev, [sym]: r }))
-          ).catch(() => {});
-        }
-      });
-    }
+    if (key === "universe") fetchQualityForSymbols(value as string[]);
   }
 
   return (
