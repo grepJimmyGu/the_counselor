@@ -96,6 +96,7 @@ export async function reviewSandbox(
   backtestResult: BacktestResult,
   priorIterations: string[] = [],
   locale = "en",
+  iterationCount = 1,
 ) {
   return fetchApi<SandboxReviewResponse>("/api/review/sandbox", {
     method: "POST",
@@ -103,6 +104,7 @@ export async function reviewSandbox(
       strategy_json: strategyJson,
       backtest_result: backtestResult,
       prior_iterations: priorIterations,
+      iteration_count: iterationCount,
       locale,
     }),
   });

@@ -107,6 +107,7 @@ export function ResearchWorkspace() {
   const [isParsing, setIsParsing] = useState(false);
   const [isParsingMarkdown, setIsParsingMarkdown] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
+  const [iterationCount, setIterationCount] = useState(0);
 
   const comparisonRows = useMemo(
     () => buildComparison(backtestResult, previousResult, { totalReturn: t.totalReturn, sharpe: t.sharpe, maxDrawdown: t.maxDrawdown, trades: t.trades }),
@@ -189,11 +190,13 @@ export function ResearchWorkspace() {
     setErrorMessage(null);
     try {
       setPreviousResult(backtestResult);
+      const nextIteration = iterationCount + 1;
+      setIterationCount(nextIteration);
       const result = await runBacktest(strategy);
       setBacktestResult(result);
       const [explainerPayload, reviewerPayload] = await Promise.all([
         explainStrategy(strategy, result, locale),
-        reviewSandbox(strategy, result, previousResult ? [previousResult.backtest_id] : [], locale),
+        reviewSandbox(strategy, result, previousResult ? [previousResult.backtest_id] : [], locale, nextIteration),
       ]);
       setExplanation(explainerPayload);
       setSandboxReview(reviewerPayload);

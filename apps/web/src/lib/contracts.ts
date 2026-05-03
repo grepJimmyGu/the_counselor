@@ -143,6 +143,7 @@ export interface BacktestResult {
   annual_returns: { year: number; return_pct: number }[];
   monthly_returns: { year: number; month: number; return_pct: number }[];
   warnings: string[];
+  created_at?: string | null;
 }
 
 export interface ExplanationResponse {
