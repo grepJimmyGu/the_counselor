@@ -125,12 +125,12 @@ export function ResearchWorkspace() {
   const sandboxSections: { title: string; items: string[] }[] = sandboxReview
     ? [
         { title: t.benchmarkConcerns, items: sandboxReview.benchmark_concerns },
-        { title: t.regimeDependence, items: sandboxReview.regime_dependence },
+        { title: t.regimeDependence, items: sandboxReview.regime_dependence_concerns },
         { title: t.sensitivityConcerns, items: sandboxReview.parameter_sensitivity_concerns },
         { title: t.transactionCostConcerns, items: sandboxReview.transaction_cost_concerns },
         { title: t.sampleSizeConcerns, items: sandboxReview.sample_size_concerns },
-        { title: t.robustnessTests, items: sandboxReview.robustness_tests },
-        { title: t.suggestedNextTests, items: sandboxReview.suggested_next_tests },
+        { title: t.robustnessTests, items: sandboxReview.required_next_tests },
+        { title: t.suggestedNextTests, items: sandboxReview.suggested_next_experiments },
       ]
     : [];
 
@@ -731,7 +731,7 @@ export function ResearchWorkspace() {
                           </div>
                         </div>
                         <p className="mt-4 text-sm leading-6 text-muted-foreground">
-                          {sandboxReview.overfitting_risk}
+                          {sandboxReview.overfitting_risk_explanation}
                         </p>
                       </section>
                       <div className="grid gap-4 lg:grid-cols-2">

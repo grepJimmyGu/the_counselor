@@ -109,6 +109,16 @@ export interface BacktestMetrics {
   beta_vs_benchmark: number;
   turnover: number;
   time_in_market: number;
+  // Extended trade diagnostics
+  profit_factor?: number | null;
+  avg_winner?: number | null;
+  avg_loser?: number | null;
+  median_trade_return?: number | null;
+  longest_winning_streak?: number | null;
+  longest_losing_streak?: number | null;
+  // Buy-and-hold comparison
+  buy_and_hold_return?: number | null;
+  buy_and_hold_annualized_return?: number | null;
 }
 
 export interface TradeLogItem {
@@ -127,6 +137,7 @@ export interface BacktestResult {
   metrics: BacktestMetrics;
   equity_curve: CurvePoint[];
   benchmark_curve: CurvePoint[];
+  buy_and_hold_curve: CurvePoint[];
   drawdown_curve: CurvePoint[];
   trade_log: TradeLogItem[];
   annual_returns: { year: number; return_pct: number }[];
@@ -147,14 +158,19 @@ export interface ExplanationResponse {
 export interface SandboxReviewResponse {
   review_verdict: "promising" | "mixed" | "skeptical" | "untrusted";
   trust_score: number;
-  overfitting_risk: string;
+  confidence_level: "low" | "medium" | "high";
+  overfitting_risk: "low" | "medium" | "high";
+  overfitting_risk_explanation: string;
   benchmark_concerns: string[];
-  regime_dependence: string[];
+  regime_dependence_concerns: string[];
   parameter_sensitivity_concerns: string[];
   transaction_cost_concerns: string[];
   sample_size_concerns: string[];
-  robustness_tests: string[];
-  suggested_next_tests: string[];
+  data_quality_concerns: string[];
+  main_reasons_to_trust: string[];
+  main_reasons_to_distrust: string[];
+  required_next_tests: string[];
+  suggested_next_experiments: string[];
   final_warning: string;
 }
 
