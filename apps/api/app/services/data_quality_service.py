@@ -89,7 +89,7 @@ class DataQualityService:
                 symbol=symbol,
                 status="blocked",
                 warnings=[],
-                blocking_errors=[f"No cached data found for {symbol}. Run a warmup or attempt a backtest to fetch it."],
+                blocking_errors=[f"No price data available for {symbol}. The ticker may be invalid or the data provider could not be reached."],
                 earliest_available_date=None,
                 latest_available_date=None,
                 row_count=0,
