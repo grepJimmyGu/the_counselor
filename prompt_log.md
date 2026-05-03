@@ -148,3 +148,48 @@ Discussed scope, flagged robustness engine latency (sync vs async decision), pus
 - Extended `SandboxReviewResponse`: `confidence_level`, `overfitting_risk` (enum low/medium/high), `data_quality_concerns`, `main_reasons_to_trust`, `main_reasons_to_distrust`, `required_next_tests`, `suggested_next_experiments`
 - `iteration_count` added to `SandboxReviewRequest` — frontend passes this; LLM explicitly warns on high iteration counts (selection bias)
 - System prompt rewritten: more skeptical, evidence-based, explicitly anti-promotional
+
+#### Smoke test + frontend fixes
+> "can we run a thorough smoke test to detect if there are any similar errors we need to fix?"
+
+Schema audit revealed: `iteration_count` never sent to sandbox reviewer, `created_at` missing from `BacktestResult` type, old sandbox field names still in `research-workspace.tsx`. All fixed. Live endpoints verified: health, symbol search, data quality, backtest, explain, sandbox, robustness run+poll all returning correct fields.
+
+#### Data quality UX fix
+> "for error like this: Data quality check failed: No cached data found for MUA..."
+
+Quality gate was blocking before any data fetch — confusing internal cache error exposed to users. Fixed: backtest route now auto-fetches uncached tickers before the quality gate runs. Gate only surfaces genuine data issues.
+
+#### Data quality badge fix
+> "Per-ticker quality badge + date range + first warning shown inline under ticker search in Strategy Preview, where I can see it"
+
+Quality fetch only triggered on manual universe edit, not on LLM parse. Extracted `fetchQualityForSymbols` helper, called after every strategy parse.
+
+---
+
+## 2026-05-03 (continued) — Areas 6–8
+
+### Areas 6-8 discussion
+> "let's move to 6-8"
+> "follow your recommendation for area 6-8, meanwhile, let's ensure we don't commit the mistakes we made before"
+
+Agreed on: single "Run All" robustness button, pre-seeded strategy JSON for demos (not fake state), tests focused on metrics/data quality/robustness service.
+
+#### Area 6 — Robustness Tab
+- All robustness types added to `contracts.ts` matching backend schemas exactly
+- `runRobustness()` and `getRobustnessJob()` added to `api.ts`
+- i18n strings for all labels in EN and ZH
+- Robustness tab: single "Run All" + optional peer tickers input
+- Polls every 2s until completed/failed; shows up to 5 result tables (empty hidden)
+- `VerdictBadge` color-coded: green=better/strong/robust, red=worse/weak/breaks_down
+
+#### Area 7 — Demo Workflows
+- 3 pre-seeded `StrategyJson` objects in `contracts.ts`: NVDA MA filter, QQQ RSI, mega-cap momentum rotation
+- Demo picker section above Chat Builder — click loads strategy + logs to chat + triggers quality fetch
+- Dates computed at runtime so they're always current
+
+#### Area 8 — Tests
+- `test_metrics.py`: extended with trade diagnostics + buy-and-hold coverage
+- `test_data_quality.py`: 7 tests covering all check paths via mocked DB
+- `test_robustness.py`: 6 tests verifying output shapes via mocked engine
+- Fixed `Mapped[str | None]` → `Mapped[Optional[str]]` in `robustness_job.py` for Python 3.9
+- 24/24 tests passing
