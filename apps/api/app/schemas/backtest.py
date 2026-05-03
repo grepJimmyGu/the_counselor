@@ -54,6 +54,16 @@ class BacktestMetrics(BaseModel):
     beta_vs_benchmark: float
     turnover: float
     time_in_market: float
+    # Extended trade diagnostics
+    profit_factor: Optional[float] = None
+    avg_winner: Optional[float] = None
+    avg_loser: Optional[float] = None
+    median_trade_return: Optional[float] = None
+    longest_winning_streak: Optional[int] = None
+    longest_losing_streak: Optional[int] = None
+    # Buy-and-hold comparison
+    buy_and_hold_return: Optional[float] = None
+    buy_and_hold_annualized_return: Optional[float] = None
 
 
 class BacktestRunRequest(BaseModel):
@@ -66,6 +76,7 @@ class BacktestResult(BaseModel):
     metrics: BacktestMetrics
     equity_curve: list[CurvePoint]
     benchmark_curve: list[CurvePoint]
+    buy_and_hold_curve: list[CurvePoint] = []
     drawdown_curve: list[CurvePoint]
     trade_log: list[TradeLogItem]
     annual_returns: list[AnnualReturnItem]

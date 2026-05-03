@@ -18,7 +18,7 @@ from app.schemas.backtest import (
     TradeLogItem,
 )
 from app.schemas.strategy import StrategyJSON
-from app.services.backtester.metrics import compute_drawdown, compute_metrics
+from app.services.backtester.metrics import compute_buy_and_hold, compute_drawdown, compute_metrics
 from app.services.market_data import MarketDataService
 from app.services.strategy_validator import validate_strategy
 
@@ -244,6 +244,17 @@ class BacktestEngine:
         trade_returns = [trade.return_pct for trade in trade_log]
         holding_periods = [trade.holding_period_days for trade in trade_log]
 
+        # Buy-and-hold for the primary universe ticker (single-asset strategies)
+        bah_curve: pd.Series | None = None
+        bah_metrics: dict = {}
+        if len(strategy.universe) == 1:
+            primary = strategy.universe[0]
+            if primary in close_matrix.columns:
+                primary_prices = close_matrix[primary]
+                bah_returns = primary_prices.pct_change().fillna(0.0)
+                bah_curve = strategy.initial_capital * (1.0 + bah_returns).cumprod()
+                bah_metrics = compute_buy_and_hold(primary_prices, strategy.initial_capital, len(primary_prices))
+
         metrics = BacktestMetrics(
             **compute_metrics(
                 portfolio_returns=portfolio_returns,
@@ -252,7 +263,8 @@ class BacktestEngine:
                 holding_periods=holding_periods,
                 turnover_series=turnover,
                 time_in_market_series=(weights.sum(axis=1) > 0).astype(float),
-            )
+            ),
+            **bah_metrics,
         )
 
         annual_returns = (
@@ -268,6 +280,10 @@ class BacktestEngine:
             metrics=metrics,
             equity_curve=[CurvePoint(date=dt.date(), value=float(value)) for dt, value in equity_curve.items()],
             benchmark_curve=[CurvePoint(date=dt.date(), value=float(value)) for dt, value in benchmark_curve.items()],
+            buy_and_hold_curve=(
+                [CurvePoint(date=dt.date(), value=float(v)) for dt, v in bah_curve.items()]
+                if bah_curve is not None else []
+            ),
             drawdown_curve=[CurvePoint(date=dt.date(), value=float(value)) for dt, value in drawdown_curve.items()],
             trade_log=trade_log,
             annual_returns=[

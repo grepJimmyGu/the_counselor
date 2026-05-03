@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.schemas.data_quality import DataQualityReport
 from app.schemas.market_data import (
     DataStatusResponse,
     PriceBarResponse,
@@ -75,3 +76,11 @@ async def get_data_status(
     db: Session = Depends(get_db),
 ) -> DataStatusResponse:
     return await price_data_service.get_status(db, symbol.upper())
+
+
+@router.get("/data/quality/{symbol}", response_model=DataQualityReport)
+async def get_data_quality(
+    symbol: str,
+    db: Session = Depends(get_db),
+) -> DataQualityReport:
+    return data_quality_service.check_symbol(db, symbol.upper())

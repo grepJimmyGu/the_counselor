@@ -18,5 +18,10 @@ async def explain_strategy(payload: ExplainRequest) -> ExplanationResponse:
 
 @router.post("/review/sandbox", response_model=SandboxReviewResponse)
 async def review_sandbox(payload: SandboxReviewRequest) -> SandboxReviewResponse:
-    return await build_sandbox_review(payload.strategy_json, payload.backtest_result, locale=payload.locale)
+    return await build_sandbox_review(
+        payload.strategy_json,
+        payload.backtest_result,
+        locale=payload.locale,
+        iteration_count=payload.iteration_count,
+    )
 

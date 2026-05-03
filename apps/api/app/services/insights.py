@@ -19,15 +19,26 @@ _EXPLANATION_SYSTEM_PROMPT = (
 
 _REVIEW_SYSTEM_PROMPT = (
     "You are the independent sandbox reviewer for a quantitative research app. "
-    "Be skeptical, benchmark-aware, and explicit about overfitting and robustness risk. "
-    "Do not assume positive returns imply trustworthiness. "
+    "You are skeptical, evidence-based, and completely independent from the strategy builder. "
+    "You must never be promotional or assume positive returns imply a durable edge. "
+    "Your job is to protect the user from overconfidence, not to validate their work. "
     "Return a JSON object with exactly these keys: "
     "review_verdict (one of: promising, mixed, skeptical, untrusted), "
-    "trust_score (int 0-100), overfitting_risk (str), "
-    "benchmark_concerns (list[str]), regime_dependence (list[str]), "
-    "parameter_sensitivity_concerns (list[str]), transaction_cost_concerns (list[str]), "
-    "sample_size_concerns (list[str]), robustness_tests (list[str]), "
-    "suggested_next_tests (list[str]), final_warning (str)."
+    "trust_score (int 0-100, where 50 is neutral), "
+    "confidence_level (one of: low, medium, high — reflecting how much data supports any conclusion), "
+    "overfitting_risk (one of: low, medium, high), "
+    "overfitting_risk_explanation (str — specific reasons, not generic warnings), "
+    "benchmark_concerns (list[str]), "
+    "regime_dependence_concerns (list[str]), "
+    "parameter_sensitivity_concerns (list[str]), "
+    "transaction_cost_concerns (list[str]), "
+    "sample_size_concerns (list[str]), "
+    "data_quality_concerns (list[str]), "
+    "main_reasons_to_trust (list[str] — genuine evidence, not wishful thinking), "
+    "main_reasons_to_distrust (list[str] — specific, not generic), "
+    "required_next_tests (list[str] — concrete and actionable), "
+    "suggested_next_experiments (list[str] — specific parameter or universe changes), "
+    "final_warning (str — one honest sentence about the biggest risk)."
 )
 
 
@@ -39,12 +50,26 @@ def _explanation_user_prompt(strategy: StrategyJSON, result: BacktestResult) -> 
     )
 
 
-def _review_user_prompt(strategy: StrategyJSON, result: BacktestResult) -> str:
+def _review_user_prompt(
+    strategy: StrategyJSON, result: BacktestResult, iteration_count: int
+) -> str:
+    iteration_note = (
+        f"\nIMPORTANT: The user has run {iteration_count} iteration(s) of this strategy. "
+        "If iteration_count > 3, explicitly warn about selection bias — they may be "
+        "cherry-picking the best-performing version from multiple trials."
+        if iteration_count > 1
+        else ""
+    )
     return (
         f"Strategy JSON:\n{strategy.model_dump_json(indent=2)}\n\n"
         f"Backtest result:\n{result.model_dump_json(indent=2)}\n\n"
-        "Critique the result as an independent reviewer."
+        f"Iteration count: {iteration_count}{iteration_note}\n\n"
+        "Critique the result as an independent, skeptical reviewer."
     )
+
+
+def _locale_instruction(locale: str) -> str:
+    return " Respond in Simplified Chinese (中文)." if locale == "zh" else ""
 
 
 def build_explanation_fallback(
@@ -75,9 +100,7 @@ def build_explanation_fallback(
         weaknesses=weaknesses or ["The result still needs broader robustness testing before it deserves much trust."],
         market_regime_notes=[
             "Trend-following strategies often shine in persistent uptrends and lag in choppy sideways markets.",
-            "Mean-reversion strategies can deteriorate quickly when volatility regimes shift."
-            if strategy.strategy_type == "rsi_mean_reversion"
-            else "A single backtest window cannot guarantee regime robustness.",
+            "A single backtest window cannot guarantee regime robustness.",
         ],
         suggested_iterations=[
             "Try a different but related benchmark and compare excess return stability.",
@@ -89,71 +112,95 @@ def build_explanation_fallback(
 
 
 def build_sandbox_review_fallback(
-    strategy: StrategyJSON, backtest_result: BacktestResult
+    strategy: StrategyJSON, backtest_result: BacktestResult, iteration_count: int = 1
 ) -> SandboxReviewResponse:
     metrics = backtest_result.metrics
-    trust_score = 55
-    concerns: list[str] = []
+    trust_score = 50
+    sample_concerns: list[str] = []
+
     if metrics.excess_return_vs_benchmark <= 0:
         trust_score -= 20
-        concerns.append("The strategy did not beat the benchmark after the tested assumptions.")
+        sample_concerns.append("The strategy did not beat the benchmark after tested assumptions.")
     if metrics.number_of_trades < 12:
         trust_score -= 10
-        concerns.append("The strategy has too few completed trades to estimate edge reliably.")
+        sample_concerns.append("Too few completed trades to estimate edge reliably.")
     if metrics.max_drawdown < -0.35:
         trust_score -= 10
-        concerns.append("Max drawdown is severe relative to the claimed edge.")
+        sample_concerns.append("Max drawdown is severe relative to the claimed edge.")
     if strategy.transaction_cost_bps + strategy.slippage_bps < 5:
         trust_score -= 5
-        concerns.append("Execution frictions may still be understated.")
+        sample_concerns.append("Execution frictions may still be understated.")
+    if iteration_count > 3:
+        trust_score -= 10
+        sample_concerns.append(
+            f"The user has run {iteration_count} iterations — selection bias risk is elevated."
+        )
 
-    if trust_score >= 70:
-        verdict = "promising"
-    elif trust_score < 25:
-        verdict = "untrusted"
-    elif trust_score < 40:
-        verdict = "skeptical"
-    else:
-        verdict = "mixed"
+    trust_score = max(min(trust_score, 100), 0)
+    verdict = (
+        "promising" if trust_score >= 65
+        else "untrusted" if trust_score < 25
+        else "skeptical" if trust_score < 40
+        else "mixed"
+    )
+    overfitting_risk = (
+        "high" if iteration_count > 5
+        else "medium" if iteration_count > 2
+        else "low"
+    )
+    confidence_level = (
+        "high" if metrics.number_of_trades >= 30
+        else "medium" if metrics.number_of_trades >= 10
+        else "low"
+    )
 
     return SandboxReviewResponse(
-        review_verdict=verdict,
-        trust_score=max(min(trust_score, 100), 0),
-        overfitting_risk="Moderate. Re-running similar ideas and keeping only winners can create false confidence quickly.",
+        review_verdict=verdict,  # type: ignore[arg-type]
+        trust_score=trust_score,
+        confidence_level=confidence_level,  # type: ignore[arg-type]
+        overfitting_risk=overfitting_risk,  # type: ignore[arg-type]
+        overfitting_risk_explanation=(
+            f"With {iteration_count} iteration(s), the risk of selecting the best-performing "
+            "parameter set from a random walk is non-trivial. Run a parameter sensitivity sweep."
+        ),
         benchmark_concerns=[
-            "Check whether buy-and-hold of the traded asset or SPY already delivered most of the return.",
-            "Compare against a simple moving-average or equal-weight baseline, not only the chosen benchmark.",
+            "Verify buy-and-hold of the traded asset didn't already capture most of the return.",
+            "Compare against a simple benchmark overlay, not only the chosen benchmark.",
         ],
-        regime_dependence=[
-            "Test subperiods such as pre-2020, 2020-2021, and 2022-2024 separately.",
+        regime_dependence_concerns=[
+            "Test subperiods separately to confirm the edge isn't concentrated in one regime.",
             "Confirm the result is not dominated by one exceptional rally or crash window.",
         ],
         parameter_sensitivity_concerns=[
-            "Bump each core parameter up and down by 10-20% and see whether the edge survives.",
-            "If a tiny change flips the result from strong to weak, the strategy is fragile.",
+            "Bump each core parameter ±10–20% and see whether the edge survives.",
+            "If a small change flips the result, the strategy is fragile.",
         ],
         transaction_cost_concerns=[
-            "Increase slippage and transaction costs to stress more realistic execution.",
-            "High-turnover strategies deserve harsher cost assumptions than low-turnover trend filters.",
+            "Stress test with 25 and 50 bps to simulate realistic execution.",
+            "High-turnover strategies deserve harsher cost assumptions.",
         ],
-        sample_size_concerns=concerns or ["The sample is acceptable for an MVP backtest, but not enough for production confidence."],
-        robustness_tests=[
-            "Walk-forward test on a later holdout period.",
-            "Neighbor-parameter sensitivity sweep.",
-            "Cross-symbol validation on similar tickers or sector ETFs.",
-            "Cost stress test with doubled slippage assumptions.",
+        sample_size_concerns=sample_concerns or ["Sample is borderline — more trades would improve confidence."],
+        data_quality_concerns=[
+            "Verify adjusted close prices account for dividends and splits correctly.",
         ],
-        suggested_next_tests=[
-            "Run the same logic on adjacent symbols and compare stability.",
-            "Shorten and lengthen the test window to measure regime dependence.",
-            "Compare against buy-and-hold and a plain benchmark overlay.",
+        main_reasons_to_trust=[
+            "Rules are deterministic and fully specified — no discretion.",
+        ] + (["Strategy beat its benchmark."] if metrics.excess_return_vs_benchmark > 0 else []),
+        main_reasons_to_distrust=[
+            "Single backtest window, no out-of-sample validation.",
+        ] + (["Did not beat benchmark."] if metrics.excess_return_vs_benchmark <= 0 else []),
+        required_next_tests=[
+            "Walk-forward test on a holdout period not used in development.",
+            "Parameter sensitivity sweep across at least 6 nearby values.",
+            "Sub-period analysis: first half vs second half of backtest window.",
+        ],
+        suggested_next_experiments=[
+            "Test on 2–3 peer tickers using identical rules.",
+            "Stress test with 25 bps and 50 bps transaction costs.",
+            "Compare against buy-and-hold of the same ticker.",
         ],
         final_warning="A profitable backtest is not evidence of a durable edge until it survives benchmark, regime, and sensitivity checks.",
     )
-
-
-def _locale_instruction(locale: str) -> str:
-    return " Respond in Simplified Chinese (中文)." if locale == "zh" else ""
 
 
 async def build_explanation(
@@ -176,19 +223,22 @@ async def build_explanation(
 
 
 async def build_sandbox_review(
-    strategy: StrategyJSON, backtest_result: BacktestResult, locale: str = "en"
+    strategy: StrategyJSON,
+    backtest_result: BacktestResult,
+    locale: str = "en",
+    iteration_count: int = 1,
 ) -> SandboxReviewResponse:
     gateway = get_llm_gateway()
     if not gateway.is_enabled:
-        return build_sandbox_review_fallback(strategy, backtest_result)
+        return build_sandbox_review_fallback(strategy, backtest_result, iteration_count)
 
     try:
         return await gateway.generate_structured(
             model=get_settings().llm_model,
             system_prompt=_REVIEW_SYSTEM_PROMPT + _locale_instruction(locale),
-            user_prompt=_review_user_prompt(strategy, backtest_result),
+            user_prompt=_review_user_prompt(strategy, backtest_result, iteration_count),
             response_model=SandboxReviewResponse,
             temperature=0.2,
         )
     except LLMAdapterError:
-        return build_sandbox_review_fallback(strategy, backtest_result)
+        return build_sandbox_review_fallback(strategy, backtest_result, iteration_count)
