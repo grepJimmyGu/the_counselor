@@ -8,6 +8,41 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-05-03 — MVP Optimization (Areas 1–4)
+
+### New API Routes
+```
+GET  /api/data/quality/{symbol}     — DataQualityReport for a ticker
+POST /api/robustness/run            — Launch async robustness job (202 + run_id)
+GET  /api/robustness/{run_id}       — Poll robustness job status + results
+```
+
+### New / Changed Schemas
+| Schema | Change |
+|---|---|
+| `DataQualityReport` | New — status, warnings, blocking_errors, coverage metrics |
+| `BacktestQualityGate` | New — aggregated quality across universe + benchmark |
+| `BacktestMetrics` | Added: profit_factor, avg_winner, avg_loser, median_trade_return, streaks, buy_and_hold_return |
+| `BacktestResult` | Added: buy_and_hold_curve |
+| `SandboxReviewResponse` | Added: confidence_level, overfitting_risk (enum), data_quality_concerns, main_reasons_to_trust/distrust, required_next_tests, suggested_next_experiments |
+| `SandboxReviewRequest` | Added: iteration_count |
+| `RobustnessRunRequest` | New |
+| `RobustnessJobResponse` | New |
+
+### New Services / Models
+| File | Purpose |
+|---|---|
+| `app/models/robustness_job.py` | SQLAlchemy model for async job state |
+| `app/services/robustness_service.py` | 5 robustness tests: parameter sensitivity, sub-period, transaction cost, benchmark comparison, peer ticker |
+| `app/api/routes/robustness.py` | POST /run (202 + BackgroundTasks) and GET /{run_id} |
+
+### Architecture Decisions
+- **Robustness: async** — POST returns `run_id` immediately; FastAPI BackgroundTasks executes tests; frontend polls GET endpoint
+- **Anti-overfitting memory** — no auth/user concept → frontend passes `iteration_count` to sandbox reviewer; LLM warns on count > 3
+- **Data quality gate** — runs on cached data only (no extra API calls); blocks if any ticker has blocking errors; attaches warnings to BacktestResult
+
+---
+
 ## 2026-04-30 — MVP Deployed
 
 ### Infrastructure

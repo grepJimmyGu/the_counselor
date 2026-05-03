@@ -113,3 +113,38 @@ Local repo config was overriding global. Ran `git config --unset user.name` to c
 Tested `600519.SHH` (Kweichow Moutai) — works. Shanghai uses `.SHH` suffix, Shenzhen uses `.SHZ`. Added: (1) auto-benchmark switch to `510300.SHH` (CSI 300 ETF) for A-share universes; (2) Chinese indicator keywords in LLM prompt; (3) Moutai demo prompt in both EN/ZH.
 
 Fixed A-share volume overflow: `price_bars.volume` `INTEGER` → `BIGINT` via idempotent startup migration. Fixed benchmark: `000300.SHH` (raw index, not fetchable) → `510300.SHH` (ETF).
+
+---
+
+## 2026-05-03
+
+### MVP Optimization — Areas 1–4
+
+> [Full optimization spec with 7 focus areas submitted]
+> "let's start with 1-4 and treat 5-7 as follow up"
+> "async" (for robustness engine)
+
+Discussed scope, flagged robustness engine latency (sync vs async decision), pushed back on anti-overfitting memory (no auth → simplified to iteration_count passed from frontend). Agreed on implementation order 1→4.
+
+#### Area 1 — Data Quality
+- Extended `DataQualityService` with full quality checks: insufficient history (<30 rows), staleness (>7 days), adjusted_close coverage (<95% → blocked), volume coverage (<90% → warning), suspicious price jumps (>50% single-day), lookback window validation, benchmark-starts-later check
+- New `DataQualityReport` and `BacktestQualityGate` schemas
+- `GET /api/data/quality/{symbol}` endpoint added
+- Backtest route now runs quality gate before every run: blocks on errors, attaches warnings to result
+
+#### Area 2 — Backtest Credibility
+- Buy-and-hold curve computed for primary ticker (single-asset strategies) and included in `BacktestResult`
+- Extended `BacktestMetrics`: `profit_factor`, `avg_winner`, `avg_loser`, `median_trade_return`, `longest_winning_streak`, `longest_losing_streak`
+- `BacktestResult.buy_and_hold_curve` added
+
+#### Area 3 — Async Robustness Engine
+- `RobustnessJob` DB model with status (pending/running/completed/failed)
+- `RobustnessService` with 5 tests: parameter sensitivity, sub-period, transaction cost, benchmark comparison, peer ticker
+- `POST /api/robustness/run` → 202 + `run_id` (FastAPI BackgroundTasks)
+- `GET /api/robustness/{run_id}` → poll for results
+- Auto summary generation highlighting concerns
+
+#### Area 4 — Sandbox Reviewer v2
+- Extended `SandboxReviewResponse`: `confidence_level`, `overfitting_risk` (enum low/medium/high), `data_quality_concerns`, `main_reasons_to_trust`, `main_reasons_to_distrust`, `required_next_tests`, `suggested_next_experiments`
+- `iteration_count` added to `SandboxReviewRequest` — frontend passes this; LLM explicitly warns on high iteration counts (selection bias)
+- System prompt rewritten: more skeptical, evidence-based, explicitly anti-promotional
