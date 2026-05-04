@@ -74,7 +74,7 @@ const translations: Record<Locale, Translations> = {
     chatBuilderTitle: "Chat Builder",
     strategyParser: "Strategy Parser",
     chatPlaceholder: "Describe a price-based strategy...",
-    chatSupported: "Supported: moving averages, crossover, momentum, RSI, breakout, static allocation",
+    chatSupported: "Supported: moving averages, crossover, momentum, RSI, breakout, static allocation, commodity trend & rotation",
     interpret: "Interpret",
     interpreting: "Interpreting",
     aiLabel: "AI Builder",
@@ -211,8 +211,8 @@ const translations: Record<Locale, Translations> = {
     // Demo prompts
     demoPrompts: [
       "Buy SPY when 50-day MA crosses above 200-day MA",
-      "Buy 600519.SHH when price is above 200-day moving average",
-      "Rotate into top 3 momentum stocks monthly from QQQ, IWM, EEM",
+      "Buy GLD when price is above its 200-day moving average",
+      "Rotate into top 2 commodities monthly from GLD, USO, UNG, DBA, SLV",
       "RSI mean reversion on AAPL: buy below 30, sell above 60",
     ],
 
@@ -256,7 +256,7 @@ const translations: Record<Locale, Translations> = {
     chatBuilderTitle: "策略构建器",
     strategyParser: "策略解析器",
     chatPlaceholder: "描述一个基于价格的投资规则...",
-    chatSupported: "支持：均线、交叉、动量、RSI、突破、静态配置",
+    chatSupported: "支持：均线、交叉、动量、RSI、突破、静态配置、大宗商品趋势与轮动",
     interpret: "解析",
     interpreting: "解析中",
     aiLabel: "AI 助手",
@@ -392,8 +392,8 @@ const translations: Record<Locale, Translations> = {
     // Demo prompts
     demoPrompts: [
       "当SPY的50日均线上穿200日均线时买入",
-      "当600519.SHH价格高于200日均线时买入",
-      "每月从QQQ、IWM、EEM中轮动买入动量最强的3只",
+      "当GLD价格高于200日均线时买入黄金ETF",
+      "每月从GLD、USO、UNG、DBA、SLV中轮动买入动量最强的2只",
       "AAPL的RSI均值回归：RSI低于30时买入，高于60时卖出",
     ],
 
