@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.api.routes.backtest import router as backtest_router
 from app.api.routes.insights import router as insights_router
 from app.api.routes.market_data import router as market_data_router
+from app.api.routes.qa import router as qa_router
 from app.api.routes.robustness import router as robustness_router
 from app.api.routes.strategy import router as strategy_router
 from app.core.config import get_settings
@@ -16,8 +17,8 @@ from app.models import BacktestRecord, DataFetchLog, PriceBar, SymbolCache  # no
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    run_startup_migrations(engine)   # ADD COLUMN IF NOT EXISTS on symbols
-    Base.metadata.create_all(bind=engine)  # creates new tables (data_fetch_logs, etc.)
+    Base.metadata.create_all(bind=engine)  # creates all tables first
+    run_startup_migrations(engine)          # then backfill/alter existing tables
     yield
 
 
@@ -36,6 +37,7 @@ app.include_router(backtest_router)
 app.include_router(insights_router)
 app.include_router(market_data_router)
 app.include_router(robustness_router)
+app.include_router(qa_router)
 
 
 @app.get("/health")
