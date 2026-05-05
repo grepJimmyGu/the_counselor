@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-import os
-from typing import Optional
-
+from app.core.config import get_settings
 from app.schemas.qa import QAIssue, QAIssueSeverity, QAReviewRequest, QAReviewResponse, ReleaseRecommendation
+from app.services.llm_adapter import LLMAdapterError, get_llm_gateway
 
 _QA_SYSTEM_PROMPT = """You are a senior QA engineer reviewing an investment analytics web application called Livermore (谋士).
 
@@ -82,7 +81,7 @@ def _fallback_response(reason: str) -> QAReviewResponse:
                 expected_behavior="Structured QA report returned",
                 actual_behavior=reason,
                 risk_to_user_trust="QA coverage gap — manual review required before release",
-                suggested_fix="Set ANTHROPIC_API_KEY in the environment and restart the backend",
+                suggested_fix="Set LLM_PROVIDER, LLM_API_KEY, LLM_BASE_URL, and LLM_MODEL in the .env file",
             )
         ],
         regression_test_checklist=[
@@ -92,36 +91,22 @@ def _fallback_response(reason: str) -> QAReviewResponse:
         ],
         release_recommendation=ReleaseRecommendation.SHIP_WITH_CAUTION,
         release_recommendation_rationale="Automated QA unavailable — manual sign-off required",
-        missing_evidence=["ANTHROPIC_API_KEY must be configured to enable automated QA"],
+        missing_evidence=["LLM must be configured to enable automated QA reviews"],
     )
 
 
 async def run_qa_review(req: QAReviewRequest) -> QAReviewResponse:
-    api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not api_key:
-        return _fallback_response("ANTHROPIC_API_KEY is not set")
+    gateway = get_llm_gateway()
+    if not gateway.is_enabled:
+        return _fallback_response("LLM is not configured (set LLM_PROVIDER, LLM_API_KEY, LLM_BASE_URL, LLM_MODEL)")
 
     try:
-        import anthropic
-    except ImportError:
-        return _fallback_response("anthropic package not installed — run: pip install anthropic")
-
-    client = anthropic.AsyncAnthropic(api_key=api_key)
-    try:
-        response = await client.messages.parse(
-            model="claude-opus-4-7",
-            max_tokens=8000,
-            thinking={"type": "adaptive"},
-            system=[
-                {
-                    "type": "text",
-                    "text": _QA_SYSTEM_PROMPT,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ],
-            messages=[{"role": "user", "content": _build_user_prompt(req)}],
-            output_format=QAReviewResponse,
+        return await gateway.generate_structured(
+            model=get_settings().llm_model,
+            system_prompt=_QA_SYSTEM_PROMPT,
+            user_prompt=_build_user_prompt(req),
+            response_model=QAReviewResponse,
+            temperature=0.2,
         )
-        return response.parsed_output
-    except Exception as exc:
+    except LLMAdapterError as exc:
         return _fallback_response(str(exc))
