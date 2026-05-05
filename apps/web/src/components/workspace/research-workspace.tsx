@@ -25,6 +25,7 @@ import {
   runRobustness,
 } from "@/lib/api";
 import {
+  commodityDemoStrategies,
   demoMarkdownStrategy,
   demoStrategies,
   type BacktestResult,
@@ -345,17 +346,37 @@ export function ResearchWorkspace() {
             <div className="text-sm font-medium">{t.demosTitle}</div>
             <p className="text-xs text-muted-foreground">{t.demosSubtitle}</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {demoStrategies.map((demo) => (
-              <button
-                key={demo.label}
-                type="button"
-                onClick={() => handleLoadDemo(demo)}
-                className="rounded-md border border-border bg-background px-3 py-2 text-left text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
-              >
-                {locale === "zh" ? demo.labelZh : demo.label}
-              </button>
-            ))}
+          <div className="space-y-3">
+            <div>
+              <div className="mb-2 text-xs text-muted-foreground uppercase tracking-wide">Equities</div>
+              <div className="flex flex-wrap gap-2">
+                {demoStrategies.map((demo) => (
+                  <button
+                    key={demo.label}
+                    type="button"
+                    onClick={() => handleLoadDemo(demo)}
+                    className="rounded-md border border-border bg-background px-3 py-2 text-left text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                  >
+                    {locale === "zh" ? demo.labelZh : demo.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="mb-2 text-xs text-muted-foreground uppercase tracking-wide">Commodities</div>
+              <div className="flex flex-wrap gap-2">
+                {commodityDemoStrategies.map((demo) => (
+                  <button
+                    key={demo.label}
+                    type="button"
+                    onClick={() => handleLoadDemo(demo)}
+                    className="rounded-md border border-border bg-background px-3 py-2 text-left text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                  >
+                    {locale === "zh" ? demo.labelZh : demo.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </section>
 
