@@ -54,6 +54,7 @@ class OpenAICompatibleProvider:
                 {"role": "user", "content": user_prompt},
             ],
             "temperature": temperature,
+            "response_format": {"type": "json_object"},
         }
 
         try:

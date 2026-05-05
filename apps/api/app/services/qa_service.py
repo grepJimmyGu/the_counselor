@@ -44,7 +44,29 @@ P2: Minor bug, edge case, copy issue, or polish issue that should be fixed but d
 - hold: Any unresolved P0, or multiple P1s that together damage trust
 - ship_with_caution: No P0s, but P1s exist with a clear mitigation plan
 
-Return a complete, structured review. Be specific — vague warnings are not useful."""
+Return a complete, structured review. Be specific — vague warnings are not useful.
+
+Return JSON only — no prose before or after. Use exactly this schema:
+{
+  "executive_verdict": "string — 2-3 sentence overall assessment",
+  "issues": [
+    {
+      "severity": "P0" | "P1" | "P2",
+      "title": "string",
+      "area": "string",
+      "is_confirmed": true | false,
+      "reproduction_steps": ["string", ...],
+      "expected_behavior": "string",
+      "actual_behavior": "string",
+      "risk_to_user_trust": "string",
+      "suggested_fix": "string"
+    }
+  ],
+  "regression_test_checklist": ["string", ...],
+  "release_recommendation": "ship" | "hold" | "ship_with_caution",
+  "release_recommendation_rationale": "string",
+  "missing_evidence": ["string", ...]
+}"""
 
 
 def _build_user_prompt(req: QAReviewRequest) -> str:
