@@ -8,12 +8,27 @@ from app.services.llm_adapter import LLMAdapterError, get_llm_gateway
 from app.services.strategy_parser import COMMODITY_TICKERS, _is_commodity_universe
 
 _EXPLANATION_SYSTEM_PROMPT = (
-    "You are the friendly strategy explainer for a quantitative research app. "
-    "Explain the backtest clearly without giving trading advice. "
-    "Use only the strategy JSON and backtest result provided. "
+    "You are the strategy explainer for a quantitative research app. "
+    "Your job is to give a thorough, honest, and educational analysis — not cheerleading. "
+    "Use only the strategy JSON and backtest result provided. Do not invent data. "
+    "\n\n"
+    "Cover all of the following in your response:\n"
+    "- strategy_summary: what the strategy does and what the backtest tested\n"
+    "- performance_explanation: how the numbers look in context — total return, "
+    "Sharpe, drawdown, win rate, and how they compare to the benchmark\n"
+    "- strengths: genuine evidence-based positives from the data (2–4 items)\n"
+    "- weaknesses: honest limitations including sample size, concentration risk, "
+    "regime dependency, and execution assumptions (2–4 items)\n"
+    "- market_regime_notes: specific market conditions that would help or hurt this "
+    "strategy — e.g. trending vs choppy, high vs low volatility, rate environment (2–3 items)\n"
+    "- suggested_iterations: concrete next tests the researcher should run — different "
+    "parameter values, date windows, universes, or cost assumptions (3–4 items)\n"
+    "- disclaimer: a clear, specific sentence on backtest limitations — data-snooping risk, "
+    "execution slippage in real markets, and that past performance does not predict future results\n"
+    "\n"
     "If the universe contains commodity ETFs (GLD, SLV, USO, UNG, DBA, DBC, etc.), "
-    "note that ETF prices do not capture roll yield, contango, or backwardation effects — "
-    "the backtest reflects ETF price return only, which may differ from spot commodity returns. "
+    "flag that ETF prices exclude roll yield and contango/backwardation — "
+    "the backtest reflects ETF price return only, which may understate or overstate real commodity exposure. "
     "Return a JSON object with exactly these keys: "
     "strategy_summary (str), performance_explanation (str), "
     "strengths (list[str]), weaknesses (list[str]), "
@@ -126,15 +141,25 @@ def build_explanation_fallback(
             f"The backtest returned {metrics.total_return:.1%} total return with "
             f"{metrics.max_drawdown:.1%} max drawdown and a Sharpe ratio of {metrics.sharpe_ratio:.2f}."
         ),
-        strengths=strengths or ["The rules are deterministic and easy to reason about."],
-        weaknesses=weaknesses or ["The result still needs broader robustness testing before it deserves much trust."],
+        strengths=strengths or ["The rules are deterministic and fully specified — no discretion or look-ahead."],
+        weaknesses=weaknesses or [
+            "Single backtest window — no out-of-sample validation.",
+            "Transaction costs and slippage are estimates; real execution may differ materially.",
+            "The result still needs parameter sensitivity and sub-period testing before it deserves trust.",
+        ],
         market_regime_notes=regime_notes,
         suggested_iterations=[
-            "Try a different but related benchmark and compare excess return stability.",
-            "Expand the universe or shift the date window to see whether the edge persists.",
-            "Stress test transaction costs and parameter changes before trusting the headline return.",
+            "Run the same rules on a different but overlapping date window to check consistency.",
+            "Bump transaction costs to 25 bps and 50 bps — if the edge disappears, it is fragile.",
+            "Test with a tighter parameter (e.g. shorter lookback) and a looser one to map sensitivity.",
+            "Compare against a simple buy-and-hold of the primary ticker to see if the timing adds value.",
         ],
-        disclaimer="This is educational research output, not trading advice or a live execution system.",
+        disclaimer=(
+            "Backtest results are hypothetical and subject to data-snooping bias, "
+            "optimistic transaction cost assumptions, and look-ahead risk. "
+            "Past performance does not predict future results. "
+            "This is educational research output, not financial advice or a live trading system."
+        ),
     )
 
 

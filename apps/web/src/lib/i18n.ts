@@ -56,6 +56,10 @@ export interface Translations {
   colTicker: string; colTurnoverImpact: string;
   // Demo picker
   demosTitle: string; demosSubtitle: string;
+  // Defaults callout
+  defaultsTitle: string; defaultsNote: string; defaultBenchmark: string; defaultDates: string; defaultCosts: string;
+  // Backtest disclaimer
+  backtestDisclaimer: string;
 }
 
 const translations: Record<Locale, Translations> = {
@@ -239,6 +243,17 @@ const translations: Record<Locale, Translations> = {
     // Demo picker
     demosTitle: "Demo Strategies",
     demosSubtitle: "Load a pre-built strategy to explore the full workflow.",
+
+    // Defaults callout
+    defaultsTitle: "Review before running",
+    defaultsNote: "Unspecified fields were filled with defaults. Confirm these match your intent.",
+    defaultBenchmark: "Benchmark",
+    defaultDates: "Date range",
+    defaultCosts: "Transaction cost / slippage",
+
+    // Backtest disclaimer
+    backtestDisclaimer:
+      "Backtest results are hypothetical. They assume perfect execution, no market impact, and historical data that may contain errors. Past performance does not predict future results. This tool is for research only — not financial advice.",
   },
 
   zh: {
@@ -420,6 +435,17 @@ const translations: Record<Locale, Translations> = {
     // Demo picker
     demosTitle: "演示策略",
     demosSubtitle: "加载预设策略，快速体验完整工作流程。",
+
+    // Defaults callout
+    defaultsTitle: "运行前请确认",
+    defaultsNote: "未指定的字段已填入默认值，请确认这些设置符合您的意图。",
+    defaultBenchmark: "基准",
+    defaultDates: "日期范围",
+    defaultCosts: "交易成本 / 滑点",
+
+    // Backtest disclaimer
+    backtestDisclaimer:
+      "回测结果为假设性数据，假设完美执行、无市场冲击，且历史数据可能存在误差。历史表现不代表未来结果。本工具仅供研究使用，不构成投资建议。",
   },
 };
 
