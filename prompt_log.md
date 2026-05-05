@@ -193,3 +193,58 @@ Agreed on: single "Run All" robustness button, pre-seeded strategy JSON for demo
 - `test_robustness.py`: 6 tests verifying output shapes via mocked engine
 - Fixed `Mapped[str | None]` → `Mapped[Optional[str]]` in `robustness_job.py` for Python 3.9
 - 24/24 tests passing
+
+---
+
+## 2026-05-04 — Commodity Trading + QA Agent
+
+### New feature branch
+> "now I want to create a new feature under new branch, for same purpose but focusing on commodity trading"
+> "go for it"
+
+Created `feature/commodity-trading`. Discussed scope: commodity ETFs via Alpha Vantage (GLD, USO, etc.) reusing existing backtest stack — no futures/roll yield modeling. Agreed on auto-benchmark (DBC), commodity name→ETF mappings, and 3 demo strategies.
+
+Implemented: `COMMODITY_TICKERS` set, `_is_commodity_universe()`, LLM prompt additions (commodity name→ETF + strategy type mappings), regex fallback updates, DBC auto-benchmark, commodity-specific notes in explanation/sandbox review, 3 `commodityDemoStrategies`, i18n updates EN+ZH. Fixed 4 pre-existing async/sync test failures. 44/44 tests passing.
+
+### Testing the commodity feature
+> "can I test the feature?"
+> "double check it, I don't think it does any of the above you said"
+
+Found `commodityDemoStrategies` was exported but never imported or rendered in `research-workspace.tsx`. Added import and a "Commodities" subsection in the demo picker alongside "Equities".
+
+Backend was still running old code — killed old PIDs, restarted uvicorn. Also fixed `main.py` startup migration ordering bug (migrations ran before `create_all`, crashing on fresh SQLite DB).
+
+Verified: `POST /api/chat/strategy` with GLD now returns `benchmark: "DBC"`.
+
+### API key issue
+> "Could not retrieve price data: GLD: No price data returned for GLD."
+
+Local `.env` had free-tier Alpha Vantage key. `TIME_SERIES_DAILY_ADJUSTED` is premium-only. User needed to add premium key from Railway — same situation as 2026-05-01 NVDA issue.
+
+### QA agent
+> "let's build a QA agent following QA review request: [full template]"
+
+Built `POST /api/qa/review` using existing LLM gateway + structured output. QA system prompt encodes the full review rules from the template (core flow first, backtest skepticism, confirmed vs hypothesis, evidence gaps). Frontend at `/qa` with form + structured report display (P0/P1/P2 issue cards, regression checklist, missing evidence).
+
+> "I don't have anthropic API"
+
+Replaced Anthropic SDK with `get_llm_gateway()` — same path as insights/strategy_parser. Removed `anthropic` from requirements.
+
+> "try this openAI key: sk-proj-..."
+
+Updated `apps/api/.env`. Key worked (no 401) but model returned prose-wrapped JSON on the complex QA schema. Fixed by adding `response_format: {type: json_object}` to all OpenAI requests in `llm_adapter.py` and embedding the explicit JSON schema in the QA system prompt.
+
+QA agent returned first real report: P0 (DBC benchmark auto-selected without notifying user), P1 (suspicious GLD metrics hypothesis), P2 (no premium key disclaimer). Recommendation: **Hold**.
+
+### Backtest credibility warnings
+> "The Sharpe ratio should be within a reasonable range (typically < 2)."
+
+Added `_credibility_warnings()` to `backtest.py` — checks Sharpe > 2, win rate > 80% (≥10 trades), total return > 100% on < 1 year window. Prepended to `result.warnings`. 8 new tests — 44/44 suite still passing.
+
+### Trust and transparency feedback
+> "1. Clear disclaimers... 2. All default settings clearly displayed... 3. AI explanation more thorough..."
+
+Three changes:
+1. Explanation LLM prompt rewritten to require thorough coverage: market regimes, specific risks, honest weaknesses, concrete next iterations, named disclaimer (data-snooping, execution assumptions)
+2. Strategy Preview: yellow "Review before running" callout shows benchmark, date range, and costs before first backtest
+3. Backtest tab: persistent disclaimer banner below results in EN + ZH
