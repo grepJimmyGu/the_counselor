@@ -108,6 +108,10 @@ _CHAT_PARSE_SYSTEM_PROMPT: str = (
     "commodity momentum / rotate commodities / commodity rotation / 大宗商品动量 → momentum_rotation (monthly rebalance); "
     "commodity seasonality / seasonal commodity / 季节性 → momentum_rotation (monthly rebalance, use total_return ranking); "
     "commodity carry / roll yield / spread → static_allocation. "
+    "For momentum_rotation strategies, always populate the rules array with exactly one rule: "
+    "{top_n: <number of assets to hold>, ranking_measure: 'total_return', ranking_lookback_days: <lookback in trading days>}. "
+    "Also set position_sizing.max_positions to the same value as top_n. "
+    "Example: 'top 2 by 3-month return' → rules=[{top_n:2, ranking_measure:'total_return', ranking_lookback_days:63}], max_positions=2. "
     "Map common index and asset class names to their ETF tickers: "
     "S&P 500 / SPX / large cap US → SPY; "
     "Nasdaq / Nasdaq 100 / QQQ / tech → QQQ; "
@@ -702,6 +706,25 @@ def _locale_instruction(locale: str) -> str:
     return " Respond in Simplified Chinese (中文)." if locale == "zh" else ""
 
 
+def _fix_momentum_rules(response: StrategyChatResponse, user_message: str) -> StrategyChatResponse:
+    """If the LLM returned a momentum_rotation strategy with no rules, fill them in."""
+    s = response.strategy_json
+    if not s or s.strategy_type != "momentum_rotation" or s.rules:
+        return response
+    lowered = user_message.lower()
+    top_n = _find_first_number(r"top\s+(\d+)", lowered) or min(3, len(s.universe))
+    lookback_months = _find_first_number(r"(\d+)[-\s]?month", lowered) or 6
+    s.rules = [
+        StrategyRule(
+            top_n=top_n,
+            ranking_measure="total_return",
+            ranking_lookback_days=lookback_months * 21,
+        )
+    ]
+    s.position_sizing.max_positions = top_n
+    return response
+
+
 async def parse_strategy_message(
     user_message: str,
     previous_strategy_json: Optional[StrategyJSON] = None,
@@ -713,13 +736,14 @@ async def parse_strategy_message(
 
     system_prompt = _CHAT_PARSE_SYSTEM_PROMPT + _locale_instruction(locale)
     try:
-        return await gateway.generate_structured(
+        result = await gateway.generate_structured(
             model=get_settings().llm_model,
             system_prompt=system_prompt,
             user_prompt=_chat_parse_user_prompt(user_message, previous_strategy_json),
             response_model=StrategyChatResponse,
             temperature=0.1,
         )
+        return _fix_momentum_rules(result, user_message)
     except LLMAdapterError:
         return parse_strategy_message_fallback(user_message, previous_strategy_json)
 
