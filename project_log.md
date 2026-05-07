@@ -8,6 +8,36 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-05-07 — Merge, Validation & Bug Fixes
+
+### Branch merge
+- `feature/commodity-trading` merged into `main` via no-ff merge commit (9 commits, 16 files, 1,135 insertions)
+- Pre-push validation: 51/51 tests, frontend build clean, backend smoke test, Python 3.9 compat check, Railway env var audit
+
+### Bugs found and fixed during validation
+
+#### Bug 1 — momentum_rotation LLM returns empty rules
+- **Symptom:** Parsing "rotate into top 2 commodities by 3-month return" produced `rules: []` and `max_positions: null`
+- **Root cause:** LLM system prompt described strategy type mapping but never told the model what to put in `rules[]` for momentum_rotation
+- **Fix 1:** Added explicit instruction + concrete example to `_CHAT_PARSE_SYSTEM_PROMPT`: "top 2 by 3-month → rules=[{top_n:2, ranking_measure:'total_return', ranking_lookback_days:63}]"
+- **Fix 2:** `_fix_momentum_rules()` post-processor in `parse_strategy_message()` — if LLM still returns empty rules for momentum_rotation, fills in top_n / ranking_lookback_days / max_positions from regex on the user message
+
+#### Bug 2 — multi-asset backtest crashes with shape mismatch
+- **Symptom:** `ValueError: Array conditional must be same shape as self` on any strategy with >1 ticker in the universe
+- **Root cause:** `engine.py` line 163 used `pd.DataFrame.where(numpy_col_vector[:, None])` — pandas `.where()` does not broadcast `(n, 1)` → `(n, k)` on multi-column DataFrames. Never hit before because all prior strategies were single-asset.
+- **Fix:** Replaced `weights.where(mask[:, None])` with direct row assignment `weights.loc[non_rebalance_dates] = np.nan` — no broadcasting needed
+
+### Test suite
+- Regression test added for multi-asset momentum_rotation weight generation
+- Suite: 52/52 passing (up from 51)
+
+### Verified end-to-end
+- Query: "Every month, rotate into the top 2 commodities by 3-month return from GLD, SLV, USO, UNG, DBA."
+- Parses correctly: strategy_type=momentum_rotation, universe=[GLD,SLV,USO,UNG,DBA], benchmark=DBC, top_n=2, ranking_lookback_days=63
+- Backtest result: 48.4% total return, Sharpe 1.29, max drawdown -30.9%, benchmark (DBC) 50.9%
+
+---
+
 ## 2026-05-04 — Commodity Trading + QA Agent (branch: `feature/commodity-trading`)
 
 ### Commodity Trading Support

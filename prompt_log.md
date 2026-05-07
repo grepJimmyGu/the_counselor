@@ -196,6 +196,51 @@ Agreed on: single "Run All" robustness button, pre-seeded strategy JSON for demo
 
 ---
 
+## 2026-05-07 — Merge, Push & Bug Fixes
+
+### Branch merge + push
+> "merge the feature branch into main"
+> "are these pushed to railway and vercel?"
+> "before push it we need to confirm it's not going to crash and fix any potential bugs"
+
+Pre-push checklist: 51/51 tests, frontend build, backend smoke test, Python 3.9 union type scan, routes audit, env var check. All passed. Pushed.
+
+> "go ahead push"
+
+Pushed to origin/main. Railway + Vercel auto-deployed.
+
+### Commodity rotation end-to-end test
+> "test the query 'Every month, rotate into the top 2 commodities by 3-month return from GLD, SLV, USO, UNG, DBA.'"
+
+Parse result: strategy_type=momentum_rotation, benchmark=DBC (auto), rules=[] (bug — empty).
+
+> "try running the backtest on it"
+
+Hit 3 issues in sequence:
+1. `Unknown or unsupported ticker(s): USO, UNG, DBA` — symbols not in local cache. Fixed by searching them through the API to populate cache.
+2. `No price data returned` — local Alpha Vantage key is free tier, `TIME_SERIES_DAILY_ADJUSTED` is premium only.
+3. `Array conditional must be same shape as self` — pandas shape mismatch in backtester engine on multi-asset strategies.
+
+> "what was the reason it's not working before"
+
+Explained: free-tier Alpha Vantage key in local `.env`.
+
+> "update the local key: 4S0RU99V8RYCXQX0"
+
+Updated `.env`. Restarted backend. Data fetched. Backtester crashed with shape mismatch.
+
+**Bug 1 fix — empty momentum_rotation rules:**
+LLM prompt missing instruction on what to put in rules[]. Added explicit example to system prompt + `_fix_momentum_rules()` post-processor.
+
+**Bug 2 fix — multi-asset backtester crash:**
+`pd.DataFrame.where(numpy[:, None])` doesn't broadcast on pandas multi-column DataFrames. Replaced with `weights.loc[non_rebalance_dates] = np.nan` — direct row assignment, no broadcasting.
+
+Regression test added. Suite: 52/52. Both fixes pushed to main.
+
+Final backtest result: 48.4% total return, Sharpe 1.29, vs DBC benchmark 50.9%.
+
+---
+
 ## 2026-05-04 — Commodity Trading + QA Agent
 
 ### New feature branch
