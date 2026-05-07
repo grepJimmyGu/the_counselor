@@ -8,6 +8,59 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-05-04 — Commodity Trading + QA Agent (branch: `feature/commodity-trading`)
+
+### Commodity Trading Support
+| Area | Change |
+|---|---|
+| `strategy_parser.py` | `COMMODITY_TICKERS` set (25 ETFs); auto-selects `DBC` benchmark when ≥50% of universe is commodity ETFs; commodity name→ETF mappings in LLM prompt (gold→GLD, crude→USO, natural gas→UNG, agriculture→DBA, etc.); seasonality/rotation/carry keyword detection in regex fallback |
+| `insights.py` | Commodity-specific regime notes and roll-yield/contango caveats injected into LLM system prompts and fallback explanation/sandbox review |
+| `contracts.ts` | `commodityDemoStrategies`: 3 pre-seeded strategies (GLD 200-day trend, commodity momentum rotation, diversified commodity allocation) |
+| `research-workspace.tsx` | Demo picker now has Equities / Commodities subsections |
+| `i18n.ts` | `chatSupported` and `demoPrompts` updated EN + ZH |
+
+### Bugs Fixed
+| Bug | Fix |
+|---|---|
+| `commodityDemoStrategies` exported but not rendered | Imported and wired into demo picker in `research-workspace.tsx` |
+| `main.py` startup crash on fresh SQLite DB | `create_all()` must run before `run_startup_migrations()` — swapped order |
+| Backend running old code after branch switch | Killed old PIDs, restarted uvicorn |
+| Local LLM key 401 | Updated `apps/api/.env` with valid OpenAI key |
+| `generate_structured` failing on complex QA schema | Added `response_format: {type: json_object}` to all OpenAI requests in `llm_adapter.py` |
+| 4 pre-existing async/sync mismatches in `test_strategy_parser.py` | Tests now call `_fallback` functions directly |
+
+### QA Agent (`POST /api/qa/review`)
+| Area | Detail |
+|---|---|
+| Schema | `QAReviewRequest`, `QAReviewResponse`, `QAIssue` with P0/P1/P2 severity and release recommendation enum |
+| Service | Uses existing `get_llm_gateway()` with structured output; graceful fallback if LLM not configured |
+| System prompt | QA rules: core flow first, backtest skepticism, assumption flagging, confirmed vs hypothesis, evidence gaps; explicit JSON schema embedded |
+| Frontend | `/qa` page with full form (review type, area, flow, recent change, concerns, evidence, locale) + report display (verdict badge, issue cards with repro steps / expected vs actual / fix, regression checklist, missing evidence) |
+
+### Backtest Credibility Warnings
+Three checks run after every backtest and prepend to `result.warnings`:
+- Sharpe ratio > 2.0 → look-ahead bias / data error flag
+- Win rate > 80% with ≥ 10 trades → overfitting / survivorship bias flag
+- Total return > 100% on window < 1 year → short-window noise flag
+
+8 new tests in `test_metrics.py` — suite now 44/44 passing (up from 37+4 broken).
+
+### Trust & Transparency Improvements
+| Area | Change |
+|---|---|
+| Explanation prompt | Rewritten to require thorough analysis: market regimes that help/hurt, 2–4 genuine strengths, honest weaknesses, 3–4 concrete next iterations, specific disclaimer naming data-snooping risk |
+| Strategy Preview | Yellow "Review before running" callout shows benchmark, date range, and costs before first backtest run |
+| Backtest tab | Persistent disclaimer banner below results: hypothetical nature, execution assumptions, research-only purpose |
+| i18n | New keys for defaults callout and backtest disclaimer in EN + ZH |
+
+### Architecture Decisions
+- **Commodity benchmark threshold:** ≥50% of universe tickers in `COMMODITY_TICKERS` → auto-select DBC
+- **QA agent uses existing LLM adapter** — no Anthropic SDK dependency; works with any OpenAI-compatible key
+- **`response_format: json_object`** added to all `generate_structured` calls — prevents model from wrapping JSON in prose on complex schemas
+- **Credibility warnings are non-strict** — Sharpe exactly 2.0 passes; only > 2.0 triggers
+
+---
+
 ## 2026-05-03 — MVP Optimization (Areas 6–8)
 
 ### New Frontend Features

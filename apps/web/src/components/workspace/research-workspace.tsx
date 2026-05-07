@@ -25,6 +25,7 @@ import {
   runRobustness,
 } from "@/lib/api";
 import {
+  commodityDemoStrategies,
   demoMarkdownStrategy,
   demoStrategies,
   type BacktestResult,
@@ -345,17 +346,37 @@ export function ResearchWorkspace() {
             <div className="text-sm font-medium">{t.demosTitle}</div>
             <p className="text-xs text-muted-foreground">{t.demosSubtitle}</p>
           </div>
-          <div className="flex flex-wrap gap-2">
-            {demoStrategies.map((demo) => (
-              <button
-                key={demo.label}
-                type="button"
-                onClick={() => handleLoadDemo(demo)}
-                className="rounded-md border border-border bg-background px-3 py-2 text-left text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
-              >
-                {locale === "zh" ? demo.labelZh : demo.label}
-              </button>
-            ))}
+          <div className="space-y-3">
+            <div>
+              <div className="mb-2 text-xs text-muted-foreground uppercase tracking-wide">Equities</div>
+              <div className="flex flex-wrap gap-2">
+                {demoStrategies.map((demo) => (
+                  <button
+                    key={demo.label}
+                    type="button"
+                    onClick={() => handleLoadDemo(demo)}
+                    className="rounded-md border border-border bg-background px-3 py-2 text-left text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                  >
+                    {locale === "zh" ? demo.labelZh : demo.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div>
+              <div className="mb-2 text-xs text-muted-foreground uppercase tracking-wide">Commodities</div>
+              <div className="flex flex-wrap gap-2">
+                {commodityDemoStrategies.map((demo) => (
+                  <button
+                    key={demo.label}
+                    type="button"
+                    onClick={() => handleLoadDemo(demo)}
+                    className="rounded-md border border-border bg-background px-3 py-2 text-left text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                  >
+                    {locale === "zh" ? demo.labelZh : demo.label}
+                  </button>
+                ))}
+              </div>
+            </div>
           </div>
         </section>
 
@@ -539,6 +560,18 @@ export function ResearchWorkspace() {
               </div>
               {strategy ? (
                 <div className="grid gap-6 p-4 lg:grid-cols-[minmax(0,1fr)_360px]">
+                  {/* Defaults callout — shown before first backtest run */}
+                  {!backtestResult && (
+                    <div className="col-span-full rounded-md border border-yellow-500/30 bg-yellow-500/5 px-4 py-3 text-xs text-yellow-300 space-y-1.5">
+                      <div className="font-medium">{t.defaultsTitle}</div>
+                      <p className="text-yellow-300/70">{t.defaultsNote}</p>
+                      <ul className="space-y-1 text-yellow-300/80">
+                        <li>• <span className="font-medium">{t.defaultBenchmark}:</span> {strategy.benchmark}</li>
+                        <li>• <span className="font-medium">{t.defaultDates}:</span> {strategy.start_date} → {strategy.end_date}</li>
+                        <li>• <span className="font-medium">{t.defaultCosts}:</span> {strategy.transaction_cost_bps} bps / {strategy.slippage_bps} bps</li>
+                      </ul>
+                    </div>
+                  )}
                   <div className="grid gap-4 md:grid-cols-2">
                     <label className="space-y-2 text-sm">
                       <span className="text-muted-foreground">{t.strategyName}</span>
@@ -822,6 +855,10 @@ export function ResearchWorkspace() {
                             </TableBody>
                           </Table>
                         </ScrollArea>
+                      </div>
+                      {/* Disclaimer — always shown after results */}
+                      <div className="rounded-lg border border-border bg-background px-4 py-3 text-xs text-muted-foreground leading-5">
+                        ⚠ {t.backtestDisclaimer}
                       </div>
                     </>
                   ) : (

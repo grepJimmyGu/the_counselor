@@ -308,6 +308,72 @@ const today = new Date().toISOString().slice(0, 10);
 const oneYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 const threeYearsAgo = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
+export const commodityDemoStrategies: DemoStrategy[] = [
+  {
+    label: "Gold Trend Following",
+    labelZh: "黄金趋势跟踪",
+    prompt: "Buy GLD when price is above its 200-day moving average, sell when below. Benchmark against DBC.",
+    strategy: {
+      strategy_name: "GLD 200-Day MA Trend Filter",
+      strategy_type: "moving_average_filter",
+      universe: ["GLD"],
+      benchmark: "DBC",
+      start_date: threeYearsAgo,
+      end_date: today,
+      initial_capital: 100000,
+      rebalance_frequency: "daily",
+      transaction_cost_bps: 5,
+      slippage_bps: 5,
+      rules: [{ indicator: "moving_average", lookback_days: 200, operator: "gt", source: "adjusted_close" }],
+      position_sizing: { method: "equal_weight", max_positions: 1 },
+      risk_management: {},
+      cash_management: { hold_cash_when_no_signal: true },
+    },
+  },
+  {
+    label: "Commodity Momentum Rotation",
+    labelZh: "大宗商品动量轮动",
+    prompt: "Every month, rotate into the top 2 commodities by 3-month return from GLD, SLV, USO, UNG, DBA.",
+    strategy: {
+      strategy_name: "Commodity Momentum Rotation",
+      strategy_type: "momentum_rotation",
+      universe: ["GLD", "SLV", "USO", "UNG", "DBA"],
+      benchmark: "DBC",
+      start_date: threeYearsAgo,
+      end_date: today,
+      initial_capital: 100000,
+      rebalance_frequency: "monthly",
+      transaction_cost_bps: 10,
+      slippage_bps: 10,
+      rules: [{ top_n: 2, ranking_measure: "total_return", ranking_lookback_days: 63 }],
+      position_sizing: { method: "equal_weight", max_positions: 2 },
+      risk_management: {},
+      cash_management: { hold_cash_when_no_signal: false },
+    },
+  },
+  {
+    label: "Diversified Commodity Allocation",
+    labelZh: "多元化大宗商品配置",
+    prompt: "Static allocation: 40% gold, 30% oil, 20% agriculture, 10% silver. Rebalance monthly.",
+    strategy: {
+      strategy_name: "Diversified Commodity Allocation",
+      strategy_type: "static_allocation",
+      universe: ["GLD", "USO", "DBA", "SLV"],
+      benchmark: "DBC",
+      start_date: threeYearsAgo,
+      end_date: today,
+      initial_capital: 100000,
+      rebalance_frequency: "monthly",
+      transaction_cost_bps: 5,
+      slippage_bps: 5,
+      rules: [],
+      position_sizing: { method: "fixed_weight", weights: { GLD: 0.4, USO: 0.3, DBA: 0.2, SLV: 0.1 } },
+      risk_management: {},
+      cash_management: { hold_cash_when_no_signal: false },
+    },
+  },
+];
+
 export const demoStrategies: DemoStrategy[] = [
   {
     label: "NVDA Trend Following",

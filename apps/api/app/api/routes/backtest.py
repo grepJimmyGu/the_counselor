@@ -33,6 +33,30 @@ async def _validate_universe(db: Session, symbols: list[str]) -> list[str]:
     return invalid
 
 
+def _credibility_warnings(result: BacktestResult) -> list[str]:
+    """Flag backtest metrics that are suspiciously outside reasonable ranges."""
+    warnings: list[str] = []
+    m = result.metrics
+    days = (result.strategy_json.end_date - result.strategy_json.start_date).days
+
+    if m.sharpe_ratio > 2.0:
+        warnings.append(
+            f"Sharpe ratio of {m.sharpe_ratio:.2f} is unusually high (> 2.0). "
+            "Verify there is no look-ahead bias or data error before trusting this result."
+        )
+    if m.win_rate > 0.80 and m.number_of_trades >= 10:
+        warnings.append(
+            f"Win rate of {m.win_rate:.0%} is unusually high (> 80%). "
+            "Check for overfitting or survivorship bias."
+        )
+    if m.total_return > 1.0 and days < 365:
+        warnings.append(
+            f"Total return of {m.total_return:.0%} over a {days}-day window is unusually high. "
+            "Short windows with large returns are typically not reproducible."
+        )
+    return warnings
+
+
 async def _ensure_data_available(db: Session, symbols: list[str], required_from: date) -> dict[str, str]:
     """
     For any symbol with no cached data, attempt a fetch before the quality gate runs.
@@ -88,6 +112,7 @@ async def run_backtest(payload: BacktestRunRequest, db: Session = Depends(get_db
             for sym in gate.warning_symbols:
                 quality_warnings.extend(gate.reports[sym].warnings)
             result.warnings = quality_warnings + result.warnings
+        result.warnings = _credibility_warnings(result) + result.warnings
         return result
     except Exception as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

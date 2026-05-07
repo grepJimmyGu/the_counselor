@@ -56,6 +56,10 @@ export interface Translations {
   colTicker: string; colTurnoverImpact: string;
   // Demo picker
   demosTitle: string; demosSubtitle: string;
+  // Defaults callout
+  defaultsTitle: string; defaultsNote: string; defaultBenchmark: string; defaultDates: string; defaultCosts: string;
+  // Backtest disclaimer
+  backtestDisclaimer: string;
 }
 
 const translations: Record<Locale, Translations> = {
@@ -74,7 +78,7 @@ const translations: Record<Locale, Translations> = {
     chatBuilderTitle: "Chat Builder",
     strategyParser: "Strategy Parser",
     chatPlaceholder: "Describe a price-based strategy...",
-    chatSupported: "Supported: moving averages, crossover, momentum, RSI, breakout, static allocation",
+    chatSupported: "Supported: moving averages, crossover, momentum, RSI, breakout, static allocation, commodity trend & rotation",
     interpret: "Interpret",
     interpreting: "Interpreting",
     aiLabel: "AI Builder",
@@ -211,8 +215,8 @@ const translations: Record<Locale, Translations> = {
     // Demo prompts
     demoPrompts: [
       "Buy SPY when 50-day MA crosses above 200-day MA",
-      "Buy 600519.SHH when price is above 200-day moving average",
-      "Rotate into top 3 momentum stocks monthly from QQQ, IWM, EEM",
+      "Buy GLD when price is above its 200-day moving average",
+      "Rotate into top 2 commodities monthly from GLD, USO, UNG, DBA, SLV",
       "RSI mean reversion on AAPL: buy below 30, sell above 60",
     ],
 
@@ -239,6 +243,17 @@ const translations: Record<Locale, Translations> = {
     // Demo picker
     demosTitle: "Demo Strategies",
     demosSubtitle: "Load a pre-built strategy to explore the full workflow.",
+
+    // Defaults callout
+    defaultsTitle: "Review before running",
+    defaultsNote: "Unspecified fields were filled with defaults. Confirm these match your intent.",
+    defaultBenchmark: "Benchmark",
+    defaultDates: "Date range",
+    defaultCosts: "Transaction cost / slippage",
+
+    // Backtest disclaimer
+    backtestDisclaimer:
+      "Backtest results are hypothetical. They assume perfect execution, no market impact, and historical data that may contain errors. Past performance does not predict future results. This tool is for research only — not financial advice.",
   },
 
   zh: {
@@ -256,7 +271,7 @@ const translations: Record<Locale, Translations> = {
     chatBuilderTitle: "策略构建器",
     strategyParser: "策略解析器",
     chatPlaceholder: "描述一个基于价格的投资规则...",
-    chatSupported: "支持：均线、交叉、动量、RSI、突破、静态配置",
+    chatSupported: "支持：均线、交叉、动量、RSI、突破、静态配置、大宗商品趋势与轮动",
     interpret: "解析",
     interpreting: "解析中",
     aiLabel: "AI 助手",
@@ -392,8 +407,8 @@ const translations: Record<Locale, Translations> = {
     // Demo prompts
     demoPrompts: [
       "当SPY的50日均线上穿200日均线时买入",
-      "当600519.SHH价格高于200日均线时买入",
-      "每月从QQQ、IWM、EEM中轮动买入动量最强的3只",
+      "当GLD价格高于200日均线时买入黄金ETF",
+      "每月从GLD、USO、UNG、DBA、SLV中轮动买入动量最强的2只",
       "AAPL的RSI均值回归：RSI低于30时买入，高于60时卖出",
     ],
 
@@ -420,6 +435,17 @@ const translations: Record<Locale, Translations> = {
     // Demo picker
     demosTitle: "演示策略",
     demosSubtitle: "加载预设策略，快速体验完整工作流程。",
+
+    // Defaults callout
+    defaultsTitle: "运行前请确认",
+    defaultsNote: "未指定的字段已填入默认值，请确认这些设置符合您的意图。",
+    defaultBenchmark: "基准",
+    defaultDates: "日期范围",
+    defaultCosts: "交易成本 / 滑点",
+
+    // Backtest disclaimer
+    backtestDisclaimer:
+      "回测结果为假设性数据，假设完美执行、无市场冲击，且历史数据可能存在误差。历史表现不代表未来结果。本工具仅供研究使用，不构成投资建议。",
   },
 };
 

@@ -19,7 +19,23 @@ from app.services.llm_adapter import LLMAdapterError, get_llm_gateway
 
 
 DEFAULT_BENCHMARK = "SPY"
+DEFAULT_COMMODITY_BENCHMARK = "DBC"
 SYMBOL_PATTERN = re.compile(r"\b[A-Z]{1,5}\b")
+
+COMMODITY_TICKERS = {
+    "GLD", "IAU", "SGOL",
+    "SLV", "SIVR",
+    "GDX", "GDXJ",
+    "USO", "UCO", "BNO",
+    "UNG", "BOIL",
+    "XLE", "VDE",
+    "DBA",
+    "DBC", "PDBC", "COMT",
+    "CPER", "COPX",
+    "WEAT", "CORN", "SOYB",
+    "DBB", "UGA",
+    "PALL", "PPLT",
+}
 DATE_PATTERN = re.compile(r"\b(20\d{2}-\d{2}-\d{2})\b")
 RESERVED_TOKENS = {
     "A",
@@ -87,7 +103,11 @@ _CHAT_PARSE_SYSTEM_PROMPT: str = (
     "price above/below moving average / 价格高于均线 / 价格低于均线 / 高于N日均线 / 低于N日均线 → moving_average_filter; "
     "relative strength / RSI / 相对强弱 → rsi_mean_reversion; "
     "52-week high / channel breakout / 突破 / 新高 → breakout; "
-    "fixed weight portfolio / 固定比例 / 配置 → static_allocation. "
+    "fixed weight portfolio / 固定比例 / 配置 → static_allocation; "
+    "commodity trend following / CTA trend / price trend on commodity → moving_average_filter or moving_average_crossover; "
+    "commodity momentum / rotate commodities / commodity rotation / 大宗商品动量 → momentum_rotation (monthly rebalance); "
+    "commodity seasonality / seasonal commodity / 季节性 → momentum_rotation (monthly rebalance, use total_return ranking); "
+    "commodity carry / roll yield / spread → static_allocation. "
     "Map common index and asset class names to their ETF tickers: "
     "S&P 500 / SPX / large cap US → SPY; "
     "Nasdaq / Nasdaq 100 / QQQ / tech → QQQ; "
@@ -96,13 +116,29 @@ _CHAT_PARSE_SYSTEM_PROMPT: str = (
     "emerging markets → EEM; "
     "international developed → EFA; "
     "US bonds / treasuries / fixed income → TLT (long) or IEF (medium) or SHY (short); "
-    "gold → GLD; "
-    "oil → USO; "
+    "gold / precious metals / bullion → GLD; "
+    "silver → SLV; "
+    "gold miners / gold mining stocks → GDX; "
+    "crude oil / oil / WTI / Brent / petroleum → USO; "
+    "natural gas → UNG; "
+    "energy sector / energy stocks → XLE; "
+    "agriculture / agricultural commodities / grains / farm → DBA; "
+    "broad commodities / commodity index / diversified commodities / commodity basket → DBC; "
+    "copper → CPER; "
+    "wheat → WEAT; "
+    "corn → CORN; "
+    "soybeans / soy → SOYB; "
+    "base metals → DBB; "
     "real estate / REITs → VNQ; "
     "total market → VTI. "
     "Always replace index names with their ETF ticker in the universe field. "
     "If the universe contains any Shanghai (.SHH) or Shenzhen (.SHZ) tickers, "
     "default the benchmark to 510300.SHH (CSI 300 ETF) instead of SPY. "
+    "If the universe contains primarily commodity ETFs (GLD, SLV, USO, UNG, DBA, DBC, "
+    "CPER, WEAT, CORN, SOYB, XLE, GDX, DBB, etc.), default the benchmark to DBC "
+    "(Bloomberg Commodity ETF) instead of SPY. "
+    "For commodity strategies, also note that ETF prices do not capture roll yield or "
+    "contango/backwardation effects — the backtest reflects ETF price return only. "
     "Use these defaults for any field the user does not specify: "
     "benchmark=SPY, start_date=1 year before today, end_date=today, "
     "initial_capital=100000, rebalance_frequency=daily, transaction_cost_bps=5, slippage_bps=5, "
@@ -185,6 +221,13 @@ def _summarize_markdown(markdown_content: str, document_name: Optional[str]) -> 
     return f"{document_name or 'Strategy memo'} starts with: {trimmed}"
 
 
+def _is_commodity_universe(symbols: list[str]) -> bool:
+    if not symbols:
+        return False
+    commodity_count = sum(1 for s in symbols if s in COMMODITY_TICKERS)
+    return commodity_count / len(symbols) >= 0.5
+
+
 def _extract_symbols(message: str) -> list[str]:
     matches = SYMBOL_PATTERN.findall(message.upper())
     filtered = [
@@ -199,15 +242,21 @@ def _extract_strategy_type(text: str) -> Optional[str]:
         return "rsi_mean_reversion"
     if "breakout" in lowered or ("day high" in lowered and "day low" in lowered):
         return "breakout"
-    if "allocation" in lowered or re.search(r"\b\d+%\s+[A-Z]{1,5}\b", text):
+    if "allocation" in lowered or "carry" in lowered or re.search(r"\b\d+%\s+[A-Z]{1,5}\b", text):
         return "static_allocation"
-    if "top " in lowered or "momentum" in lowered or "rank" in lowered:
+    if (
+        "top " in lowered
+        or "momentum" in lowered
+        or "rank" in lowered
+        or "rotation" in lowered
+        or "seasonal" in lowered
+    ):
         return "momentum_rotation"
     if "crossover" in lowered or (
         "moving average" in lowered and len(re.findall(r"(\d+)[-\s]?day", lowered)) >= 2
     ):
         return "moving_average_crossover"
-    if "moving average" in lowered or "ema" in lowered:
+    if "moving average" in lowered or "ema" in lowered or "trend" in lowered:
         return "moving_average_filter"
     return None
 
@@ -527,6 +576,9 @@ def parse_strategy_message_fallback(
             clarification_questions=[],
         )
 
+    if _is_commodity_universe(strategy.universe):
+        strategy.benchmark = DEFAULT_COMMODITY_BENCHMARK
+
     return StrategyChatResponse(
         assistant_message=f"I interpreted your idea as a {strategy.strategy_type.replace('_', ' ')} strategy over {', '.join(strategy.universe)}.",
         strategy_json=strategy,
@@ -583,6 +635,8 @@ def parse_strategy_markdown_fallback(
     benchmark = _extract_benchmark(text)
     if benchmark:
         strategy.benchmark = benchmark
+    elif _is_commodity_universe(strategy.universe):
+        strategy.benchmark = DEFAULT_COMMODITY_BENCHMARK
 
     start_date, end_date = _extract_dates(text)
     if end_date:

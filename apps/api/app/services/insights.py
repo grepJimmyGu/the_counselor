@@ -5,11 +5,30 @@ from app.schemas.backtest import BacktestResult
 from app.schemas.insights import ExplanationResponse, SandboxReviewResponse
 from app.schemas.strategy import StrategyJSON
 from app.services.llm_adapter import LLMAdapterError, get_llm_gateway
+from app.services.strategy_parser import COMMODITY_TICKERS, _is_commodity_universe
 
 _EXPLANATION_SYSTEM_PROMPT = (
-    "You are the friendly strategy explainer for a quantitative research app. "
-    "Explain the backtest clearly without giving trading advice. "
-    "Use only the strategy JSON and backtest result provided. "
+    "You are the strategy explainer for a quantitative research app. "
+    "Your job is to give a thorough, honest, and educational analysis — not cheerleading. "
+    "Use only the strategy JSON and backtest result provided. Do not invent data. "
+    "\n\n"
+    "Cover all of the following in your response:\n"
+    "- strategy_summary: what the strategy does and what the backtest tested\n"
+    "- performance_explanation: how the numbers look in context — total return, "
+    "Sharpe, drawdown, win rate, and how they compare to the benchmark\n"
+    "- strengths: genuine evidence-based positives from the data (2–4 items)\n"
+    "- weaknesses: honest limitations including sample size, concentration risk, "
+    "regime dependency, and execution assumptions (2–4 items)\n"
+    "- market_regime_notes: specific market conditions that would help or hurt this "
+    "strategy — e.g. trending vs choppy, high vs low volatility, rate environment (2–3 items)\n"
+    "- suggested_iterations: concrete next tests the researcher should run — different "
+    "parameter values, date windows, universes, or cost assumptions (3–4 items)\n"
+    "- disclaimer: a clear, specific sentence on backtest limitations — data-snooping risk, "
+    "execution slippage in real markets, and that past performance does not predict future results\n"
+    "\n"
+    "If the universe contains commodity ETFs (GLD, SLV, USO, UNG, DBA, DBC, etc.), "
+    "flag that ETF prices exclude roll yield and contango/backwardation — "
+    "the backtest reflects ETF price return only, which may understate or overstate real commodity exposure. "
     "Return a JSON object with exactly these keys: "
     "strategy_summary (str), performance_explanation (str), "
     "strengths (list[str]), weaknesses (list[str]), "
@@ -22,6 +41,11 @@ _REVIEW_SYSTEM_PROMPT = (
     "You are skeptical, evidence-based, and completely independent from the strategy builder. "
     "You must never be promotional or assume positive returns imply a durable edge. "
     "Your job is to protect the user from overconfidence, not to validate their work. "
+    "If the universe contains commodity ETFs (GLD, SLV, USO, UNG, DBA, DBC, etc.), "
+    "flag that: (1) ETF price returns exclude roll yield and contango/backwardation costs "
+    "which can materially drag real commodity exposure; (2) commodity strategies are highly "
+    "regime-dependent — supply shocks, geopolitical events, and dollar cycles dominate; "
+    "(3) correlations between commodities and traditional benchmarks like SPY are unstable. "
     "Return a JSON object with exactly these keys: "
     "review_verdict (one of: promising, mixed, skeptical, untrusted), "
     "trust_score (int 0-100, where 50 is neutral), "
@@ -76,16 +100,37 @@ def build_explanation_fallback(
     strategy: StrategyJSON, backtest_result: BacktestResult
 ) -> ExplanationResponse:
     metrics = backtest_result.metrics
+    is_commodity = _is_commodity_universe(strategy.universe)
     strengths = []
     weaknesses = []
     if metrics.excess_return_vs_benchmark > 0:
         strengths.append("The strategy outperformed its benchmark over the tested period.")
     if metrics.max_drawdown > -0.2:
-        strengths.append("Peak-to-trough drawdown stayed relatively contained for an equity strategy.")
+        label = "commodity" if is_commodity else "equity"
+        strengths.append(f"Peak-to-trough drawdown stayed relatively contained for a {label} strategy.")
     if metrics.sharpe_ratio < 0.7:
         weaknesses.append("Risk-adjusted returns are still modest.")
     if metrics.number_of_trades < 10:
         weaknesses.append("The trade sample is small, so the result may be noisy.")
+    if is_commodity:
+        weaknesses.append(
+            "Commodity ETF prices exclude roll yield and contango/backwardation costs — "
+            "actual commodity exposure may differ materially from this backtest."
+        )
+
+    regime_notes = (
+        [
+            "Commodity strategies are highly regime-dependent: supply shocks, geopolitical events, "
+            "and dollar cycles can dominate price action for extended periods.",
+            "Trend-following on commodity ETFs works well in persistent trending environments "
+            "but can suffer in range-bound or mean-reverting markets.",
+        ]
+        if is_commodity
+        else [
+            "Trend-following strategies often shine in persistent uptrends and lag in choppy sideways markets.",
+            "A single backtest window cannot guarantee regime robustness.",
+        ]
+    )
 
     return ExplanationResponse(
         strategy_summary=(
@@ -96,18 +141,25 @@ def build_explanation_fallback(
             f"The backtest returned {metrics.total_return:.1%} total return with "
             f"{metrics.max_drawdown:.1%} max drawdown and a Sharpe ratio of {metrics.sharpe_ratio:.2f}."
         ),
-        strengths=strengths or ["The rules are deterministic and easy to reason about."],
-        weaknesses=weaknesses or ["The result still needs broader robustness testing before it deserves much trust."],
-        market_regime_notes=[
-            "Trend-following strategies often shine in persistent uptrends and lag in choppy sideways markets.",
-            "A single backtest window cannot guarantee regime robustness.",
+        strengths=strengths or ["The rules are deterministic and fully specified — no discretion or look-ahead."],
+        weaknesses=weaknesses or [
+            "Single backtest window — no out-of-sample validation.",
+            "Transaction costs and slippage are estimates; real execution may differ materially.",
+            "The result still needs parameter sensitivity and sub-period testing before it deserves trust.",
         ],
+        market_regime_notes=regime_notes,
         suggested_iterations=[
-            "Try a different but related benchmark and compare excess return stability.",
-            "Expand the universe or shift the date window to see whether the edge persists.",
-            "Stress test transaction costs and parameter changes before trusting the headline return.",
+            "Run the same rules on a different but overlapping date window to check consistency.",
+            "Bump transaction costs to 25 bps and 50 bps — if the edge disappears, it is fragile.",
+            "Test with a tighter parameter (e.g. shorter lookback) and a looser one to map sensitivity.",
+            "Compare against a simple buy-and-hold of the primary ticker to see if the timing adds value.",
         ],
-        disclaimer="This is educational research output, not trading advice or a live execution system.",
+        disclaimer=(
+            "Backtest results are hypothetical and subject to data-snooping bias, "
+            "optimistic transaction cost assumptions, and look-ahead risk. "
+            "Past performance does not predict future results. "
+            "This is educational research output, not financial advice or a live trading system."
+        ),
     )
 
 
@@ -115,6 +167,7 @@ def build_sandbox_review_fallback(
     strategy: StrategyJSON, backtest_result: BacktestResult, iteration_count: int = 1
 ) -> SandboxReviewResponse:
     metrics = backtest_result.metrics
+    is_commodity = _is_commodity_universe(strategy.universe)
     trust_score = 50
     sample_concerns: list[str] = []
 
@@ -154,6 +207,19 @@ def build_sandbox_review_fallback(
         else "low"
     )
 
+    commodity_data_concerns = (
+        [
+            "Commodity ETF prices do not capture roll yield — strategies on USO, UNG, DBA, etc. "
+            "reflect ETF price return, not spot commodity return.",
+            "Contango and backwardation can create persistent ETF drag or tailwind that "
+            "is unrelated to the trading signal.",
+        ]
+        if is_commodity
+        else [
+            "Verify adjusted close prices account for dividends and splits correctly.",
+        ]
+    )
+
     return SandboxReviewResponse(
         review_verdict=verdict,  # type: ignore[arg-type]
         trust_score=trust_score,
@@ -166,11 +232,19 @@ def build_sandbox_review_fallback(
         benchmark_concerns=[
             "Verify buy-and-hold of the traded asset didn't already capture most of the return.",
             "Compare against a simple benchmark overlay, not only the chosen benchmark.",
-        ],
+        ] + (
+            ["DBC is a reasonable commodity benchmark but has different sector weights "
+             "than a single-commodity ETF — excess return interpretation requires care."]
+            if is_commodity else []
+        ),
         regime_dependence_concerns=[
             "Test subperiods separately to confirm the edge isn't concentrated in one regime.",
             "Confirm the result is not dominated by one exceptional rally or crash window.",
-        ],
+        ] + (
+            ["Commodity prices are heavily driven by macro regimes (inflation, dollar cycles, "
+             "geopolitical events) that are structural, not cyclical — regime risk is elevated."]
+            if is_commodity else []
+        ),
         parameter_sensitivity_concerns=[
             "Bump each core parameter ±10–20% and see whether the edge survives.",
             "If a small change flips the result, the strategy is fragile.",
@@ -180,9 +254,7 @@ def build_sandbox_review_fallback(
             "High-turnover strategies deserve harsher cost assumptions.",
         ],
         sample_size_concerns=sample_concerns or ["Sample is borderline — more trades would improve confidence."],
-        data_quality_concerns=[
-            "Verify adjusted close prices account for dividends and splits correctly.",
-        ],
+        data_quality_concerns=commodity_data_concerns,
         main_reasons_to_trust=[
             "Rules are deterministic and fully specified — no discretion.",
         ] + (["Strategy beat its benchmark."] if metrics.excess_return_vs_benchmark > 0 else []),
