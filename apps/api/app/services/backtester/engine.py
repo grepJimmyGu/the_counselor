@@ -157,10 +157,18 @@ class BacktestEngine:
                     weights.loc[dt, selected] = 1 / len(selected)
             weights = weights.replace(0.0, np.nan).ffill().fillna(0.0)
 
-        if strategy.strategy_type in {"moving_average_filter", "moving_average_crossover", "rsi_mean_reversion", "breakout"}:
+        is_signal_strategy = strategy.strategy_type in {
+            "moving_average_filter", "moving_average_crossover", "rsi_mean_reversion", "breakout"
+        }
+        if is_signal_strategy:
             weights = weights.where(weights.eq(0.0), other=1.0)
+        else:
+            # For rotation/allocation strategies: NaN out non-rebalance rows so ffill
+            # propagates holdings correctly. Row-level assignment avoids the (n,1) vs (n,k)
+            # broadcast mismatch that pd.DataFrame.where() raises on multi-asset DataFrames.
+            non_rebalance = rebalance_mask[~rebalance_mask].index
+            weights.loc[non_rebalance] = np.nan
 
-        weights = weights.where(rebalance_mask.values[:, None] | (strategy.strategy_type in {"moving_average_filter", "moving_average_crossover", "rsi_mean_reversion", "breakout"}), other=np.nan)
         weights = weights.ffill().fillna(0.0)
 
         exposure = weights.sum(axis=1)

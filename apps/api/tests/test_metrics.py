@@ -224,3 +224,49 @@ def test_buy_and_hold_simple():
 def test_buy_and_hold_empty():
     result = compute_buy_and_hold(pd.Series([], dtype=float), 100_000, 0)
     assert result["buy_and_hold_return"] is None
+
+
+# ── momentum_rotation multi-asset weight generation ───────────────────────────
+
+def test_momentum_rotation_multi_asset_no_shape_error():
+    """Regression: _generate_weights crashed on multi-asset momentum_rotation
+    due to numpy (n,1) broadcast mismatch in pd.DataFrame.where()."""
+    import numpy as np
+    import pandas as pd
+    from app.services.backtester.engine import BacktestEngine
+    from app.schemas.strategy import (
+        CashManagement, PositionSizing, RiskManagement, StrategyJSON, StrategyRule,
+    )
+
+    engine = BacktestEngine()
+    dates = pd.date_range("2024-01-01", periods=120, freq="B")
+    prices = {
+        sym: pd.DataFrame(
+            {"adjusted_close": np.cumprod(1 + np.random.normal(0, 0.01, len(dates)))},
+            index=dates,
+        )
+        for sym in ["GLD", "SLV", "USO", "UNG", "DBA"]
+    }
+    close_matrix, aligned = engine._build_price_matrix(prices)
+
+    strategy = StrategyJSON(
+        strategy_name="Commodity Rotation",
+        strategy_type="momentum_rotation",
+        universe=["GLD", "SLV", "USO", "UNG", "DBA"],
+        benchmark="DBC",
+        start_date=date(2024, 1, 1),
+        end_date=date(2024, 6, 1),
+        initial_capital=100_000,
+        rebalance_frequency="monthly",
+        transaction_cost_bps=5,
+        slippage_bps=5,
+        rules=[StrategyRule(top_n=2, ranking_measure="total_return", ranking_lookback_days=63)],
+        position_sizing=PositionSizing(method="equal_weight", max_positions=2),
+        risk_management=RiskManagement(),
+        cash_management=CashManagement(hold_cash_when_no_signal=False),
+    )
+
+    # Must not raise
+    weights = engine._generate_weights(strategy, close_matrix, aligned)
+    assert weights.shape == close_matrix.shape
+    assert (weights.sum(axis=1) <= 1.001).all()
