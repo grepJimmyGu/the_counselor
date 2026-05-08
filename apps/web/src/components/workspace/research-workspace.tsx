@@ -19,6 +19,7 @@ import {
   explainStrategy,
   getDataQuality,
   getRobustnessJob,
+  getSavedStrategy,
   parseStrategy,
   parseStrategyMarkdown,
   reviewSandbox,
@@ -33,6 +34,7 @@ import {
   researchTemplates,
   type BacktestResult,
   type ResearchTemplate,
+  type SavedStrategy,
   type DataQualityReport,
   type ExplanationResponse,
   type RobustnessJobResponse,
@@ -72,6 +74,14 @@ type ComparisonRow = {
   current: number;
   previous: number;
 };
+
+type LibraryEntry = {
+  slug: string;
+  name: string;
+  savedAt: string;
+};
+
+const LIBRARY_KEY = "livermore_saved_strategies";
 
 function RobustnessTable({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -117,6 +127,22 @@ function buildComparison(
   ];
 }
 
+function buildSavedComparison(
+  current: BacktestResult | null,
+  saved: SavedStrategy | null,
+  labels: { totalReturn: string; sharpe: string; maxDrawdown: string },
+): ComparisonRow[] {
+  if (!current || !saved) return [];
+  const m = saved.metrics as unknown as Record<string, number>;
+  return [
+    { label: labels.totalReturn, current: current.metrics.total_return, previous: m.total_return ?? 0 },
+    { label: labels.sharpe, current: current.metrics.sharpe_ratio, previous: m.sharpe_ratio ?? 0 },
+    { label: labels.maxDrawdown, current: current.metrics.max_drawdown, previous: m.max_drawdown ?? 0 },
+    { label: "Win Rate", current: current.metrics.win_rate, previous: m.win_rate ?? 0 },
+    { label: "Turnover", current: current.metrics.turnover, previous: m.turnover ?? 0 },
+  ];
+}
+
 export function ResearchWorkspace() {
   const { locale, t } = useLocale();
   const router = useRouter();
@@ -153,6 +179,10 @@ export function ResearchWorkspace() {
   const [showSaveDialog, setShowSaveDialog] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [isSaving, setIsSaving] = useState(false);
+  const [savedLibrary, setSavedLibrary] = useState<LibraryEntry[]>([]);
+  const [compareMode, setCompareMode] = useState<"previous" | string>("previous");
+  const [savedCompareResult, setSavedCompareResult] = useState<SavedStrategy | null>(null);
+  const [isLoadingCompare, setIsLoadingCompare] = useState(false);
 
   const comparisonRows = useMemo(
     () => buildComparison(backtestResult, previousResult, { totalReturn: t.totalReturn, sharpe: t.sharpe, maxDrawdown: t.maxDrawdown, trades: t.trades }),
@@ -336,6 +366,24 @@ export function ResearchWorkspace() {
     ]);
   }
 
+  async function handleSelectCompare(mode: string) {
+    setCompareMode(mode);
+    if (mode === "previous") { setSavedCompareResult(null); return; }
+    setIsLoadingCompare(true);
+    try {
+      const result = await getSavedStrategy(mode);
+      setSavedCompareResult(result);
+    } catch {
+      setSavedCompareResult(null);
+      // stale slug — silently remove from library
+      const cleaned = savedLibrary.filter((e) => e.slug !== mode);
+      setSavedLibrary(cleaned);
+      localStorage.setItem(LIBRARY_KEY, JSON.stringify(cleaned));
+    } finally {
+      setIsLoadingCompare(false);
+    }
+  }
+
   async function handleSaveStrategy() {
     if (!backtestResult || !saveName.trim()) return;
     setIsSaving(true);
@@ -343,12 +391,25 @@ export function ResearchWorkspace() {
       const { slug } = await saveStrategy(backtestResult.backtest_id, saveName.trim());
       setSavedSlug(slug);
       setShowSaveDialog(false);
+      const entry: LibraryEntry = { slug, name: saveName.trim(), savedAt: new Date().toISOString() };
+      const updated = [entry, ...savedLibrary].slice(0, 20);
+      setSavedLibrary(updated);
+      localStorage.setItem(LIBRARY_KEY, JSON.stringify(updated));
     } catch {
       // leave dialog open so user can retry
     } finally {
       setIsSaving(false);
     }
   }
+
+  useEffect(() => {
+    try {
+      const stored: LibraryEntry[] = JSON.parse(localStorage.getItem(LIBRARY_KEY) ?? "[]");
+      setSavedLibrary(stored);
+    } catch {
+      // ignore corrupt localStorage
+    }
+  }, []);
 
   useEffect(() => {
     const templateId = searchParams.get("templateId");
@@ -1271,36 +1332,101 @@ export function ResearchWorkspace() {
                 </TabsContent>
 
                 <TabsContent value="comparison" className="space-y-4">
-                  {comparisonRows.length ? (
-                    <section className="rounded-lg border border-border bg-background p-4">
-                      <div className="mb-4 flex items-center gap-2">
-                        <ArrowRight className="h-4 w-4 text-primary" />
-                        <h3 className="text-sm font-medium">{t.comparisonTitle}</h3>
-                      </div>
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>{t.metric}</TableHead>
-                            <TableHead className="text-right">{t.current}</TableHead>
-                            <TableHead className="text-right">{t.previous}</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {comparisonRows.map(({ label, current, previous }) => (
-                            <TableRow key={label}>
-                              <TableCell>{label}</TableCell>
-                              <TableCell className="text-right">{formatNumber(current)}</TableCell>
-                              <TableCell className="text-right">{formatNumber(previous)}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    </section>
-                  ) : (
-                    <div className="rounded-lg border border-dashed border-border p-8 text-sm text-muted-foreground">
-                      {t.comparisonEmpty}
+                  {/* Compare against selector */}
+                  {backtestResult && (
+                    <div className="flex items-center gap-3">
+                      <span className="text-xs text-muted-foreground shrink-0">Compare against</span>
+                      <select
+                        value={compareMode}
+                        onChange={(e) => handleSelectCompare(e.target.value)}
+                        className="rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+                      >
+                        <option value="previous">Previous run{previousResult ? "" : " (none yet)"}</option>
+                        {savedLibrary.length > 0 && (
+                          <optgroup label="My Saved Strategies">
+                            {savedLibrary.slice(0, 5).map((e) => (
+                              <option key={e.slug} value={e.slug}>{e.name}</option>
+                            ))}
+                          </optgroup>
+                        )}
+                      </select>
+                      {isLoadingCompare && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
                     </div>
                   )}
+
+                  {/* Comparison table */}
+                  {(() => {
+                    const isSavedMode = compareMode !== "previous";
+                    const rows = isSavedMode
+                      ? buildSavedComparison(backtestResult, savedCompareResult, { totalReturn: t.totalReturn, sharpe: t.sharpe, maxDrawdown: t.maxDrawdown })
+                      : comparisonRows;
+                    const compareTarget = isSavedMode ? savedCompareResult : previousResult;
+                    const compareLabel = isSavedMode
+                      ? (savedLibrary.find((e) => e.slug === compareMode)?.name ?? "Saved strategy")
+                      : t.previous;
+
+                    // Context note when assets/periods differ
+                    const showContextNote = isSavedMode && backtestResult && savedCompareResult && (
+                      backtestResult.strategy_json.universe.join(",") !== savedCompareResult.strategy_json.universe.join(",") ||
+                      backtestResult.strategy_json.start_date !== savedCompareResult.strategy_json.start_date ||
+                      backtestResult.strategy_json.end_date !== savedCompareResult.strategy_json.end_date
+                    );
+
+                    if (!rows.length || !compareTarget) {
+                      return (
+                        <div className="rounded-lg border border-dashed border-border p-8 text-sm text-muted-foreground">
+                          {isSavedMode && !isLoadingCompare ? "Could not load saved strategy." : t.comparisonEmpty}
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <section className="rounded-lg border border-border bg-background p-4 space-y-4">
+                        {showContextNote && (
+                          <div className="rounded-md border border-yellow-500/20 bg-yellow-500/5 px-3 py-2 text-xs text-yellow-300/80">
+                            These strategies were tested on different tickers or date ranges.
+                            Results are not directly comparable — review assumptions before drawing conclusions.
+                          </div>
+                        )}
+
+                        {/* Context row */}
+                        {isSavedMode && savedCompareResult && (
+                          <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground border-b border-border pb-3">
+                            <div />
+                            <div>
+                              <div className="font-medium text-foreground">{t.current}</div>
+                              <div>{backtestResult?.strategy_json.universe.join(", ")}</div>
+                              <div>{backtestResult?.strategy_json.start_date} – {backtestResult?.strategy_json.end_date}</div>
+                            </div>
+                            <div>
+                              <div className="font-medium text-foreground">{compareLabel}</div>
+                              <div>{savedCompareResult.strategy_json.universe.join(", ")}</div>
+                              <div>{savedCompareResult.strategy_json.start_date} – {savedCompareResult.strategy_json.end_date}</div>
+                            </div>
+                          </div>
+                        )}
+
+                        <Table>
+                          <TableHeader>
+                            <TableRow>
+                              <TableHead>{t.metric}</TableHead>
+                              <TableHead className="text-right">{t.current}</TableHead>
+                              <TableHead className="text-right">{compareLabel}</TableHead>
+                            </TableRow>
+                          </TableHeader>
+                          <TableBody>
+                            {rows.map(({ label, current, previous }) => (
+                              <TableRow key={label}>
+                                <TableCell>{label}</TableCell>
+                                <TableCell className="text-right">{formatNumber(current)}</TableCell>
+                                <TableCell className="text-right">{formatNumber(previous)}</TableCell>
+                              </TableRow>
+                            ))}
+                          </TableBody>
+                        </Table>
+                      </section>
+                    );
+                  })()}
                 </TabsContent>
               </Tabs>
             </section>
