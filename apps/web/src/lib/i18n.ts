@@ -241,8 +241,8 @@ const translations: Record<Locale, Translations> = {
     colTicker: "Ticker", colTurnoverImpact: "Turnover Impact",
 
     // Demo picker
-    demosTitle: "Demo Strategies",
-    demosSubtitle: "Load a pre-built strategy to explore the full workflow.",
+    demosTitle: "Example Strategies",
+    demosSubtitle: "Select an example to load a pre-built strategy, or describe your own in the chat below.",
 
     // Defaults callout
     defaultsTitle: "Review before running",
@@ -433,8 +433,8 @@ const translations: Record<Locale, Translations> = {
     colTicker: "标的", colTurnoverImpact: "换手影响",
 
     // Demo picker
-    demosTitle: "演示策略",
-    demosSubtitle: "加载预设策略，快速体验完整工作流程。",
+    demosTitle: "示例策略",
+    demosSubtitle: "选择示例以加载预设策略，或在下方对话框中描述你自己的想法。",
 
     // Defaults callout
     defaultsTitle: "运行前请确认",

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { LocaleProvider } from "@/lib/locale-context";
+import { NavHeader } from "@/components/nav-header";
 
 export const metadata: Metadata = {
   title: "Livermore",
@@ -15,7 +16,10 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark h-full">
       <body className="min-h-full bg-background font-sans text-foreground antialiased">
-        <LocaleProvider>{children}</LocaleProvider>
+        <LocaleProvider>
+          <NavHeader />
+          {children}
+        </LocaleProvider>
       </body>
     </html>
   );

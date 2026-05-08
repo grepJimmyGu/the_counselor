@@ -37,7 +37,6 @@ import {
   type StrategyJson,
 } from "@/lib/contracts";
 import { useLocale } from "@/lib/locale-context";
-import { LanguageSwitcher } from "@/components/language-switcher";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -329,7 +328,6 @@ export function ResearchWorkspace() {
             <div className="rounded-md border border-border px-3 py-1.5">{t.noLiveTrading}</div>
             <div className="rounded-md border border-border px-3 py-1.5">{t.priceBasedOnly}</div>
             <div className="rounded-md border border-border px-3 py-1.5">{t.deterministicEngine}</div>
-            <LanguageSwitcher />
           </div>
         </header>
 
