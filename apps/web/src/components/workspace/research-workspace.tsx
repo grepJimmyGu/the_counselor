@@ -24,6 +24,7 @@ import {
   reviewSandbox,
   runBacktest,
   runRobustness,
+  saveStrategy,
 } from "@/lib/api";
 import {
   commodityDemoStrategies,
@@ -148,6 +149,10 @@ export function ResearchWorkspace() {
   const [activeTemplate, setActiveTemplate] = useState<ResearchTemplate | null>(null);
   const [templateReviewCallout, setTemplateReviewCallout] = useState(false);
   const [showEtfProxyCaveat, setShowEtfProxyCaveat] = useState(false);
+  const [savedSlug, setSavedSlug] = useState<string | null>(null);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [saveName, setSaveName] = useState("");
+  const [isSaving, setIsSaving] = useState(false);
 
   const comparisonRows = useMemo(
     () => buildComparison(backtestResult, previousResult, { totalReturn: t.totalReturn, sharpe: t.sharpe, maxDrawdown: t.maxDrawdown, trades: t.trades }),
@@ -248,6 +253,9 @@ export function ResearchWorkspace() {
     if (!strategy) return;
     setIsRunning(true);
     setErrorMessage(null);
+    setSavedSlug(null);
+    setShowSaveDialog(false);
+    setSaveName("");
     try {
       setPreviousResult(backtestResult);
       const nextIteration = iterationCount + 1;
@@ -326,6 +334,20 @@ export function ResearchWorkspace() {
       { role: "assistant", content: t.chatWelcome },
       { role: "assistant", content: `Starting from the ${template.name} framework. Describe your version in the chat below.` },
     ]);
+  }
+
+  async function handleSaveStrategy() {
+    if (!backtestResult || !saveName.trim()) return;
+    setIsSaving(true);
+    try {
+      const { slug } = await saveStrategy(backtestResult.backtest_id, saveName.trim());
+      setSavedSlug(slug);
+      setShowSaveDialog(false);
+    } catch {
+      // leave dialog open so user can retry
+    } finally {
+      setIsSaving(false);
+    }
   }
 
   useEffect(() => {
@@ -630,14 +652,47 @@ export function ResearchWorkspace() {
                   <h2 className="text-sm font-medium">{t.strategyPreviewTitle}</h2>
                   <p className="text-xs text-muted-foreground">{t.strategyPreviewDesc}</p>
                 </div>
-                <Button onClick={handleRunBacktest} disabled={!strategy || isRunning}>
-                  {isRunning ? (
-                    <><Loader2 className="h-4 w-4 animate-spin" />{t.runningBacktest}</>
-                  ) : (
-                    <><Play className="h-4 w-4" />{t.runBacktest}</>
+                <div className="flex items-center gap-2">
+                  <Button onClick={handleRunBacktest} disabled={!strategy || isRunning}>
+                    {isRunning ? (
+                      <><Loader2 className="h-4 w-4 animate-spin" />{t.runningBacktest}</>
+                    ) : (
+                      <><Play className="h-4 w-4" />{t.runBacktest}</>
+                    )}
+                  </Button>
+                  {backtestResult && !savedSlug && (
+                    <Button variant="outline" size="sm" onClick={() => { setSaveName(strategy?.strategy_name ?? ""); setShowSaveDialog(true); }}>
+                      Save Strategy
+                    </Button>
                   )}
-                </Button>
+                  {savedSlug && (
+                    <button
+                      onClick={() => navigator.clipboard.writeText(`${window.location.origin}/strategies/${savedSlug}`)}
+                      className="text-xs text-primary hover:underline"
+                    >
+                      Saved · Copy link
+                    </button>
+                  )}
+                </div>
               </div>
+              {showSaveDialog && (
+                <div className="flex items-center gap-2 border-b border-border px-4 py-3 bg-muted/30">
+                  <input
+                    autoFocus
+                    type="text"
+                    value={saveName}
+                    onChange={(e) => setSaveName(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleSaveStrategy(); if (e.key === "Escape") setShowSaveDialog(false); }}
+                    placeholder="Name your strategy…"
+                    maxLength={80}
+                    className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                  />
+                  <Button size="sm" disabled={!saveName.trim() || isSaving} onClick={handleSaveStrategy}>
+                    {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+                  </Button>
+                  <Button size="sm" variant="ghost" onClick={() => setShowSaveDialog(false)}>Cancel</Button>
+                </div>
+              )}
               {strategy ? (
                 <div className="grid gap-6 p-4 lg:grid-cols-[minmax(0,1fr)_360px]">
                   {/* Defaults callout — shown before first backtest run */}

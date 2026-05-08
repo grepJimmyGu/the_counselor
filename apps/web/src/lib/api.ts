@@ -4,6 +4,7 @@ import type {
   DataStatusResponse,
   ExplanationResponse,
   RobustnessJobResponse,
+  SavedStrategy,
   SandboxReviewResponse,
   StrategyChatResponse,
   StrategyMarkdownParseResponse,
@@ -153,4 +154,16 @@ export async function runRobustness(
 
 export async function getRobustnessJob(runId: string): Promise<RobustnessJobResponse> {
   return fetchApi<RobustnessJobResponse>(`/api/robustness/${runId}`);
+}
+
+export async function saveStrategy(backtestId: string, name: string): Promise<{ slug: string; url: string }> {
+  return fetchApi<{ slug: string; url: string }>("/api/strategies/save", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ backtest_id: backtestId, name }),
+  });
+}
+
+export async function getSavedStrategy(slug: string): Promise<SavedStrategy> {
+  return fetchApi<SavedStrategy>(`/api/strategies/${slug}`);
 }

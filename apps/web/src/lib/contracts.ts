@@ -10,6 +10,19 @@ export type RebalanceFrequency = "daily" | "weekly" | "monthly" | "quarterly";
 
 export type TemplateAvailability = "ready" | "unavailable" | "proxy";
 
+export interface SavedStrategy {
+  slug: string;
+  name: string;
+  saved_at: string;
+  strategy_json: StrategyJson;
+  metrics: BacktestMetrics;
+  equity_curve: CurvePoint[];
+  benchmark_curve: CurvePoint[];
+  drawdown_curve: CurvePoint[];
+  trade_log: TradeLogItem[];
+  warnings: string[];
+}
+
 export interface ResearchTemplate {
   id: string;
   name: string;

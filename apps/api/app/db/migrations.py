@@ -50,3 +50,28 @@ def run_startup_migrations(engine: Engine) -> None:
                 )
             except Exception:
                 pass
+
+        # PRD-02: strategy storage columns on backtests table
+        backtest_new_columns = [
+            ("slug",      "VARCHAR(128)"),
+            ("name",      "VARCHAR(255)"),
+            ("is_public", "BOOLEAN DEFAULT FALSE"),
+            ("saved_at",  "TIMESTAMP"),
+        ]
+        for col_name, col_type in backtest_new_columns:
+            try:
+                conn.execute(
+                    text(f"ALTER TABLE backtests ADD COLUMN IF NOT EXISTS {col_name} {col_type}")
+                )
+            except Exception:
+                pass
+
+        # Partial unique index on slug (only for non-NULL values)
+        if not is_sqlite:
+            try:
+                conn.execute(text(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS ix_backtests_slug_partial "
+                    "ON backtests (slug) WHERE slug IS NOT NULL"
+                ))
+            except Exception:
+                pass
