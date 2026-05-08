@@ -8,6 +8,27 @@ export type StrategyType =
 
 export type RebalanceFrequency = "daily" | "weekly" | "monthly" | "quarterly";
 
+export type TemplateAvailability = "ready" | "unavailable" | "proxy";
+
+export interface ResearchTemplate {
+  id: string;
+  name: string;
+  category: "Momentum" | "Rotation" | "Factor" | "Carry";
+  description: string;
+  whatItTests: string;
+  dataRequirement: string;
+  universeDescription: string;
+  defaultTickers: string[];
+  multiTicker: boolean;
+  tickerLabel: string;
+  minTickers?: number;
+  availability: TemplateAvailability;
+  dataGapReason?: string;
+  etfProxyCaveat?: string;
+  strategy: StrategyJson;
+  chatSeed: string;
+}
+
 export interface StrategyRule {
   indicator?: string;
   lookback_days?: number;
@@ -307,6 +328,7 @@ export interface DemoStrategy {
 const today = new Date().toISOString().slice(0, 10);
 const oneYearAgo = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 const threeYearsAgo = new Date(Date.now() - 3 * 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+const fiveYearsAgo = new Date(Date.now() - 5 * 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
 
 export const commodityDemoStrategies: DemoStrategy[] = [
   {
@@ -474,3 +496,171 @@ QQQ
 - Start Date: 2024-01-01
 - End Date: 2025-01-31
 `;
+
+export const researchTemplates: ResearchTemplate[] = [
+  {
+    id: "trend-following",
+    name: "Trend Following",
+    category: "Momentum",
+    description: "Price momentum with a trailing stop",
+    whatItTests:
+      "Buy when price breaks above a 20-day rolling high. Exit when price falls below a 10-day low, or triggers an 8% stop loss. Tests whether sustained price trends produce better risk-adjusted returns than buy-and-hold.",
+    dataRequirement: "Price data only",
+    universeDescription: "Any equity or ETF",
+    defaultTickers: ["AAPL"],
+    multiTicker: false,
+    tickerLabel: "Which ticker do you want to test this on?",
+    availability: "ready",
+    strategy: {
+      strategy_name: "Trend Following — 20-Day Breakout",
+      strategy_type: "breakout",
+      universe: ["AAPL"],
+      benchmark: "SPY",
+      start_date: fiveYearsAgo,
+      end_date: today,
+      initial_capital: 10000,
+      rebalance_frequency: "daily",
+      transaction_cost_bps: 10,
+      slippage_bps: 5,
+      rules: [{ entry_window: 20, exit_window: 10 }],
+      position_sizing: { method: "equal_weight", max_positions: 1 },
+      risk_management: { stop_loss_pct: 0.08 },
+      cash_management: { hold_cash_when_no_signal: true, cash_yield_bps: 0 },
+    },
+    chatSeed:
+      "I want to build a trend following strategy for {ticker}. Tell me your rules — breakout window, exit window, or stop type.",
+  },
+  {
+    id: "cross-sectional-momentum",
+    name: "Cross-Sectional Momentum",
+    category: "Momentum",
+    description: "Rank a universe by return, rotate into top performers",
+    whatItTests:
+      "Each month, rank all assets in your universe by 6-month trailing return. Hold the top 2 performers and rotate out of the rest. Tests whether relative strength across assets predicts short-term continuation.",
+    dataRequirement: "Price data only",
+    universeDescription: "Multi-asset universe (min 3 tickers)",
+    defaultTickers: ["AAPL", "MSFT", "GOOGL", "NVDA", "META"],
+    multiTicker: true,
+    minTickers: 3,
+    tickerLabel: "Enter your universe (min 3 tickers, comma-separated)",
+    availability: "ready",
+    strategy: {
+      strategy_name: "Cross-Sectional Momentum — Top 2 of 5",
+      strategy_type: "momentum_rotation",
+      universe: ["AAPL", "MSFT", "GOOGL", "NVDA", "META"],
+      benchmark: "SPY",
+      start_date: fiveYearsAgo,
+      end_date: today,
+      initial_capital: 10000,
+      rebalance_frequency: "monthly",
+      transaction_cost_bps: 10,
+      slippage_bps: 5,
+      rules: [{ top_n: 2, ranking_measure: "total_return", ranking_lookback_days: 126 }],
+      position_sizing: { method: "equal_weight", max_positions: 2 },
+      risk_management: {},
+      cash_management: { hold_cash_when_no_signal: false, cash_yield_bps: 0 },
+    },
+    chatSeed:
+      "I want to build a cross-sectional momentum strategy. My universe is {tickers}. Tell me: how many top performers to hold, and what lookback period to rank by.",
+  },
+  {
+    id: "etf-rotation",
+    name: "ETF Rotation",
+    category: "Rotation",
+    description: "Rotate across asset class ETFs by relative momentum",
+    whatItTests:
+      "Each month, hold the single ETF with the highest 3-month trailing return across a basket of asset class proxies. Tests whether simple momentum across asset classes adds value over a static allocation.",
+    dataRequirement: "Price data only",
+    universeDescription: "Asset class ETF basket",
+    defaultTickers: ["SPY"],
+    multiTicker: false,
+    tickerLabel: "Which benchmark do you want to compare against?",
+    availability: "ready",
+    strategy: {
+      strategy_name: "ETF Rotation — Asset Class Momentum",
+      strategy_type: "momentum_rotation",
+      universe: ["SPY", "QQQ", "IEF", "GLD", "DBC"],
+      benchmark: "SPY",
+      start_date: fiveYearsAgo,
+      end_date: today,
+      initial_capital: 10000,
+      rebalance_frequency: "monthly",
+      transaction_cost_bps: 10,
+      slippage_bps: 5,
+      rules: [{ top_n: 1, ranking_measure: "total_return", ranking_lookback_days: 63 }],
+      position_sizing: { method: "equal_weight", max_positions: 1 },
+      risk_management: {},
+      cash_management: { hold_cash_when_no_signal: false, cash_yield_bps: 0 },
+    },
+    chatSeed:
+      "I want to build an ETF rotation strategy. My benchmark is {ticker}. Tell me: which ETFs to rotate across, what lookback period to rank by, and how many to hold at once.",
+  },
+  {
+    id: "value-momentum",
+    name: "Value + Momentum",
+    category: "Factor",
+    description: "Combine fundamental value signals with price momentum",
+    whatItTests:
+      "Buy stocks that are both cheap (low P/E) and showing positive price momentum. Tests whether combining a value filter with a momentum signal improves returns over either factor alone.",
+    dataRequirement: "Requires P/E and earnings data",
+    universeDescription: "Equity universe",
+    defaultTickers: [],
+    multiTicker: false,
+    tickerLabel: "",
+    availability: "unavailable",
+    dataGapReason:
+      "Requires fundamental data (P/E, earnings) — not yet available in this tool. Shown here so you can plan your research.",
+    strategy: {
+      strategy_name: "Value + Momentum",
+      strategy_type: "momentum_rotation",
+      universe: ["AAPL"],
+      benchmark: "SPY",
+      start_date: fiveYearsAgo,
+      end_date: today,
+      initial_capital: 10000,
+      rebalance_frequency: "monthly",
+      transaction_cost_bps: 10,
+      slippage_bps: 5,
+      rules: [],
+      position_sizing: { method: "equal_weight", max_positions: 1 },
+      risk_management: {},
+      cash_management: { hold_cash_when_no_signal: false, cash_yield_bps: 0 },
+    },
+    chatSeed: "",
+  },
+  {
+    id: "commodity-carry",
+    name: "Commodity Carry",
+    category: "Carry",
+    description: "Roll yield proxy using front-month ETF returns",
+    whatItTests:
+      "Approximate commodity carry by using short-term ETF returns as a proxy for roll yield. Rotate monthly into the top 2 commodity ETFs by 1-month return. Note: ETF proxy differs from true futures roll yield.",
+    dataRequirement: "Futures curve data (ETF proxy available)",
+    universeDescription: "Commodity ETFs",
+    defaultTickers: ["GLD", "SLV", "USO", "UNG", "DBA"],
+    multiTicker: true,
+    minTickers: 2,
+    tickerLabel: "Enter your commodity universe (comma-separated)",
+    availability: "proxy",
+    etfProxyCaveat:
+      "This template uses an ETF proxy for futures curve data. The approximation may differ materially from actual roll yield. Treat results as directional, not precise.",
+    strategy: {
+      strategy_name: "Commodity Carry — ETF Proxy",
+      strategy_type: "momentum_rotation",
+      universe: ["GLD", "SLV", "USO", "UNG", "DBA"],
+      benchmark: "DBC",
+      start_date: fiveYearsAgo,
+      end_date: today,
+      initial_capital: 10000,
+      rebalance_frequency: "monthly",
+      transaction_cost_bps: 10,
+      slippage_bps: 5,
+      rules: [{ top_n: 2, ranking_measure: "total_return", ranking_lookback_days: 21 }],
+      position_sizing: { method: "equal_weight", max_positions: 2 },
+      risk_management: {},
+      cash_management: { hold_cash_when_no_signal: false, cash_yield_bps: 0 },
+    },
+    chatSeed:
+      "I want to build a commodity carry strategy using ETF proxies. My universe is {tickers}. Tell me: which commodity ETFs to include and how to rank them.",
+  },
+];

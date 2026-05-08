@@ -1,6 +1,7 @@
 "use client";
 
-import { useMemo, useState, type ChangeEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowRight,
   Bot,
@@ -28,7 +29,9 @@ import {
   commodityDemoStrategies,
   demoMarkdownStrategy,
   demoStrategies,
+  researchTemplates,
   type BacktestResult,
+  type ResearchTemplate,
   type DataQualityReport,
   type ExplanationResponse,
   type RobustnessJobResponse,
@@ -115,6 +118,9 @@ function buildComparison(
 
 export function ResearchWorkspace() {
   const { locale, t } = useLocale();
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const strategyPreviewRef = useRef<HTMLElement>(null);
 
   const [prompt, setPrompt] = useState<string>(t.demoPrompts[0]);
   const [strategyDoc, setStrategyDoc] = useState(demoMarkdownStrategy);
@@ -139,6 +145,9 @@ export function ResearchWorkspace() {
   const [robustnessJob, setRobustnessJob] = useState<RobustnessJobResponse | null>(null);
   const [isRunningRobustness, setIsRunningRobustness] = useState(false);
   const [peerTickers, setPeerTickers] = useState("");
+  const [activeTemplate, setActiveTemplate] = useState<ResearchTemplate | null>(null);
+  const [templateReviewCallout, setTemplateReviewCallout] = useState(false);
+  const [showEtfProxyCaveat, setShowEtfProxyCaveat] = useState(false);
 
   const comparisonRows = useMemo(
     () => buildComparison(backtestResult, previousResult, { totalReturn: t.totalReturn, sharpe: t.sharpe, maxDrawdown: t.maxDrawdown, trades: t.trades }),
@@ -281,6 +290,67 @@ export function ResearchWorkspace() {
     ]);
     fetchQualityForSymbols(demo.strategy.universe);
   }
+
+  function handleLoadTemplate(template: ResearchTemplate, tickers: string[]) {
+    const modified = { ...template.strategy, universe: tickers };
+    setStrategy(modified);
+    setPrompt("");
+    setRobustnessJob(null);
+    setBacktestResult(null);
+    setExplanation(null);
+    setSandboxReview(null);
+    setMarkdownParseResult(null);
+    setValidationIssues([]);
+    setClarifications([]);
+    setChat([
+      { role: "assistant", content: t.chatWelcome },
+      { role: "assistant", content: `Template loaded: ${template.name}. Review the strategy rules and universe, then run the backtest.` },
+    ]);
+    setActiveTemplate(template);
+    setTemplateReviewCallout(true);
+    setShowEtfProxyCaveat(template.availability === "proxy");
+    fetchQualityForSymbols(tickers);
+    setTimeout(() => strategyPreviewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+  }
+
+  function handleBuildFromTemplate(template: ResearchTemplate, tickers: string[]) {
+    const tickerStr = tickers.join(", ");
+    const seed = template.chatSeed
+      .replace("{tickers}", tickerStr)
+      .replace("{ticker}", tickerStr);
+    setPrompt(seed);
+    setActiveTemplate(template);
+    setTemplateReviewCallout(false);
+    setShowEtfProxyCaveat(false);
+    setChat([
+      { role: "assistant", content: t.chatWelcome },
+      { role: "assistant", content: `Starting from the ${template.name} framework. Describe your version in the chat below.` },
+    ]);
+  }
+
+  useEffect(() => {
+    const templateId = searchParams.get("templateId");
+    const path = searchParams.get("path");
+    const ticker = searchParams.get("ticker");
+    const tickers = searchParams.get("tickers");
+    if (!templateId || !path) return;
+
+    const template = researchTemplates.find((t) => t.id === templateId);
+    if (!template) return;
+
+    const resolvedTickers = tickers
+      ? tickers.split(",").map((t) => t.trim().toUpperCase()).filter(Boolean)
+      : ticker
+      ? [ticker.toUpperCase()]
+      : template.defaultTickers;
+
+    if (path === "load") handleLoadTemplate(template, resolvedTickers);
+    if (path === "build") handleBuildFromTemplate(template, resolvedTickers);
+
+    // Clear params from URL so a refresh doesn't re-trigger
+    router.replace("/", { scroll: false });
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function handleRunRobustness() {
     if (!strategy) return;
@@ -541,8 +611,20 @@ export function ResearchWorkspace() {
           </div>
 
           <div className="grid gap-6">
+            {/* Template callouts */}
+            {templateReviewCallout && (
+              <div className="rounded-md border border-yellow-500/20 bg-yellow-500/5 px-4 py-2.5 text-sm text-yellow-300/80">
+                Template loaded with default parameters. Review the rules and universe before running a backtest.
+              </div>
+            )}
+            {showEtfProxyCaveat && activeTemplate?.etfProxyCaveat && (
+              <div className="rounded-md border border-yellow-500/20 bg-yellow-500/5 px-4 py-2.5 text-sm text-yellow-300/80">
+                {activeTemplate.etfProxyCaveat}
+              </div>
+            )}
+
             {/* Strategy Preview */}
-            <section className="rounded-lg border border-border bg-card/70">
+            <section ref={strategyPreviewRef} className="rounded-lg border border-border bg-card/70">
               <div className="flex flex-col gap-3 border-b border-border px-4 py-3 lg:flex-row lg:items-center lg:justify-between">
                 <div>
                   <h2 className="text-sm font-medium">{t.strategyPreviewTitle}</h2>
@@ -746,6 +828,15 @@ export function ResearchWorkspace() {
                 </TabsList>
 
                 <TabsContent value="dashboard" className="space-y-6">
+                  {!backtestResult && strategy && templateReviewCallout && (
+                    <div className="flex flex-col items-center justify-center py-16 text-center space-y-2">
+                      <p className="text-sm text-muted-foreground">Strategy loaded.</p>
+                      <p className="text-xs text-muted-foreground/60 max-w-xs">
+                        Review the rules on the left, adjust the universe and date range for your hypothesis,
+                        then run the backtest.
+                      </p>
+                    </div>
+                  )}
                   {backtestResult ? (
                     <>
                       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
