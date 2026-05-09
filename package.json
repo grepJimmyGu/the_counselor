@@ -13,5 +13,8 @@
     "api:dev": "cd apps/api && uvicorn app.main:app --reload",
     "api:test": "cd apps/api && pytest",
     "dev": "echo \"Run npm run web:dev and npm run api:dev in separate terminals.\""
+  },
+  "dependencies": {
+    "uipro-cli": "^2.2.3"
   }
 }
