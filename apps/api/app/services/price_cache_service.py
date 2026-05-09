@@ -52,9 +52,12 @@ class PriceCacheService:
         symbol: str,
         required_from: date,
         required_through: Optional[date] = None,
+        force: bool = False,
     ) -> None:
         """
         Fetches TIME_SERIES_DAILY_ADJUSTED (full) if cache is stale relative to required_from.
+        Pass force=True to bypass the stale check (e.g. for display-critical data like
+        the market overview homepage, where we always want the freshest available bar).
         Uses INSERT OR IGNORE / ON CONFLICT DO NOTHING — never deletes existing rows.
         If the fetch fails but cached data covers the required date range, the error is
         logged but not re-raised so the backtest can proceed with cached data.
@@ -65,7 +68,7 @@ class PriceCacheService:
         # Fresh if: latest is recent AND earliest covers the required lookback
         not_stale = not self.is_stale(latest, date.today())
         has_lookback = earliest is not None and earliest <= required_from
-        if not_stale and has_lookback:
+        if not force and not_stale and has_lookback:
             return
 
         start_ms = time.monotonic()
