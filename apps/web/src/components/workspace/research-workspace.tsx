@@ -89,6 +89,8 @@ type RunHistoryEntry = {
   universe: string[];
   startDate: string;
   endDate: string;
+  strategy: StrategyJson;
+  chat: ChatMessage[];
   result: BacktestResult;
   explanation: ExplanationResponse | null;
   sandboxReview: SandboxReviewResponse | null;
@@ -111,11 +113,11 @@ function RobustnessTable({ title, children }: { title: string; children: React.R
 function VerdictBadge({ verdict }: { verdict: string }) {
   const color =
     verdict === "better" || verdict === "strong" || verdict === "robust" || verdict === "promising"
-      ? "border-emerald-500/50 text-emerald-400"
+      ? "border-emerald-400 text-emerald-700 bg-emerald-50"
       : verdict === "worse" || verdict === "weak" || verdict === "breaks_down" || verdict === "untrusted"
-      ? "border-rose-500/50 text-rose-400"
-      : "text-muted-foreground";
-  return <Badge variant="outline" className={`capitalize text-xs ${color}`}>{verdict.replace(/_/g, " ")}</Badge>;
+      ? "border-rose-400 text-rose-700 bg-rose-50"
+      : "border-border text-muted-foreground";
+  return <Badge variant="outline" className={`capitalize text-xs font-medium ${color}`}>{verdict.replace(/_/g, " ")}</Badge>;
 }
 
 function formatPercent(value: number) {
@@ -199,6 +201,7 @@ export function ResearchWorkspace() {
   const [isLoadingCompare, setIsLoadingCompare] = useState(false);
   const [runHistory, setRunHistory] = useState<RunHistoryEntry[]>([]);
   const [showJsonPreview, setShowJsonPreview] = useState(false);
+  const [activeTab, setActiveTab] = useState("results");
 
   const comparisonRows = useMemo(
     () => buildComparison(backtestResult, previousResult, { totalReturn: t.totalReturn, sharpe: t.sharpe, maxDrawdown: t.maxDrawdown, trades: t.trades }),
@@ -322,6 +325,8 @@ export function ResearchWorkspace() {
         universe: strategy.universe,
         startDate: strategy.start_date,
         endDate: strategy.end_date,
+        strategy,
+        chat,
         result,
         explanation: explainerPayload,
         sandboxReview: reviewerPayload,
@@ -474,6 +479,20 @@ export function ResearchWorkspace() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  function handleRestoreFromHistory(entry: RunHistoryEntry) {
+    setStrategy(entry.strategy);
+    setChat(entry.chat);
+    setBacktestResult(entry.result);
+    setExplanation(entry.explanation);
+    setSandboxReview(entry.sandboxReview);
+    setPreviousResult(null);
+    setRobustnessJob(null);
+    setSavedSlug(null);
+    setShowSaveDialog(false);
+    setActiveTab("results");
+    setTimeout(() => strategyPreviewRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }), 100);
+  }
+
   async function handleRunRobustness() {
     if (!strategy) return;
     setIsRunningRobustness(true);
@@ -575,9 +594,9 @@ export function ResearchWorkspace() {
               <div className="flex items-center justify-between border-b border-border bg-muted/20 px-4 py-3">
                 <div className="flex items-center gap-2">
                   <Bot className="h-4 w-4 text-primary" />
-                  <h2 className="font-heading text-sm font-semibold">{t.chatBuilderTitle}</h2>
+                  <h2 className="font-heading text-base font-semibold">{t.chatBuilderTitle}</h2>
                 </div>
-                <Badge variant="outline" className="font-mono text-[10px]">{t.strategyParser}</Badge>
+                <Badge variant="outline" className="font-mono text-xs">{t.strategyParser}</Badge>
               </div>
               <div className="space-y-4 p-4">
                 <div className="flex flex-wrap gap-2">
@@ -643,7 +662,7 @@ export function ResearchWorkspace() {
               <div className="flex items-center justify-between border-b border-border bg-muted/20 px-4 py-3">
                 <div className="flex items-center gap-2">
                   <FileText className="h-4 w-4 text-primary" />
-                  <h2 className="font-heading text-sm font-semibold">{t.strategyDocTitle}</h2>
+                  <h2 className="font-heading text-base font-semibold">{t.strategyDocTitle}</h2>
                 </div>
                 <Badge variant="outline" className="font-mono text-[10px]">{t.markdownIntake}</Badge>
               </div>
@@ -703,7 +722,7 @@ export function ResearchWorkspace() {
             <section className="overflow-hidden rounded-lg border border-border bg-card/70">
               <div className="flex items-center gap-2 border-b border-border bg-muted/20 px-4 py-3">
                 <FlaskConical className="h-4 w-4 text-primary" />
-                <h2 className="font-heading text-sm font-semibold">{t.validationTitle}</h2>
+                <h2 className="font-heading text-base font-semibold">{t.validationTitle}</h2>
               </div>
               <div className="p-4">
               <div className="space-y-3 text-sm">
@@ -938,12 +957,14 @@ export function ResearchWorkspace() {
 
             {/* Results Tabs */}
             <section className="rounded-lg border border-border bg-card/70 p-4">
-              <Tabs defaultValue="results" className="space-y-4">
+              <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
                 <TabsList className="grid w-full grid-cols-4">
                   <TabsTrigger value="results">{t.tabBacktest}</TabsTrigger>
-                  <TabsTrigger value="analysis">{t.tabExplanation}</TabsTrigger>
+                  <TabsTrigger value="review">Review</TabsTrigger>
                   <TabsTrigger value="robustness">{t.tabRobustness}</TabsTrigger>
-                  <TabsTrigger value="history">History {runHistory.length > 0 && <span className="ml-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-mono text-primary">{runHistory.length}</span>}</TabsTrigger>
+                  <TabsTrigger value="history">
+                    History{runHistory.length > 0 && <span className="ml-1.5 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-mono text-primary">{runHistory.length}</span>}
+                  </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="results" className="space-y-6">
@@ -1029,16 +1050,33 @@ export function ResearchWorkspace() {
                           <EquityCurveChart result={backtestResult} />
                         </div>
                         <div className="rounded-lg border border-border bg-background p-4">
-                          <h3 className="mb-4 text-sm font-medium">{t.metricsDetail}</h3>
-                          <div className="space-y-2 text-sm">
-                            {Object.entries(backtestResult.metrics).map(([key, value]) => (
-                              <div key={key} className="flex items-center justify-between gap-4">
-                                <span className="text-muted-foreground">{key.replaceAll("_", " ")}</span>
-                                <span className="font-medium">
-                                  {typeof value === "number" ? formatNumber(value) : value}
-                                </span>
-                              </div>
-                            ))}
+                          <h3 className="mb-4 text-sm font-semibold">Key Metrics</h3>
+                          <div className="space-y-2.5">
+                            {([
+                              { label: "Annualized Return", key: "annualized_return", pct: true },
+                              { label: "Sharpe Ratio", key: "sharpe_ratio", pct: false },
+                              { label: "Sortino Ratio", key: "sortino_ratio", pct: false },
+                              { label: "Calmar Ratio", key: "calmar_ratio", pct: false },
+                              { label: "Win Rate", key: "win_rate", pct: true },
+                              { label: "Avg Trade Return", key: "avg_trade_return", pct: true },
+                              { label: "# of Trades", key: "number_of_trades", pct: false },
+                              { label: "Alpha vs Benchmark", key: "excess_return_vs_benchmark", pct: true },
+                              { label: "Buy & Hold Return", key: "buy_and_hold_return", pct: true },
+                            ] as const).map(({ label, key, pct }) => {
+                              const raw = (backtestResult.metrics as unknown as Record<string, number>)[key];
+                              if (raw == null) return null;
+                              const isPositive = raw > 0;
+                              const isNegative = raw < 0;
+                              const valueClass = isPositive ? "text-[var(--profit)] font-semibold" : isNegative ? "text-[var(--loss)] font-semibold" : "font-medium";
+                              return (
+                                <div key={key} className="flex items-center justify-between gap-4 border-b border-border/50 pb-2 last:border-0 last:pb-0">
+                                  <span className="text-sm text-muted-foreground">{label}</span>
+                                  <span className={`font-mono text-sm ${valueClass}`}>
+                                    {pct ? formatPercent(raw) : formatNumber(raw)}
+                                  </span>
+                                </div>
+                              );
+                            })}
                           </div>
                         </div>
                       </div>
@@ -1123,82 +1161,135 @@ export function ResearchWorkspace() {
                   )}
                 </TabsContent>
 
-                {/* Analysis tab — Explanation + Sandbox merged */}
-                <TabsContent value="analysis" className="space-y-4">
+                {/* Review tab — two-box: Strategy Explanation + AI Review */}
+                <TabsContent value="review" className="space-y-0">
                   {!explanation && !sandboxReview ? (
-                    <div className="rounded-lg border border-dashed border-border p-8 text-sm text-muted-foreground">
-                      {t.explanationEmpty}
+                    <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
+                      Run a backtest to see the AI review.
                     </div>
                   ) : (
-                    <>
-                      {/* Sandbox verdict strip */}
-                      {sandboxReview && (
-                        <section className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-background px-4 py-3">
-                          <Badge className={cn("capitalize font-semibold",
-                            sandboxReview.review_verdict === "promising"
-                              ? "bg-[var(--profit-muted)] text-[var(--profit)] hover:bg-[var(--profit-muted)]"
-                              : sandboxReview.review_verdict === "untrusted"
-                              ? "bg-[var(--loss-muted)] text-[var(--loss)] hover:bg-[var(--loss-muted)]"
-                              : "bg-primary/10 text-primary hover:bg-primary/10"
-                          )}>
-                            {sandboxReview.review_verdict}
-                          </Badge>
-                          <Badge variant={sandboxReview.overfitting_risk === "high" ? "destructive" : "outline"}
-                            className={sandboxReview.overfitting_risk === "medium" ? "border-amber-300 text-amber-700" : ""}>
-                            Overfit risk: {sandboxReview.overfitting_risk}
-                          </Badge>
-                          <span className="text-sm text-muted-foreground">
-                            Trust: <span className="font-semibold text-foreground">{sandboxReview.trust_score}/100</span>
-                          </span>
-                          <span className="text-sm text-muted-foreground">
-                            Confidence: <span className="font-semibold text-foreground capitalize">{sandboxReview.confidence_level}</span>
-                          </span>
-                        </section>
-                      )}
-                      {/* Explanation narrative */}
-                      {explanation && (
-                        <section className="rounded-lg border border-border bg-background p-4">
-                          <h3 className="font-heading text-sm font-semibold">{explanation.strategy_summary}</h3>
-                          <p className="mt-2 text-sm leading-6 text-muted-foreground">{explanation.performance_explanation}</p>
-                        </section>
-                      )}
-                      {/* Combined grid: explanation sections + sandbox concerns */}
-                      {[...explanationSections, ...sandboxConcernSections].length > 0 && (
-                        <div className="grid gap-3 lg:grid-cols-2">
-                          {[...explanationSections, ...sandboxConcernSections].map(({ title, items }) => (
-                            <section key={title} className="rounded-lg border border-border bg-background p-4">
-                              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
-                              <ul className="mt-2 space-y-1.5 text-sm text-foreground/80">
-                                {(items as string[]).map((item) => (
-                                  <li key={item} className="flex gap-2"><span className="mt-1 text-primary shrink-0">·</span>{item}</li>
-                                ))}
-                              </ul>
-                            </section>
-                          ))}
+                    <div className="grid gap-4 lg:grid-cols-2">
+
+                      {/* LEFT BOX — Strategy Explanation */}
+                      <section className="rounded-xl border border-border bg-white shadow-sm">
+                        <div className="border-b border-border px-5 py-3.5">
+                          <div className="flex items-center gap-2">
+                            <div className="h-2 w-2 rounded-full bg-primary" aria-hidden="true" />
+                            <h3 className="font-heading text-sm font-semibold">Strategy Explanation</h3>
+                          </div>
+                          <p className="mt-0.5 text-xs text-muted-foreground">What this strategy does and how it performed</p>
                         </div>
-                      )}
-                      {/* Next steps */}
-                      {sandboxNextSteps.length > 0 && (
-                        <div className="grid gap-3 lg:grid-cols-2">
-                          {sandboxNextSteps.map(({ title, items }) => (
-                            <section key={title} className="rounded-lg border border-border bg-background p-4">
-                              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
-                              <ul className="mt-2 space-y-1.5 text-sm text-foreground/80">
-                                {items.map((item) => (
-                                  <li key={item} className="flex gap-2"><span className="mt-1 text-primary shrink-0">·</span>{item}</li>
-                                ))}
-                              </ul>
-                            </section>
-                          ))}
+                        <div className="space-y-4 p-5">
+                          {explanation ? (
+                            <>
+                              <div>
+                                <p className="text-sm font-semibold text-foreground">{explanation.strategy_summary}</p>
+                                <p className="mt-2 text-sm leading-relaxed text-muted-foreground">{explanation.performance_explanation}</p>
+                              </div>
+                              {explanationSections.map(({ title, items }) => (
+                                <div key={title}>
+                                  <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h4>
+                                  <ul className="space-y-1.5">
+                                    {(items as string[]).map((item) => (
+                                      <li key={item} className="flex gap-2 text-sm text-foreground/80">
+                                        <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-primary" aria-hidden="true" />
+                                        {item}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ))}
+                              {explanation.disclaimer && (
+                                <p className="text-xs text-muted-foreground border-t border-border pt-3">{explanation.disclaimer}</p>
+                              )}
+                            </>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">Explanation not available.</p>
+                          )}
                         </div>
-                      )}
-                      {sandboxReview?.final_warning && (
-                        <p className="text-xs text-[var(--loss)]">{sandboxReview.final_warning}</p>
-                      )}
-                      {explanation?.disclaimer && (
-                        <p className="text-xs text-muted-foreground">{explanation.disclaimer}</p>
-                      )}
-                    </>
+                      </section>
+
+                      {/* RIGHT BOX — AI Review */}
+                      <section className="rounded-xl border border-border bg-white shadow-sm">
+                        <div className="border-b border-border px-5 py-3.5">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex items-center gap-2">
+                              <div className="h-2 w-2 rounded-full bg-[var(--warning-amber)]" aria-hidden="true" />
+                              <h3 className="font-heading text-sm font-semibold">AI Review</h3>
+                            </div>
+                            {sandboxReview && (
+                              <div className="flex items-center gap-2">
+                                <Badge className={cn("capitalize text-xs font-semibold",
+                                  sandboxReview.review_verdict === "promising"
+                                    ? "bg-emerald-50 text-emerald-700 border-emerald-300 hover:bg-emerald-50"
+                                    : sandboxReview.review_verdict === "untrusted"
+                                    ? "bg-rose-50 text-rose-700 border-rose-300 hover:bg-rose-50"
+                                    : "bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-50"
+                                )}>
+                                  {sandboxReview.review_verdict}
+                                </Badge>
+                                <span className="text-xs text-muted-foreground font-mono">
+                                  {sandboxReview.trust_score}/100
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                          <p className="mt-0.5 text-xs text-muted-foreground">Independent skeptical review and improvement suggestions</p>
+                        </div>
+                        <div className="space-y-4 p-5">
+                          {sandboxReview ? (
+                            <>
+                              {/* Overfit risk + confidence */}
+                              <div className="flex flex-wrap gap-2">
+                                <Badge variant={sandboxReview.overfitting_risk === "high" ? "destructive" : "outline"}
+                                  className={cn("text-xs", sandboxReview.overfitting_risk === "medium" ? "border-amber-300 text-amber-700 bg-amber-50" : sandboxReview.overfitting_risk === "low" ? "border-emerald-300 text-emerald-700 bg-emerald-50" : "")}>
+                                  Overfit risk: {sandboxReview.overfitting_risk}
+                                </Badge>
+                                <Badge variant="outline" className="text-xs capitalize">
+                                  Confidence: {sandboxReview.confidence_level}
+                                </Badge>
+                              </div>
+                              {/* Overfit explanation */}
+                              <p className="text-sm leading-relaxed text-muted-foreground">{sandboxReview.overfitting_risk_explanation}</p>
+                              {/* Concerns */}
+                              {sandboxConcernSections.map(({ title, items }) => (
+                                <div key={title}>
+                                  <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h4>
+                                  <ul className="space-y-1.5">
+                                    {items.map((item) => (
+                                      <li key={item} className="flex gap-2 text-sm text-foreground/80">
+                                        <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-[var(--warning-amber)]" aria-hidden="true" />
+                                        {item}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ))}
+                              {/* Improvement suggestions */}
+                              {sandboxNextSteps.map(({ title, items }) => (
+                                <div key={title}>
+                                  <h4 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h4>
+                                  <ul className="space-y-1.5">
+                                    {items.map((item) => (
+                                      <li key={item} className="flex gap-2 text-sm text-foreground/80">
+                                        <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-primary" aria-hidden="true" />
+                                        {item}
+                                      </li>
+                                    ))}
+                                  </ul>
+                                </div>
+                              ))}
+                              {sandboxReview.final_warning && (
+                                <p className="border-t border-border pt-3 text-xs text-[var(--loss)]">{sandboxReview.final_warning}</p>
+                              )}
+                            </>
+                          ) : (
+                            <p className="text-sm text-muted-foreground">Review not available.</p>
+                          )}
+                        </div>
+                      </section>
+
+                    </div>
                   )}
                 </TabsContent>
 
@@ -1387,7 +1478,7 @@ export function ResearchWorkspace() {
                               isActive ? "border-primary/40 bg-primary/5" : "border-border bg-background hover:border-primary/20 hover:bg-muted/30"
                             )}>
                               <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
+                                <div className="min-w-0 flex-1">
                                   <div className="flex items-center gap-2">
                                     {isActive && <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" aria-label="Current run" />}
                                     <span className="font-heading text-sm font-semibold truncate">{entry.strategyName}</span>
@@ -1398,6 +1489,18 @@ export function ResearchWorkspace() {
                                     <span>{entry.startDate} → {entry.endDate}</span>
                                     <span>{new Date(entry.runAt).toLocaleString()}</span>
                                   </div>
+                                  {!isActive && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleRestoreFromHistory(entry)}
+                                      className="mt-2 cursor-pointer rounded-md border border-primary/30 bg-primary/5 px-3 py-1 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                                    >
+                                      Restore this run →
+                                    </button>
+                                  )}
+                                  {isActive && (
+                                    <span className="mt-2 inline-block text-xs text-primary font-medium">Currently viewing</span>
+                                  )}
                                 </div>
                                 <div className="flex shrink-0 gap-4 text-right text-xs">
                                   <div>

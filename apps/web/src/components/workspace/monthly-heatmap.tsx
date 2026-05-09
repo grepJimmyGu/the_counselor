@@ -2,11 +2,11 @@ import type { BacktestResult } from "@/lib/contracts";
 import { useLocale } from "@/lib/locale-context";
 
 function colorForValue(value: number) {
-  if (value > 0.08) return "bg-emerald-500/35 text-emerald-100";
-  if (value > 0.02) return "bg-emerald-500/20 text-emerald-100";
-  if (value > 0) return "bg-emerald-500/10 text-emerald-100";
-  if (value > -0.05) return "bg-rose-500/10 text-rose-100";
-  return "bg-rose-500/25 text-rose-100";
+  if (value > 0.08) return "bg-emerald-500/30 text-emerald-900 font-semibold";
+  if (value > 0.02) return "bg-emerald-500/18 text-emerald-800";
+  if (value > 0) return "bg-emerald-500/10 text-emerald-700";
+  if (value > -0.05) return "bg-rose-500/12 text-rose-700";
+  return "bg-rose-500/28 text-rose-900 font-semibold";
 }
 
 export function MonthlyHeatmap({ result }: { result: BacktestResult }) {
@@ -23,7 +23,7 @@ export function MonthlyHeatmap({ result }: { result: BacktestResult }) {
 
   return (
     <div className="overflow-x-auto">
-      <div className="grid min-w-[720px] grid-cols-[80px_repeat(12,minmax(0,1fr))] gap-2 text-sm">
+      <div className="grid min-w-[720px] grid-cols-[80px_repeat(12,minmax(0,1fr))] gap-2 text-sm font-medium">
         <div />
         {monthLabels.map((label) => (
           <div key={label} className="text-center text-muted-foreground">
@@ -38,7 +38,7 @@ export function MonthlyHeatmap({ result }: { result: BacktestResult }) {
               return (
                 <div
                   key={`${year}-${index + 1}`}
-                  className={`flex h-10 items-center justify-center rounded-md border border-border text-xs ${
+                  className={`flex h-10 items-center justify-center rounded-md border border-border text-sm ${
                     value === undefined ? "bg-muted/40 text-muted-foreground" : colorForValue(value)
                   }`}
                 >
