@@ -31,10 +31,13 @@ export function NavHeader() {
         <div className="flex items-center gap-6">
           <nav aria-label="Main navigation" className="flex items-center gap-1">
             <Link href="/" className={navLink(pathname === "/")}>
+              Home
+            </Link>
+            <Link href={"/workspace" as Route} className={navLink(pathname.startsWith("/workspace"))}>
               Workspace
             </Link>
             <Link href={"/templates" as Route} className={navLink(pathname.startsWith("/templates"))}>
-              Research Templates
+              Templates
             </Link>
           </nav>
           <LanguageSwitcher />

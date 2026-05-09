@@ -10,12 +10,16 @@ from app.db.session import get_db
 from app.schemas.data_quality import DataQualityReport
 from app.schemas.market_data import (
     DataStatusResponse,
+    MarketSnapshotItem,
     PriceBarResponse,
     SymbolDetailResponse,
     SymbolSearchItem,
     WarmupRequest,
     WarmupResponse,
 )
+from sqlalchemy import select
+
+from app.models.price_bar import PriceBar
 from app.services.alpha_vantage import AlphaVantageClient
 from app.services.data_quality_service import DataQualityService
 from app.services.market_data import MarketDataService
@@ -84,3 +88,54 @@ async def get_data_quality(
     db: Session = Depends(get_db),
 ) -> DataQualityReport:
     return data_quality_service.check_symbol(db, symbol.upper())
+
+
+@router.get("/market/overview", response_model=list[MarketSnapshotItem])
+async def get_market_overview(
+    symbols: str = Query(..., description="Comma-separated list of symbols, max 12"),
+    db: Session = Depends(get_db),
+) -> list[MarketSnapshotItem]:
+    """Return latest price snapshot + 30-day sparkline for a list of symbols."""
+    symbol_list = [s.strip().upper() for s in symbols.split(",") if s.strip()][:12]
+    results: list[MarketSnapshotItem] = []
+
+    for symbol in symbol_list:
+        try:
+            # Ensure cache is fresh (non-blocking best-effort)
+            await market_data_service.ensure_daily_history(db, symbol, date.today())
+
+            rows = db.execute(
+                select(PriceBar)
+                .where(PriceBar.symbol == symbol)
+                .order_by(PriceBar.trading_date.desc())
+                .limit(31)
+            ).scalars().all()
+
+            if not rows:
+                continue
+
+            rows_asc = sorted(rows, key=lambda r: r.trading_date)
+            last = rows_asc[-1]
+            prev = rows_asc[-2] if len(rows_asc) >= 2 else None
+
+            change_pct = ((last.adjusted_close - prev.adjusted_close) / prev.adjusted_close) if prev and prev.adjusted_close else 0.0
+            change_abs = (last.adjusted_close - prev.adjusted_close) if prev else 0.0
+            sparkline = [r.adjusted_close for r in rows_asc]
+
+            detail = symbol_service.get_detail(db, symbol)
+            name = detail.name if detail else symbol
+
+            results.append(MarketSnapshotItem(
+                symbol=symbol,
+                name=name,
+                last_price=round(last.adjusted_close, 2),
+                prev_close=round(prev.adjusted_close, 2) if prev else round(last.adjusted_close, 2),
+                change_pct=round(change_pct, 5),
+                change_abs=round(change_abs, 4),
+                last_date=last.trading_date,
+                sparkline=[round(v, 2) for v in sparkline],
+            ))
+        except Exception:
+            continue
+
+    return results

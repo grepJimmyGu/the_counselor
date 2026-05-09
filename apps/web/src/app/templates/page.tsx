@@ -18,7 +18,7 @@ function TemplateCard({ template }: { template: ResearchTemplate }) {
 
   function navigateTo(path: "load" | "build") {
     const param = template.multiTicker ? `tickers=${tickerStr}` : `ticker=${tickerStr}`;
-    router.push(`/?templateId=${template.id}&path=${path}&${param}`);
+    router.push(`/workspace?templateId=${template.id}&path=${path}&${param}`);
   }
 
   const categoryColor: Record<ResearchTemplate["category"], string> = {
