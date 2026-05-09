@@ -82,7 +82,20 @@ type LibraryEntry = {
   savedAt: string;
 };
 
+type RunHistoryEntry = {
+  id: string;
+  runAt: string;
+  strategyName: string;
+  universe: string[];
+  startDate: string;
+  endDate: string;
+  result: BacktestResult;
+  explanation: ExplanationResponse | null;
+  sandboxReview: SandboxReviewResponse | null;
+};
+
 const LIBRARY_KEY = "livermore_saved_strategies";
+const RUN_HISTORY_KEY = "livermore_run_history";
 
 function RobustnessTable({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -184,6 +197,8 @@ export function ResearchWorkspace() {
   const [compareMode, setCompareMode] = useState<"previous" | string>("previous");
   const [savedCompareResult, setSavedCompareResult] = useState<SavedStrategy | null>(null);
   const [isLoadingCompare, setIsLoadingCompare] = useState(false);
+  const [runHistory, setRunHistory] = useState<RunHistoryEntry[]>([]);
+  const [showJsonPreview, setShowJsonPreview] = useState(false);
 
   const comparisonRows = useMemo(
     () => buildComparison(backtestResult, previousResult, { totalReturn: t.totalReturn, sharpe: t.sharpe, maxDrawdown: t.maxDrawdown, trades: t.trades }),
@@ -299,6 +314,23 @@ export function ResearchWorkspace() {
       ]);
       setExplanation(explainerPayload);
       setSandboxReview(reviewerPayload);
+      // Save to run history
+      const historyEntry: RunHistoryEntry = {
+        id: result.backtest_id,
+        runAt: new Date().toISOString(),
+        strategyName: strategy.strategy_name,
+        universe: strategy.universe,
+        startDate: strategy.start_date,
+        endDate: strategy.end_date,
+        result,
+        explanation: explainerPayload,
+        sandboxReview: reviewerPayload,
+      };
+      setRunHistory((prev) => {
+        const updated = [historyEntry, ...prev].slice(0, 20);
+        localStorage.setItem(RUN_HISTORY_KEY, JSON.stringify(updated));
+        return updated;
+      });
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : t.errorBacktest);
     } finally {
@@ -407,6 +439,12 @@ export function ResearchWorkspace() {
     try {
       const stored: LibraryEntry[] = JSON.parse(localStorage.getItem(LIBRARY_KEY) ?? "[]");
       setSavedLibrary(stored);
+    } catch {
+      // ignore corrupt localStorage
+    }
+    try {
+      const storedHistory: RunHistoryEntry[] = JSON.parse(localStorage.getItem(RUN_HISTORY_KEY) ?? "[]");
+      setRunHistory(storedHistory);
     } catch {
       // ignore corrupt localStorage
     }
@@ -763,195 +801,152 @@ export function ResearchWorkspace() {
                 </div>
               )}
               {strategy ? (
-                <div className="grid gap-6 p-4 lg:grid-cols-[minmax(0,1fr)_360px]">
-                  {/* Defaults callout — shown before first backtest run */}
+                <div className="p-3 space-y-3">
+                  {/* Compact defaults strip — shown before first backtest */}
                   {!backtestResult && (
-                    <div className="col-span-full rounded-md border border-yellow-500/30 bg-yellow-500/5 px-4 py-3 text-xs text-yellow-300 space-y-1.5">
-                      <div className="font-medium">{t.defaultsTitle}</div>
-                      <p className="text-yellow-300/70">{t.defaultsNote}</p>
-                      <ul className="space-y-1 text-yellow-300/80">
-                        <li>• <span className="font-medium">{t.defaultBenchmark}:</span> {strategy.benchmark}</li>
-                        <li>• <span className="font-medium">{t.defaultDates}:</span> {strategy.start_date} → {strategy.end_date}</li>
-                        <li>• <span className="font-medium">{t.defaultCosts}:</span> {strategy.transaction_cost_bps} bps / {strategy.slippage_bps} bps</li>
-                      </ul>
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
+                      <span className="font-medium">{t.defaultsTitle}:</span>
+                      <span>{t.defaultBenchmark}: <strong>{strategy.benchmark}</strong></span>
+                      <span>{strategy.start_date} → {strategy.end_date}</span>
+                      <span>{strategy.transaction_cost_bps} bps / {strategy.slippage_bps} bps</span>
                     </div>
                   )}
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <label className="space-y-2 text-sm">
-                      <span className="text-muted-foreground">{t.strategyName}</span>
-                      <Input
+                  {/* Tight 3-column form grid */}
+                  <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+                    <label className="space-y-1 text-xs">
+                      <span className="font-medium text-muted-foreground">{t.strategyName}</span>
+                      <Input className="h-8 text-xs"
                         value={strategy.strategy_name}
                         onChange={(event) => updateStrategyField("strategy_name", event.target.value)}
                       />
                     </label>
-                    <label className="space-y-2 text-sm">
-                      <span className="text-muted-foreground">{t.benchmark}</span>
-                      <Input
+                    <label className="space-y-1 text-xs">
+                      <span className="font-medium text-muted-foreground">{t.benchmark}</span>
+                      <Input className="h-8 text-xs font-mono"
                         value={strategy.benchmark}
                         onChange={(event) => updateStrategyField("benchmark", event.target.value.toUpperCase())}
                       />
                     </label>
-                    <label className="space-y-2 text-sm">
-                      <span className="text-muted-foreground">{t.startDate}</span>
-                      <Input
-                        type="date"
-                        value={strategy.start_date}
-                        onChange={(event) => updateStrategyField("start_date", event.target.value)}
-                      />
-                    </label>
-                    <label className="space-y-2 text-sm">
-                      <span className="text-muted-foreground">{t.endDate}</span>
-                      <Input
-                        type="date"
-                        value={strategy.end_date}
-                        onChange={(event) => updateStrategyField("end_date", event.target.value)}
-                      />
-                    </label>
-                    <label className="space-y-2 text-sm">
-                      <span className="text-muted-foreground">{t.initialCapital}</span>
-                      <Input
-                        type="number"
+                    <label className="space-y-1 text-xs">
+                      <span className="font-medium text-muted-foreground">{t.initialCapital}</span>
+                      <Input className="h-8 text-xs" type="number"
                         value={strategy.initial_capital}
                         onChange={(event) => updateStrategyField("initial_capital", Number(event.target.value))}
                       />
                     </label>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex items-center justify-between gap-2">
-                        <span className="text-muted-foreground">{t.universe}</span>
-                        <div className="flex flex-wrap justify-end gap-1">
-                          {strategy.universe.map((sym) => (
-                            <DataStatusBadge key={sym} symbol={sym} />
-                          ))}
-                        </div>
-                      </div>
-                      <TickerSearch
-                        value={strategy.universe}
-                        onChange={(universe) => updateStrategyField("universe", universe)}
-                        disabled={isRunning}
+                    <label className="space-y-1 text-xs">
+                      <span className="font-medium text-muted-foreground">{t.startDate}</span>
+                      <Input className="h-8 text-xs" type="date"
+                        value={strategy.start_date}
+                        onChange={(event) => updateStrategyField("start_date", event.target.value)}
                       />
-                      {strategy.universe.some((sym) => qualityReports[sym]) && (
-                        <div className="mt-2 space-y-1">
-                          {strategy.universe.map((sym) => {
-                            const q = qualityReports[sym];
-                            if (!q) return null;
-                            return (
-                              <div key={sym} className="flex flex-wrap items-start gap-2 rounded-md border border-border bg-background px-3 py-2 text-xs">
-                                <Badge variant={q.status === "blocked" ? "destructive" : q.status === "warning" ? "outline" : "outline"}
-                                  className={q.status === "warning" ? "border-yellow-500/50 text-yellow-400" : q.status === "ready" ? "border-emerald-500/50 text-emerald-400" : ""}>
-                                  {sym} · {q.status}
-                                </Badge>
-                                <span className="text-muted-foreground">{q.row_count} bars · {q.earliest_available_date} → {q.latest_available_date}</span>
-                                {[...q.blocking_errors, ...q.warnings].slice(0, 1).map((msg) => (
-                                  <span key={msg} className="w-full text-muted-foreground">{msg}</span>
-                                ))}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
+                    </label>
+                    <label className="space-y-1 text-xs">
+                      <span className="font-medium text-muted-foreground">{t.endDate}</span>
+                      <Input className="h-8 text-xs" type="date"
+                        value={strategy.end_date}
+                        onChange={(event) => updateStrategyField("end_date", event.target.value)}
+                      />
+                    </label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <label className="space-y-1 text-xs">
+                        <span className="font-medium text-muted-foreground">{t.transactionCost}</span>
+                        <Input className="h-8 text-xs" type="number"
+                          value={strategy.transaction_cost_bps}
+                          onChange={(event) => updateStrategyField("transaction_cost_bps", Number(event.target.value))}
+                        />
+                      </label>
+                      <label className="space-y-1 text-xs">
+                        <span className="font-medium text-muted-foreground">{t.slippage}</span>
+                        <Input className="h-8 text-xs" type="number"
+                          value={strategy.slippage_bps}
+                          onChange={(event) => updateStrategyField("slippage_bps", Number(event.target.value))}
+                        />
+                      </label>
                     </div>
-                    <label className="space-y-2 text-sm">
-                      <span className="text-muted-foreground">{t.transactionCost}</span>
-                      <Input
-                        type="number"
-                        value={strategy.transaction_cost_bps}
-                        onChange={(event) => updateStrategyField("transaction_cost_bps", Number(event.target.value))}
-                      />
-                    </label>
-                    <label className="space-y-2 text-sm">
-                      <span className="text-muted-foreground">{t.slippage}</span>
-                      <Input
-                        type="number"
-                        value={strategy.slippage_bps}
-                        onChange={(event) => updateStrategyField("slippage_bps", Number(event.target.value))}
-                      />
-                    </label>
                   </div>
-                  <div className="space-y-4">
-                    <div className="space-y-3">
-                      <div className="text-sm font-medium">{t.strategyJson}</div>
-                      <pre className="max-h-[280px] overflow-auto rounded-lg border border-border bg-background p-3 text-xs leading-6 text-muted-foreground">
+                  {/* Universe row */}
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-medium text-muted-foreground">{t.universe}</span>
+                      <div className="flex flex-wrap justify-end gap-1">
+                        {strategy.universe.map((sym) => (
+                          <DataStatusBadge key={sym} symbol={sym} />
+                        ))}
+                      </div>
+                    </div>
+                    <TickerSearch
+                      value={strategy.universe}
+                      onChange={(universe) => updateStrategyField("universe", universe)}
+                      disabled={isRunning}
+                    />
+                    {strategy.universe.some((sym) => qualityReports[sym]) && (
+                      <div className="space-y-1">
+                        {strategy.universe.map((sym) => {
+                          const q = qualityReports[sym];
+                          if (!q) return null;
+                          return (
+                            <div key={sym} className="flex flex-wrap items-start gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-xs">
+                              <Badge variant={q.status === "blocked" ? "destructive" : "outline"}
+                                className={cn("text-[10px]", q.status === "warning" ? "border-amber-300 text-amber-700" : q.status === "ready" ? "border-emerald-300 text-emerald-700" : "")}>
+                                {sym} · {q.status}
+                              </Badge>
+                              <span className="text-muted-foreground">{q.row_count} bars · {q.earliest_available_date} → {q.latest_available_date}</span>
+                              {[...q.blocking_errors, ...q.warnings].slice(0, 1).map((msg) => (
+                                <span key={msg} className="w-full text-muted-foreground">{msg}</span>
+                              ))}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                  {/* Collapsible JSON preview */}
+                  <div>
+                    <button
+                      type="button"
+                      onClick={() => setShowJsonPreview((v) => !v)}
+                      className="cursor-pointer flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors duration-200"
+                    >
+                      <ArrowRight className={cn("h-3 w-3 transition-transform duration-200", showJsonPreview && "rotate-90")} />
+                      {showJsonPreview ? "Hide" : "Show"} strategy JSON
+                    </button>
+                    {showJsonPreview && (
+                      <pre className="mt-2 max-h-[180px] overflow-auto rounded-lg border border-border bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">
                         {JSON.stringify(strategy, null, 2)}
                       </pre>
-                    </div>
-                    {markdownParseResult ? (
-                      <>
-                        <div className="rounded-lg border border-border bg-background p-3">
-                          <div className="text-sm font-medium">{t.sourceSummary}</div>
-                          <p className="mt-2 text-xs leading-6 text-muted-foreground">
-                            {markdownParseResult.source_summary}
-                          </p>
-                        </div>
-                        <div className="grid gap-3 md:grid-cols-2">
-                          <div className="rounded-lg border border-border bg-background p-3">
-                            <div className="text-sm font-medium">{t.assumptionsTitle}</div>
-                            <ul className="mt-2 space-y-2 text-xs leading-5 text-muted-foreground">
-                              {markdownParseResult.assumption_log.length ? (
-                                markdownParseResult.assumption_log.map((item) => (
-                                  <li key={item}>• {item}</li>
-                                ))
-                              ) : (
-                                <li>{t.noAssumptions}</li>
-                              )}
-                            </ul>
-                          </div>
-                          <div className="rounded-lg border border-border bg-background p-3">
-                            <div className="text-sm font-medium">{t.ambiguitiesTitle}</div>
-                            <ul className="mt-2 space-y-2 text-xs leading-5 text-muted-foreground">
-                              {markdownParseResult.ambiguities.length ? (
-                                markdownParseResult.ambiguities.map((item) => (
-                                  <li key={item}>• {item}</li>
-                                ))
-                              ) : (
-                                <li>{t.noAmbiguities}</li>
-                              )}
-                            </ul>
-                          </div>
-                        </div>
-                        <div className="rounded-lg border border-border bg-background p-3">
-                          <div className="mb-2 text-sm font-medium">{t.extractionTrace}</div>
-                          <ScrollArea className="h-[220px]">
-                            <Table>
-                              <TableHeader>
-                                <TableRow>
-                                  <TableHead>{t.field}</TableHead>
-                                  <TableHead>{t.status}</TableHead>
-                                  <TableHead>{t.value}</TableHead>
-                                </TableRow>
-                              </TableHeader>
-                              <TableBody>
-                                {markdownParseResult.extracted_fields.map((f) => (
-                                  <TableRow key={f.field}>
-                                    <TableCell>{f.field}</TableCell>
-                                    <TableCell><Badge variant="outline">{f.status}</Badge></TableCell>
-                                    <TableCell className="text-xs text-muted-foreground">{f.value}</TableCell>
-                                  </TableRow>
-                                ))}
-                              </TableBody>
-                            </Table>
-                          </ScrollArea>
-                        </div>
-                      </>
-                    ) : null}
+                    )}
                   </div>
+                  {/* Markdown parse result — collapsible summary */}
+                  {markdownParseResult && (
+                    <div className="rounded-md border border-border bg-muted/30 p-3 text-xs space-y-1.5">
+                      <p className="text-muted-foreground">{markdownParseResult.source_summary}</p>
+                      <div className="flex flex-wrap gap-2">
+                        <Badge variant="outline" className="text-[10px]">{markdownParseResult.extracted_fields.length} {t.extractedFields}</Badge>
+                        <Badge variant="outline" className="text-[10px]">{markdownParseResult.assumption_log.length} {t.assumptions}</Badge>
+                        <Badge variant={markdownParseResult.ambiguities.length ? "destructive" : "outline"} className="text-[10px]">
+                          {markdownParseResult.ambiguities.length} {t.ambiguities}
+                        </Badge>
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
-                <div className="p-8 text-sm text-muted-foreground">{t.parseFirst}</div>
+                <div className="p-8 text-center text-sm text-muted-foreground">{t.parseFirst}</div>
               )}
             </section>
 
             {/* Results Tabs */}
             <section className="rounded-lg border border-border bg-card/70 p-4">
-              <Tabs defaultValue="dashboard" className="space-y-4">
-                <TabsList className="grid w-full grid-cols-5">
-                  <TabsTrigger value="dashboard">{t.tabBacktest}</TabsTrigger>
-                  <TabsTrigger value="explanation">{t.tabExplanation}</TabsTrigger>
-                  <TabsTrigger value="sandbox">{t.tabSandbox}</TabsTrigger>
+              <Tabs defaultValue="results" className="space-y-4">
+                <TabsList className="grid w-full grid-cols-4">
+                  <TabsTrigger value="results">{t.tabBacktest}</TabsTrigger>
+                  <TabsTrigger value="analysis">{t.tabExplanation}</TabsTrigger>
                   <TabsTrigger value="robustness">{t.tabRobustness}</TabsTrigger>
-                  <TabsTrigger value="comparison">{t.tabComparison}</TabsTrigger>
+                  <TabsTrigger value="history">History {runHistory.length > 0 && <span className="ml-1 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-mono text-primary">{runHistory.length}</span>}</TabsTrigger>
                 </TabsList>
 
-                <TabsContent value="dashboard" className="space-y-6">
+                <TabsContent value="results" className="space-y-6">
                   {!backtestResult && strategy && templateReviewCallout && !isRunning && (
                     <div className="flex flex-col items-center justify-center py-16 text-center space-y-2">
                       <p className="text-sm text-muted-foreground">Strategy loaded.</p>
@@ -1128,106 +1123,82 @@ export function ResearchWorkspace() {
                   )}
                 </TabsContent>
 
-                <TabsContent value="explanation" className="space-y-4">
-                  {explanation ? (
-                    <>
-                      <section className="rounded-lg border border-border bg-background p-4">
-                        <h3 className="text-sm font-medium">{explanation.strategy_summary}</h3>
-                        <p className="mt-3 text-sm leading-6 text-muted-foreground">
-                          {explanation.performance_explanation}
-                        </p>
-                      </section>
-                      <div className="grid gap-4 lg:grid-cols-2">
-                        {explanationSections.map(({ title, items }) => (
-                          <section key={title} className="rounded-lg border border-border bg-background p-4">
-                            <h3 className="text-sm font-medium">{title}</h3>
-                            <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-                              {(items as string[]).map((item) => (
-                                <li key={item}>• {item}</li>
-                              ))}
-                            </ul>
-                          </section>
-                        ))}
-                      </div>
-                      <p className="text-xs text-muted-foreground">{explanation.disclaimer}</p>
-                    </>
-                  ) : (
+                {/* Analysis tab — Explanation + Sandbox merged */}
+                <TabsContent value="analysis" className="space-y-4">
+                  {!explanation && !sandboxReview ? (
                     <div className="rounded-lg border border-dashed border-border p-8 text-sm text-muted-foreground">
                       {t.explanationEmpty}
                     </div>
-                  )}
-                </TabsContent>
-
-                <TabsContent value="sandbox" className="space-y-4">
-                  {sandboxReview ? (
+                  ) : (
                     <>
-                      {/* Verdict header */}
-                      <section className="rounded-lg border border-border bg-background p-4">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Badge className="bg-primary/15 text-primary hover:bg-primary/15 capitalize">
+                      {/* Sandbox verdict strip */}
+                      {sandboxReview && (
+                        <section className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-background px-4 py-3">
+                          <Badge className={cn("capitalize font-semibold",
+                            sandboxReview.review_verdict === "promising"
+                              ? "bg-[var(--profit-muted)] text-[var(--profit)] hover:bg-[var(--profit-muted)]"
+                              : sandboxReview.review_verdict === "untrusted"
+                              ? "bg-[var(--loss-muted)] text-[var(--loss)] hover:bg-[var(--loss-muted)]"
+                              : "bg-primary/10 text-primary hover:bg-primary/10"
+                          )}>
                             {sandboxReview.review_verdict}
                           </Badge>
-                          <Badge variant={
-                            sandboxReview.overfitting_risk === "high" ? "destructive"
-                            : sandboxReview.overfitting_risk === "medium" ? "outline"
-                            : "outline"
-                          } className={sandboxReview.overfitting_risk === "medium" ? "border-yellow-500/50 text-yellow-400" : ""}>
-                            {t.overfittingRiskLabel}: {sandboxReview.overfitting_risk}
+                          <Badge variant={sandboxReview.overfitting_risk === "high" ? "destructive" : "outline"}
+                            className={sandboxReview.overfitting_risk === "medium" ? "border-amber-300 text-amber-700" : ""}>
+                            Overfit risk: {sandboxReview.overfitting_risk}
                           </Badge>
-                          <div className="text-sm text-muted-foreground">
-                            {t.trustScore}{" "}
-                            <span className="font-semibold text-foreground">
-                              {sandboxReview.trust_score}/100
-                            </span>
-                          </div>
-                          <div className="text-sm text-muted-foreground">
-                            {t.confidenceLevel}{" "}
-                            <span className="font-semibold text-foreground">
-                              {sandboxReview.confidence_level}
-                            </span>
-                          </div>
-                        </div>
-                        <p className="mt-4 text-sm leading-6 text-muted-foreground">
-                          {sandboxReview.overfitting_risk_explanation}
-                        </p>
-                      </section>
-
-                      {/* Trust / distrust + all concerns */}
-                      <div className="grid gap-4 lg:grid-cols-2">
-                        {sandboxConcernSections.map(({ title, items }) => (
-                          <section key={title} className="rounded-lg border border-border bg-background p-4">
-                            <h3 className="text-sm font-medium">{title}</h3>
-                            <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-                              {items.map((item) => (
-                                <li key={item}>• {item}</li>
-                              ))}
-                            </ul>
-                          </section>
-                        ))}
-                      </div>
-
-                      {/* Next steps */}
-                      {sandboxNextSteps.length > 0 && (
-                        <div className="grid gap-4 lg:grid-cols-2">
-                          {sandboxNextSteps.map(({ title, items }) => (
+                          <span className="text-sm text-muted-foreground">
+                            Trust: <span className="font-semibold text-foreground">{sandboxReview.trust_score}/100</span>
+                          </span>
+                          <span className="text-sm text-muted-foreground">
+                            Confidence: <span className="font-semibold text-foreground capitalize">{sandboxReview.confidence_level}</span>
+                          </span>
+                        </section>
+                      )}
+                      {/* Explanation narrative */}
+                      {explanation && (
+                        <section className="rounded-lg border border-border bg-background p-4">
+                          <h3 className="font-heading text-sm font-semibold">{explanation.strategy_summary}</h3>
+                          <p className="mt-2 text-sm leading-6 text-muted-foreground">{explanation.performance_explanation}</p>
+                        </section>
+                      )}
+                      {/* Combined grid: explanation sections + sandbox concerns */}
+                      {[...explanationSections, ...sandboxConcernSections].length > 0 && (
+                        <div className="grid gap-3 lg:grid-cols-2">
+                          {[...explanationSections, ...sandboxConcernSections].map(({ title, items }) => (
                             <section key={title} className="rounded-lg border border-border bg-background p-4">
-                              <h3 className="text-sm font-medium">{title}</h3>
-                              <ul className="mt-3 space-y-2 text-sm text-muted-foreground">
-                                {items.map((item) => (
-                                  <li key={item}>• {item}</li>
+                              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
+                              <ul className="mt-2 space-y-1.5 text-sm text-foreground/80">
+                                {(items as string[]).map((item) => (
+                                  <li key={item} className="flex gap-2"><span className="mt-1 text-primary shrink-0">·</span>{item}</li>
                                 ))}
                               </ul>
                             </section>
                           ))}
                         </div>
                       )}
-
-                      <p className="text-sm text-rose-300">{sandboxReview.final_warning}</p>
+                      {/* Next steps */}
+                      {sandboxNextSteps.length > 0 && (
+                        <div className="grid gap-3 lg:grid-cols-2">
+                          {sandboxNextSteps.map(({ title, items }) => (
+                            <section key={title} className="rounded-lg border border-border bg-background p-4">
+                              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{title}</h3>
+                              <ul className="mt-2 space-y-1.5 text-sm text-foreground/80">
+                                {items.map((item) => (
+                                  <li key={item} className="flex gap-2"><span className="mt-1 text-primary shrink-0">·</span>{item}</li>
+                                ))}
+                              </ul>
+                            </section>
+                          ))}
+                        </div>
+                      )}
+                      {sandboxReview?.final_warning && (
+                        <p className="text-xs text-[var(--loss)]">{sandboxReview.final_warning}</p>
+                      )}
+                      {explanation?.disclaimer && (
+                        <p className="text-xs text-muted-foreground">{explanation.disclaimer}</p>
+                      )}
                     </>
-                  ) : (
-                    <div className="rounded-lg border border-dashed border-border p-8 text-sm text-muted-foreground">
-                      {t.sandboxEmpty}
-                    </div>
                   )}
                 </TabsContent>
 
@@ -1386,102 +1357,93 @@ export function ResearchWorkspace() {
                   })()}
                 </TabsContent>
 
-                <TabsContent value="comparison" className="space-y-4">
-                  {/* Compare against selector */}
-                  {backtestResult && (
-                    <div className="flex items-center gap-3">
-                      <span className="text-xs text-muted-foreground shrink-0">Compare against</span>
-                      <select
-                        value={compareMode}
-                        onChange={(e) => handleSelectCompare(e.target.value)}
-                        className="rounded-md border border-border bg-background px-3 py-1.5 text-sm text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-                      >
-                        <option value="previous">Previous run{previousResult ? "" : " (none yet)"}</option>
-                        {savedLibrary.length > 0 && (
-                          <optgroup label="My Saved Strategies">
-                            {savedLibrary.slice(0, 5).map((e) => (
-                              <option key={e.slug} value={e.slug}>{e.name}</option>
-                            ))}
-                          </optgroup>
-                        )}
-                      </select>
-                      {isLoadingCompare && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+                {/* History tab — all past runs */}
+                <TabsContent value="history" className="space-y-3">
+                  {runHistory.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
+                      No runs yet. Each backtest you run will be saved here automatically.
                     </div>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between">
+                        <p className="text-xs text-muted-foreground">{runHistory.length} run{runHistory.length !== 1 ? "s" : ""} saved locally</p>
+                        <button
+                          type="button"
+                          onClick={() => { setRunHistory([]); localStorage.removeItem(RUN_HISTORY_KEY); }}
+                          className="cursor-pointer text-xs text-muted-foreground hover:text-destructive transition-colors duration-200"
+                        >
+                          Clear history
+                        </button>
+                      </div>
+                      <div className="space-y-2">
+                        {runHistory.map((entry, idx) => {
+                          const ret = entry.result.metrics.total_return;
+                          const sharpe = entry.result.metrics.sharpe_ratio;
+                          const dd = entry.result.metrics.max_drawdown;
+                          const isActive = backtestResult?.backtest_id === entry.id;
+                          return (
+                            <div key={entry.id} className={cn(
+                              "rounded-lg border p-3 transition-colors duration-200",
+                              isActive ? "border-primary/40 bg-primary/5" : "border-border bg-background hover:border-primary/20 hover:bg-muted/30"
+                            )}>
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                  <div className="flex items-center gap-2">
+                                    {isActive && <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" aria-label="Current run" />}
+                                    <span className="font-heading text-sm font-semibold truncate">{entry.strategyName}</span>
+                                    {idx === 0 && !isActive && <Badge variant="outline" className="text-[10px] shrink-0">Latest</Badge>}
+                                  </div>
+                                  <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
+                                    <span className="font-mono">{entry.universe.join(", ")}</span>
+                                    <span>{entry.startDate} → {entry.endDate}</span>
+                                    <span>{new Date(entry.runAt).toLocaleString()}</span>
+                                  </div>
+                                </div>
+                                <div className="flex shrink-0 gap-4 text-right text-xs">
+                                  <div>
+                                    <div className="text-[10px] text-muted-foreground">Return</div>
+                                    <div className={cn("font-mono font-semibold", ret >= 0 ? "text-[var(--profit)]" : "text-[var(--loss)]")}>
+                                      {formatPercent(ret)}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div className="text-[10px] text-muted-foreground">Sharpe</div>
+                                    <div className={cn("font-mono font-semibold", sharpe >= 1 ? "text-[var(--profit)]" : sharpe < 0 ? "text-[var(--loss)]" : "text-foreground")}>
+                                      {sharpe.toFixed(2)}
+                                    </div>
+                                  </div>
+                                  <div>
+                                    <div className="text-[10px] text-muted-foreground">Max DD</div>
+                                    <div className="font-mono font-semibold text-[var(--loss)]">{formatPercent(dd)}</div>
+                                  </div>
+                                  {entry.sandboxReview && (
+                                    <div>
+                                      <div className="text-[10px] text-muted-foreground">Trust</div>
+                                      <div className="font-mono font-semibold">{entry.sandboxReview.trust_score}/100</div>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                              {entry.sandboxReview && (
+                                <div className="mt-2 flex items-center gap-2">
+                                  <Badge className={cn("text-[10px] capitalize",
+                                    entry.sandboxReview.review_verdict === "promising"
+                                      ? "bg-[var(--profit-muted)] text-[var(--profit)] hover:bg-[var(--profit-muted)]"
+                                      : entry.sandboxReview.review_verdict === "untrusted"
+                                      ? "bg-[var(--loss-muted)] text-[var(--loss)] hover:bg-[var(--loss-muted)]"
+                                      : "bg-primary/10 text-primary hover:bg-primary/10"
+                                  )}>
+                                    {entry.sandboxReview.review_verdict}
+                                  </Badge>
+                                  <span className="text-[10px] text-muted-foreground">Overfit: {entry.sandboxReview.overfitting_risk}</span>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </>
                   )}
-
-                  {/* Comparison table */}
-                  {(() => {
-                    const isSavedMode = compareMode !== "previous";
-                    const rows = isSavedMode
-                      ? buildSavedComparison(backtestResult, savedCompareResult, { totalReturn: t.totalReturn, sharpe: t.sharpe, maxDrawdown: t.maxDrawdown })
-                      : comparisonRows;
-                    const compareTarget = isSavedMode ? savedCompareResult : previousResult;
-                    const compareLabel = isSavedMode
-                      ? (savedLibrary.find((e) => e.slug === compareMode)?.name ?? "Saved strategy")
-                      : t.previous;
-
-                    // Context note when assets/periods differ
-                    const showContextNote = isSavedMode && backtestResult && savedCompareResult && (
-                      backtestResult.strategy_json.universe.join(",") !== savedCompareResult.strategy_json.universe.join(",") ||
-                      backtestResult.strategy_json.start_date !== savedCompareResult.strategy_json.start_date ||
-                      backtestResult.strategy_json.end_date !== savedCompareResult.strategy_json.end_date
-                    );
-
-                    if (!rows.length || !compareTarget) {
-                      return (
-                        <div className="rounded-lg border border-dashed border-border p-8 text-sm text-muted-foreground">
-                          {isSavedMode && !isLoadingCompare ? "Could not load saved strategy." : t.comparisonEmpty}
-                        </div>
-                      );
-                    }
-
-                    return (
-                      <section className="rounded-lg border border-border bg-background p-4 space-y-4">
-                        {showContextNote && (
-                          <div className="rounded-md border border-yellow-500/20 bg-yellow-500/5 px-3 py-2 text-xs text-yellow-300/80">
-                            These strategies were tested on different tickers or date ranges.
-                            Results are not directly comparable — review assumptions before drawing conclusions.
-                          </div>
-                        )}
-
-                        {/* Context row */}
-                        {isSavedMode && savedCompareResult && (
-                          <div className="grid grid-cols-3 gap-2 text-xs text-muted-foreground border-b border-border pb-3">
-                            <div />
-                            <div>
-                              <div className="font-medium text-foreground">{t.current}</div>
-                              <div>{backtestResult?.strategy_json.universe.join(", ")}</div>
-                              <div>{backtestResult?.strategy_json.start_date} – {backtestResult?.strategy_json.end_date}</div>
-                            </div>
-                            <div>
-                              <div className="font-medium text-foreground">{compareLabel}</div>
-                              <div>{savedCompareResult.strategy_json.universe.join(", ")}</div>
-                              <div>{savedCompareResult.strategy_json.start_date} – {savedCompareResult.strategy_json.end_date}</div>
-                            </div>
-                          </div>
-                        )}
-
-                        <Table>
-                          <TableHeader>
-                            <TableRow>
-                              <TableHead>{t.metric}</TableHead>
-                              <TableHead className="text-right">{t.current}</TableHead>
-                              <TableHead className="text-right">{compareLabel}</TableHead>
-                            </TableRow>
-                          </TableHeader>
-                          <TableBody>
-                            {rows.map(({ label, current, previous }) => (
-                              <TableRow key={label}>
-                                <TableCell>{label}</TableCell>
-                                <TableCell className="text-right">{formatNumber(current)}</TableCell>
-                                <TableCell className="text-right">{formatNumber(previous)}</TableCell>
-                              </TableRow>
-                            ))}
-                          </TableBody>
-                        </Table>
-                      </section>
-                    );
-                  })()}
                 </TabsContent>
               </Tabs>
             </section>
