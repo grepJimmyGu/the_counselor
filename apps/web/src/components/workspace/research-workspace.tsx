@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
+  AlertTriangle,
   ArrowRight,
   Bot,
   CircleAlert,
@@ -506,7 +507,7 @@ export function ResearchWorkspace() {
                     key={demo.label}
                     type="button"
                     onClick={() => handleLoadDemo(demo)}
-                    className="rounded-md border border-border bg-background px-3 py-2 text-left text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                    className="cursor-pointer rounded-md border border-border bg-background px-3 py-2 text-left text-xs text-muted-foreground transition-colors duration-200 hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     {locale === "zh" ? demo.labelZh : demo.label}
                   </button>
@@ -521,7 +522,7 @@ export function ResearchWorkspace() {
                     key={demo.label}
                     type="button"
                     onClick={() => handleLoadDemo(demo)}
-                    className="rounded-md border border-border bg-background px-3 py-2 text-left text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                    className="cursor-pointer rounded-md border border-border bg-background px-3 py-2 text-left text-xs text-muted-foreground transition-colors duration-200 hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   >
                     {locale === "zh" ? demo.labelZh : demo.label}
                   </button>
@@ -549,7 +550,7 @@ export function ResearchWorkspace() {
                       key={item}
                       type="button"
                       onClick={() => setPrompt(item)}
-                      className="rounded-md border border-border bg-background px-2.5 py-1.5 text-left text-xs text-muted-foreground transition hover:border-primary/40 hover:text-foreground"
+                      className="cursor-pointer rounded-md border border-border bg-background px-2.5 py-1.5 text-left text-xs text-muted-foreground transition-colors duration-200 hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       {item}
                     </button>
@@ -729,7 +730,8 @@ export function ResearchWorkspace() {
                   {savedSlug && (
                     <button
                       onClick={() => navigator.clipboard.writeText(`${window.location.origin}/strategies/${savedSlug}`)}
-                      className="text-xs text-primary hover:underline"
+                      aria-label="Copy shareable strategy link"
+                      className="cursor-pointer text-xs text-primary transition-colors duration-200 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
                     >
                       Saved · Copy link
                     </button>
@@ -944,7 +946,7 @@ export function ResearchWorkspace() {
                 </TabsList>
 
                 <TabsContent value="dashboard" className="space-y-6">
-                  {!backtestResult && strategy && templateReviewCallout && (
+                  {!backtestResult && strategy && templateReviewCallout && !isRunning && (
                     <div className="flex flex-col items-center justify-center py-16 text-center space-y-2">
                       <p className="text-sm text-muted-foreground">Strategy loaded.</p>
                       <p className="text-xs text-muted-foreground/60 max-w-xs">
@@ -953,7 +955,36 @@ export function ResearchWorkspace() {
                       </p>
                     </div>
                   )}
-                  {backtestResult ? (
+                  {isRunning && (
+                    <div className="space-y-6" aria-busy="true" aria-label="Running backtest…">
+                      <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
+                        {Array.from({ length: 5 }).map((_, i) => (
+                          <div key={i} className="rounded-lg border border-border bg-background px-4 py-3">
+                            <div className="h-3 w-20 animate-pulse rounded bg-muted" />
+                            <div className="mt-3 h-7 w-16 animate-pulse rounded bg-muted" />
+                          </div>
+                        ))}
+                      </div>
+                      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+                        <div className="rounded-lg border border-border bg-background p-4">
+                          <div className="mb-4 h-4 w-24 animate-pulse rounded bg-muted" />
+                          <div className="h-48 animate-pulse rounded bg-muted" />
+                        </div>
+                        <div className="rounded-lg border border-border bg-background p-4">
+                          <div className="mb-4 h-4 w-20 animate-pulse rounded bg-muted" />
+                          <div className="space-y-3">
+                            {Array.from({ length: 8 }).map((_, i) => (
+                              <div key={i} className="flex justify-between">
+                                <div className="h-3 w-28 animate-pulse rounded bg-muted" />
+                                <div className="h-3 w-16 animate-pulse rounded bg-muted" />
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                  {backtestResult && !isRunning ? (
                     <>
                       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                         {[
@@ -966,9 +997,9 @@ export function ResearchWorkspace() {
                             ? [["Buy & Hold", formatPercent(backtestResult.metrics.buy_and_hold_return)]]
                             : []),
                         ].map(([label, value]) => (
-                          <div key={label} className="rounded-lg border border-border bg-background px-4 py-3">
+                          <div key={label} className="rounded-lg border border-border bg-background px-4 py-3 transition-colors duration-200 hover:border-primary/30 hover:bg-card">
                             <div className="text-xs text-muted-foreground">{label}</div>
-                            <div className="mt-2 text-2xl font-semibold tracking-tight">{value}</div>
+                            <div className="mt-2 font-mono text-2xl font-semibold tracking-tight">{value}</div>
                           </div>
                         ))}
                       </div>
@@ -1062,14 +1093,17 @@ export function ResearchWorkspace() {
                         </ScrollArea>
                       </div>
                       {/* Disclaimer — always shown after results */}
-                      <div className="rounded-lg border border-border bg-background px-4 py-3 text-xs text-muted-foreground leading-5">
-                        ⚠ {t.backtestDisclaimer}
+                      <div className="flex items-start gap-2 rounded-lg border border-border bg-background px-4 py-3 text-xs text-muted-foreground leading-5">
+                        <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-yellow-500/70" aria-hidden="true" />
+                        <span>{t.backtestDisclaimer}</span>
                       </div>
                     </>
                   ) : (
-                    <div className="rounded-lg border border-dashed border-border p-8 text-sm text-muted-foreground">
-                      {t.backtestEmpty}
-                    </div>
+                    !isRunning && (
+                      <div className="rounded-lg border border-dashed border-border p-8 text-sm text-muted-foreground">
+                        {t.backtestEmpty}
+                      </div>
+                    )
                   )}
                 </TabsContent>
 
