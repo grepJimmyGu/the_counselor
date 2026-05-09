@@ -33,6 +33,22 @@ class MarketDataService:
     async def ensure_daily_history(self, db: Session, symbol: str, end_date: date) -> None:
         await self._price_data.cache_svc.ensure_history(db, symbol.upper(), end_date)
 
+    async def ensure_display_fresh(self, db: Session, symbol: str) -> None:
+        """Force a refresh when the cached bar is more than 2 business days behind today.
+        Used by the homepage market overview where display freshness matters more than
+        avoiding extra API calls. Falls back gracefully if the fetch fails."""
+        latest = self._price_data.cache_svc.get_latest_date(db, symbol.upper())
+        today = date.today()
+        # Allow up to 3 calendar days stale (covers Mon showing Fri close).
+        # More than 3 days stale means we've missed at least one trading day.
+        if latest is None or (today - latest).days > 3:
+            try:
+                await self._price_data.cache_svc.ensure_history(
+                    db, symbol.upper(), today, force=True
+                )
+            except Exception:
+                pass  # Serve cached data if refresh fails
+
     async def get_price_frame(
         self,
         db: Session,

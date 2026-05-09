@@ -101,8 +101,8 @@ async def get_market_overview(
 
     for symbol in symbol_list:
         try:
-            # Ensure cache is fresh (non-blocking best-effort)
-            await market_data_service.ensure_daily_history(db, symbol, date.today())
+            # Force-refresh if display-stale (> 3 calendar days behind today)
+            await market_data_service.ensure_display_fresh(db, symbol)
 
             rows = db.execute(
                 select(PriceBar)
