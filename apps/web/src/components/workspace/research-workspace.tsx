@@ -456,6 +456,14 @@ export function ResearchWorkspace() {
   }, []);
 
   useEffect(() => {
+    // Handle ?prompt= from homepage strategy teaser
+    const promptParam = searchParams.get("prompt");
+    if (promptParam) {
+      setPrompt(decodeURIComponent(promptParam));
+      router.replace("/workspace", { scroll: false });
+      return;
+    }
+
     const templateId = searchParams.get("templateId");
     const path = searchParams.get("path");
     const ticker = searchParams.get("ticker");

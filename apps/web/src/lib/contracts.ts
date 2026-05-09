@@ -249,6 +249,30 @@ export interface DataStatusResponse {
   last_fetched_at?: string | null;
 }
 
+export interface PriceBarResponse {
+  symbol: string;
+  trading_date: string;
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+  adjusted_close: number;
+  volume: number;
+  dividend_amount: number;
+  split_coefficient: number;
+}
+
+export interface MarketSnapshotItem {
+  symbol: string;
+  name: string;
+  last_price: number;
+  prev_close: number;
+  change_pct: number;
+  change_abs: number;
+  last_date: string;
+  sparkline: number[];
+}
+
 export interface WarmupRequest {
   symbols: string[];
   lookback_days?: number;

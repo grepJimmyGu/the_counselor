@@ -54,6 +54,17 @@ class DataStatusResponse(BaseModel):
     last_fetched_at: Optional[datetime] = None
 
 
+class MarketSnapshotItem(BaseModel):
+    symbol: str
+    name: str
+    last_price: float
+    prev_close: float
+    change_pct: float
+    change_abs: float
+    last_date: date
+    sparkline: list[float]  # last 30 adjusted closes for mini chart
+
+
 class WarmupRequest(BaseModel):
     symbols: list[str] = Field(..., min_length=1, max_length=20)
     lookback_days: int = Field(default=252, ge=1, le=1000)

@@ -3,6 +3,8 @@ import type {
   DataQualityReport,
   DataStatusResponse,
   ExplanationResponse,
+  MarketSnapshotItem,
+  PriceBarResponse,
   RobustnessJobResponse,
   SavedStrategy,
   SandboxReviewResponse,
@@ -166,4 +168,16 @@ export async function saveStrategy(backtestId: string, name: string): Promise<{ 
 
 export async function getSavedStrategy(slug: string): Promise<SavedStrategy> {
   return fetchApi<SavedStrategy>(`/api/strategies/${slug}`);
+}
+
+export async function getMarketOverview(symbols: string[]): Promise<MarketSnapshotItem[]> {
+  return fetchApi<MarketSnapshotItem[]>(`/api/market/overview?symbols=${symbols.join(",")}`);
+}
+
+export async function getDailyPrices(symbol: string): Promise<PriceBarResponse[]> {
+  return fetchApi<PriceBarResponse[]>(`/api/data/daily/${encodeURIComponent(symbol)}`);
+}
+
+export async function searchSymbolsApi(query: string): Promise<SymbolSearchItem[]> {
+  return fetchApi<SymbolSearchItem[]>(`/api/symbols/search?query=${encodeURIComponent(query)}`);
 }
