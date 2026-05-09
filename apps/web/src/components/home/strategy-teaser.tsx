@@ -21,7 +21,7 @@ export function StrategyTeaser() {
   function launch(text: string) {
     const p = text.trim();
     if (!p) return;
-    router.push(`/workspace?prompt=${encodeURIComponent(p)}`);
+    router.push(`/workspace?prompt=${encodeURIComponent(p)}&autorun=true`);
   }
 
   return (
