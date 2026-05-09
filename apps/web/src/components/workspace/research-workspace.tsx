@@ -131,22 +131,22 @@ function formatNumber(value: number) {
 function buildComparison(
   current: BacktestResult | null,
   previous: BacktestResult | null,
-  labels: { totalReturn: string; sharpe: string; maxDrawdown: string; trades: string },
+  labels: { totalReturn: string; sharpe: string; maxDrawdown: string; trades: string; winRate: string; turnover: string },
 ): ComparisonRow[] {
   if (!current || !previous) return [];
   return [
     { label: labels.totalReturn, current: current.metrics.total_return, previous: previous.metrics.total_return },
     { label: labels.sharpe, current: current.metrics.sharpe_ratio, previous: previous.metrics.sharpe_ratio },
     { label: labels.maxDrawdown, current: current.metrics.max_drawdown, previous: previous.metrics.max_drawdown },
-    { label: "Win Rate", current: current.metrics.win_rate, previous: previous.metrics.win_rate },
-    { label: "Turnover", current: current.metrics.turnover, previous: previous.metrics.turnover },
+    { label: labels.winRate, current: current.metrics.win_rate, previous: previous.metrics.win_rate },
+    { label: labels.turnover, current: current.metrics.turnover, previous: previous.metrics.turnover },
   ];
 }
 
 function buildSavedComparison(
   current: BacktestResult | null,
   saved: SavedStrategy | null,
-  labels: { totalReturn: string; sharpe: string; maxDrawdown: string },
+  labels: { totalReturn: string; sharpe: string; maxDrawdown: string; winRate: string; turnover: string },
 ): ComparisonRow[] {
   if (!current || !saved) return [];
   const m = saved.metrics as unknown as Record<string, number>;
@@ -154,8 +154,8 @@ function buildSavedComparison(
     { label: labels.totalReturn, current: current.metrics.total_return, previous: m.total_return ?? 0 },
     { label: labels.sharpe, current: current.metrics.sharpe_ratio, previous: m.sharpe_ratio ?? 0 },
     { label: labels.maxDrawdown, current: current.metrics.max_drawdown, previous: m.max_drawdown ?? 0 },
-    { label: "Win Rate", current: current.metrics.win_rate, previous: m.win_rate ?? 0 },
-    { label: "Turnover", current: current.metrics.turnover, previous: m.turnover ?? 0 },
+    { label: labels.winRate, current: current.metrics.win_rate, previous: m.win_rate ?? 0 },
+    { label: labels.turnover, current: current.metrics.turnover, previous: m.turnover ?? 0 },
   ];
 }
 
@@ -204,7 +204,7 @@ export function ResearchWorkspace() {
   const [activeTab, setActiveTab] = useState("results");
 
   const comparisonRows = useMemo(
-    () => buildComparison(backtestResult, previousResult, { totalReturn: t.totalReturn, sharpe: t.sharpe, maxDrawdown: t.maxDrawdown, trades: t.trades }),
+    () => buildComparison(backtestResult, previousResult, { totalReturn: t.totalReturn, sharpe: t.sharpe, maxDrawdown: t.maxDrawdown, trades: t.trades, winRate: t.winRate, turnover: t.turnover }),
     [backtestResult, previousResult, t],
   );
 
@@ -362,7 +362,7 @@ export function ResearchWorkspace() {
     setChat([
       { role: "assistant", content: t.chatWelcome },
       { role: "user", content: demo.prompt },
-      { role: "assistant", content: `Loaded: ${displayPrompt}. Review the strategy and click Run Backtest.` },
+      { role: "assistant", content: t.loadedDemo(displayPrompt) },
     ]);
     fetchQualityForSymbols(demo.strategy.universe);
   }
@@ -380,7 +380,7 @@ export function ResearchWorkspace() {
     setClarifications([]);
     setChat([
       { role: "assistant", content: t.chatWelcome },
-      { role: "assistant", content: `Template loaded: ${template.name}. Review the strategy rules and universe, then run the backtest.` },
+      { role: "assistant", content: t.templateLoaded(template.name) },
     ]);
     setActiveTemplate(template);
     setTemplateReviewCallout(true);
@@ -400,7 +400,7 @@ export function ResearchWorkspace() {
     setShowEtfProxyCaveat(false);
     setChat([
       { role: "assistant", content: t.chatWelcome },
-      { role: "assistant", content: `Starting from the ${template.name} framework. Describe your version in the chat below.` },
+      { role: "assistant", content: t.templateBuild(template.name) },
     ]);
   }
 
@@ -562,8 +562,8 @@ export function ResearchWorkspace() {
           </div>
           <div className="flex flex-wrap divide-y divide-border/40 sm:divide-x sm:divide-y-0">
             {[
-              { label: "Equities", demos: demoStrategies, accent: "text-[var(--profit)]", dot: "bg-[var(--profit)]" },
-              { label: "Commodities", demos: commodityDemoStrategies, accent: "text-[var(--warning-amber)]", dot: "bg-[var(--warning-amber)]" },
+              { label: t.equitiesLabel, demos: demoStrategies, accent: "text-[var(--profit)]", dot: "bg-[var(--profit)]" },
+              { label: t.commoditiesLabel, demos: commodityDemoStrategies, accent: "text-[var(--warning-amber)]", dot: "bg-[var(--warning-amber)]" },
             ].map(({ label, demos, accent, dot }) => (
               <div key={label} className="flex-1 p-3">
                 <div className="mb-2 flex items-center gap-1.5">
@@ -796,7 +796,7 @@ export function ResearchWorkspace() {
                       aria-label="Copy shareable strategy link"
                       className="cursor-pointer text-xs text-primary transition-colors duration-200 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded"
                     >
-                      Saved · Copy link
+                      {t.savedCopyLink}
                     </button>
                   )}
                 </div>
@@ -809,14 +809,14 @@ export function ResearchWorkspace() {
                     value={saveName}
                     onChange={(e) => setSaveName(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter") handleSaveStrategy(); if (e.key === "Escape") setShowSaveDialog(false); }}
-                    placeholder="Name your strategy…"
+                    placeholder={t.saveNamePlaceholder}
                     maxLength={80}
                     className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
                   />
                   <Button size="sm" disabled={!saveName.trim() || isSaving} onClick={handleSaveStrategy}>
-                    {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : "Save"}
+                    {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t.saveButtonLabel}
                   </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setShowSaveDialog(false)}>Cancel</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setShowSaveDialog(false)}>{t.saveCancel}</Button>
                 </div>
               )}
               {strategy ? (
@@ -928,7 +928,7 @@ export function ResearchWorkspace() {
                       className="cursor-pointer flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors duration-200"
                     >
                       <ArrowRight className={cn("h-3 w-3 transition-transform duration-200", showJsonPreview && "rotate-90")} />
-                      {showJsonPreview ? "Hide" : "Show"} strategy JSON
+                      {showJsonPreview ? t.hideJson : t.showJson}
                     </button>
                     {showJsonPreview && (
                       <pre className="mt-2 max-h-[180px] overflow-auto rounded-lg border border-border bg-muted/40 p-3 text-xs leading-5 text-muted-foreground">
@@ -960,17 +960,17 @@ export function ResearchWorkspace() {
               <Tabs value={activeTab} onValueChange={setActiveTab} className="space-y-4">
                 <TabsList className="grid w-full grid-cols-4">
                   <TabsTrigger value="results">{t.tabBacktest}</TabsTrigger>
-                  <TabsTrigger value="review">Review</TabsTrigger>
+                  <TabsTrigger value="review">{t.tabReview}</TabsTrigger>
                   <TabsTrigger value="robustness">{t.tabRobustness}</TabsTrigger>
                   <TabsTrigger value="history">
-                    History{runHistory.length > 0 && <span className="ml-1.5 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-mono text-primary">{runHistory.length}</span>}
+                    {t.tabHistory}{runHistory.length > 0 && <span className="ml-1.5 rounded-full bg-primary/15 px-1.5 py-0.5 text-[10px] font-mono text-primary">{runHistory.length}</span>}
                   </TabsTrigger>
                 </TabsList>
 
                 <TabsContent value="results" className="space-y-6">
                   {!backtestResult && strategy && templateReviewCallout && !isRunning && (
                     <div className="flex flex-col items-center justify-center py-16 text-center space-y-2">
-                      <p className="text-sm text-muted-foreground">Strategy loaded.</p>
+                      <p className="text-sm text-muted-foreground">{t.strategyLoaded}</p>
                       <p className="text-xs text-muted-foreground/60 max-w-xs">
                         Review the rules on the left, adjust the universe and date range for your hypothesis,
                         then run the backtest.
@@ -1016,7 +1016,7 @@ export function ResearchWorkspace() {
                           { label: t.excessVsBenchmark, value: formatPercent(backtestResult.metrics.excess_return_vs_benchmark), raw: backtestResult.metrics.excess_return_vs_benchmark, type: "pnl" },
                           { label: t.trades, value: String(backtestResult.metrics.number_of_trades), raw: null, type: "neutral" },
                           ...(backtestResult.metrics.buy_and_hold_return != null
-                            ? [{ label: "Buy & Hold", value: formatPercent(backtestResult.metrics.buy_and_hold_return), raw: backtestResult.metrics.buy_and_hold_return, type: "pnl" as const }]
+                            ? [{ label: t.buyAndHold, value: formatPercent(backtestResult.metrics.buy_and_hold_return), raw: backtestResult.metrics.buy_and_hold_return, type: "pnl" as const }]
                             : []),
                         ].map(({ label, value, raw, type }) => {
                           const isPositive = raw != null && raw > 0;
@@ -1050,19 +1050,19 @@ export function ResearchWorkspace() {
                           <EquityCurveChart result={backtestResult} />
                         </div>
                         <div className="rounded-lg border border-border bg-background p-4">
-                          <h3 className="mb-4 text-sm font-semibold">Key Metrics</h3>
+                          <h3 className="mb-4 text-sm font-semibold">{t.keyMetrics}</h3>
                           <div className="space-y-2.5">
                             {([
-                              { label: "Annualized Return", key: "annualized_return", pct: true },
-                              { label: "Sharpe Ratio", key: "sharpe_ratio", pct: false },
-                              { label: "Sortino Ratio", key: "sortino_ratio", pct: false },
-                              { label: "Calmar Ratio", key: "calmar_ratio", pct: false },
-                              { label: "Win Rate", key: "win_rate", pct: true },
-                              { label: "Avg Trade Return", key: "avg_trade_return", pct: true },
-                              { label: "# of Trades", key: "number_of_trades", pct: false },
-                              { label: "Alpha vs Benchmark", key: "excess_return_vs_benchmark", pct: true },
-                              { label: "Buy & Hold Return", key: "buy_and_hold_return", pct: true },
-                            ] as const).map(({ label, key, pct }) => {
+                              { label: t.annualizedReturn, key: "annualized_return", pct: true },
+                              { label: t.sharpeRatioLabel, key: "sharpe_ratio", pct: false },
+                              { label: t.sortinoRatio, key: "sortino_ratio", pct: false },
+                              { label: t.calmarRatio, key: "calmar_ratio", pct: false },
+                              { label: t.winRateLabel, key: "win_rate", pct: true },
+                              { label: t.avgTradeReturn, key: "avg_trade_return", pct: true },
+                              { label: t.numOfTrades, key: "number_of_trades", pct: false },
+                              { label: t.alphaVsBenchmark, key: "excess_return_vs_benchmark", pct: true },
+                              { label: t.buyAndHoldReturn, key: "buy_and_hold_return", pct: true },
+                            ] as { label: string; key: string; pct: boolean }[]).map(({ label, key, pct }) => {
                               const raw = (backtestResult.metrics as unknown as Record<string, number>)[key];
                               if (raw == null) return null;
                               const isPositive = raw > 0;
@@ -1165,7 +1165,7 @@ export function ResearchWorkspace() {
                 <TabsContent value="review" className="space-y-0">
                   {!explanation && !sandboxReview ? (
                     <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-                      Run a backtest to see the AI review.
+                      {t.reviewRunFirst}
                     </div>
                   ) : (
                     <div className="grid gap-4 lg:grid-cols-2">
@@ -1175,9 +1175,9 @@ export function ResearchWorkspace() {
                         <div className="border-b border-border px-5 py-3.5">
                           <div className="flex items-center gap-2">
                             <div className="h-2 w-2 rounded-full bg-primary" aria-hidden="true" />
-                            <h3 className="font-heading text-sm font-semibold">Strategy Explanation</h3>
+                            <h3 className="font-heading text-sm font-semibold">{t.strategyExplanationTitle}</h3>
                           </div>
-                          <p className="mt-0.5 text-xs text-muted-foreground">What this strategy does and how it performed</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">{t.strategyExplanationDesc}</p>
                         </div>
                         <div className="space-y-4 p-5">
                           {explanation ? (
@@ -1204,7 +1204,7 @@ export function ResearchWorkspace() {
                               )}
                             </>
                           ) : (
-                            <p className="text-sm text-muted-foreground">Explanation not available.</p>
+                            <p className="text-sm text-muted-foreground">{t.explanationNotAvailable}</p>
                           )}
                         </div>
                       </section>
@@ -1215,7 +1215,7 @@ export function ResearchWorkspace() {
                           <div className="flex items-center justify-between gap-3">
                             <div className="flex items-center gap-2">
                               <div className="h-2 w-2 rounded-full bg-[var(--warning-amber)]" aria-hidden="true" />
-                              <h3 className="font-heading text-sm font-semibold">AI Review</h3>
+                              <h3 className="font-heading text-sm font-semibold">{t.aiReviewTitle}</h3>
                             </div>
                             {sandboxReview && (
                               <div className="flex items-center gap-2">
@@ -1234,7 +1234,7 @@ export function ResearchWorkspace() {
                               </div>
                             )}
                           </div>
-                          <p className="mt-0.5 text-xs text-muted-foreground">Independent skeptical review and improvement suggestions</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">{t.aiReviewDesc}</p>
                         </div>
                         <div className="space-y-4 p-5">
                           {sandboxReview ? (
@@ -1243,10 +1243,10 @@ export function ResearchWorkspace() {
                               <div className="flex flex-wrap gap-2">
                                 <Badge variant={sandboxReview.overfitting_risk === "high" ? "destructive" : "outline"}
                                   className={cn("text-xs", sandboxReview.overfitting_risk === "medium" ? "border-amber-300 text-amber-700 bg-amber-50" : sandboxReview.overfitting_risk === "low" ? "border-emerald-300 text-emerald-700 bg-emerald-50" : "")}>
-                                  Overfit risk: {sandboxReview.overfitting_risk}
+                                  {t.overfitRiskLabel} {sandboxReview.overfitting_risk}
                                 </Badge>
                                 <Badge variant="outline" className="text-xs capitalize">
-                                  Confidence: {sandboxReview.confidence_level}
+                                  {t.confidenceLabel} {sandboxReview.confidence_level}
                                 </Badge>
                               </div>
                               {/* Overfit explanation */}
@@ -1284,7 +1284,7 @@ export function ResearchWorkspace() {
                               )}
                             </>
                           ) : (
-                            <p className="text-sm text-muted-foreground">Review not available.</p>
+                            <p className="text-sm text-muted-foreground">{t.reviewNotAvailable}</p>
                           )}
                         </div>
                       </section>
@@ -1452,18 +1452,18 @@ export function ResearchWorkspace() {
                 <TabsContent value="history" className="space-y-3">
                   {runHistory.length === 0 ? (
                     <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
-                      No runs yet. Each backtest you run will be saved here automatically.
+                      {t.historyEmpty}
                     </div>
                   ) : (
                     <>
                       <div className="flex items-center justify-between">
-                        <p className="text-xs text-muted-foreground">{runHistory.length} run{runHistory.length !== 1 ? "s" : ""} saved locally</p>
+                        <p className="text-xs text-muted-foreground">{t.historyCount(runHistory.length)}</p>
                         <button
                           type="button"
                           onClick={() => { setRunHistory([]); localStorage.removeItem(RUN_HISTORY_KEY); }}
                           className="cursor-pointer text-xs text-muted-foreground hover:text-destructive transition-colors duration-200"
                         >
-                          Clear history
+                          {t.clearHistory}
                         </button>
                       </div>
                       <div className="space-y-2">
@@ -1482,7 +1482,7 @@ export function ResearchWorkspace() {
                                   <div className="flex items-center gap-2">
                                     {isActive && <span className="h-1.5 w-1.5 rounded-full bg-primary shrink-0" aria-label="Current run" />}
                                     <span className="font-heading text-sm font-semibold truncate">{entry.strategyName}</span>
-                                    {idx === 0 && !isActive && <Badge variant="outline" className="text-[10px] shrink-0">Latest</Badge>}
+                                    {idx === 0 && !isActive && <Badge variant="outline" className="text-[10px] shrink-0">{t.historyLatest}</Badge>}
                                   </div>
                                   <div className="mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-muted-foreground">
                                     <span className="font-mono">{entry.universe.join(", ")}</span>
@@ -1495,33 +1495,33 @@ export function ResearchWorkspace() {
                                       onClick={() => handleRestoreFromHistory(entry)}
                                       className="mt-2 cursor-pointer rounded-md border border-primary/30 bg-primary/5 px-3 py-1 text-xs font-medium text-primary transition-colors duration-200 hover:bg-primary/10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                                     >
-                                      Restore this run →
+                                      {t.historyRestore}
                                     </button>
                                   )}
                                   {isActive && (
-                                    <span className="mt-2 inline-block text-xs text-primary font-medium">Currently viewing</span>
+                                    <span className="mt-2 inline-block text-xs text-primary font-medium">{t.historyCurrentlyViewing}</span>
                                   )}
                                 </div>
                                 <div className="flex shrink-0 gap-4 text-right text-xs">
                                   <div>
-                                    <div className="text-[10px] text-muted-foreground">Return</div>
+                                    <div className="text-[10px] text-muted-foreground">{t.historyColReturn}</div>
                                     <div className={cn("font-mono font-semibold", ret >= 0 ? "text-[var(--profit)]" : "text-[var(--loss)]")}>
                                       {formatPercent(ret)}
                                     </div>
                                   </div>
                                   <div>
-                                    <div className="text-[10px] text-muted-foreground">Sharpe</div>
+                                    <div className="text-[10px] text-muted-foreground">{t.sharpe}</div>
                                     <div className={cn("font-mono font-semibold", sharpe >= 1 ? "text-[var(--profit)]" : sharpe < 0 ? "text-[var(--loss)]" : "text-foreground")}>
                                       {sharpe.toFixed(2)}
                                     </div>
                                   </div>
                                   <div>
-                                    <div className="text-[10px] text-muted-foreground">Max DD</div>
+                                    <div className="text-[10px] text-muted-foreground">{t.historyColMaxDD}</div>
                                     <div className="font-mono font-semibold text-[var(--loss)]">{formatPercent(dd)}</div>
                                   </div>
                                   {entry.sandboxReview && (
                                     <div>
-                                      <div className="text-[10px] text-muted-foreground">Trust</div>
+                                      <div className="text-[10px] text-muted-foreground">{t.historyColTrust}</div>
                                       <div className="font-mono font-semibold">{entry.sandboxReview.trust_score}/100</div>
                                     </div>
                                   )}
@@ -1538,7 +1538,7 @@ export function ResearchWorkspace() {
                                   )}>
                                     {entry.sandboxReview.review_verdict}
                                   </Badge>
-                                  <span className="text-[10px] text-muted-foreground">Overfit: {entry.sandboxReview.overfitting_risk}</span>
+                                  <span className="text-[10px] text-muted-foreground">{t.historyOverfit} {entry.sandboxReview.overfitting_risk}</span>
                                 </div>
                               )}
                             </div>

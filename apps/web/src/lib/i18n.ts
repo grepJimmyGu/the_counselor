@@ -60,6 +60,70 @@ export interface Translations {
   defaultsTitle: string; defaultsNote: string; defaultBenchmark: string; defaultDates: string; defaultCosts: string;
   // Backtest disclaimer
   backtestDisclaimer: string;
+
+  // Demo picker asset class labels
+  equitiesLabel: string;
+  commoditiesLabel: string;
+
+  // Save dialog
+  saveCancel: string;
+  saveButtonLabel: string;
+  saveNamePlaceholder: string;
+  savedCopyLink: string;
+
+  // Strategy preview / JSON toggle
+  showJson: string;
+  hideJson: string;
+  strategyLoaded: string;
+
+  // Key metrics panel
+  keyMetrics: string;
+  annualizedReturn: string;
+  sharpeRatioLabel: string;
+  sortinoRatio: string;
+  calmarRatio: string;
+  winRateLabel: string;
+  avgTradeReturn: string;
+  numOfTrades: string;
+  alphaVsBenchmark: string;
+  buyAndHoldReturn: string;
+  buyAndHold: string;
+
+  // Tabs (new)
+  tabReview: string;
+  tabHistory: string;
+
+  // Review tab two-box
+  strategyExplanationTitle: string;
+  strategyExplanationDesc: string;
+  explanationNotAvailable: string;
+  aiReviewTitle: string;
+  aiReviewDesc: string;
+  reviewNotAvailable: string;
+  reviewRunFirst: string;
+  overfitRiskLabel: string;
+  confidenceLabel: string;
+
+  // History tab
+  historyEmpty: string;
+  historyCount: (n: number) => string;
+  clearHistory: string;
+  historyLatest: string;
+  historyCurrentlyViewing: string;
+  historyRestore: string;
+  historyColReturn: string;
+  historyColMaxDD: string;
+  historyColTrust: string;
+  historyOverfit: string;
+
+  // Comparison row labels
+  winRate: string;
+  turnover: string;
+
+  // Template load chat messages
+  loadedDemo: (name: string) => string;
+  templateLoaded: (name: string) => string;
+  templateBuild: (name: string) => string;
 }
 
 const translations: Record<Locale, Translations> = {
@@ -254,6 +318,70 @@ const translations: Record<Locale, Translations> = {
     // Backtest disclaimer
     backtestDisclaimer:
       "Backtest results are hypothetical. They assume perfect execution, no market impact, and historical data that may contain errors. Past performance does not predict future results. This tool is for research only — not financial advice.",
+
+    // Demo picker asset class labels
+    equitiesLabel: "Equities",
+    commoditiesLabel: "Commodities",
+
+    // Save dialog
+    saveCancel: "Cancel",
+    saveButtonLabel: "Save",
+    saveNamePlaceholder: "Name your strategy…",
+    savedCopyLink: "Saved · Copy link",
+
+    // Strategy preview / JSON toggle
+    showJson: "Show strategy JSON",
+    hideJson: "Hide strategy JSON",
+    strategyLoaded: "Strategy loaded. Review the rules and run the backtest.",
+
+    // Key metrics panel
+    keyMetrics: "Key Metrics",
+    annualizedReturn: "Annualized Return",
+    sharpeRatioLabel: "Sharpe Ratio",
+    sortinoRatio: "Sortino Ratio",
+    calmarRatio: "Calmar Ratio",
+    winRateLabel: "Win Rate",
+    avgTradeReturn: "Avg Trade Return",
+    numOfTrades: "# of Trades",
+    alphaVsBenchmark: "Alpha vs Benchmark",
+    buyAndHoldReturn: "Buy & Hold Return",
+    buyAndHold: "Buy & Hold",
+
+    // Tabs (new)
+    tabReview: "Review",
+    tabHistory: "History",
+
+    // Review tab two-box
+    strategyExplanationTitle: "Strategy Explanation",
+    strategyExplanationDesc: "What this strategy does and how it performed",
+    explanationNotAvailable: "Explanation not available.",
+    aiReviewTitle: "AI Review",
+    aiReviewDesc: "Independent skeptical review and improvement suggestions",
+    reviewNotAvailable: "Review not available.",
+    reviewRunFirst: "Run a backtest to see the AI review.",
+    overfitRiskLabel: "Overfit risk:",
+    confidenceLabel: "Confidence:",
+
+    // History tab
+    historyEmpty: "No runs yet. Each backtest you run will be saved here automatically.",
+    historyCount: (n: number) => `${n} run${n !== 1 ? "s" : ""} saved locally`,
+    clearHistory: "Clear history",
+    historyLatest: "Latest",
+    historyCurrentlyViewing: "Currently viewing",
+    historyRestore: "Restore this run →",
+    historyColReturn: "Return",
+    historyColMaxDD: "Max DD",
+    historyColTrust: "Trust",
+    historyOverfit: "Overfit:",
+
+    // Comparison row labels
+    winRate: "Win Rate",
+    turnover: "Turnover",
+
+    // Template load chat messages
+    loadedDemo: (name: string) => `Loaded: ${name}. Review the strategy and click Run Backtest.`,
+    templateLoaded: (name: string) => `Template loaded: ${name}. Review the strategy rules and universe, then run the backtest.`,
+    templateBuild: (name: string) => `Starting from the ${name} framework. Describe your version in the chat below.`,
   },
 
   zh: {
@@ -446,6 +574,70 @@ const translations: Record<Locale, Translations> = {
     // Backtest disclaimer
     backtestDisclaimer:
       "回测结果为假设性数据，假设完美执行、无市场冲击，且历史数据可能存在误差。历史表现不代表未来结果。本工具仅供研究使用，不构成投资建议。",
+
+    // Demo picker asset class labels
+    equitiesLabel: "股票",
+    commoditiesLabel: "大宗商品",
+
+    // Save dialog
+    saveCancel: "取消",
+    saveButtonLabel: "保存",
+    saveNamePlaceholder: "为策略命名…",
+    savedCopyLink: "已保存 · 复制链接",
+
+    // Strategy preview / JSON toggle
+    showJson: "显示策略 JSON",
+    hideJson: "隐藏策略 JSON",
+    strategyLoaded: "策略已加载，请确认规则后运行回测。",
+
+    // Key metrics panel
+    keyMetrics: "关键指标",
+    annualizedReturn: "年化收益",
+    sharpeRatioLabel: "夏普比率",
+    sortinoRatio: "索提诺比率",
+    calmarRatio: "卡玛比率",
+    winRateLabel: "胜率",
+    avgTradeReturn: "平均交易收益",
+    numOfTrades: "交易次数",
+    alphaVsBenchmark: "相对基准超额",
+    buyAndHoldReturn: "买入持有收益",
+    buyAndHold: "买入持有",
+
+    // Tabs (new)
+    tabReview: "评审",
+    tabHistory: "历史",
+
+    // Review tab two-box
+    strategyExplanationTitle: "策略解读",
+    strategyExplanationDesc: "该策略的逻辑及表现分析",
+    explanationNotAvailable: "解读暂不可用。",
+    aiReviewTitle: "AI 评审",
+    aiReviewDesc: "独立质疑评审与改进建议",
+    reviewNotAvailable: "评审暂不可用。",
+    reviewRunFirst: "运行回测以查看 AI 评审。",
+    overfitRiskLabel: "过拟合风险：",
+    confidenceLabel: "置信度：",
+
+    // History tab
+    historyEmpty: "暂无运行记录。每次回测将自动保存至此。",
+    historyCount: (n: number) => `已在本地保存 ${n} 次运行`,
+    clearHistory: "清除历史",
+    historyLatest: "最新",
+    historyCurrentlyViewing: "当前查看",
+    historyRestore: "恢复此次运行 →",
+    historyColReturn: "收益率",
+    historyColMaxDD: "最大回撤",
+    historyColTrust: "信任分",
+    historyOverfit: "过拟合：",
+
+    // Comparison row labels
+    winRate: "胜率",
+    turnover: "换手率",
+
+    // Template load chat messages
+    loadedDemo: (name: string) => `已加载：${name}。请确认策略后点击"运行回测"。`,
+    templateLoaded: (name: string) => `已加载模板：${name}。请确认策略规则和标的池后运行回测。`,
+    templateBuild: (name: string) => `基于 ${name} 框架开始构建，请在下方对话框中描述您的策略版本。`,
   },
 };
 
