@@ -4,6 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import type { Route } from "next";
 import { LanguageSwitcher } from "@/components/language-switcher";
+import { useLocale } from "@/lib/locale-context";
 import { cn } from "@/lib/utils";
 
 const navLink = (active: boolean) =>
@@ -16,6 +17,7 @@ const navLink = (active: boolean) =>
 
 export function NavHeader() {
   const pathname = usePathname();
+  const { t } = useLocale();
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
@@ -30,15 +32,9 @@ export function NavHeader() {
 
         <div className="flex items-center gap-6">
           <nav aria-label="Main navigation" className="flex items-center gap-1">
-            <Link href="/" className={navLink(pathname === "/")}>
-              Home
-            </Link>
-            <Link href={"/workspace" as Route} className={navLink(pathname.startsWith("/workspace"))}>
-              Workspace
-            </Link>
-            <Link href={"/templates" as Route} className={navLink(pathname.startsWith("/templates"))}>
-              Templates
-            </Link>
+            <Link href="/" className={navLink(pathname === "/")}>{t.navHome}</Link>
+            <Link href={"/workspace" as Route} className={navLink(pathname.startsWith("/workspace"))}>{t.navWorkspace}</Link>
+            <Link href={"/templates" as Route} className={navLink(pathname.startsWith("/templates"))}>{t.navTemplates}</Link>
           </nav>
           <LanguageSwitcher />
         </div>

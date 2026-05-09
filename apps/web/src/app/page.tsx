@@ -1,3 +1,6 @@
+"use client";
+
+import { useRef, useState } from "react";
 import Link from "next/link";
 import { ArrowRight, BarChart2, Bot, ShieldCheck, FileSearch } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -35,6 +38,13 @@ const HOW_IT_WORKS = [
 
 export default function HomePage() {
   const featuredTemplates = researchTemplates.filter((t) => t.availability !== "unavailable").slice(0, 3);
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  const assetSectionRef = useRef<HTMLElement | null>(null);
+
+  function handleSelectSymbol(symbol: string) {
+    setSelectedSymbol(symbol);
+    assetSectionRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   return (
     <main className="min-h-screen bg-background">
@@ -79,10 +89,10 @@ export default function HomePage() {
       <div className="mx-auto max-w-[1200px] space-y-16 px-6 py-14">
 
         {/* Market Snapshot */}
-        <MarketSnapshot />
+        <MarketSnapshot onSelectSymbol={handleSelectSymbol} />
 
         {/* Asset Explorer */}
-        <AssetSearch />
+        <AssetSearch preloadSymbol={selectedSymbol} sectionRef={assetSectionRef} />
 
         {/* Strategy Builder Teaser */}
         <StrategyTeaser />

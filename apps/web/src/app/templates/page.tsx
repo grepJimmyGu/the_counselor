@@ -7,18 +7,21 @@ import { Button } from "@/components/ui/button";
 import { TickerSearch } from "@/components/workspace/ticker-search";
 import { UniverseInput } from "@/components/universe-input";
 import { researchTemplates, type ResearchTemplate } from "@/lib/contracts";
+import { useLocale } from "@/lib/locale-context";
 
 // ── Template card ──────────────────────────────────────────────────────────────
 
 function TemplateCard({ template }: { template: ResearchTemplate }) {
   const router = useRouter();
+  const { t } = useLocale();
   const [tickers, setTickers] = useState<string[]>(template.defaultTickers);
   const tickerStr = tickers.join(",");
   const canAct = template.availability !== "unavailable" && tickers.length > 0;
 
-  function navigateTo(path: "load" | "build") {
+  function navigateTo(path: "load" | "build", autorun = false) {
     const param = template.multiTicker ? `tickers=${tickerStr}` : `ticker=${tickerStr}`;
-    router.push(`/workspace?templateId=${template.id}&path=${path}&${param}`);
+    const autorunStr = autorun ? "&autorun=true" : "";
+    router.push(`/workspace?templateId=${template.id}&path=${path}&${param}${autorunStr}`);
   }
 
   const categoryColor: Record<ResearchTemplate["category"], string> = {
@@ -86,26 +89,25 @@ function TemplateCard({ template }: { template: ResearchTemplate }) {
         )}
       </div>
 
-      {/* CTAs */}
+      {/* Single CTA — click to load + auto-run */}
       {template.availability !== "unavailable" && (
-        <div className="flex flex-col gap-2 sm:flex-row">
+        <div className="space-y-2">
           <Button
-            variant="outline"
             size="sm"
             disabled={!canAct}
-            onClick={() => navigateTo("load")}
-            className="flex-1 text-xs"
+            onClick={() => navigateTo("load", true)}
+            className="w-full text-sm font-semibold"
           >
-            {template.availability === "proxy" ? "Load with ETF Proxy" : "Load Example"}
+            {template.availability === "proxy" ? t.templateRunBacktestProxy : t.templateRunBacktest}
           </Button>
-          <Button
-            size="sm"
+          <button
+            type="button"
             disabled={!canAct}
             onClick={() => navigateTo("build")}
-            className="flex-1 text-xs"
+            className="w-full cursor-pointer text-center text-xs text-muted-foreground transition-colors duration-200 hover:text-foreground disabled:opacity-40"
           >
-            Build my own version →
-          </Button>
+            {t.templateCustomise}
+          </button>
         </div>
       )}
     </div>

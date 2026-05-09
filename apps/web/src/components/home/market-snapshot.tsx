@@ -38,14 +38,18 @@ function SkeletonCard() {
   );
 }
 
-function AssetCard({ item }: { item: MarketSnapshotItem }) {
+function AssetCard({ item, onSelect }: { item: MarketSnapshotItem; onSelect: (symbol: string) => void }) {
   const isPositive = item.change_pct >= 0;
   const pctStr = `${isPositive ? "+" : ""}${(item.change_pct * 100).toFixed(2)}%`;
   const absStr = `${isPositive ? "+" : ""}${item.change_abs.toFixed(2)}`;
   const label = ASSET_LABELS[item.symbol] ?? item.name;
 
   return (
-    <div className="rounded-xl border border-border bg-white p-4 shadow-sm transition-all duration-200 hover:border-primary/30 hover:shadow-md">
+    <button
+      type="button"
+      onClick={() => onSelect(item.symbol)}
+      className="w-full cursor-pointer rounded-xl border border-border bg-white p-4 shadow-sm text-left transition-all duration-200 hover:border-primary/40 hover:shadow-md hover:bg-primary/2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    >
       <div className="flex items-start justify-between gap-2">
         <div>
           <div className="font-mono text-sm font-bold text-foreground">{item.symbol}</div>
@@ -62,11 +66,15 @@ function AssetCard({ item }: { item: MarketSnapshotItem }) {
         </div>
       </div>
       <div className="mt-1 text-[10px] text-muted-foreground">{item.last_date}</div>
-    </div>
+    </button>
   );
 }
 
-export function MarketSnapshot() {
+interface MarketSnapshotProps {
+  onSelectSymbol: (symbol: string) => void;
+}
+
+export function MarketSnapshot({ onSelectSymbol }: MarketSnapshotProps) {
   const [items, setItems] = useState<MarketSnapshotItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -82,13 +90,13 @@ export function MarketSnapshot() {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="font-heading text-xl font-semibold">Market Snapshot</h2>
-          <p className="text-sm text-muted-foreground">End-of-day prices · Data via Alpha Vantage</p>
+          <p className="text-sm text-muted-foreground">Click any asset to explore · End-of-day prices</p>
         </div>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {loading
           ? WATCHLIST.map((s) => <SkeletonCard key={s} />)
-          : items.map((item) => <AssetCard key={item.symbol} item={item} />)
+          : items.map((item) => <AssetCard key={item.symbol} item={item} onSelect={onSelectSymbol} />)
         }
         {!loading && items.length === 0 && (
           <p className="col-span-full text-sm text-muted-foreground">

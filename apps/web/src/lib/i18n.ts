@@ -124,6 +124,16 @@ export interface Translations {
   loadedDemo: (name: string) => string;
   templateLoaded: (name: string) => string;
   templateBuild: (name: string) => string;
+
+  // Nav links
+  navHome: string;
+  navWorkspace: string;
+  navTemplates: string;
+
+  // Templates page CTA
+  templateRunBacktest: string;
+  templateRunBacktestProxy: string;
+  templateCustomise: string;
 }
 
 const translations: Record<Locale, Translations> = {
@@ -382,6 +392,16 @@ const translations: Record<Locale, Translations> = {
     loadedDemo: (name: string) => `Loaded: ${name}. Review the strategy and click Run Backtest.`,
     templateLoaded: (name: string) => `Template loaded: ${name}. Review the strategy rules and universe, then run the backtest.`,
     templateBuild: (name: string) => `Starting from the ${name} framework. Describe your version in the chat below.`,
+
+    // Nav links
+    navHome: "Home",
+    navWorkspace: "Workspace",
+    navTemplates: "Templates",
+
+    // Templates page CTA
+    templateRunBacktest: "Run Backtest →",
+    templateRunBacktestProxy: "Run Backtest with ETF Proxy →",
+    templateCustomise: "Customise first, then run →",
   },
 
   zh: {
@@ -638,6 +658,16 @@ const translations: Record<Locale, Translations> = {
     loadedDemo: (name: string) => `已加载：${name}。请确认策略后点击"运行回测"。`,
     templateLoaded: (name: string) => `已加载模板：${name}。请确认策略规则和标的池后运行回测。`,
     templateBuild: (name: string) => `基于 ${name} 框架开始构建，请在下方对话框中描述您的策略版本。`,
+
+    // Nav links
+    navHome: "首页",
+    navWorkspace: "工作台",
+    navTemplates: "模板",
+
+    // Templates page CTA
+    templateRunBacktest: "运行回测 →",
+    templateRunBacktestProxy: "使用 ETF 代理运行回测 →",
+    templateCustomise: "先自定义，再运行 →",
   },
 };
 

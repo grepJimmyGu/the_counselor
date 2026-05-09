@@ -202,6 +202,7 @@ export function ResearchWorkspace() {
   const [runHistory, setRunHistory] = useState<RunHistoryEntry[]>([]);
   const [showJsonPreview, setShowJsonPreview] = useState(false);
   const [activeTab, setActiveTab] = useState("results");
+  const [autoRunPending, setAutoRunPending] = useState(false);
 
   const comparisonRows = useMemo(
     () => buildComparison(backtestResult, previousResult, { totalReturn: t.totalReturn, sharpe: t.sharpe, maxDrawdown: t.maxDrawdown, trades: t.trades, winRate: t.winRate, turnover: t.turnover }),
@@ -247,7 +248,7 @@ export function ResearchWorkspace() {
     });
   }
 
-  async function handleInterpretStrategy(nextPrompt?: string) {
+  async function handleInterpretStrategy(nextPrompt?: string, { autoRun = false } = {}) {
     const activePrompt = nextPrompt ?? prompt;
     setIsParsing(true);
     setErrorMessage(null);
@@ -261,6 +262,10 @@ export function ResearchWorkspace() {
       setMarkdownParseResult(null);
       setValidationIssues(parsed.missing_fields);
       setClarifications(parsed.clarification_questions);
+      // Auto-run backtest if requested and strategy is ready
+      if (autoRun && parsed.strategy_json && !parsed.missing_fields.length) {
+        setAutoRunPending(true);
+      }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : t.errorInterpret);
     } finally {
@@ -458,9 +463,14 @@ export function ResearchWorkspace() {
   useEffect(() => {
     // Handle ?prompt= from homepage strategy teaser
     const promptParam = searchParams.get("prompt");
+    const autorun = searchParams.get("autorun") === "true";
     if (promptParam) {
-      setPrompt(decodeURIComponent(promptParam));
+      const decoded = decodeURIComponent(promptParam);
+      setPrompt(decoded);
       router.replace("/workspace", { scroll: false });
+      if (autorun) {
+        void handleInterpretStrategy(decoded, { autoRun: true });
+      }
       return;
     }
 
@@ -479,13 +489,28 @@ export function ResearchWorkspace() {
       ? [ticker.toUpperCase()]
       : template.defaultTickers;
 
-    if (path === "load") handleLoadTemplate(template, resolvedTickers);
+    if (path === "load") {
+      handleLoadTemplate(template, resolvedTickers);
+      if (autorun) setAutoRunPending(true);
+    }
     if (path === "build") handleBuildFromTemplate(template, resolvedTickers);
 
     // Clear params from URL so a refresh doesn't re-trigger
-    router.replace("/", { scroll: false });
+    router.replace("/workspace", { scroll: false });
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Fire backtest once strategy is ready after an auto-run trigger
+  useEffect(() => {
+    if (!autoRunPending || !strategy || isRunning || isParsing) return;
+    const timer = setTimeout(() => {
+      setAutoRunPending(false);
+      setActiveTab("results");
+      void handleRunBacktest();
+    }, 300);
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoRunPending, strategy, isRunning, isParsing]);
 
   function handleRestoreFromHistory(entry: RunHistoryEntry) {
     setStrategy(entry.strategy);
