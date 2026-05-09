@@ -467,21 +467,24 @@ export function ResearchWorkspace() {
   return (
     <main className="min-h-screen bg-background">
       <div className="mx-auto flex w-full max-w-[1600px] flex-col gap-6 px-4 py-4 md:px-6 lg:px-8">
-        <header className="flex flex-col gap-3 border-b border-border pb-5 lg:flex-row lg:items-end lg:justify-between">
-          <div className="space-y-2">
-            <div className="flex items-center gap-2">
-              <Badge className="bg-primary/15 text-primary hover:bg-primary/15">{t.appName}</Badge>
-              <Badge variant="outline">{t.localMvp}</Badge>
-            </div>
-            <div>
-              <h1 className="text-3xl font-semibold tracking-tight">{t.workspaceTitle}</h1>
-              <p className="max-w-3xl text-sm text-muted-foreground">{t.workspaceDesc}</p>
+        <header className="flex flex-col gap-4 border-b border-border pb-5 lg:flex-row lg:items-end lg:justify-between">
+          <div className="flex items-start gap-4">
+            <div className="mt-1 h-10 w-1 shrink-0 rounded-full bg-primary" aria-hidden="true" />
+            <div className="space-y-1.5">
+              <div className="flex items-center gap-2">
+                <Badge className="bg-primary/15 font-mono text-primary hover:bg-primary/15">{t.appName}</Badge>
+                <Badge variant="outline" className="font-mono text-xs">{t.localMvp}</Badge>
+              </div>
+              <h1 className="font-heading text-3xl font-semibold tracking-tight">{t.workspaceTitle}</h1>
+              <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">{t.workspaceDesc}</p>
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <div className="rounded-md border border-border px-3 py-1.5">{t.noLiveTrading}</div>
-            <div className="rounded-md border border-border px-3 py-1.5">{t.priceBasedOnly}</div>
-            <div className="rounded-md border border-border px-3 py-1.5">{t.deterministicEngine}</div>
+          <div className="flex flex-wrap items-center gap-1.5">
+            {[t.noLiveTrading, t.priceBasedOnly, t.deterministicEngine].map((label) => (
+              <div key={label} className="rounded-full border border-border/60 bg-muted/40 px-3 py-1 text-[11px] font-medium tracking-wide text-muted-foreground">
+                {label}
+              </div>
+            ))}
           </div>
         </header>
 
@@ -493,55 +496,50 @@ export function ResearchWorkspace() {
         ) : null}
 
         {/* Demo picker */}
-        <section className="rounded-lg border border-border bg-card/70 p-4">
-          <div className="mb-3">
-            <div className="text-sm font-medium">{t.demosTitle}</div>
-            <p className="text-xs text-muted-foreground">{t.demosSubtitle}</p>
+        <section className="rounded-lg border border-border bg-card/50">
+          <div className="flex items-center justify-between border-b border-border/50 px-4 py-3">
+            <div>
+              <span className="text-sm font-medium">{t.demosTitle}</span>
+              <span className="ml-2 text-xs text-muted-foreground">{t.demosSubtitle}</span>
+            </div>
           </div>
-          <div className="space-y-3">
-            <div>
-              <div className="mb-2 text-xs text-muted-foreground uppercase tracking-wide">Equities</div>
-              <div className="flex flex-wrap gap-2">
-                {demoStrategies.map((demo) => (
-                  <button
-                    key={demo.label}
-                    type="button"
-                    onClick={() => handleLoadDemo(demo)}
-                    className="cursor-pointer rounded-md border border-border bg-background px-3 py-2 text-left text-xs text-muted-foreground transition-colors duration-200 hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    {locale === "zh" ? demo.labelZh : demo.label}
-                  </button>
-                ))}
+          <div className="flex flex-wrap divide-y divide-border/40 sm:divide-x sm:divide-y-0">
+            {[
+              { label: "Equities", demos: demoStrategies, accent: "text-[var(--profit)]", dot: "bg-[var(--profit)]" },
+              { label: "Commodities", demos: commodityDemoStrategies, accent: "text-[var(--warning-amber)]", dot: "bg-[var(--warning-amber)]" },
+            ].map(({ label, demos, accent, dot }) => (
+              <div key={label} className="flex-1 p-3">
+                <div className="mb-2 flex items-center gap-1.5">
+                  <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden="true" />
+                  <span className={`text-[11px] font-semibold uppercase tracking-widest ${accent}`}>{label}</span>
+                </div>
+                <div className="flex flex-wrap gap-1.5">
+                  {demos.map((demo) => (
+                    <button
+                      key={demo.label}
+                      type="button"
+                      onClick={() => handleLoadDemo(demo)}
+                      className="cursor-pointer rounded-md border border-border/60 bg-background/60 px-3 py-1.5 text-left text-xs text-muted-foreground transition-colors duration-200 hover:border-primary/50 hover:bg-primary/5 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      {locale === "zh" ? demo.labelZh : demo.label}
+                    </button>
+                  ))}
+                </div>
               </div>
-            </div>
-            <div>
-              <div className="mb-2 text-xs text-muted-foreground uppercase tracking-wide">Commodities</div>
-              <div className="flex flex-wrap gap-2">
-                {commodityDemoStrategies.map((demo) => (
-                  <button
-                    key={demo.label}
-                    type="button"
-                    onClick={() => handleLoadDemo(demo)}
-                    className="cursor-pointer rounded-md border border-border bg-background px-3 py-2 text-left text-xs text-muted-foreground transition-colors duration-200 hover:border-primary/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  >
-                    {locale === "zh" ? demo.labelZh : demo.label}
-                  </button>
-                ))}
-              </div>
-            </div>
+            ))}
           </div>
         </section>
 
         <section className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
           <div className="grid gap-6">
             {/* Chat Builder */}
-            <section className="rounded-lg border border-border bg-card/70">
-              <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <section className="overflow-hidden rounded-lg border border-border bg-card/70">
+              <div className="flex items-center justify-between border-b border-border bg-muted/20 px-4 py-3">
                 <div className="flex items-center gap-2">
                   <Bot className="h-4 w-4 text-primary" />
-                  <h2 className="text-sm font-medium">{t.chatBuilderTitle}</h2>
+                  <h2 className="font-heading text-sm font-semibold">{t.chatBuilderTitle}</h2>
                 </div>
-                <Badge variant="outline">{t.strategyParser}</Badge>
+                <Badge variant="outline" className="font-mono text-[10px]">{t.strategyParser}</Badge>
               </div>
               <div className="space-y-4 p-4">
                 <div className="flex flex-wrap gap-2">
@@ -580,16 +578,22 @@ export function ResearchWorkspace() {
                     <div
                       key={`${message.role}-${index}`}
                       className={cn(
-                        "rounded-lg border px-3 py-2 text-sm",
+                        "rounded-lg border px-3 py-2.5 text-sm",
                         message.role === "assistant"
-                          ? "border-border bg-background"
-                          : "border-primary/25 bg-primary/10",
+                          ? "border-border/60 bg-background"
+                          : "border-primary/30 bg-primary/8 ml-4",
                       )}
                     >
-                      <div className="mb-1 text-[11px] uppercase tracking-wide text-muted-foreground">
-                        {message.role === "assistant" ? t.aiLabel : t.youLabel}
+                      <div className={cn(
+                        "mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest",
+                        message.role === "assistant" ? "text-primary/70" : "text-muted-foreground"
+                      )}>
+                        {message.role === "assistant"
+                          ? <><Bot className="h-3 w-3" />{t.aiLabel}</>
+                          : <><ArrowRight className="h-3 w-3" />{t.youLabel}</>
+                        }
                       </div>
-                      <p className="whitespace-pre-wrap leading-6">{message.content}</p>
+                      <p className="whitespace-pre-wrap leading-6 text-foreground/90">{message.content}</p>
                     </div>
                   ))}
                 </div>
@@ -597,13 +601,13 @@ export function ResearchWorkspace() {
             </section>
 
             {/* Strategy Doc */}
-            <section className="rounded-lg border border-border bg-card/70">
-              <div className="flex items-center justify-between border-b border-border px-4 py-3">
+            <section className="overflow-hidden rounded-lg border border-border bg-card/70">
+              <div className="flex items-center justify-between border-b border-border bg-muted/20 px-4 py-3">
                 <div className="flex items-center gap-2">
                   <FileText className="h-4 w-4 text-primary" />
-                  <h2 className="text-sm font-medium">{t.strategyDocTitle}</h2>
+                  <h2 className="font-heading text-sm font-semibold">{t.strategyDocTitle}</h2>
                 </div>
-                <Badge variant="outline">{t.markdownIntake}</Badge>
+                <Badge variant="outline" className="font-mono text-[10px]">{t.markdownIntake}</Badge>
               </div>
               <div className="space-y-4 p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -658,11 +662,12 @@ export function ResearchWorkspace() {
             </section>
 
             {/* Validation State */}
-            <section className="rounded-lg border border-border bg-card/70 p-4">
-              <div className="mb-3 flex items-center gap-2">
+            <section className="overflow-hidden rounded-lg border border-border bg-card/70">
+              <div className="flex items-center gap-2 border-b border-border bg-muted/20 px-4 py-3">
                 <FlaskConical className="h-4 w-4 text-primary" />
-                <h2 className="text-sm font-medium">{t.validationTitle}</h2>
+                <h2 className="font-heading text-sm font-semibold">{t.validationTitle}</h2>
               </div>
+              <div className="p-4">
               <div className="space-y-3 text-sm">
                 <div className="flex flex-wrap gap-2">
                   <Badge variant={validationIssues.length ? "destructive" : "outline"}>
@@ -691,6 +696,7 @@ export function ResearchWorkspace() {
                   </div>
                 ) : null}
               </div>
+            </div>
             </section>
           </div>
 
@@ -988,20 +994,35 @@ export function ResearchWorkspace() {
                     <>
                       <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-5">
                         {[
-                          [t.totalReturn, formatPercent(backtestResult.metrics.total_return)],
-                          [t.sharpe, backtestResult.metrics.sharpe_ratio.toFixed(2)],
-                          [t.maxDrawdown, formatPercent(backtestResult.metrics.max_drawdown)],
-                          [t.excessVsBenchmark, formatPercent(backtestResult.metrics.excess_return_vs_benchmark)],
-                          [t.trades, String(backtestResult.metrics.number_of_trades)],
+                          { label: t.totalReturn, value: formatPercent(backtestResult.metrics.total_return), raw: backtestResult.metrics.total_return, type: "pnl" },
+                          { label: t.sharpe, value: backtestResult.metrics.sharpe_ratio.toFixed(2), raw: backtestResult.metrics.sharpe_ratio, type: "ratio" },
+                          { label: t.maxDrawdown, value: formatPercent(backtestResult.metrics.max_drawdown), raw: backtestResult.metrics.max_drawdown, type: "loss" },
+                          { label: t.excessVsBenchmark, value: formatPercent(backtestResult.metrics.excess_return_vs_benchmark), raw: backtestResult.metrics.excess_return_vs_benchmark, type: "pnl" },
+                          { label: t.trades, value: String(backtestResult.metrics.number_of_trades), raw: null, type: "neutral" },
                           ...(backtestResult.metrics.buy_and_hold_return != null
-                            ? [["Buy & Hold", formatPercent(backtestResult.metrics.buy_and_hold_return)]]
+                            ? [{ label: "Buy & Hold", value: formatPercent(backtestResult.metrics.buy_and_hold_return), raw: backtestResult.metrics.buy_and_hold_return, type: "pnl" as const }]
                             : []),
-                        ].map(([label, value]) => (
-                          <div key={label} className="rounded-lg border border-border bg-background px-4 py-3 transition-colors duration-200 hover:border-primary/30 hover:bg-card">
-                            <div className="text-xs text-muted-foreground">{label}</div>
-                            <div className="mt-2 font-mono text-2xl font-semibold tracking-tight">{value}</div>
-                          </div>
-                        ))}
+                        ].map(({ label, value, raw, type }) => {
+                          const isPositive = raw != null && raw > 0;
+                          const isNegative = raw != null && raw < 0;
+                          const isLoss = type === "loss";
+                          const valueColor = isLoss
+                            ? "text-[var(--loss)]"
+                            : isPositive ? "text-[var(--profit)]"
+                            : isNegative ? "text-[var(--loss)]"
+                            : "text-foreground";
+                          const borderColor = isLoss
+                            ? "border-[var(--loss)]/20 hover:border-[var(--loss)]/40"
+                            : isPositive ? "border-[var(--profit)]/20 hover:border-[var(--profit)]/40"
+                            : isNegative ? "border-[var(--loss)]/20 hover:border-[var(--loss)]/40"
+                            : "border-border hover:border-primary/30";
+                          return (
+                            <div key={label} className={`rounded-lg border bg-background px-4 py-3 transition-colors duration-200 hover:bg-card ${borderColor}`}>
+                              <div className="text-xs text-muted-foreground">{label}</div>
+                              <div className={`mt-2 font-mono text-2xl font-semibold tracking-tight ${valueColor}`}>{value}</div>
+                            </div>
+                          );
+                        })}
                       </div>
 
                       <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">

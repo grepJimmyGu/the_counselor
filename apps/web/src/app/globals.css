@@ -1,3 +1,4 @@
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600;700&family=Fira+Sans:wght@300;400;500;600;700&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 @import "shadcn/tailwind.css";
@@ -7,9 +8,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "SFMono-Regular", "Menlo", ui-monospace, monospace;
-  --font-heading: "Geist", "Geist Fallback", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Fira Sans", "Geist", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "Fira Code", "SFMono-Regular", "Menlo", ui-monospace, monospace;
+  --font-heading: "Fira Sans", "Geist", ui-sans-serif, system-ui, sans-serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -73,6 +74,13 @@
   --chart-4: oklch(0.68 0.18 28);
   --chart-5: oklch(0.78 0.09 200);
   --radius: 0.625rem;
+  /* Financial color tokens */
+  --profit: oklch(0.72 0.17 155);
+  --profit-muted: oklch(0.72 0.17 155 / 0.15);
+  --loss: oklch(0.65 0.22 25);
+  --loss-muted: oklch(0.65 0.22 25 / 0.15);
+  --warning-amber: oklch(0.80 0.15 75);
+  --warning-amber-muted: oklch(0.80 0.15 75 / 0.12);
   --sidebar: oklch(0.19 0.012 238);
   --sidebar-foreground: oklch(0.96 0.01 255);
   --sidebar-primary: oklch(0.7 0.13 162);
