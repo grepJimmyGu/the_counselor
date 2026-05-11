@@ -216,3 +216,51 @@ export async function getScreenerResults(params: Record<string, string | number 
     .join("&");
   return fetchApi(`/api/screener/results${qs ? `?${qs}` : ""}`);
 }
+
+// ── PRD-09/10: News & Sentiment ───────────────────────────────────────────────
+
+export async function getSentimentSummary(
+  symbol: string,
+  refresh = false
+): Promise<import("@/lib/contracts").SentimentSummaryResponse> {
+  return fetchApi(`/api/sentiment/${encodeURIComponent(symbol)}/summary${refresh ? "?refresh=true" : ""}`);
+}
+
+export async function getSentimentNews(symbol: string): Promise<import("@/lib/contracts").NewsArticle[]> {
+  return fetchApi(`/api/sentiment/${encodeURIComponent(symbol)}/news`);
+}
+
+export async function getSentimentCommunity(symbol: string): Promise<import("@/lib/contracts").CommunityMention[]> {
+  return fetchApi(`/api/sentiment/${encodeURIComponent(symbol)}/community`);
+}
+
+export async function getProvidersStatus(): Promise<import("@/lib/contracts").ProvidersStatusResponse> {
+  return fetchApi("/api/sentiment/providers/status");
+}
+
+export async function getSentimentToolkits(): Promise<import("@/lib/contracts").SentimentToolkit[]> {
+  return fetchApi("/api/sentiment/toolkits");
+}
+
+export async function runSentimentAnalyze(
+  symbols: string[],
+  toolkitId?: string,
+  refresh = false
+): Promise<import("@/lib/contracts").SentimentAnalyzeResponse> {
+  return fetchApi("/api/sentiment/analyze", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ symbols, toolkit_id: toolkitId ?? null, refresh }),
+  });
+}
+
+export async function runSentimentReview(
+  symbol: string,
+  sentimentSummary: object
+): Promise<import("@/lib/contracts").SentimentSandboxResponse> {
+  return fetchApi("/api/sentiment/review", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ symbol, sentiment_summary: sentimentSummary }),
+  });
+}
