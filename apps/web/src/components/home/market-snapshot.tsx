@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { TrendingUp, TrendingDown } from "lucide-react";
+import Link from "next/link";
+import { ArrowRight, TrendingDown, TrendingUp } from "lucide-react";
+import type { Route } from "next";
 import { getMarketOverview } from "@/lib/api";
 import type { MarketSnapshotItem } from "@/lib/contracts";
 import { cn } from "@/lib/utils";
@@ -38,17 +40,16 @@ function SkeletonCard() {
   );
 }
 
-function AssetCard({ item, onSelect }: { item: MarketSnapshotItem; onSelect: (symbol: string) => void }) {
+function AssetCard({ item }: { item: MarketSnapshotItem }) {
   const isPositive = item.change_pct >= 0;
   const pctStr = `${isPositive ? "+" : ""}${(item.change_pct * 100).toFixed(2)}%`;
   const absStr = `${isPositive ? "+" : ""}${item.change_abs.toFixed(2)}`;
   const label = ASSET_LABELS[item.symbol] ?? item.name;
 
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(item.symbol)}
-      className="w-full cursor-pointer rounded-xl border border-border bg-white p-4 shadow-sm text-left transition-all duration-200 hover:border-primary/40 hover:shadow-md hover:bg-primary/2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+    <Link
+      href={`/stocks/${item.symbol}` as Route}
+      className="group block rounded-xl border border-border bg-white p-4 shadow-sm transition-all duration-200 hover:border-primary/40 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
       <div className="flex items-start justify-between gap-2">
         <div>
@@ -65,16 +66,17 @@ function AssetCard({ item, onSelect }: { item: MarketSnapshotItem; onSelect: (sy
           <span className="font-normal opacity-70">({absStr})</span>
         </div>
       </div>
-      <div className="mt-1 text-[10px] text-muted-foreground">{item.last_date}</div>
-    </button>
+      <div className="mt-1.5 flex items-center justify-between">
+        <span className="text-[10px] text-muted-foreground">{item.last_date}</span>
+        <span className="flex items-center gap-0.5 text-[10px] text-primary opacity-0 transition-opacity group-hover:opacity-100">
+          View analysis <ArrowRight className="h-2.5 w-2.5" />
+        </span>
+      </div>
+    </Link>
   );
 }
 
-interface MarketSnapshotProps {
-  onSelectSymbol: (symbol: string) => void;
-}
-
-export function MarketSnapshot({ onSelectSymbol }: MarketSnapshotProps) {
+export function MarketSnapshot() {
   const [items, setItems] = useState<MarketSnapshotItem[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -90,13 +92,19 @@ export function MarketSnapshot({ onSelectSymbol }: MarketSnapshotProps) {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="font-heading text-xl font-semibold">Market Snapshot</h2>
-          <p className="text-sm text-muted-foreground">Click any asset to explore · End-of-day prices</p>
+          <p className="text-sm text-muted-foreground">Click any asset for full analysis · End-of-day prices</p>
         </div>
+        <Link
+          href={"/stocks" as Route}
+          className="flex items-center gap-1 text-sm font-medium text-primary transition-colors hover:underline"
+        >
+          Browse all stocks <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
       </div>
       <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {loading
           ? WATCHLIST.map((s) => <SkeletonCard key={s} />)
-          : items.map((item) => <AssetCard key={item.symbol} item={item} onSelect={onSelectSymbol} />)
+          : items.map((item) => <AssetCard key={item.symbol} item={item} />)
         }
         {!loading && items.length === 0 && (
           <p className="col-span-full text-sm text-muted-foreground">

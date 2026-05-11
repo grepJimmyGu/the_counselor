@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Search, X, TrendingUp, TrendingDown, ArrowRight } from "lucide-react";
+import Link from "next/link";
+import { Search, X, TrendingUp, TrendingDown, ArrowRight, BarChart2, Newspaper } from "lucide-react";
 import { useRouter } from "next/navigation";
+import type { Route } from "next";
 import { getDailyPrices, searchSymbolsApi } from "@/lib/api";
 import type { PriceBarResponse, SymbolSearchItem } from "@/lib/contracts";
 import { cn } from "@/lib/utils";
@@ -188,6 +190,23 @@ export function AssetSearch({ preloadSymbol, sectionRef }: AssetSearchProps) {
               </div>
               <div className="text-sm text-muted-foreground">{selected.name !== selected.symbol ? selected.name : ""}</div>
               {last && <div className="mt-1 font-mono text-2xl font-semibold">${formatPrice(last.adjusted_close)}</div>}
+              {/* Deep-dive links */}
+              <div className="mt-2 flex flex-wrap gap-2">
+                <Link
+                  href={`/stocks/${selected.symbol}` as Route}
+                  className="flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:border-primary/40 hover:text-primary"
+                >
+                  <BarChart2 className="h-3 w-3" />
+                  Financial Analysis
+                </Link>
+                <Link
+                  href={`/stocks/${selected.symbol}?tab=sentiment` as Route}
+                  className="flex items-center gap-1 rounded-full border border-border bg-muted/40 px-2.5 py-1 text-xs font-medium text-foreground transition-colors hover:border-primary/40 hover:text-primary"
+                >
+                  <Newspaper className="h-3 w-3" />
+                  News & Sentiment
+                </Link>
+              </div>
             </div>
             <button
               type="button"
