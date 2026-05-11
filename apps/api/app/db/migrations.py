@@ -99,3 +99,116 @@ def run_startup_migrations(engine: Engine) -> None:
                 )
             except Exception:
                 pass
+
+        # PRD-08a: fundamental analysis tables (CREATE IF NOT EXISTS)
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS company_business_maps (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol VARCHAR(20) NOT NULL,
+                as_of_date DATE NOT NULL,
+                one_line_summary TEXT,
+                primary_value_chain_role VARCHAR(60),
+                secondary_value_chain_roles TEXT DEFAULT '[]',
+                margin_implication TEXT,
+                cyclicality_implication TEXT,
+                raw_json TEXT,
+                source_notes TEXT DEFAULT '[]',
+                confidence VARCHAR(20) DEFAULT 'partial',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (symbol, as_of_date)
+            )
+        """) if is_sqlite else text("""
+            CREATE TABLE IF NOT EXISTS company_business_maps (
+                id SERIAL PRIMARY KEY,
+                symbol VARCHAR(20) NOT NULL,
+                as_of_date DATE NOT NULL,
+                one_line_summary TEXT,
+                primary_value_chain_role VARCHAR(60),
+                secondary_value_chain_roles JSONB DEFAULT '[]',
+                margin_implication TEXT,
+                cyclicality_implication TEXT,
+                raw_json JSONB,
+                source_notes JSONB DEFAULT '[]',
+                confidence VARCHAR(20) DEFAULT 'partial',
+                created_at TIMESTAMPTZ DEFAULT now(),
+                updated_at TIMESTAMPTZ DEFAULT now(),
+                UNIQUE (symbol, as_of_date)
+            )
+        """))
+
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS company_market_positions (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol VARCHAR(20) NOT NULL,
+                as_of_date DATE NOT NULL,
+                market_category TEXT,
+                market_size_estimate TEXT DEFAULT 'estimate unavailable',
+                key_competitors TEXT DEFAULT '[]',
+                raw_json TEXT,
+                source_notes TEXT DEFAULT '[]',
+                confidence VARCHAR(20) DEFAULT 'partial',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (symbol, as_of_date)
+            )
+        """) if is_sqlite else text("""
+            CREATE TABLE IF NOT EXISTS company_market_positions (
+                id SERIAL PRIMARY KEY,
+                symbol VARCHAR(20) NOT NULL,
+                as_of_date DATE NOT NULL,
+                market_category TEXT,
+                market_size_estimate TEXT DEFAULT 'estimate unavailable',
+                key_competitors JSONB DEFAULT '[]',
+                raw_json JSONB,
+                source_notes JSONB DEFAULT '[]',
+                confidence VARCHAR(20) DEFAULT 'partial',
+                created_at TIMESTAMPTZ DEFAULT now(),
+                updated_at TIMESTAMPTZ DEFAULT now(),
+                UNIQUE (symbol, as_of_date)
+            )
+        """))
+
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS company_financial_validations (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol VARCHAR(20) NOT NULL,
+                as_of_date DATE NOT NULL,
+                financial_validation_label VARCHAR(60),
+                financial_validation_score INTEGER,
+                valuation_risk_score INTEGER,
+                overall_score INTEGER,
+                growth_summary TEXT,
+                profitability_summary TEXT,
+                cash_flow_summary TEXT,
+                balance_sheet_summary TEXT,
+                valuation_summary TEXT,
+                metrics_json TEXT,
+                warnings_json TEXT DEFAULT '[]',
+                confidence VARCHAR(20) DEFAULT 'high',
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (symbol, as_of_date)
+            )
+        """) if is_sqlite else text("""
+            CREATE TABLE IF NOT EXISTS company_financial_validations (
+                id SERIAL PRIMARY KEY,
+                symbol VARCHAR(20) NOT NULL,
+                as_of_date DATE NOT NULL,
+                financial_validation_label VARCHAR(60),
+                financial_validation_score SMALLINT,
+                valuation_risk_score SMALLINT,
+                overall_score SMALLINT,
+                growth_summary TEXT,
+                profitability_summary TEXT,
+                cash_flow_summary TEXT,
+                balance_sheet_summary TEXT,
+                valuation_summary TEXT,
+                metrics_json JSONB,
+                warnings_json JSONB DEFAULT '[]',
+                confidence VARCHAR(20) DEFAULT 'high',
+                created_at TIMESTAMPTZ DEFAULT now(),
+                updated_at TIMESTAMPTZ DEFAULT now(),
+                UNIQUE (symbol, as_of_date)
+            )
+        """))
