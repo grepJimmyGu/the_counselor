@@ -1,0 +1,19 @@
+from __future__ import annotations
+
+from typing import Protocol
+
+from app.schemas.sentiment import CommunityMention, NewsArticle, ProviderStatus
+
+
+class NewsProvider(Protocol):
+    @property
+    def name(self) -> str: ...
+    def status(self) -> ProviderStatus: ...
+    async def fetch(self, symbol: str, limit: int = 20) -> list[NewsArticle]: ...
+
+
+class CommunityProvider(Protocol):
+    @property
+    def name(self) -> str: ...
+    def status(self) -> ProviderStatus: ...
+    async def fetch(self, symbol: str, limit: int = 30) -> list[CommunityMention]: ...
