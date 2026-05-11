@@ -765,3 +765,38 @@ export interface FundamentalSummary {
   metrics: KeyMetrics;
   disclaimer: string;
 }
+
+// ── PRD-07: Stock Screener types ──────────────────────────────────────────────
+
+export interface ScreenerResult {
+  symbol: string;
+  name: string;
+  sector?: string | null;
+  industry?: string | null;
+  exchange?: string | null;
+  country?: string | null;
+  market_cap?: number | null;
+  market_cap_category?: string | null;
+  pe_ratio?: number | null;
+  dividend_yield?: number | null;
+  beta?: number | null;
+  week_52_high?: number | null;
+  week_52_low?: number | null;
+}
+
+export interface ScreenerResponse {
+  results: ScreenerResult[];
+  total: number;
+  offset: number;
+  limit: number;
+  filters_applied: Record<string, unknown>;
+}
+
+export interface ScreenerFiltersResponse {
+  sectors: string[];
+  industries: string[];
+  countries: string[];
+  exchanges: string[];
+  market_cap_categories: string[];
+  total_symbols: number;
+}
