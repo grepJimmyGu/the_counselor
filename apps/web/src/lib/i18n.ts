@@ -134,6 +134,7 @@ export interface Translations {
   // Nav links
   navHome: string;
   navWorkspace: string;
+  navStocks: string;
   navTemplates: string;
 
   // Templates page CTA
@@ -408,6 +409,7 @@ const translations: Record<Locale, Translations> = {
     // Nav links
     navHome: "Home",
     navWorkspace: "Workspace",
+    navStocks: "Stocks",
     navTemplates: "Templates",
 
     // Templates page CTA
@@ -680,6 +682,7 @@ const translations: Record<Locale, Translations> = {
     // Nav links
     navHome: "首页",
     navWorkspace: "工作台",
+    navStocks: "股票",
     navTemplates: "模板",
 
     // Templates page CTA

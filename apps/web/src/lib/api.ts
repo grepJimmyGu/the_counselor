@@ -198,3 +198,17 @@ export async function getFundamentalMetrics(symbol: string): Promise<KeyMetrics>
 export async function getFundamentalOverview(symbol: string): Promise<FundamentalSummary> {
   return fetchApi<FundamentalSummary>(`/api/fundamental/overview/${encodeURIComponent(symbol)}`);
 }
+
+// ── PRD-07: Stock Screener ────────────────────────────────────────────────────
+
+export async function getScreenerFilters(): Promise<import("@/lib/contracts").ScreenerFiltersResponse> {
+  return fetchApi("/api/screener/filters");
+}
+
+export async function getScreenerResults(params: Record<string, string | number | undefined>): Promise<import("@/lib/contracts").ScreenerResponse> {
+  const qs = Object.entries(params)
+    .filter(([, v]) => v !== undefined && v !== "" && v !== null)
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+    .join("&");
+  return fetchApi(`/api/screener/results${qs ? `?${qs}` : ""}`);
+}
