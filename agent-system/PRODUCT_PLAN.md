@@ -57,6 +57,7 @@
 
 #### PRD-06 · FMP Data Integration + Fundamental Service
 **Status:** Not started  
+**Prerequisite for:** PRD-07, PRD-08a  
 **Branch naming:** `feat/prd-06-fmp-integration`
 
 **Scope:**
@@ -129,30 +130,30 @@ symbols (
 
 ---
 
-#### PRD-08 · Company Overview Page (`/stocks/[ticker]`)
+#### PRD-08a · Fundamental Analysis Module — Financial Check + Structured Company Data
 **Status:** Not started  
-**Branch naming:** `feat/prd-08-company-overview`
+**Depends on:** PRD-06  
+**Full spec:** `agent-system/plans/PRD-08a-fundamental-analysis-financial-check.md`  
+**Branch naming:** `feat/prd-08a-fundamental-analysis`
 
-**Scope:**
-- New dynamic route `/stocks/[ticker]`
-- Sections: Company header (name, price, % change, sector/industry tags) · Key metrics panel · Revenue & earnings chart (last 8 quarters) · Description · Earnings calendar (upcoming + historical) · "Run a Backtest" CTA → `/workspace?prompt=...`
-- AI company health summary (LLM via Claude Haiku): "AAPL has grown revenue 8% YoY, maintains strong margins, P/E of 28 is elevated vs sector median..."
-- `GET /api/fundamental/overview/{symbol}` — aggregates profile + metrics + earnings into one response
+**Scope summary:**
+- Company deep-dive page `/stocks/[ticker]` with three visual sections
+- **Business Map (partial):** Description from FMP, value chain role from sector+industry rule-based lookup, margin/cyclicality implications derived. Customer types, revenue model, pricing power → blank ("Data pending — 10-K/10-Q model")
+- **Market Position (partial):** Category from FinanceDatabase. Competitors from FMP peers when available, absent otherwise (no LLM fallback). Market size, growth, competitive position, share, drivers, risks → blank
+- **Financial Check (complete):** Full deterministic metrics from FMP — growth, profitability, cash flow, balance sheet, valuation
+- Scoring: `financial_validation_score` + `valuation_risk_score` only; Business Map + Market Position scores null
+- 4 new DB tables, 5 new backend services, 6 API endpoints
 
-**Skills to activate:**
-- `earnings-calendar` — surface upcoming earnings with EPS/revenue estimates
-- `us-stock-analysis` — generate AI company summary
-- `ui-ux-pro-max` — company page design
+**Skills:** `data-quality-checker`, `safe-migration`, `earnings-calendar`, `ui-ux-pro-max`  
+**GitHub:** `JerBouma/FinanceDatabase`, `ranaroussi/yfinance`
 
-**GitHub resources:**
-- `ranaroussi/yfinance` — supplement FMP with extended quarterly history when needed
+---
 
-**Acceptance criteria:**
-- [ ] `/stocks/AAPL` renders without error, all sections populated
-- [ ] Earnings calendar shows next 4 upcoming + last 8 historical
-- [ ] AI summary is 3–5 sentences, clearly labelled as AI-generated, includes disclaimer
-- [ ] "Run a Backtest on AAPL" CTA navigates to workspace with prompt pre-filled
-- [ ] Page handles unknown ticker gracefully (404 with search suggestion)
+#### PRD-08b · Fundamental Analysis — Full Business Map + Market Position
+**Status:** BLOCKED — waiting on 10-K/10-Q data extraction model (Jimmy to build)  
+**Branch naming:** `feat/prd-08b-fundamental-intelligence`
+
+Adds: full Business Map fields, full Market Position fields, complete 4-component scoring, fundamental sandbox reviewer. **No timeline — explicitly gated on external model.**
 
 ---
 
@@ -385,7 +386,6 @@ FMP 429/5xx → automatic fallback to yfinance, logged but not surfaced as error
 | PRD-02 | Strategy Storage + Shareable URLs | ✅ 2026-05-08 | Slug-based public URLs |
 | PRD-03 | Personal Strategy Library | ✅ 2026-05-08 | localStorage, comparison tab |
 | PRD-04 | Interactive Clarification + Capability Glossary | ✅ 2026-05-11 | ClarificationState enum, amber chat bubbles, quick-reply chips, glossary on homepage + workspace sidebar |
-| PRD-05 | `not_supported` Strategy Handling | 🔲 In discussion | Honest redirect with closest supported reformulation |
 
 ---
 
@@ -397,6 +397,24 @@ FMP 429/5xx → automatic fallback to yfinance, logged but not surfaced as error
 
 ---
 
+## PRD Execution Queue (next up)
+
+| Order | PRD | Status | Blocker |
+|---|---|---|---|
+| 1 | PRD-06 | Not started | None — start here |
+| 2 | PRD-07 | Not started | PRD-06 must land first |
+| 3 | PRD-08a | Not started | PRD-06 must land first |
+| 4 | PRD-09 | Not started | None (Alpha Vantage already integrated) |
+| 5 | PRD-10 | Not started | PRD-09 |
+| 6 | PRD-11 | Not started | None — start when Phase 1+2 mostly done |
+| 7 | PRD-12 | Not started | PRD-11 |
+| 8 | PRD-13 | Not started | PRD-12 |
+| 9 | PRD-14 | Not started | PRD-13 |
+| — | PRD-08b | BLOCKED | 10-K/10-Q extraction model (Jimmy to build) |
+| — | PRD-05 | In discussion | — |
+
+---
+
 ## Deferred / Out of Scope
 
 - Live trade execution (permanent constraint)
@@ -404,3 +422,4 @@ FMP 429/5xx → automatic fallback to yfinance, logged but not surfaced as error
 - Options, futures, margin trading
 - Community Phase 4 (cross-device sync, advanced curation) — post Phase 3
 - Fundamental data for A-shares (FMP doesn't cover well; deferred)
+- PRD-08b Business Map + Market Position full intelligence — gated on 10-K/10-Q data model
