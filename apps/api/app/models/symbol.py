@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Boolean, DateTime, Float, String, func
+from sqlalchemy import BigInteger, Boolean, DateTime, Float, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.session import Base
@@ -30,3 +30,17 @@ class SymbolCache(Base):
     updated_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime, nullable=True, server_default=func.now(), onupdate=func.now()
     )
+    # PRD-06: fundamental metadata (added via startup migration)
+    sector: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    industry: Mapped[Optional[str]] = mapped_column(String(120), nullable=True)
+    country: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    market_cap: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    pe_ratio: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    dividend_yield: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    beta: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    week_52_high: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    week_52_low: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    employees: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    market_cap_category: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    fundamentals_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

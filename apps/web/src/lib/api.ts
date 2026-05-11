@@ -1,8 +1,11 @@
 import type {
   BacktestResult,
+  CompanyProfile,
   DataQualityReport,
   DataStatusResponse,
   ExplanationResponse,
+  FundamentalSummary,
+  KeyMetrics,
   MarketSnapshotItem,
   PriceBarResponse,
   RobustnessJobResponse,
@@ -180,4 +183,18 @@ export async function getDailyPrices(symbol: string): Promise<PriceBarResponse[]
 
 export async function searchSymbolsApi(query: string): Promise<SymbolSearchItem[]> {
   return fetchApi<SymbolSearchItem[]>(`/api/symbols/search?query=${encodeURIComponent(query)}`);
+}
+
+// ── PRD-06: Fundamental Analysis ─────────────────────────────────────────────
+
+export async function getFundamentalProfile(symbol: string): Promise<CompanyProfile> {
+  return fetchApi<CompanyProfile>(`/api/fundamental/profile/${encodeURIComponent(symbol)}`);
+}
+
+export async function getFundamentalMetrics(symbol: string): Promise<KeyMetrics> {
+  return fetchApi<KeyMetrics>(`/api/fundamental/metrics/${encodeURIComponent(symbol)}`);
+}
+
+export async function getFundamentalOverview(symbol: string): Promise<FundamentalSummary> {
+  return fetchApi<FundamentalSummary>(`/api/fundamental/overview/${encodeURIComponent(symbol)}`);
 }

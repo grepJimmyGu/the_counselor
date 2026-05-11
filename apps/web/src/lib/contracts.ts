@@ -707,3 +707,61 @@ export const researchTemplates: ResearchTemplate[] = [
       "I want to build a commodity carry strategy using ETF proxies. My universe is {tickers}. Tell me: which commodity ETFs to include and how to rank them.",
   },
 ];
+
+// ── PRD-06: Fundamental Analysis types ───────────────────────────────────────
+
+export interface CompanyProfile {
+  symbol: string;
+  name: string;
+  sector?: string | null;
+  industry?: string | null;
+  exchange?: string | null;
+  country?: string | null;
+  currency?: string | null;
+  description?: string | null;
+  ceo?: string | null;
+  employees?: number | null;
+  website?: string | null;
+  price?: number | null;
+  market_cap?: number | null;
+  pe_ratio?: number | null;
+  dividend_yield?: number | null;
+  beta?: number | null;
+  week_52_high?: number | null;
+  week_52_low?: number | null;
+  is_etf: boolean;
+  is_actively_trading: boolean;
+  peers: string[];
+  data_source: string;
+  as_of_date?: string | null;
+}
+
+export interface KeyMetrics {
+  symbol: string;
+  as_of_date?: string | null;
+  pe_ratio?: number | null;
+  pb_ratio?: number | null;
+  ps_ratio?: number | null;
+  ev_to_ebitda?: number | null;
+  peg_ratio?: number | null;
+  free_cash_flow_yield?: number | null;
+  dividend_yield?: number | null;
+  roe?: number | null;
+  roa?: number | null;
+  free_cash_flow_per_share?: number | null;
+  operating_cash_flow_per_share?: number | null;
+  debt_to_equity?: number | null;
+  current_ratio?: number | null;
+  interest_coverage?: number | null;
+  net_debt_to_ebitda?: number | null;
+  revenue_per_share?: number | null;
+  earnings_per_share?: number | null;
+  book_value_per_share?: number | null;
+  data_source: string;
+}
+
+export interface FundamentalSummary {
+  profile: CompanyProfile;
+  metrics: KeyMetrics;
+  disclaimer: string;
+}
