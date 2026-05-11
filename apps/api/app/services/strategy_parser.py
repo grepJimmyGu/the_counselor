@@ -6,6 +6,7 @@ from typing import Optional
 
 from app.core.config import get_settings
 from app.schemas.strategy import (
+    ClarificationState,
     CashManagement,
     PositionSizing,
     RiskManagement,
@@ -150,7 +151,42 @@ _CHAT_PARSE_SYSTEM_PROMPT: str = (
     "Only set validation_status to needs_clarification if the user has not provided "
     "a ticker symbol (universe) or a recognizable strategy type — these are the only two truly required fields. "
     "For all other missing fields apply the defaults above and return a valid strategy_json. "
-    "Do not invent unsupported rules or arbitrary code. Return JSON only.\n\n"
+    "Do not invent unsupported rules or arbitrary code. "
+    "\n\n"
+    "CLARIFICATION STATE RULES — always set clarification_state:\n"
+    "Set clarification_state='needs_parameters' when:\n"
+    "  - The strategy type is one of the supported families listed above\n"
+    "  - AND one or more quantifiable parameters are missing or ambiguous:\n"
+    "    lookback period, entry/exit threshold, universe of tickers, stop loss %, "
+    "position sizing, rebalance frequency\n"
+    "  - Populate clarification_questions with SPECIFIC, ANSWERABLE questions. "
+    "Each question must correspond to exactly one missing parameter. Max 3 questions per turn. "
+    "Ask the most blocking question first.\n"
+    "  - GOOD: 'Over what lookback period should I check the moving average? (e.g. 50 days, 200 days)'\n"
+    "  - BAD: 'Can you clarify your strategy?'\n"
+    "\n"
+    "Set clarification_state='not_supported' when the strategy requires:\n"
+    "  - Signals derived from a DIFFERENT asset than the one being traded "
+    "(e.g. 'buy gold when oil is up' — signal is oil price, trade target is gold)\n"
+    "  - Fundamental data: P/E ratio, earnings, revenue, dividends, book value\n"
+    "  - Macro or sentiment data: VIX, CPI, Fed funds rate, news sentiment, economic indicators\n"
+    "  - Short selling, leverage, options, futures\n"
+    "  - Intraday data (signals defined in minutes or hours)\n"
+    "  For not_supported: set unsupported_reason to a brief plain-language explanation, "
+    "and set suggested_reformulation to the closest supported equivalent "
+    "(e.g. 'Use GLD with a 1-month moving average filter as a trend proxy').\n"
+    "\n"
+    "Set clarification_state='ready' when:\n"
+    "  - strategy_json is fully populated with no missing required fields\n"
+    "  - All parameters have explicit or clearly implied values\n"
+    "\n"
+    "APPROXIMATION TRANSPARENCY — when you map an under-specified or partially-unsupported "
+    "intent to a supported strategy type, ALWAYS set approximation_note to a plain-language "
+    "explanation of what proxy or simplification was used. "
+    "Example: 'I am interpreting oil is up as USO's 1-month return being positive, "
+    "and using that as a moving-average filter on GLD — the closest supported equivalent.' "
+    "Leave approximation_note null when the mapping is direct with no approximation needed.\n\n"
+    "Return JSON only.\n\n"
     f"Response schema: {_json_schema_text(StrategyChatResponse)}"
 )
 
@@ -544,6 +580,7 @@ def parse_strategy_message_fallback(
             validation_status="valid",
             missing_fields=[],
             clarification_questions=[],
+            clarification_state=ClarificationState.ready,
         )
 
     if not symbols:
@@ -552,19 +589,21 @@ def parse_strategy_message_fallback(
             strategy_json=None,
             validation_status="needs_clarification",
             missing_fields=["universe"],
-            clarification_questions=["Which stock symbols should this strategy trade?"],
+            clarification_questions=["Which stock or ETF symbols should this strategy trade? (e.g. SPY, GLD, AAPL)"],
+            clarification_state=ClarificationState.needs_parameters,
         )
 
     strategy_type = _extract_strategy_type(message)
     if not strategy_type:
         return StrategyChatResponse(
-            assistant_message="I recognized the tickers, but I need the strategy style. Try describing a moving average, crossover, momentum, RSI, breakout, or allocation rule.",
+            assistant_message="I recognised the tickers, but I need the strategy style.",
             strategy_json=None,
             validation_status="needs_clarification",
             missing_fields=["strategy_type", "rules"],
             clarification_questions=[
-                "Which supported strategy type should I use: moving average filter, crossover, momentum rotation, RSI mean reversion, breakout, or static allocation?"
+                "Which strategy type should I use: moving average filter, MA crossover, momentum rotation, RSI mean reversion, breakout, or static allocation?"
             ],
+            clarification_state=ClarificationState.needs_parameters,
         )
 
     try:
@@ -578,6 +617,7 @@ def parse_strategy_message_fallback(
             validation_status="invalid",
             missing_fields=["strategy_json"],
             clarification_questions=[],
+            clarification_state=ClarificationState.needs_parameters,
         )
 
     if _is_commodity_universe(strategy.universe):
@@ -589,6 +629,7 @@ def parse_strategy_message_fallback(
         validation_status="valid",
         missing_fields=[],
         clarification_questions=[],
+        clarification_state=ClarificationState.ready,
     )
 
 

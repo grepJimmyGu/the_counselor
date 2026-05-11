@@ -92,12 +92,18 @@ export interface StrategyJson {
   cash_management: CashManagement;
 }
 
+export type ClarificationState = "ready" | "needs_parameters" | "not_supported";
+
 export interface StrategyChatResponse {
   assistant_message: string;
   strategy_json: StrategyJson | null;
   validation_status: "valid" | "needs_clarification" | "invalid";
   missing_fields: string[];
   clarification_questions: string[];
+  clarification_state: ClarificationState;
+  approximation_note?: string | null;
+  unsupported_reason?: string | null;
+  suggested_reformulation?: string | null;
 }
 
 export interface StrategyExtractedField {
