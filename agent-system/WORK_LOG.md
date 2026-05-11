@@ -9,17 +9,17 @@
 
 ## Current Session
 
-**Status:** PRD-06 COMPLETE — ready to merge  
-**Active PRD:** PRD-06  
-**Active branch:** feat/prd-06-fmp-integration  
-**Last stable tag:** planning-complete  
-**Last commit:** (see git log after commit below)
+**Status:** PRD-09 COMPLETE — merged to main, tagged prd-09-complete  
+**Active PRD:** PRD-10 (next)  
+**Active branch:** main  
+**Last stable tag:** prd-09-complete  
+**Last commit:** 1e1eac5 feat: merge PRD-09 news & sentiment backend
 
 **Next action:**
 ```
-Merge feat/prd-06-fmp-integration → main
-Tag: prd-06-complete
-Then start PRD-07: git checkout -b feat/prd-07-stock-screener
+git checkout -b feat/prd-10-news-sentiment-frontend
+Build PRD-10: News & Sentiment frontend hub page, toolkit cards, provider status panel
+See agent-system/plans/PRD-10-news-sentiment-frontend.md (create if missing)
 ```
 
 ## PRD-06 Summary (completed 2026-05-11)
@@ -86,11 +86,11 @@ BLOCKED: FMP API key not set in .env — need FINANCIAL_MODELING_PREP_API_KEY
 
 | Order | PRD | Status | Branch | Tag on complete |
 |---|---|---|---|---|
-| **1** | **PRD-06** | **Ready to start** | `feat/prd-06-fmp-integration` | `prd-06-complete` |
-| 2 | PRD-07 | Blocked on PRD-06 | `feat/prd-07-stock-screener` | `prd-07-complete` |
-| 3 | PRD-08a | Blocked on PRD-06 | `feat/prd-08a-fundamental-analysis` | `prd-08a-complete` |
-| 4 | PRD-09 | Ready (AV already integrated) | `feat/prd-09-news-sentiment-backend` | `prd-09-complete` |
-| 5 | PRD-10 | Blocked on PRD-09 | `feat/prd-10-news-sentiment-frontend` | `prd-10-complete` |
+| **1** | **PRD-06** | **DONE** | `feat/prd-06-fmp-integration` | `prd-06-complete` |
+| 2 | PRD-07 | DONE | `feat/prd-07-stock-screener` | `prd-07-complete` |
+| 3 | PRD-08a | DONE | `feat/prd-08a-fundamental-analysis` | `prd-08a-complete` |
+| 4 | PRD-09 | **DONE** | `feat/prd-09-news-sentiment-backend` | `prd-09-complete` |
+| 5 | PRD-10 | **Ready to start** | `feat/prd-10-news-sentiment-frontend` | `prd-10-complete` |
 | 6 | PRD-11 | Start after Phase 1+2 done | `feat/prd-11-auth` | `prd-11-complete` |
 | 7–9 | PRD-12–14 | Blocked on PRD-11 | — | — |
 | — | PRD-08b | BLOCKED — 10-K model | — | — |
