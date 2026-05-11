@@ -15,7 +15,10 @@
 | 3 | Core value = community-driven signals | 2026-05-11 | Discussion volume + watchlist adds + votes surface sentiment. AI never says "buy X" |
 | 4 | Auth: Google OAuth via Auth.js | 2026-05-11 | + optional GitHub OAuth. Required before Phase 3 |
 | 5 | Primary fundamental data: FMP Starter ($14/mo) | 2026-05-11 | yfinance as dev/fallback only |
-| 6 | News/sentiment: Alpha Vantage NEWS_SENTIMENT + Finnhub free tier | 2026-05-11 | Both already budgeted |
+| 6 | News/sentiment: Alpha Vantage NEWS_SENTIMENT (primary), Reddit (if configured) | 2026-05-11 | X deferred — requires $100/mo API |
+| 7 | LLM cache TTL: 3 hours for all AI analysis | 2026-05-11 | 3× cheaper than 1h; pre-warm top 100 S&P 500 every 3h |
+| 8 | Sandbox reviews: on-demand only, never auto-run | 2026-05-11 | Sonnet ~$0.01/call |
+| 9 | Daily spend alert: $20/day | 2026-05-11 | Scaling checkpoint — ~600 active users |
 | 7 | Not building day trading / live execution | 2026-05-11 | Permanent constraint |
 | 8 | PRD-first engineering process | 2026-05-11 | Every feature starts as PRD before code |
 
@@ -159,57 +162,44 @@ Adds: full Business Map fields, full Market Position fields, complete 4-componen
 
 ### Phase 2 — News & Sentiment
 
-#### PRD-09 · News & Sentiment Service (Backend)
+#### PRD-09 · News & Community Sentiment — Backend
 **Status:** Not started  
-**Branch naming:** `feat/prd-09-news-sentiment-service`
+**Full spec:** `agent-system/plans/PRD-09-news-sentiment-backend.md`  
+**Branch naming:** `feat/prd-09-news-sentiment-backend`
 
-**Scope:**
-- `NewsService` — fetch and cache news per ticker (TTL: 15min)
-  - Primary: Alpha Vantage `NEWS_SENTIMENT` endpoint (already have premium key)
-  - Secondary: Finnhub company news endpoint (free tier, 60 req/min)
-- `SentimentService` — aggregate sentiment scores per ticker
-  - Composite score from Alpha Vantage sentiment + Finnhub buzz score
-  - 7-day rolling sentiment trend
-- Background refresh job: top-50 most-active tickers refreshed every 15min (Railway background worker)
-- New schemas: `NewsItem`, `SentimentScore`, `TrendingTicker`
-- New routes:
-  - `GET /api/news/{symbol}` — latest 20 news items with sentiment
-  - `GET /api/news/trending` — top 10 trending tickers by news volume
-  - `GET /api/sentiment/{symbol}` — composite sentiment score + 7-day trend
+**Scope summary:**
+- Provider-based architecture: `NewsProvider` + `CommunityProvider` Protocol interfaces
+- Active MVP: Alpha Vantage `NEWS_SENTIMENT` (news), Reddit (if env vars set)
+- Placeholder interfaces: X (`not_configured`, deferred — $100/mo), Internal Community (`not_configured` until Phase 3)
+- LLM chain: Claude Haiku extracts News Catalyst + News Sentiment + Community Pulse + Signal Quality + Takeaway — **cached 3 hours**
+- Raw article/mention cache: 15 min TTL
+- Background pre-warmer: top 100 S&P 500 tickers every 3h (~$3.20/day, toggle via env var)
+- 9-score framework (catalyst, materiality, source quality, news sentiment, community sentiment, attention, signal quality, risk, overall)
+- 7 pre-built toolkits (Positive Catalyst, News Confirmed, Rising Attention, Reversal, Controversial, Headline Risk, Community Hype)
+- Sandbox review: Claude Sonnet, on-demand only (~$0.01/call, never auto-run)
+- 5 new DB tables: `news_articles`, `community_mentions`, `sentiment_signal_summaries`, `sentiment_toolkit_runs`, `sentiment_toolkit_candidates`
 
-**Skills to activate:**
-- `market-news-analyst` — validate news quality and relevance scoring logic
-- `safe-migration` — new news/sentiment cache tables
-
-**Acceptance criteria:**
-- [ ] `GET /api/news/AAPL` returns ≥ 5 articles within 24h, each with sentiment score
-- [ ] Sentiment score: positive/negative/neutral with numeric confidence (0–1)
-- [ ] `GET /api/news/trending` updates at most every 15min (cached)
-- [ ] Background refresh does not block API responses
-- [ ] Finnhub rate limit (60/min) respected with exponential backoff
+**Skills:** `market-news-analyst`, `data-quality-checker`, `safe-migration`
 
 ---
 
-#### PRD-10 · News Feed + Sentiment UI
+#### PRD-10 · News & Community Sentiment — Frontend
 **Status:** Not started  
-**Branch naming:** `feat/prd-10-news-sentiment-ui`
+**Full spec:** `agent-system/plans/PRD-10-news-sentiment-frontend.md`  
+**Depends on:** PRD-09  
+**Branch naming:** `feat/prd-10-news-sentiment-frontend`
 
-**Scope:**
-- News panel on company overview page (from PRD-08)
-- `/news` page — full news feed, filterable by ticker/sector/sentiment polarity
-- Sentiment badge component: `● Bullish 74%` / `● Bearish 31%` / `● Neutral`
-- "Trending Now" strip on homepage (replaces or sits alongside Market Snapshot)
-- AI news digest card: "3 key things happening with NVDA this week" (Claude Haiku, cached 3h)
+**Scope summary:**
+- New nav section: `/sentiment` (Sentiment Hub)
+- Hub page: 7 toolkit cards with source status badges + last run timestamp
+- Provider status strip: active/not_configured for each data source
+- Toolkit results page: ranked candidate cards with all labels, themes, takeaway, suggested action
+- Deep-dive page `/sentiment/stock/[ticker]`: 4 visual sections (News Catalyst, News Sentiment, Community Pulse, Signal Quality & Risk)
+- On-demand sandbox review panel (Sonnet, ~10s)
+- "Publish to Community" + "Add to Watchlist": disabled until Phase 3
+- Disclaimer on all pages
 
-**Skills to activate:**
-- `market-news-analyst` — generates AI news digest summaries
-- `ui-ux-pro-max` — news feed layout, sentiment badge design
-
-**Acceptance criteria:**
-- [ ] Sentiment badge updates without full page reload
-- [ ] News feed shows article title, source, time, sentiment, 1-line summary
-- [ ] "Trending Now" strip shows 6 tickers with 24h sentiment direction
-- [ ] AI news digest clearly labelled as AI-generated, cached per ticker per 3h
+**Skills:** `ui-ux-pro-max`, `market-news-analyst`, `playwright-runner`
 
 ---
 
@@ -415,6 +405,87 @@ FMP 429/5xx → automatic fallback to yfinance, logged but not surfaced as error
 
 ---
 
+## Unit Economics
+
+*Last updated: 2026-05-11*
+
+### LLM cost per operation
+
+| Operation | Model | Est. tokens (in/out) | Cost per call |
+|---|---|---|---|
+| News sentiment analysis (per ticker) | Claude Haiku 4.5 | 2,400 / 600 | ~$0.004 |
+| Fundamental analysis — PRD-08b (per ticker) | Claude Haiku 4.5 | 1,500 / 700 | ~$0.004 |
+| Sandbox review — sentiment | Claude Sonnet 4.6 | 1,400 / 400 | ~$0.010 |
+| Sandbox review — fundamental | Claude Sonnet 4.6 | 1,400 / 400 | ~$0.010 |
+| Strategy explanation (existing) | Haiku equivalent | ~1,500 / 500 | ~$0.003 |
+| Strategy sandbox review (existing) | Haiku equivalent | ~1,200 / 400 | ~$0.008 |
+| Full backtest session (existing) | Haiku equivalent | combined | ~$0.017 |
+
+*Haiku pricing: $0.80/M input, $4.00/M output. Sonnet: $3.00/M input, $15.00/M output.*
+
+### Cache TTL decisions
+
+| Data type | TTL | Reason |
+|---|---|---|
+| LLM sentiment analysis | **3 hours** | Balances freshness vs. cost (3× cheaper than 1h) |
+| LLM fundamental analysis | **3 hours** | Company story changes slowly |
+| Raw news articles | 15 minutes | News is time-sensitive |
+| Raw community mentions | 15 minutes | Social discussion moves fast |
+| Financial statements (FMP) | 24 hours | Quarterly data |
+| Company profile/metrics | 24 hours | Structural data |
+| Price data (OHLCV) | 24 hours | End-of-day |
+| Community signal scores | 5 minutes | Phase 3 — real-time community activity |
+
+### Cost impact of TTL: LLM per 100 unique tickers/day
+
+| TTL | LLM calls/day | Cost/day | Cost/month |
+|---|---|---|---|
+| 1 hour | 2,400 | $9.60 | $288 |
+| **3 hours** | **800** | **$3.20** | **$96** |
+| 6 hours | 400 | $1.60 | $48 |
+
+### Fixed monthly costs
+
+| Item | Cost |
+|---|---|
+| Railway (backend + PostgreSQL) | $5–20 |
+| Vercel (frontend) | Free → $20 Pro |
+| FMP Starter (fundamentals) | $14 |
+| Alpha Vantage Premium (price + news) | $50–100 |
+| **Total fixed** | **~$70–150/month** |
+
+### Total platform cost by user scale (3h TTL)
+
+| Users | Unique tickers/day | LLM variable | AV plan | Total/month | Per user/month |
+|---|---|---|---|---|---|
+| Solo (you) | 20 | $2 | Existing | **~$100** | — |
+| 50 users | 80 | $10 | Existing ($50) | **~$165** | $3.30 |
+| 200 users | 200 | $26 | Standard ($50) | **~$195** | $0.98 |
+| 1,000 users | 500 | $64 | Standard ($100) | **~$285** | $0.29 |
+| 5,000 users | 1,500 | $192 | Premium ($250) | **~$570** | $0.11 |
+| 20,000 users | 3,000 | $384 | Enterprise ($500) | **~$1,000** | $0.05 |
+
+*Key insight: with caching, LLM cost is shared across users viewing the same ticker. Cost per user drops dramatically as userbase grows.*
+
+### Cost optimisation levers
+
+1. **Pre-warm top 100 S&P 500 tickers every 3h** — ~$96/month covers most user requests with near-zero first-load latency. Toggle via `PREWARM_ENABLED=false`.
+2. **Skip LLM for thinly covered tickers** (< 3 articles) — saves ~40% of LLM calls.
+3. **Sandbox review is on-demand only** — Sonnet (~$0.01/call) never auto-runs.
+4. **Show cache timestamp in UI** — reduces user-triggered forced refreshes.
+5. **Daily spend alert at $20/day (~$600/month)** — monitoring checkpoint for scaling decision.
+
+### Latency benchmarks
+
+| Operation | First load (uncached) | Cached |
+|---|---|---|
+| News sentiment analysis | 3–6s | 50–100ms |
+| Fundamental analysis | 4–8s | 100–200ms |
+| Backtest + explanation | 8–15s | N/A |
+| Sandbox review (Sonnet) | 4–8s | N/A (on-demand) |
+
+---
+
 ## Deferred / Out of Scope
 
 - Live trade execution (permanent constraint)
@@ -423,3 +494,4 @@ FMP 429/5xx → automatic fallback to yfinance, logged but not surfaced as error
 - Community Phase 4 (cross-device sync, advanced curation) — post Phase 3
 - Fundamental data for A-shares (FMP doesn't cover well; deferred)
 - PRD-08b Business Map + Market Position full intelligence — gated on 10-K/10-Q data model
+- X (Twitter) API integration — deferred (requires $100/mo Basic API subscription)
