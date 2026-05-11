@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes.backtest import router as backtest_router
+from app.api.routes.fundamental import router as fundamental_router
 from app.api.routes.insights import router as insights_router
 from app.api.routes.market_data import router as market_data_router
 from app.api.routes.qa import router as qa_router
@@ -36,6 +37,7 @@ app.add_middleware(
 
 app.include_router(strategy_router)
 app.include_router(backtest_router)
+app.include_router(fundamental_router)
 app.include_router(insights_router)
 app.include_router(market_data_router)
 app.include_router(robustness_router)

@@ -75,3 +75,27 @@ def run_startup_migrations(engine: Engine) -> None:
                 ))
             except Exception:
                 pass
+
+        # PRD-06: fundamental metadata columns on symbols table
+        fundamental_columns = [
+            ("sector", "VARCHAR(120)"),
+            ("industry", "VARCHAR(120)"),
+            ("country", "VARCHAR(8)"),
+            ("description", "TEXT"),
+            ("market_cap", "FLOAT"),
+            ("pe_ratio", "FLOAT"),
+            ("dividend_yield", "FLOAT"),
+            ("beta", "FLOAT"),
+            ("week_52_high", "FLOAT"),
+            ("week_52_low", "FLOAT"),
+            ("employees", "INTEGER"),
+            ("market_cap_category", "VARCHAR(16)"),
+            ("fundamentals_updated_at", "TIMESTAMP"),
+        ]
+        for col_name, col_type in fundamental_columns:
+            try:
+                conn.execute(
+                    text(f"ALTER TABLE symbols ADD COLUMN IF NOT EXISTS {col_name} {col_type}")
+                )
+            except Exception:
+                pass

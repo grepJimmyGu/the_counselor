@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     app_name: str = "Livermore API"
     app_env: str = "development"
     alpha_vantage_api_key: str = ""
+    financial_modeling_prep_api_key: str = ""
     llm_provider: str = "disabled"
     llm_api_key: str = ""
     llm_base_url: str = "https://api.openai.com/v1"

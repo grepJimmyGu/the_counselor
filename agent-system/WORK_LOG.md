@@ -9,18 +9,30 @@
 
 ## Current Session
 
-**Status:** IDLE — ready to start PRD-06  
-**Active PRD:** None  
-**Active branch:** main  
-**Last stable tag:** (none yet — tags created at PRD completion)  
-**Last commit:** See `git log --oneline -3` on session start
+**Status:** PRD-06 COMPLETE — ready to merge  
+**Active PRD:** PRD-06  
+**Active branch:** feat/prd-06-fmp-integration  
+**Last stable tag:** planning-complete  
+**Last commit:** (see git log after commit below)
 
 **Next action:**
 ```
-Start PRD-06: git checkout -b feat/prd-06-fmp-integration
-Read: agent-system/plans/PRD-06 spec (not yet written — write it first from PRODUCT_PLAN.md PRD-06 section)
-Then begin implementation per PRD-06 acceptance criteria
+Merge feat/prd-06-fmp-integration → main
+Tag: prd-06-complete
+Then start PRD-07: git checkout -b feat/prd-07-stock-screener
 ```
+
+## PRD-06 Summary (completed 2026-05-11)
+All 9 steps completed:
+1. Branch + deps (yfinance, financedatabase in requirements.txt)
+2. FMPClient (apps/api/app/services/fmp_client.py) — mirrors AlphaVantageClient
+3. DataSourceAdapter Protocol (adapters/base.py) + CompanyProfile/KeyMetrics schemas
+4. FMPAdapter + YFinanceAdapter (adapters/fmp_adapter.py, adapters/yfinance_adapter.py)
+5. SymbolCache model extended (13 new columns) + startup migrations
+6. FundamentalService + 3 routes (/profile, /metrics, /overview) + main.py registration
+7. Seed script (app/scripts/seed_symbols.py — FinanceDatabase → symbols table)
+8. 11 tests (all passing), frontend contracts (CompanyProfile, KeyMetrics, FundamentalSummary), api.ts functions
+9. 63/63 backend tests pass, frontend build clean
 
 ---
 

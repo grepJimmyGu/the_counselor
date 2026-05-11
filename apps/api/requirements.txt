@@ -10,4 +10,6 @@ numpy==2.0.2
 python-dateutil==2.9.0.post0
 pytest==8.3.5
 pytest-asyncio==0.24.0
+yfinance>=0.2.54
+financedatabase>=2.1.1
 
