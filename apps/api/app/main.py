@@ -12,6 +12,7 @@ from app.api.routes.market_data import router as market_data_router
 from app.api.routes.qa import router as qa_router
 from app.api.routes.robustness import router as robustness_router
 from app.api.routes.uiux import router as uiux_router
+from app.api.routes.sentiment import router as sentiment_router
 from app.api.routes.strategy_storage import router as strategy_storage_router
 from app.api.routes.strategy import router as strategy_router
 from app.core.config import get_settings
@@ -48,6 +49,7 @@ app.include_router(robustness_router)
 app.include_router(qa_router)
 app.include_router(uiux_router)
 app.include_router(strategy_storage_router)
+app.include_router(sentiment_router)
 
 
 @app.get("/health")
