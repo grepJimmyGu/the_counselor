@@ -125,6 +125,12 @@ export interface Translations {
   templateLoaded: (name: string) => string;
   templateBuild: (name: string) => string;
 
+  // Interactive clarification
+  clarificationLabel: string;
+  clarificationAnswerPlaceholder: string;
+  quickRepliesLabel: string;
+  clarificationGiveUp: string;
+
   // Nav links
   navHome: string;
   navWorkspace: string;
@@ -393,6 +399,12 @@ const translations: Record<Locale, Translations> = {
     templateLoaded: (name: string) => `Template loaded: ${name}. Review the strategy rules and universe, then run the backtest.`,
     templateBuild: (name: string) => `Starting from the ${name} framework. Describe your version in the chat below.`,
 
+    // Interactive clarification
+    clarificationLabel: "Needs Answer",
+    clarificationAnswerPlaceholder: "Answer the question above, or rephrase your full strategy…",
+    quickRepliesLabel: "Quick replies",
+    clarificationGiveUp: "I'm having trouble nailing down the exact parameters after a few tries. Try rephrasing your full strategy from scratch, or pick a similar example from the templates page.",
+
     // Nav links
     navHome: "Home",
     navWorkspace: "Workspace",
@@ -658,6 +670,12 @@ const translations: Record<Locale, Translations> = {
     loadedDemo: (name: string) => `已加载：${name}。请确认策略后点击"运行回测"。`,
     templateLoaded: (name: string) => `已加载模板：${name}。请确认策略规则和标的池后运行回测。`,
     templateBuild: (name: string) => `基于 ${name} 框架开始构建，请在下方对话框中描述您的策略版本。`,
+
+    // Interactive clarification
+    clarificationLabel: "需要回答",
+    clarificationAnswerPlaceholder: "回答上方问题，或重新描述您的完整策略…",
+    quickRepliesLabel: "快速回复",
+    clarificationGiveUp: "经过几轮尝试仍未能确定参数。请尝试重新描述完整策略，或从模板页面选择类似示例。",
 
     // Nav links
     navHome: "首页",

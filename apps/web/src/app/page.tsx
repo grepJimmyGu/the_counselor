@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { MarketSnapshot } from "@/components/home/market-snapshot";
 import { AssetSearch } from "@/components/home/asset-search";
 import { StrategyTeaser } from "@/components/home/strategy-teaser";
+import { CapabilityGlossary } from "@/components/home/capability-glossary";
 import { researchTemplates } from "@/lib/contracts";
 
 const HOW_IT_WORKS = [
@@ -96,6 +97,9 @@ export default function HomePage() {
 
         {/* Strategy Builder Teaser */}
         <StrategyTeaser />
+
+        {/* Capability Glossary */}
+        <CapabilityGlossary />
 
         {/* How It Works */}
         <section className="space-y-8">

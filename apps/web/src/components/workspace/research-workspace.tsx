@@ -9,6 +9,7 @@ import {
   CircleAlert,
   FileText,
   FlaskConical,
+  HelpCircle,
   LineChart,
   Loader2,
   Play,
@@ -64,9 +65,10 @@ import { DrawdownChart, EquityCurveChart } from "@/components/workspace/charts";
 import { DataStatusBadge } from "@/components/workspace/data-status-badge";
 import { MonthlyHeatmap } from "@/components/workspace/monthly-heatmap";
 import { TickerSearch } from "@/components/workspace/ticker-search";
+import { CapabilityGlossary } from "@/components/home/capability-glossary";
 
 type ChatMessage = {
-  role: "user" | "assistant";
+  role: "user" | "assistant" | "clarification";
   content: string;
 };
 
@@ -159,6 +161,23 @@ function buildSavedComparison(
   ];
 }
 
+function getQuickReplies(questions: string[]): string[] {
+  const text = questions.join(" ").toLowerCase();
+  if (/period|timeframe|lookback|how long|days|week|month|duration/.test(text))
+    return ["Past 1 week", "Past 1 month", "Past 3 months", "Past 6 months", "Past 1 year"];
+  if (/threshold|how much|percent|%|up by|down by|magnitude|amount/.test(text))
+    return ["Any positive move", "More than 2%", "More than 5%", "More than 10%"];
+  if (/exit|sell|close|when to|stop loss|take profit/.test(text))
+    return ["When signal reverses", "After 1 month", "5% stop loss", "10% stop loss", "No explicit exit"];
+  if (/universe|ticker|symbol|stock|asset|which/.test(text))
+    return [];
+  if (/top|how many|n assets|positions/.test(text))
+    return ["Top 1 asset", "Top 2 assets", "Top 3 assets"];
+  if (/rebalance|frequency|how often/.test(text))
+    return ["Daily", "Weekly", "Monthly", "Quarterly"];
+  return ["Use sensible defaults", "1 month lookback", "Exit on signal reversal", "Keep it simple"];
+}
+
 export function ResearchWorkspace() {
   const { locale, t } = useLocale();
   const router = useRouter();
@@ -203,6 +222,9 @@ export function ResearchWorkspace() {
   const [showJsonPreview, setShowJsonPreview] = useState(false);
   const [activeTab, setActiveTab] = useState("results");
   const [autoRunPending, setAutoRunPending] = useState(false);
+  // Interactive clarification
+  const [pendingContext, setPendingContext] = useState<string | null>(null);
+  const [clarificationTurnCount, setClarificationTurnCount] = useState(0);
 
   const comparisonRows = useMemo(
     () => buildComparison(backtestResult, previousResult, { totalReturn: t.totalReturn, sharpe: t.sharpe, maxDrawdown: t.maxDrawdown, trades: t.trades, winRate: t.winRate, turnover: t.turnover }),
@@ -250,21 +272,81 @@ export function ResearchWorkspace() {
 
   async function handleInterpretStrategy(nextPrompt?: string, { autoRun = false } = {}) {
     const activePrompt = nextPrompt ?? prompt;
+
+    // Build contextual prompt: embed original intent when clarifications are pending
+    const contextualPrompt = pendingContext
+      ? `Original strategy request: ${pendingContext}\n\nFollow-up answer: ${activePrompt}`
+      : activePrompt;
+
     setIsParsing(true);
     setErrorMessage(null);
+    // Show the user's raw answer in chat (not the full context string)
     setChat((current) => [...current, { role: "user", content: activePrompt }]);
 
     try {
-      const parsed = await parseStrategy(activePrompt, strategy, backtestResult?.backtest_id ?? null, locale);
-      setChat((current) => [...current, { role: "assistant", content: parsed.assistant_message }]);
-      setStrategy(parsed.strategy_json);
-      if (parsed.strategy_json) fetchQualityForSymbols(parsed.strategy_json.universe);
-      setMarkdownParseResult(null);
-      setValidationIssues(parsed.missing_fields);
-      setClarifications(parsed.clarification_questions);
-      // Auto-run backtest if requested and strategy is ready
-      if (autoRun && parsed.strategy_json && !parsed.missing_fields.length) {
-        setAutoRunPending(true);
+      const parsed = await parseStrategy(contextualPrompt, strategy, backtestResult?.backtest_id ?? null, locale);
+      const state = parsed.clarification_state ?? "ready";
+
+      if (state === "needs_parameters") {
+        // Store original intent on first clarification turn
+        if (!pendingContext) setPendingContext(activePrompt);
+        const nextCount = clarificationTurnCount + 1;
+        setClarificationTurnCount(nextCount);
+
+        // Show assistant message
+        setChat((current) => [...current, { role: "assistant", content: parsed.assistant_message }]);
+
+        // Show approximation note if provided
+        if (parsed.approximation_note) {
+          setChat((current) => [...current, {
+            role: "assistant",
+            content: `ℹ️ ${parsed.approximation_note}`,
+          }]);
+        }
+
+        // Inject each clarification question as its own amber chat bubble
+        parsed.clarification_questions.forEach((q) => {
+          setChat((current) => [...current, { role: "clarification", content: q }]);
+        });
+
+        setClarifications(parsed.clarification_questions);
+        setValidationIssues(parsed.missing_fields);
+
+        // Safety cap: after 3 turns show give-up message and reset
+        if (nextCount >= 3) {
+          setChat((current) => [...current, {
+            role: "assistant",
+            content: t.clarificationGiveUp,
+          }]);
+          setPendingContext(null);
+          setClarificationTurnCount(0);
+          setClarifications([]);
+        }
+
+      } else {
+        // Ready or not_supported — clear clarification state
+        setPendingContext(null);
+        setClarificationTurnCount(0);
+        setClarifications([]);
+
+        setChat((current) => [...current, { role: "assistant", content: parsed.assistant_message }]);
+
+        // Show approximation note if the strategy was proxied
+        if (parsed.approximation_note) {
+          setChat((current) => [...current, {
+            role: "assistant",
+            content: `ℹ️ ${parsed.approximation_note}`,
+          }]);
+        }
+
+        setStrategy(parsed.strategy_json);
+        if (parsed.strategy_json) fetchQualityForSymbols(parsed.strategy_json.universe);
+        setMarkdownParseResult(null);
+        setValidationIssues(parsed.missing_fields);
+
+        if (autoRun && parsed.strategy_json && !parsed.missing_fields.length) {
+          setAutoRunPending(true);
+        }
       }
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : t.errorInterpret);
@@ -648,7 +730,7 @@ export function ResearchWorkspace() {
                   value={prompt}
                   onChange={(event) => setPrompt(event.target.value)}
                   className="min-h-36 resize-none"
-                  placeholder={t.chatPlaceholder}
+                  placeholder={pendingContext ? t.clarificationAnswerPlaceholder : t.chatPlaceholder}
                 />
                 <div className="flex items-center justify-between gap-3">
                   <span className="text-xs text-muted-foreground">{t.chatSupported}</span>
@@ -671,15 +753,21 @@ export function ResearchWorkspace() {
                         "rounded-lg border px-3 py-2.5 text-sm",
                         message.role === "assistant"
                           ? "border-border/60 bg-background"
+                          : message.role === "clarification"
+                          ? "border-amber-300 bg-amber-50/70 ml-2"
                           : "border-primary/30 bg-primary/8 ml-4",
                       )}
                     >
                       <div className={cn(
                         "mb-1.5 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest",
-                        message.role === "assistant" ? "text-primary/70" : "text-muted-foreground"
+                        message.role === "assistant" ? "text-primary/70"
+                        : message.role === "clarification" ? "text-amber-600"
+                        : "text-muted-foreground"
                       )}>
                         {message.role === "assistant"
                           ? <><Bot className="h-3 w-3" />{t.aiLabel}</>
+                          : message.role === "clarification"
+                          ? <><HelpCircle className="h-3 w-3" />{t.clarificationLabel}</>
                           : <><ArrowRight className="h-3 w-3" />{t.youLabel}</>
                         }
                       </div>
@@ -688,6 +776,32 @@ export function ResearchWorkspace() {
                   ))}
                 </div>
               </ScrollArea>
+
+              {/* Quick-reply chips — shown when clarification questions are pending */}
+              {clarifications.length > 0 && (() => {
+                const chips = getQuickReplies(clarifications);
+                if (!chips.length) return null;
+                return (
+                  <div className="border-t border-amber-200 bg-amber-50/60 px-4 py-3">
+                    <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-amber-600">
+                      {t.quickRepliesLabel}
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {chips.map((chip) => (
+                        <button
+                          key={chip}
+                          type="button"
+                          disabled={isParsing}
+                          onClick={() => { setPrompt(chip); void handleInterpretStrategy(chip); }}
+                          className="cursor-pointer rounded-full border border-amber-300 bg-white px-3 py-1 text-xs font-medium text-amber-700 transition-colors duration-150 hover:bg-amber-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50"
+                        >
+                          {chip}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                );
+              })()}
             </section>
 
             {/* Strategy Doc */}
@@ -788,6 +902,9 @@ export function ResearchWorkspace() {
               </div>
             </div>
             </section>
+
+            {/* Compact capability glossary sidebar */}
+            <CapabilityGlossary compact />
           </div>
 
           <div className="grid gap-6">

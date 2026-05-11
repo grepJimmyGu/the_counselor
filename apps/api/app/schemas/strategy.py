@@ -1,9 +1,16 @@
 from __future__ import annotations
 
 from datetime import date
+from enum import Enum
 from typing import Literal, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator, model_validator
+
+
+class ClarificationState(str, Enum):
+    ready = "ready"                        # strategy_json populated, no issues
+    needs_parameters = "needs_parameters"  # supported type, missing quantifiable fields
+    not_supported = "not_supported"        # concept outside engine scope (PRD-05)
 
 
 StrategyType = Literal[
@@ -110,6 +117,13 @@ class StrategyChatResponse(BaseModel):
     validation_status: Literal["valid", "needs_clarification", "invalid"]
     missing_fields: list[str]
     clarification_questions: list[str]
+    # PRD-04: typed clarification state so frontend can branch correctly
+    clarification_state: ClarificationState = ClarificationState.ready
+    # Set when parser approximated an intent — shown to user for transparency
+    approximation_note: Optional[str] = None
+    # PRD-05 (stubbed): populated when clarification_state == not_supported
+    unsupported_reason: Optional[str] = None
+    suggested_reformulation: Optional[str] = None
 
 
 class StrategyExtractedField(BaseModel):
