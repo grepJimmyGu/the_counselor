@@ -800,3 +800,86 @@ export interface ScreenerFiltersResponse {
   market_cap_categories: string[];
   total_symbols: number;
 }
+
+// ── PRD-08a: Company Overview types ──────────────────────────────────────────
+
+export interface BusinessMapSection {
+  one_line_summary?: string | null;
+  primary_value_chain_role?: string | null;
+  secondary_value_chain_roles: string[];
+  customer_types: string[];
+  revenue_model?: string | null;
+  margin_implication?: string | null;
+  cyclicality_implication?: string | null;
+  pricing_power_implication?: string | null;
+  confidence: string;
+  source_notes: string[];
+}
+
+export interface MarketPositionSection {
+  market_category?: string | null;
+  market_size_estimate: string;
+  market_growth_label?: string | null;
+  competitive_position_label?: string | null;
+  market_share_notes?: string | null;
+  key_competitors: string[];
+  key_growth_drivers: string[];
+  key_risks: string[];
+  confidence: string;
+  source_notes: string[];
+}
+
+export interface FinancialCheckSection {
+  financial_validation_label: string;
+  financial_validation_score: number;
+  valuation_risk_score: number;
+  overall_score: number;
+  growth_summary?: string | null;
+  profitability_summary?: string | null;
+  cash_flow_summary?: string | null;
+  balance_sheet_summary?: string | null;
+  valuation_summary?: string | null;
+  revenue_yoy?: number | null;
+  revenue_3y_cagr?: number | null;
+  eps_yoy?: number | null;
+  gross_margin?: number | null;
+  operating_margin?: number | null;
+  net_margin?: number | null;
+  roe?: number | null;
+  free_cash_flow?: number | null;
+  fcf_margin?: number | null;
+  fcf_conversion?: number | null;
+  cash?: number | null;
+  total_debt?: number | null;
+  net_debt?: number | null;
+  debt_to_equity?: number | null;
+  current_ratio?: number | null;
+  pe_ratio?: number | null;
+  ps_ratio?: number | null;
+  pb_ratio?: number | null;
+  peg_ratio?: number | null;
+  fcf_yield?: number | null;
+  dividend_yield?: number | null;
+  revenue_series: Array<{ date: string; revenue?: number | null; gross_margin?: number | null; operating_margin?: number | null }>;
+  margin_series: unknown[];
+  fcf_series: Array<{ date: string; fcf?: number | null; operating_cf?: number | null }>;
+  warnings: string[];
+  confidence: string;
+  source_notes: string[];
+}
+
+export interface CompanyOverviewResponse {
+  symbol: string;
+  name: string;
+  price?: number | null;
+  market_cap?: number | null;
+  sector?: string | null;
+  industry?: string | null;
+  exchange?: string | null;
+  country?: string | null;
+  as_of_date?: string | null;
+  business_map: BusinessMapSection;
+  market_position: MarketPositionSection;
+  financial_check: FinancialCheckSection;
+  disclaimer: string;
+}

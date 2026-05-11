@@ -199,6 +199,10 @@ export async function getFundamentalOverview(symbol: string): Promise<Fundamenta
   return fetchApi<FundamentalSummary>(`/api/fundamental/overview/${encodeURIComponent(symbol)}`);
 }
 
+export async function getCompanyOverview(symbol: string): Promise<import("@/lib/contracts").CompanyOverviewResponse> {
+  return fetchApi(`/api/company/${encodeURIComponent(symbol)}/overview`);
+}
+
 // ── PRD-07: Stock Screener ────────────────────────────────────────────────────
 
 export async function getScreenerFilters(): Promise<import("@/lib/contracts").ScreenerFiltersResponse> {
