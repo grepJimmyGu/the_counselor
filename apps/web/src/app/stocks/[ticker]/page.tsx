@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronRight, XCircle } from "lucide-react";
 import { getCompanyOverview } from "@/lib/api";
 import type { CompanyOverviewResponse } from "@/lib/contracts";
@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Route } from "next";
+import { SentimentTab } from "./_sentiment-tab";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -56,8 +57,14 @@ function MetricRow({ label, value, highlight }: { label: string; value: string; 
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
+type Tab = "overview" | "sentiment";
+
 export default function CompanyPage() {
   const { ticker } = useParams<{ ticker: string }>();
+  const searchParams = useSearchParams();
+  const router = useRouter();
+  const activeTab = (searchParams.get("tab") as Tab) || "overview";
+
   const [data, setData] = useState<CompanyOverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -70,6 +77,12 @@ export default function CompanyPage() {
       .catch((e) => setError(e.message || "Failed to load company data"))
       .finally(() => setLoading(false));
   }, [ticker]);
+
+  const setTab = (tab: Tab) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("tab", tab);
+    router.push(`/stocks/${ticker}?${params.toString()}` as Route);
+  };
 
   if (loading) {
     return (
@@ -135,6 +148,30 @@ export default function CompanyPage() {
             <Button disabled size="sm" title="Sign in to add — coming soon">Watchlist</Button>
           </div>
         </div>
+
+        {/* Tab nav */}
+        <div className="flex gap-1 rounded-lg border border-border bg-muted/30 p-1">
+          {(["overview", "sentiment"] as const).map((tab) => (
+            <button
+              key={tab}
+              onClick={() => setTab(tab)}
+              className={cn(
+                "flex-1 rounded-md px-4 py-1.5 text-sm font-medium capitalize transition-all",
+                activeTab === tab
+                  ? "bg-white shadow-sm text-foreground"
+                  : "text-muted-foreground hover:text-foreground"
+              )}
+            >
+              {tab === "overview" ? "Overview" : "News & Sentiment"}
+            </button>
+          ))}
+        </div>
+
+        {/* Sentiment tab */}
+        {activeTab === "sentiment" && <SentimentTab symbol={ticker.toUpperCase()} />}
+
+        {/* Overview tab content */}
+        {activeTab === "overview" && <>
 
         {/* Score strip */}
         <div className="grid gap-3 sm:grid-cols-3">
@@ -291,6 +328,8 @@ export default function CompanyPage() {
           <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-500/70" />
           {data.disclaimer}
         </div>
+
+        </> /* end overview tab */}
 
       </div>
     </main>

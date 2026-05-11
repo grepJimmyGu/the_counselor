@@ -883,3 +883,169 @@ export interface CompanyOverviewResponse {
   financial_check: FinancialCheckSection;
   disclaimer: string;
 }
+
+// ── PRD-09/10: News & Sentiment ──────────────────────────────────────────────
+
+export type SentimentProviderStatus = "active" | "not_configured" | "rate_limited" | "failed" | "unavailable";
+
+export interface NewsArticle {
+  provider: string;
+  symbol: string;
+  title: string;
+  summary?: string | null;
+  source_name?: string | null;
+  url?: string | null;
+  published_at?: string | null;
+  topics: string[];
+  sentiment_score?: number | null;
+  sentiment_label?: string | null;
+  relevance_score?: number | null;
+}
+
+export interface CommunityMention {
+  provider: string;
+  platform: string;
+  symbol: string;
+  title?: string | null;
+  text: string;
+  author?: string | null;
+  community_name?: string | null;
+  url?: string | null;
+  published_at?: string | null;
+  upvotes?: number | null;
+  comments?: number | null;
+  sentiment_score?: number | null;
+  sentiment_label?: string | null;
+}
+
+export interface NewsCatalystSection {
+  main_catalyst_summary?: string | null;
+  catalyst_type?: string | null;
+  catalyst_scope?: string | null;
+  time_horizon?: string | null;
+  expected_business_impact?: string | null;
+  catalyst_materiality_label?: string | null;
+  information_source_quality_label?: string | null;
+  source_quality_notes?: string | null;
+  key_articles: Array<{ title: string; url?: string }>;
+  confidence: string;
+  source_notes: string[];
+}
+
+export interface NewsSentimentSection {
+  news_sentiment_label?: string | null;
+  news_sentiment_trend?: string | null;
+  bullish_news_themes: string[];
+  bearish_news_themes: string[];
+  conflicting_news_signals: string[];
+  news_sentiment_score?: number | null;
+  source_diversity?: string | null;
+  confidence: string;
+  source_notes: string[];
+}
+
+export interface CommunityPulseSection {
+  community_sentiment_label?: string | null;
+  community_attention_label?: string | null;
+  community_attention_trend?: string | null;
+  dominant_sources: string[];
+  bullish_community_themes: string[];
+  bearish_community_themes: string[];
+  representative_discussions: Array<{ title?: string; url?: string; community?: string }>;
+  confidence: string;
+  source_notes: string[];
+}
+
+export interface SignalQualityRiskSection {
+  signal_quality_label?: string | null;
+  news_community_alignment?: string | null;
+  materiality_assessment?: string | null;
+  information_source_quality_assessment?: string | null;
+  crowding_risk?: string | null;
+  overreaction_risk?: string | null;
+  headline_risks: string[];
+  required_next_checks: string[];
+  confidence: string;
+  source_notes: string[];
+}
+
+export interface SentimentTakeaway {
+  takeaway_label: string;
+  takeaway_summary?: string | null;
+  suggested_user_action?: string | null;
+}
+
+export interface SentimentScores {
+  catalyst_score: number;
+  catalyst_materiality_score: number;
+  information_source_quality_score: number;
+  news_sentiment_score: number;
+  community_sentiment_score: number;
+  attention_score: number;
+  signal_quality_score: number;
+  risk_score: number;
+  overall_sentiment_signal_score: number;
+  overall_label: string;
+}
+
+export interface SentimentSummaryResponse {
+  symbol: string;
+  as_of_datetime?: string | null;
+  expires_at?: string | null;
+  news_catalyst: NewsCatalystSection;
+  news_sentiment: NewsSentimentSection;
+  community_pulse: CommunityPulseSection;
+  signal_quality_risk: SignalQualityRiskSection;
+  takeaway: SentimentTakeaway;
+  scores: SentimentScores;
+  provider_status: Record<string, string>;
+  warnings: string[];
+  disclaimer: string;
+}
+
+export interface ProvidersStatusResponse {
+  alpha_vantage: SentimentProviderStatus;
+  reddit: SentimentProviderStatus;
+  x: SentimentProviderStatus;
+  internal_community: SentimentProviderStatus;
+}
+
+export interface SentimentCandidateResult {
+  symbol: string;
+  company_name?: string | null;
+  overall_sentiment_signal_score: number;
+  overall_label: string;
+  takeaway_label: string;
+  takeaway_summary?: string | null;
+  catalyst_type?: string | null;
+  catalyst_materiality_label?: string | null;
+  news_sentiment_label?: string | null;
+  signal_quality_label?: string | null;
+  bullish_themes: string[];
+  bearish_themes: string[];
+  provider_status: Record<string, string>;
+}
+
+export interface SentimentAnalyzeResponse {
+  candidates: SentimentCandidateResult[];
+  provider_status: Record<string, string>;
+  warnings: string[];
+  toolkit_id?: string | null;
+}
+
+export interface SentimentSandboxResponse {
+  review_verdict: string;
+  trust_score: number;
+  key_concerns: string[];
+  missing_data: string[];
+  noise_risks: string[];
+  source_limitations: string[];
+  required_next_checks: string[];
+  final_warning?: string | null;
+}
+
+export interface SentimentToolkit {
+  id: string;
+  name: string;
+  description: string;
+}
