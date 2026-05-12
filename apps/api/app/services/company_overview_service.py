@@ -1,9 +1,12 @@
 from __future__ import annotations
 
+import logging
 from datetime import date
 from typing import Optional
 
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.schemas.company_overview import (
     BusinessMapSection,
@@ -22,6 +25,7 @@ from app.services.fundamental_scoring_service import (
     get_warnings,
 )
 from app.services.fundamental_service import FundamentalService
+from app.services.business_intelligence_service import BusinessIntelligenceService
 from app.services.value_chain_classifier import (
     derive_margin_implication,
     get_cyclicality_implication,
@@ -98,6 +102,7 @@ class CompanyOverviewService:
         self._fundamental = FundamentalService()
         self._financial_svc = FinancialValidationService()
         self._fmp = FMPClient()
+        self._bi = BusinessIntelligenceService()
 
     async def get_overview(self, db: Session, symbol: str) -> CompanyOverviewResponse:
         sym = symbol.upper()
@@ -127,37 +132,54 @@ class CompanyOverviewService:
         overall = compute_overall_score(fin_score, val_risk)
         warnings = get_warnings(fc, val_risk)
 
-        # 5. Business Map (partial — no LLM)
+        # 5. Business Intelligence from 10-K (LLM-extracted, 90-day cache)
+        bi = None
+        try:
+            bi = await self._bi.get(sym, db)
+        except Exception as exc:
+            logger.warning("Business intelligence fetch failed for %s: %s", sym, exc)
+
+        # 6. Business Map — merge rule-based baseline with 10-K intelligence
         role = get_value_chain_role(profile.sector, profile.industry)
         desc = profile.description or ""
-        one_liner = ". ".join(desc.split(".")[:2]).strip() + "." if desc else None
+        fallback_summary = ". ".join(desc.split(".")[:2]).strip() + "." if desc else None
         margin_impl = derive_margin_implication(fc.gross_margin, role)
         cyclicality = get_cyclicality_implication(profile.sector)
-        market_cat = None
-        if profile.sector and profile.market_cap_category if hasattr(profile, "market_cap_category") else None:
-            market_cat = f"{profile.market_cap_category}-Cap {profile.sector}"
-        elif profile.sector:
-            market_cat = profile.sector
 
         business_map = BusinessMapSection(
-            one_line_summary=one_liner,
+            one_line_summary=(bi.one_line_summary if bi and bi.one_line_summary else fallback_summary),
             primary_value_chain_role=role,
+            customer_types=(bi.customer_types if bi else []),
+            revenue_model=(bi.revenue_model if bi else None),
             margin_implication=margin_impl,
             cyclicality_implication=cyclicality,
-            confidence="partial",
-            source_notes=["FMP /profile", "sector-to-value-chain mapping v1"],
+            pricing_power_implication=(bi.pricing_power_implication if bi else None),
+            confidence=("high" if bi and bi.confidence == "high" else "partial"),
+            source_notes=(bi.source_notes if bi else ["FMP /profile", "sector-to-value-chain mapping v1"]),
         )
 
-        # 6. Market Position (partial — peers from FMP, rest blank)
+        # 7. Market Position — peers from FMP + intelligence from 10-K
+        market_cat = None
+        if bi and bi.market_category:
+            market_cat = bi.market_category
+        elif profile.sector:
+            cap_cat = getattr(profile, "market_cap_category", None)
+            market_cat = f"{cap_cat}-Cap {profile.sector}" if cap_cat else profile.sector
+
         market_position = MarketPositionSection(
             market_category=market_cat,
-            market_size_estimate="estimate unavailable",
+            market_size_estimate=(bi.market_size_estimate or "Not disclosed") if bi else "estimate unavailable",
+            market_growth_label=(bi.market_growth_label if bi else None),
+            competitive_position_label=(bi.competitive_position_label if bi else None),
+            market_share_notes=(bi.market_share_notes if bi else None),
             key_competitors=profile.peers[:5] if profile.peers else [],
-            confidence="partial",
-            source_notes=["FMP /stock_peers", "FinanceDatabase sector mapping"],
+            key_growth_drivers=(bi.key_growth_drivers if bi else []),
+            key_risks=(bi.key_risks if bi else []),
+            confidence=("high" if bi and bi.confidence == "high" else "partial"),
+            source_notes=(bi.source_notes if bi else ["FMP /stock_peers", "FinanceDatabase sector mapping"]),
         )
 
-        # 7. Financial Check section
+        # 8. Financial Check section
         financial_check = FinancialCheckSection(
             financial_validation_label=get_financial_validation_label(fin_score),
             financial_validation_score=fin_score,

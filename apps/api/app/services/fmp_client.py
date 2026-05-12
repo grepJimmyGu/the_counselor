@@ -90,3 +90,13 @@ class FMPClient:
         """Symbol search."""
         data = await self._get("/search", {"query": query, "limit": limit})
         return data if isinstance(data, list) else []
+
+    async def get_sec_filings(
+        self, symbol: str, filing_type: str = "10-K", limit: int = 1
+    ) -> list[dict]:
+        """SEC filing metadata including direct EDGAR document URL (finalLink)."""
+        data = await self._get(
+            f"/sec-filings/{symbol.upper()}",
+            {"type": filing_type, "limit": limit},
+        )
+        return data if isinstance(data, list) else []
