@@ -442,3 +442,52 @@ def run_startup_migrations(engine: Engine) -> None:
                 created_at TIMESTAMPTZ DEFAULT now()
             )
         """))
+
+        # PRD-08b: company_business_intelligence (10-K LLM extraction, 90-day TTL)
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS company_business_intelligence (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol VARCHAR(20) NOT NULL UNIQUE,
+                filing_type VARCHAR(10) DEFAULT '10-K',
+                filing_date DATE,
+                filing_url TEXT,
+                one_line_summary TEXT,
+                revenue_model TEXT,
+                customer_types TEXT DEFAULT '[]',
+                pricing_power_implication TEXT,
+                market_category VARCHAR(120),
+                market_size_estimate TEXT,
+                market_growth_label VARCHAR(40),
+                competitive_position_label VARCHAR(60),
+                market_share_notes TEXT,
+                key_growth_drivers TEXT DEFAULT '[]',
+                key_risks TEXT DEFAULT '[]',
+                confidence VARCHAR(20) DEFAULT 'partial',
+                source_notes TEXT DEFAULT '[]',
+                expires_at TIMESTAMP NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """) if is_sqlite else text("""
+            CREATE TABLE IF NOT EXISTS company_business_intelligence (
+                id SERIAL PRIMARY KEY,
+                symbol VARCHAR(20) NOT NULL UNIQUE,
+                filing_type VARCHAR(10) DEFAULT '10-K',
+                filing_date DATE,
+                filing_url TEXT,
+                one_line_summary TEXT,
+                revenue_model TEXT,
+                customer_types JSONB DEFAULT '[]',
+                pricing_power_implication TEXT,
+                market_category VARCHAR(120),
+                market_size_estimate TEXT,
+                market_growth_label VARCHAR(40),
+                competitive_position_label VARCHAR(60),
+                market_share_notes TEXT,
+                key_growth_drivers JSONB DEFAULT '[]',
+                key_risks JSONB DEFAULT '[]',
+                confidence VARCHAR(20) DEFAULT 'partial',
+                source_notes JSONB DEFAULT '[]',
+                expires_at TIMESTAMPTZ NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT now()
+            )
+        """))
