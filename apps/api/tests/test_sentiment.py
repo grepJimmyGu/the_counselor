@@ -177,8 +177,10 @@ def test_community_hype_filter():
 @pytest.mark.asyncio
 async def test_llm_service_skips_llm_on_too_few_articles():
     from app.services.sentiment_llm_service import SentimentLLMService
-    with patch("app.services.sentiment_llm_service.get_settings") as mock_s:
-        mock_s.return_value = MagicMock(anthropic_api_key="KEY")
+    with patch("app.services.sentiment_llm_service.get_llm_gateway") as mock_gw:
+        mock_gateway = MagicMock()
+        mock_gateway.is_enabled = True
+        mock_gw.return_value = mock_gateway
         svc = SentimentLLMService()
         result = await svc.analyze("AAPL", articles=[], mentions=[])
         assert result["confidence"] == "too_few_articles"
@@ -187,8 +189,10 @@ async def test_llm_service_skips_llm_on_too_few_articles():
 @pytest.mark.asyncio
 async def test_llm_service_returns_fallback_when_not_configured():
     from app.services.sentiment_llm_service import SentimentLLMService
-    with patch("app.services.sentiment_llm_service.get_settings") as mock_s:
-        mock_s.return_value = MagicMock(anthropic_api_key="")
+    with patch("app.services.sentiment_llm_service.get_llm_gateway") as mock_gw:
+        mock_gateway = MagicMock()
+        mock_gateway.is_enabled = False
+        mock_gw.return_value = mock_gateway
         svc = SentimentLLMService()
         articles = [
             NewsArticle(provider="alpha_vantage", symbol="AAPL", title=f"Article {i}",

@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 
-from app.core.config import get_settings
 from app.schemas.sentiment import (
     CommunityMention,
     CommunityPulseSection,
@@ -14,10 +12,10 @@ from app.schemas.sentiment import (
     SentimentTakeaway,
     SignalQualityRiskSection,
 )
+from app.services.llm_adapter import LLMAdapterError, get_llm_gateway
 
 logger = logging.getLogger(__name__)
 
-_HAIKU_MODEL = "claude-haiku-4-5-20251001"
 _MIN_ARTICLES = 3
 
 _SYSTEM_PROMPT = """You are a financial news and sentiment analyst. Analyze news articles and community discussions about a stock ticker.
@@ -128,10 +126,7 @@ def _build_user_prompt(
 
 class SentimentLLMService:
     def __init__(self) -> None:
-        self._settings = get_settings()
-
-    def _is_configured(self) -> bool:
-        return bool(self._settings.anthropic_api_key)
+        self._gateway = get_llm_gateway()
 
     async def analyze(
         self,
@@ -142,33 +137,21 @@ class SentimentLLMService:
         if len(articles) < _MIN_ARTICLES:
             return _too_few_articles_result(symbol)
 
-        if not self._is_configured():
+        if not self._gateway.is_enabled:
             return _llm_disabled_result(symbol, articles)
 
         try:
-            import anthropic
-            client = anthropic.AsyncAnthropic(api_key=self._settings.anthropic_api_key)
             user_prompt = _build_user_prompt(symbol, articles, mentions)
-            message = await client.messages.create(
-                model=_HAIKU_MODEL,
-                max_tokens=4096,
-                system=_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_prompt}],
+            payload = await self._gateway.generate_json(
+                system_prompt=_SYSTEM_PROMPT,
+                user_prompt=user_prompt,
                 temperature=0.1,
             )
-            raw = message.content[0].text.strip()
-            # Strip markdown fences if present
-            if raw.startswith("```"):
-                raw = raw.split("```")[1]
-                if raw.startswith("json"):
-                    raw = raw[4:]
-                raw = raw.strip()
-            payload = json.loads(raw)
-        except json.JSONDecodeError as exc:
-            logger.warning("Haiku returned non-JSON for %s: %s", symbol, exc)
+        except LLMAdapterError as exc:
+            logger.warning("LLM analysis failed for %s: %s", symbol, exc)
             return _llm_disabled_result(symbol, articles)
         except Exception as exc:
-            logger.warning("Haiku analysis failed for %s: %s", symbol, exc)
+            logger.warning("Sentiment analysis error for %s: %s", symbol, exc)
             return _llm_disabled_result(symbol, articles)
 
         return _normalize_payload(payload)

@@ -157,6 +157,32 @@ class LLMGateway:
                 f"Could not validate structured LLM output: {exc}"
             ) from exc
 
+    async def generate_json(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        temperature: float = 0.1,
+    ) -> dict:
+        """Call the configured LLM and return parsed JSON as a plain dict."""
+        if not self.settings.llm_model:
+            raise LLMAdapterError("No model is configured for this LLM task.")
+
+        provider = self._require_provider()
+        raw_text = await provider.generate(
+            model=self.settings.llm_model,
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            temperature=temperature,
+        )
+        try:
+            json_text = self._extract_json_object(raw_text)
+            return json.loads(json_text)
+        except (json.JSONDecodeError, LLMAdapterError) as exc:
+            raise LLMAdapterError(
+                f"LLM response could not be parsed as JSON: {exc}"
+            ) from exc
+
 
 @lru_cache(maxsize=1)
 def get_llm_gateway() -> LLMGateway:

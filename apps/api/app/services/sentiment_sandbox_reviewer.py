@@ -1,14 +1,11 @@
 from __future__ import annotations
 
-import json
 import logging
 
-from app.core.config import get_settings
 from app.schemas.sentiment import SentimentSandboxResponse
+from app.services.llm_adapter import LLMAdapterError, get_llm_gateway
 
 logger = logging.getLogger(__name__)
-
-_SONNET_MODEL = "claude-sonnet-4-6"
 
 _SYSTEM_PROMPT = """You are a skeptical financial analyst reviewing an AI-generated sentiment analysis report.
 
@@ -38,50 +35,37 @@ Criteria:
 
 class SentimentSandboxReviewer:
     def __init__(self) -> None:
-        self._settings = get_settings()
-
-    def _is_configured(self) -> bool:
-        return bool(self._settings.anthropic_api_key)
+        self._gateway = get_llm_gateway()
 
     async def review(
         self, symbol: str, sentiment_summary: dict
     ) -> SentimentSandboxResponse:
-        if not self._is_configured():
+        if not self._gateway.is_enabled:
             return SentimentSandboxResponse(
                 review_verdict="speculative",
                 trust_score=40,
-                key_concerns=["Sandbox reviewer not configured (anthropic_api_key missing)."],
-                required_next_checks=["Set ANTHROPIC_API_KEY to enable Sonnet sandbox review."],
+                key_concerns=["Sandbox reviewer not configured (LLM provider disabled)."],
+                required_next_checks=["Configure LLM_PROVIDER and LLM_API_KEY to enable review."],
             )
 
+        import json
         user_prompt = (
             f"Review this sentiment analysis for {symbol.upper()}:\n\n"
             + json.dumps(sentiment_summary, indent=2, default=str)
         )
 
         try:
-            import anthropic
-            client = anthropic.AsyncAnthropic(api_key=self._settings.anthropic_api_key)
-            message = await client.messages.create(
-                model=_SONNET_MODEL,
-                max_tokens=2048,
-                system=_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_prompt}],
+            payload = await self._gateway.generate_json(
+                system_prompt=_SYSTEM_PROMPT,
+                user_prompt=user_prompt,
                 temperature=0.15,
             )
-            raw = message.content[0].text.strip()
-            if raw.startswith("```"):
-                raw = raw.split("```")[1]
-                if raw.startswith("json"):
-                    raw = raw[4:]
-                raw = raw.strip()
-            payload = json.loads(raw)
-        except Exception as exc:
+        except LLMAdapterError as exc:
             logger.warning("Sandbox review failed for %s: %s", symbol, exc)
             return SentimentSandboxResponse(
                 review_verdict="speculative",
                 trust_score=40,
-                key_concerns=[f"Sandbox review failed: {type(exc).__name__}"],
+                key_concerns=[f"Review failed: {type(exc).__name__}"],
             )
 
         return SentimentSandboxResponse(

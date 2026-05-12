@@ -14,7 +14,6 @@ class Settings(BaseSettings):
     app_env: str = "development"
     alpha_vantage_api_key: str = ""
     financial_modeling_prep_api_key: str = ""
-    anthropic_api_key: str = ""
     reddit_client_id: str = ""
     reddit_client_secret: str = ""
     reddit_user_agent: str = "livermore-research/1.0"
