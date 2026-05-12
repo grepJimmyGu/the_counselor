@@ -42,9 +42,13 @@ export function UniverseInput({
       <input
         type="text"
         value={raw}
-        onChange={(e) => handleChange(e.target.value)}
+        onChange={(e) => handleChange(e.target.value.toUpperCase())}
         placeholder={placeholder ?? defaultValue.join(", ")}
-        className="w-full rounded-md border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
+        inputMode="search"
+        autoCapitalize="characters"
+        autoCorrect="off"
+        spellCheck={false}
+        className="w-full rounded-md border border-border bg-input px-3 py-2 text-sm font-mono text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-primary"
       />
       {error && <p className="text-xs text-destructive">{error}</p>}
     </div>

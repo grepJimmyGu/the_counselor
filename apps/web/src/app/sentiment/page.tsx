@@ -217,8 +217,12 @@ export default function SentimentHubPage() {
             <input
               ref={inputRef}
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => setSearchQuery(e.target.value.toUpperCase())}
               placeholder="Enter ticker (e.g. AAPL)"
+              inputMode="search"
+              autoCapitalize="characters"
+              autoCorrect="off"
+              spellCheck={false}
               className="w-full rounded-lg border border-border bg-white pl-9 pr-4 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20"
             />
           </div>

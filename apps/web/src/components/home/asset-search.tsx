@@ -144,6 +144,9 @@ export function AssetSearch({ preloadSymbol, sectionRef }: AssetSearchProps) {
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search ticker or company name… e.g. GLD, Apple, crude oil"
+            inputMode="search"
+            autoCorrect="off"
+            spellCheck={false}
             className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
           />
           {searching && <span className="text-xs text-muted-foreground">Searching…</span>}
