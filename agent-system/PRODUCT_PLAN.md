@@ -370,12 +370,18 @@ FMP 429/5xx → automatic fallback to yfinance, logged but not surfaced as error
 
 ## Completed PRDs
 
-| PRD | Title | Merged | Notes |
-|---|---|---|---|
-| PRD-01 | Research Templates | ✅ 2026-05-08 | 5 templates, available/unavailable split |
-| PRD-02 | Strategy Storage + Shareable URLs | ✅ 2026-05-08 | Slug-based public URLs |
-| PRD-03 | Personal Strategy Library | ✅ 2026-05-08 | localStorage, comparison tab |
-| PRD-04 | Interactive Clarification + Capability Glossary | ✅ 2026-05-11 | ClarificationState enum, amber chat bubbles, quick-reply chips, glossary on homepage + workspace sidebar |
+| PRD | Title | Merged | Tag | Notes |
+|---|---|---|---|---|
+| PRD-01 | Research Templates | ✅ 2026-05-08 | — | 5 templates, available/unavailable split |
+| PRD-02 | Strategy Storage + Shareable URLs | ✅ 2026-05-08 | — | Slug-based public URLs |
+| PRD-03 | Personal Strategy Library | ✅ 2026-05-08 | — | localStorage, comparison tab |
+| PRD-04 | Interactive Clarification + Capability Glossary | ✅ 2026-05-11 | — | ClarificationState enum, amber chat bubbles, quick-reply chips |
+| PRD-06 | FMP Data Integration + Fundamental Service | ✅ 2026-05-11 | `prd-06-complete` | FMPClient, yfinance fallback, FundamentalService, seed script |
+| PRD-07 | Stock Screener Page (`/stocks`) | ✅ 2026-05-11 | `prd-07-complete` | Sector strip, filter panel, sortable results, URL state |
+| PRD-08a | Company Deep-Dive — Financial Check | ✅ 2026-05-11 | `prd-08a-complete` | Business Map (partial), Market Position (peers), full Financial Check + scoring |
+| PRD-08b | Company Deep-Dive — 10-K Business Intelligence | ✅ 2026-05-12 | `prd-08b-complete` | SEC EDGAR fetch, section parser (Items 1/1A/7), LLM extraction, 90-day cache |
+| PRD-09 | News & Community Sentiment — Backend | ✅ 2026-05-12 | `prd-09-complete` | 4-provider system, Haiku LLM chain, 9-score framework, 7 toolkits, Sonnet sandbox |
+| PRD-10 | News & Community Sentiment — Frontend | ✅ 2026-05-12 | `prd-10-complete` | `/sentiment` hub, toolkit cards, provider status, sentiment tab on ticker page |
 
 ---
 
@@ -383,7 +389,7 @@ FMP 429/5xx → automatic fallback to yfinance, logged but not surfaced as error
 
 | PRD | Title | Status |
 |---|---|---|
-| PRD-05 | `not_supported` strategy handling | Needs discussion — how to redirect users |
+| PRD-05 | `not_supported` strategy handling | Needs discussion — redirect UX not decided |
 
 ---
 
@@ -391,98 +397,93 @@ FMP 429/5xx → automatic fallback to yfinance, logged but not surfaced as error
 
 | Order | PRD | Status | Blocker |
 |---|---|---|---|
-| 1 | PRD-06 | Not started | None — start here |
-| 2 | PRD-07 | Not started | PRD-06 must land first |
-| 3 | PRD-08a | Not started | PRD-06 must land first |
-| 4 | PRD-09 | Not started | None (Alpha Vantage already integrated) |
-| 5 | PRD-10 | Not started | PRD-09 |
-| 6 | PRD-11 | Not started | None — start when Phase 1+2 mostly done |
-| 7 | PRD-12 | Not started | PRD-11 |
-| 8 | PRD-13 | Not started | PRD-12 |
-| 9 | PRD-14 | Not started | PRD-13 |
-| — | PRD-08b | BLOCKED | 10-K/10-Q extraction model (Jimmy to build) |
-| — | PRD-05 | In discussion | — |
+| **1** | **PRD-11** | **Ready to start** | None — Phase 1+2 complete |
+| 2 | PRD-12 | Blocked on PRD-11 | Auth required |
+| 3 | PRD-13 | Blocked on PRD-12 | Watchlists required |
+| 4 | PRD-14 | Blocked on PRD-13 | Votes + community signals required |
+| — | PRD-05 | In discussion | Design decision needed |
 
 ---
 
 ## Unit Economics
 
-*Last updated: 2026-05-11*
+*Last updated: 2026-05-12*
 
-### LLM cost per operation
+### LLM provider decision (updated)
 
-| Operation | Model | Est. tokens (in/out) | Cost per call |
+All LLM calls (sentiment analysis, 10-K extraction, sandbox reviews, strategy builder) now route through a **single OpenAI-compatible gateway** (`LLMGateway` in `llm_adapter.py`). No Anthropic key required. Configured via `LLM_API_KEY` + `LLM_MODEL` on Railway.
+
+Current production model: **`gpt-4o-mini`**  
+*OpenAI pricing: $0.15/M input, $0.60/M output (gpt-4o-mini)*
+
+### LLM cost per operation (revised for gpt-4o-mini)
+
+| Operation | Tokens (in/out) | Cost per call | Cache TTL |
 |---|---|---|---|
-| News sentiment analysis (per ticker) | Claude Haiku 4.5 | 2,400 / 600 | ~$0.004 |
-| Fundamental analysis — PRD-08b (per ticker) | Claude Haiku 4.5 | 1,500 / 700 | ~$0.004 |
-| Sandbox review — sentiment | Claude Sonnet 4.6 | 1,400 / 400 | ~$0.010 |
-| Sandbox review — fundamental | Claude Sonnet 4.6 | 1,400 / 400 | ~$0.010 |
-| Strategy explanation (existing) | Haiku equivalent | ~1,500 / 500 | ~$0.003 |
-| Strategy sandbox review (existing) | Haiku equivalent | ~1,200 / 400 | ~$0.008 |
-| Full backtest session (existing) | Haiku equivalent | combined | ~$0.017 |
+| News sentiment analysis (per ticker) | 3,000 / 800 | **~$0.001** | 3 hours |
+| 10-K business intelligence (per company) | 6,000 / 800 | **~$0.002** | 90 days |
+| Sentiment sandbox review (on-demand) | 2,000 / 500 | **~$0.001** | None (per call) |
+| Strategy explanation | 1,500 / 500 | **~$0.001** | None |
+| Strategy sandbox review | 1,200 / 400 | **~$0.001** | None |
+| Full backtest session | ~4,000 / 1,200 | **~$0.001** | None |
 
-*Haiku pricing: $0.80/M input, $4.00/M output. Sonnet: $3.00/M input, $15.00/M output.*
+*All costs ~3–5× lower than originally estimated (Haiku). Sentiment and 10-K extraction especially cheap with gpt-4o-mini.*
 
 ### Cache TTL decisions
 
 | Data type | TTL | Reason |
 |---|---|---|
-| LLM sentiment analysis | **3 hours** | Balances freshness vs. cost (3× cheaper than 1h) |
-| LLM fundamental analysis | **3 hours** | Company story changes slowly |
+| LLM sentiment analysis | **3 hours** | Balances freshness vs. cost |
+| 10-K business intelligence | **90 days** | Annual filing; rarely changes |
 | Raw news articles | 15 minutes | News is time-sensitive |
-| Raw community mentions | 15 minutes | Social discussion moves fast |
+| Raw community mentions | 15 minutes | Social moves fast |
 | Financial statements (FMP) | 24 hours | Quarterly data |
 | Company profile/metrics | 24 hours | Structural data |
 | Price data (OHLCV) | 24 hours | End-of-day |
-| Community signal scores | 5 minutes | Phase 3 — real-time community activity |
+| Community signal scores | 5 minutes | Phase 3 — real-time activity |
 
-### Cost impact of TTL: LLM per 100 unique tickers/day
+### Fixed monthly costs (current)
 
-| TTL | LLM calls/day | Cost/day | Cost/month |
-|---|---|---|---|
-| 1 hour | 2,400 | $9.60 | $288 |
-| **3 hours** | **800** | **$3.20** | **$96** |
-| 6 hours | 400 | $1.60 | $48 |
+| Item | Cost | Status |
+|---|---|---|
+| Railway (backend + PostgreSQL) | $5–20 | Active |
+| Vercel (frontend) | Free | Active |
+| FMP Starter (fundamentals) | $14 | Active (key needed in Railway) |
+| Alpha Vantage Premium (price + news) | $50–100 | Active |
+| OpenAI API (all LLM) | Variable ~$2–10 | Active |
+| Reddit API | Free | Pending approval |
+| **Total fixed** | **~$70–150/month** | |
 
-### Fixed monthly costs
+### Total platform cost by user scale (gpt-4o-mini, 3h TTL)
 
-| Item | Cost |
-|---|---|
-| Railway (backend + PostgreSQL) | $5–20 |
-| Vercel (frontend) | Free → $20 Pro |
-| FMP Starter (fundamentals) | $14 |
-| Alpha Vantage Premium (price + news) | $50–100 |
-| **Total fixed** | **~$70–150/month** |
+| Users | Unique tickers/day | LLM variable | Total/month | Per user/month |
+|---|---|---|---|---|
+| Solo | 20 | ~$0.60 | **~$100** | — |
+| 50 users | 80 | ~$2 | **~$155** | $3.10 |
+| 200 users | 200 | ~$6 | **~$165** | $0.83 |
+| 1,000 users | 500 | ~$15 | **~$185** | $0.19 |
+| 5,000 users | 1,500 | ~$45 | **~$220** | $0.04 |
+| 20,000 users | 3,000 | ~$90 | **~$280** | $0.01 |
 
-### Total platform cost by user scale (3h TTL)
-
-| Users | Unique tickers/day | LLM variable | AV plan | Total/month | Per user/month |
-|---|---|---|---|---|---|
-| Solo (you) | 20 | $2 | Existing | **~$100** | — |
-| 50 users | 80 | $10 | Existing ($50) | **~$165** | $3.30 |
-| 200 users | 200 | $26 | Standard ($50) | **~$195** | $0.98 |
-| 1,000 users | 500 | $64 | Standard ($100) | **~$285** | $0.29 |
-| 5,000 users | 1,500 | $192 | Premium ($250) | **~$570** | $0.11 |
-| 20,000 users | 3,000 | $384 | Enterprise ($500) | **~$1,000** | $0.05 |
-
-*Key insight: with caching, LLM cost is shared across users viewing the same ticker. Cost per user drops dramatically as userbase grows.*
+*LLM costs are 3–5× lower than original Haiku estimates. The platform is economically viable at small scale.*
 
 ### Cost optimisation levers
 
-1. **Pre-warm top 100 S&P 500 tickers every 3h** — ~$96/month covers most user requests with near-zero first-load latency. Toggle via `PREWARM_ENABLED=false`.
-2. **Skip LLM for thinly covered tickers** (< 3 articles) — saves ~40% of LLM calls.
-3. **Sandbox review is on-demand only** — Sonnet (~$0.01/call) never auto-runs.
-4. **Show cache timestamp in UI** — reduces user-triggered forced refreshes.
-5. **Daily spend alert at $20/day (~$600/month)** — monitoring checkpoint for scaling decision.
+1. **Sentiment pre-warmer** (not yet built) — top-100 S&P 500 every 3h; ~$3/month at gpt-4o-mini rates
+2. **Skip LLM for thin coverage** — already implemented; < 3 articles returns deterministic fallback
+3. **Sandbox review on-demand only** — already implemented; never auto-runs
+4. **10-K cache is 90 days** — one LLM call per company per quarter
+5. **Daily spend alert at $20/day** — monitoring checkpoint for scaling
 
 ### Latency benchmarks
 
 | Operation | First load (uncached) | Cached |
 |---|---|---|
-| News sentiment analysis | 3–6s | 50–100ms |
-| Fundamental analysis | 4–8s | 100–200ms |
+| News sentiment analysis | 2–4s (gpt-4o-mini is fast) | 50–100ms |
+| 10-K business intelligence | 5–10s (EDGAR download + LLM) | 50ms |
+| Fundamental / financial check | 1–2s (FMP API) | 50ms |
 | Backtest + explanation | 8–15s | N/A |
-| Sandbox review (Sonnet) | 4–8s | N/A (on-demand) |
+| Sentiment sandbox review | 2–4s | N/A (on-demand) |
 
 ---
 
@@ -493,5 +494,5 @@ FMP 429/5xx → automatic fallback to yfinance, logged but not surfaced as error
 - Options, futures, margin trading
 - Community Phase 4 (cross-device sync, advanced curation) — post Phase 3
 - Fundamental data for A-shares (FMP doesn't cover well; deferred)
-- PRD-08b Business Map + Market Position full intelligence — gated on 10-K/10-Q data model
-- X (Twitter) API integration — deferred (requires $100/mo Basic API subscription)
+- X (Twitter) API integration — deferred ($100/mo X API Basic subscription)
+- Sentiment pre-warmer background job — low priority; toggle via `PREWARM_ENABLED` when needed

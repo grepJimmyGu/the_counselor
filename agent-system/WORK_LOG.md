@@ -9,150 +9,153 @@
 
 ## Current Session
 
-**Status:** PRD-09 COMPLETE — merged to main, tagged prd-09-complete  
-**Active PRD:** PRD-10 (next)  
+**Status:** Phases 1 + 2 + PRD-08b COMPLETE — 20 commits ready to push to origin/main  
 **Active branch:** main  
-**Last stable tag:** prd-09-complete  
-**Last commit:** 1e1eac5 feat: merge PRD-09 news & sentiment backend
+**Last stable tag:** `prd-08b-complete`  
+**Tests:** 106 backend passing · frontend build clean
 
 **Next action:**
-```
-git checkout -b feat/prd-10-news-sentiment-frontend
-Build PRD-10: News & Sentiment frontend hub page, toolkit cards, provider status panel
-See agent-system/plans/PRD-10-news-sentiment-frontend.md (create if missing)
-```
-
-## PRD-06 Summary (completed 2026-05-11)
-All 9 steps completed:
-1. Branch + deps (yfinance, financedatabase in requirements.txt)
-2. FMPClient (apps/api/app/services/fmp_client.py) — mirrors AlphaVantageClient
-3. DataSourceAdapter Protocol (adapters/base.py) + CompanyProfile/KeyMetrics schemas
-4. FMPAdapter + YFinanceAdapter (adapters/fmp_adapter.py, adapters/yfinance_adapter.py)
-5. SymbolCache model extended (13 new columns) + startup migrations
-6. FundamentalService + 3 routes (/profile, /metrics, /overview) + main.py registration
-7. Seed script (app/scripts/seed_symbols.py — FinanceDatabase → symbols table)
-8. 11 tests (all passing), frontend contracts (CompanyProfile, KeyMetrics, FundamentalSummary), api.ts functions
-9. 63/63 backend tests pass, frontend build clean
-
----
-
-## Resumption Checklist
-
-Run these at the start of every autonomous session:
-
 ```bash
-# 1. Orient
-git log --oneline -5
-git branch
-git status
-
-# 2. Read the plan
-cat agent-system/WORK_LOG.md          # this file — current state
-cat agent-system/PRODUCT_PLAN.md      # full PRD queue and specs
-
-# 3. If mid-PRD: read the specific PRD spec
-# e.g. cat agent-system/plans/PRD-06-fmp-integration.md
-
-# 4. Continue from "Next action" above
+# Deploy (Option 1 — platform rollback)
+# 1. Set env var on Railway FIRST (before pushing):
+#    FINANCIAL_MODELING_PREP_API_KEY = <your FMP Starter key>
+#
+# 2. Push:
+git push origin main
+git push origin --tags
+#
+# 3. Verify (wait ~3 min for Railway to build):
+curl https://thecounselor-production.up.railway.app/health
+curl https://thecounselor-production.up.railway.app/api/sentiment/providers/status
+curl https://thecounselor-production.up.railway.app/api/screener/filters
+#
+# 4. Run symbol seed (one-time, after backend is live):
+#    Railway → your service → Shell tab:
+#    python -m app.scripts.seed_symbols
+#
+# 5. If anything breaks — Railway: Deployments tab → previous deploy → Redeploy
 ```
 
----
-
-## How to Update This File
-
-**Update after every completed implementation step:**
-```
-Active PRD: PRD-06
-Step completed: 2/8 — FMPClient HTTP adapter done
-Next action: Implement get_profile() method in FMPAdapter
-Last commit: abc1234 — "feat: add FMPClient with auth and retry logic"
-```
-
-**Update before stopping (context limit or end of session):**
-```
-Stopped at: Halfway through financial_validation_service.py
-Next action: Complete compute_profitability_metrics() method — line 87 of financial_validation_service.py
-Blocker: None
-```
-
-**Update on blockers:**
-```
-BLOCKED: FMP API key not set in .env — need FINANCIAL_MODELING_PREP_API_KEY
-```
+**After deploy — immediate to-dos:**
+- [ ] Add `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET` when Reddit API approved
+- [ ] Run `python -m app.scripts.seed_symbols` in Railway shell (one-time symbol seed)
+- [ ] Verify `/stocks` screener has data after seed
+- [ ] Start PRD-11: `git checkout -b feat/prd-11-auth`
 
 ---
 
 ## PRD Execution Queue
 
-| Order | PRD | Status | Branch | Tag on complete |
+| Order | PRD | Status | Branch | Tag |
 |---|---|---|---|---|
-| **1** | **PRD-06** | **DONE** | `feat/prd-06-fmp-integration` | `prd-06-complete` |
-| 2 | PRD-07 | DONE | `feat/prd-07-stock-screener` | `prd-07-complete` |
-| 3 | PRD-08a | DONE | `feat/prd-08a-fundamental-analysis` | `prd-08a-complete` |
-| 4 | PRD-09 | **DONE** | `feat/prd-09-news-sentiment-backend` | `prd-09-complete` |
-| 5 | PRD-10 | **Ready to start** | `feat/prd-10-news-sentiment-frontend` | `prd-10-complete` |
-| 6 | PRD-11 | Start after Phase 1+2 done | `feat/prd-11-auth` | `prd-11-complete` |
-| 7–9 | PRD-12–14 | Blocked on PRD-11 | — | — |
-| — | PRD-08b | BLOCKED — 10-K model | — | — |
+| 1 | PRD-06 | ✅ DONE | `feat/prd-06-fmp-integration` | `prd-06-complete` |
+| 2 | PRD-07 | ✅ DONE | `feat/prd-07-stock-screener` | `prd-07-complete` |
+| 3 | PRD-08a | ✅ DONE | `feat/prd-08a-fundamental-analysis` | `prd-08a-complete` |
+| 4 | PRD-08b | ✅ DONE | `feat/prd-08b-business-intelligence` | `prd-08b-complete` |
+| 5 | PRD-09 | ✅ DONE | `feat/prd-09-news-sentiment-backend` | `prd-09-complete` |
+| 6 | PRD-10 | ✅ DONE | `feat/prd-10-news-sentiment-frontend` | `prd-10-complete` |
+| **7** | **PRD-11** | **Ready to start** | `feat/prd-11-auth` | `prd-11-complete` |
+| 8 | PRD-12 | Blocked on PRD-11 | — | — |
+| 9 | PRD-13 | Blocked on PRD-12 | — | — |
+| 10 | PRD-14 | Blocked on PRD-13 | — | — |
+| — | PRD-05 | In discussion | — | — |
 
 ---
 
-## Rollback Reference
+## Open To-Dos (non-PRD)
 
-**To roll back to a stable PRD tag:**
-```bash
-git log --oneline --decorate   # see all tags
-git checkout prd-06-complete   # inspect that state
-git checkout main              # return to main
-
-# To revert a bad merge to main:
-git revert <merge-commit-hash> --no-edit   # creates a revert commit, preserves history
-# NEVER: git reset --hard (destroys history)
-```
-
-**To abandon a bad feature branch:**
-```bash
-git checkout main
-git branch -D feat/prd-XX-bad-branch   # delete locally only
-# The merge to main has NOT happened yet — branch is just discarded
-```
-
-**Safe merge to main procedure:**
-```bash
-# Always from the feature branch:
-npm run build                        # must pass
-python3 -m pytest apps/api/tests/   # must pass
-git checkout main
-git merge --no-ff feat/prd-XX-name -m "feat: merge PRD-XX description"
-git tag prd-XX-complete              # tag immediately after merge
-git push origin main                 # requires manual approval (not in auto-allow)
-git push origin prd-XX-complete      # push tag
-```
+| # | Item | Priority | Notes |
+|---|---|---|---|
+| 1 | Reddit API credentials | High | Waiting for approval; add `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET` to Railway |
+| 2 | Run `seed_symbols.py` in production | High | One-time; fills `symbols` table with ~8,000 US equities for screener |
+| 3 | Market snapshot staleness bug | Medium | `fix/market-snapshot-staleness` branch — `is_stale` +3 day buffer issue |
+| 4 | PRD-05: `not_supported` strategy handling | Medium | Redirect UX for strategies the engine can't support — needs design decision |
+| 5 | Sentiment pre-warmer background job | Low | APScheduler top-100 S&P 500 every 3h; toggle via `PREWARM_ENABLED` |
+| 6 | Update PRODUCT_PLAN.md (done this session) | Done | — |
 
 ---
 
 ## Session History
 
+### 2026-05-12 — Phases 1 + 2 + PRD-08b build session
+**Commits pushed to local main: 20**
+
+| Commit | What |
+|---|---|
+| PRD-06 | FMPClient, DataSourceAdapter, yfinance fallback, FundamentalService, 3 API routes, seed script |
+| PRD-07 | `/stocks` screener page, sector strip, filter panel, sortable results, screener backend |
+| PRD-08a | `/stocks/[ticker]` deep-dive, Business Map (partial), Market Position (peers), Financial Check (full), scoring |
+| PRD-09 | Sentiment provider system, Haiku LLM chain, 9-score framework, 7 toolkits, Sonnet sandbox, 5 DB tables, 7 API routes |
+| PRD-10 | `/sentiment` hub, toolkit cards, provider status panel, sentiment tab on ticker page |
+| UI integration | Homepage redesigned (3-pillar hero), Market Snapshot → stock page navigation, Asset Explorer cross-links |
+| LLM refactor | Sentiment now uses existing OpenAI gateway — no Anthropic key required |
+| PRD-08b | SEC EDGAR 10-K fetcher, section parser (Items 1/1A/7), LLM business intelligence, 90-day cache, company page enriched |
+| Docs | This WORK_LOG rewrite |
+
+**Test counts:** 63 → 106 backend tests across sessions  
+**New DB tables:** 9 new tables total (Phase 1+2+08b)  
+**New API routes:** 15 new routes across all PRDs
+
 ### 2026-05-11 — Planning session
-- Completed: PRODUCT_PLAN.md, PRD-08a spec, PRD-09 spec, PRD-10 spec
-- Installed: 8 agent skills (.claude/skills/)
-- Configured: settings.json permissions for autonomous development
-- Created: WORK_LOG.md (this file)
-- Last commit: see `git log --oneline -3`
-- No code written yet — all planning/documentation
+- Completed: PRODUCT_PLAN.md, PRD-08a/09/10 specs
+- Installed: 8 agent skills
+- Configured: settings.json autonomous dev permissions
+- No code written — all planning/documentation
+
+---
+
+## Rollback Reference
+
+```bash
+# View all stable tags
+git log --oneline --decorate | grep "tag:"
+
+# Platform rollback (fastest — 30 seconds):
+# Railway: Dashboard → service → Deployments tab → previous deploy → Redeploy
+# Vercel:  Dashboard → project → Deployments → previous deploy → Instant Rollback
+
+# Code-level rollback to a known-good tag:
+git revert --no-commit prd-10-complete..HEAD   # stage all reverts
+git commit -m "revert: roll back to prd-10-complete"
+git push origin main                            # triggers redeploy
+
+# Nuclear option (only if revert commits won't work):
+git push origin prd-10-complete:main --force    # ⚠ destroys intervening history
+```
+
+**Stable rollback points:**
+| Tag | What's in it |
+|---|---|
+| `prd-10-complete` | Phase 1 + Phase 2 frontend (no PRD-08b, no UI integration) |
+| `prd-09-complete` | Phase 1 + Sentiment backend only |
+| `prd-08a-complete` | Phase 1 only (no sentiment) |
+
+---
+
+## Resumption Checklist
+
+```bash
+# 1. Orient
+cd /Users/jimmygu/the_counselor
+git log --oneline -5
+git branch
+
+# 2. Read the plan
+cat agent-system/WORK_LOG.md
+cat agent-system/PRODUCT_PLAN.md
+
+# 3. Continue from "Next action" above
+```
 
 ---
 
 ## Autonomous Development Rules
 
-When working autonomously without explicit user input, follow these rules:
-
 1. **One PRD at a time** — complete current PRD fully before starting the next
 2. **Commit at every logical checkpoint** — after each service, each route, each component
 3. **Run build + tests before every commit** — `npm run build` and `pytest` must pass
-4. **Run `safe-migration` skill on every Alembic migration** before merging
-5. **Update WORK_LOG.md before every commit** — keep "Next action" accurate
-6. **Never push to main** — merge + push requires user confirmation
-7. **Never `git reset --hard`** — use `git revert` to undo
-8. **Stop and note a blocker if:** API key missing, dependency install fails, tests fail 3+ times
-9. **Tag main after every PRD merge** — `git tag prd-XX-complete`
+4. **Update WORK_LOG.md at session end** — keep "Next action" accurate
+5. **Never push to main** — push requires user confirmation
+6. **Never `git reset --hard`** — use `git revert` to undo
+7. **Stop and note a blocker if:** API key missing, dependency install fails, tests fail 3+ times
+8. **Tag main after every PRD merge** — `git tag prd-XX-complete`
