@@ -223,8 +223,7 @@ export default function SentimentHubPage() {
             />
           </div>
           <Button type="submit" size="sm" disabled={!searchQuery.trim()}>
-            View Sentiment
-            <ArrowUpRight className="ml-1.5 h-3.5 w-3.5" />
+            Analyze →
           </Button>
         </form>
 

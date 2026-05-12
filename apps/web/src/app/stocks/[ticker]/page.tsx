@@ -99,11 +99,28 @@ export default function CompanyPage() {
   }
 
   if (error || !data) {
+    const isNotConfigured = error?.includes("403") || error?.includes("not configured");
     return (
       <main className="min-h-screen bg-background">
         <div className="mx-auto max-w-[1200px] px-4 py-12 text-center">
-          <p className="text-muted-foreground">{error || "Company not found"}</p>
-          <Link href={"/stocks" as Route} className="mt-4 inline-block text-sm text-primary hover:underline">← Back to Screener</Link>
+          <p className="text-base font-medium text-foreground">
+            {isNotConfigured ? "Fundamental data unavailable" : "Unable to load company data"}
+          </p>
+          <p className="mt-1.5 text-sm text-muted-foreground">
+            {isNotConfigured
+              ? "The FMP API key may not be configured or may need a Starter plan."
+              : error || "The company may not exist or the backend is unreachable. Try again."}
+          </p>
+          <div className="mt-5 flex items-center justify-center gap-3">
+            <button
+              onClick={() => { setError(null); setLoading(true); getCompanyOverview(ticker.toUpperCase()).then(setData).catch((e) => setError(e.message)).finally(() => setLoading(false)); }}
+              className="text-sm font-medium text-primary hover:underline"
+            >
+              Retry
+            </button>
+            <span className="text-muted-foreground">·</span>
+            <Link href={"/stocks" as Route} className="text-sm text-muted-foreground hover:text-foreground hover:underline">← Back to Screener</Link>
+          </div>
         </div>
       </main>
     );

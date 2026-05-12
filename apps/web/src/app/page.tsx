@@ -128,7 +128,7 @@ export default function HomePage() {
                   News & Sentiment
                 </Link>
               </Button>
-              <Button asChild variant="ghost" size="lg" className="rounded-xl px-6">
+              <Button asChild variant="outline" size="lg" className="rounded-xl px-6">
                 <Link href={"/workspace" as Route}>
                   Strategy Builder
                 </Link>
@@ -151,7 +151,7 @@ export default function HomePage() {
         </div>
       </section>
 
-      <div className="mx-auto max-w-[1200px] space-y-16 px-6 py-14">
+      <div className="mx-auto max-w-[1200px] space-y-12 px-6 py-10">
 
         {/* ── Three Research Pillars ────────────────────────────────────── */}
         <section className="space-y-6">

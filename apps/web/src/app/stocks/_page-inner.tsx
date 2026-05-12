@@ -236,8 +236,8 @@ export function StocksPageInner() {
 
         {/* Results table */}
         <div className="overflow-hidden rounded-xl border border-border bg-white shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
+          <div className="overflow-x-auto scrollbar-thin">
+            <table className="w-full min-w-[680px] text-sm">
               <thead>
                 <tr className="border-b border-border bg-muted/30">
                   {[

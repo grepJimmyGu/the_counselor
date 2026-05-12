@@ -645,7 +645,6 @@ export function ResearchWorkspace() {
             <div className="space-y-1.5">
               <div className="flex items-center gap-2">
                 <Badge className="bg-primary/15 font-mono text-primary hover:bg-primary/15">{t.appName}</Badge>
-                <Badge variant="outline" className="font-mono text-xs">{t.localMvp}</Badge>
               </div>
               <h1 className="font-heading text-3xl font-semibold tracking-tight">{t.workspaceTitle}</h1>
               <p className="max-w-2xl text-sm leading-relaxed text-muted-foreground">{t.workspaceDesc}</p>
