@@ -119,12 +119,6 @@ class CompanyOverviewService:
 
         # 3. Financial Check metrics
         fc = await self._financial_svc.compute(sym, key_metrics_raw)
-        # Merge valuation from key_metrics if not in fc
-        if fc.pe_ratio is None and key_metrics_raw.get("peRatioTTM"):
-            try:
-                fc.pe_ratio = float(key_metrics_raw["peRatioTTM"])
-            except (ValueError, TypeError):
-                pass
 
         # 4. Scoring
         fin_score = compute_financial_validation_score(fc)

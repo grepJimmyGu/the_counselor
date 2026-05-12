@@ -21,7 +21,8 @@ class FMPNotConfiguredError(FMPError):
 
 
 class FMPClient:
-    BASE_URL = "https://financialmodelingprep.com/api/v3"
+    # FMP deprecated /api/v3 for new subscribers after Aug 2025; all calls now use /stable
+    BASE_URL = "https://financialmodelingprep.com/stable"
 
     def __init__(self) -> None:
         self.settings = get_settings()
@@ -51,52 +52,158 @@ class FMPClient:
         raise FMPError("FMP request failed after retries.")
 
     async def get_profile(self, symbol: str) -> dict:
-        """Company profile: name, sector, industry, description, market cap, P/E, etc."""
-        data = await self._get(f"/profile/{symbol.upper()}")
+        """Company profile: name, sector, industry, description, market cap, price, etc."""
+        data = await self._get("/profile", {"symbol": symbol.upper()})
         if not data or not isinstance(data, list):
             raise FMPError(f"No profile data for {symbol}")
         return data[0]
 
     async def get_key_metrics(self, symbol: str, limit: int = 1) -> dict:
-        """Key financial metrics (TTM): P/E, P/B, ROE, FCF yield, debt/equity, etc."""
-        data = await self._get(f"/key-metrics-ttm/{symbol.upper()}", {"limit": limit})
+        """
+        Key financial metrics (TTM). Returns a normalised dict that maps
+        stable-API field names to the legacy TTM names our downstream code expects.
+        """
+        data = await self._get("/key-metrics-ttm", {"symbol": symbol.upper()})
         if not data or not isinstance(data, list):
             raise FMPError(f"No key metrics for {symbol}")
-        return data[0]
+        raw = data[0]
+        return _normalise_key_metrics(raw)
 
     async def get_income_statement(self, symbol: str, limit: int = 5) -> list[dict]:
-        """Annual income statements for growth trend."""
-        data = await self._get(f"/income-statement/{symbol.upper()}", {"limit": limit})
+        """Annual income statements."""
+        data = await self._get("/income-statement", {"symbol": symbol.upper(), "limit": limit})
         return data if isinstance(data, list) else []
 
     async def get_cash_flow(self, symbol: str, limit: int = 5) -> list[dict]:
         """Annual cash flow statements."""
-        data = await self._get(f"/cash-flow-statement/{symbol.upper()}", {"limit": limit})
+        data = await self._get("/cash-flow-statement", {"symbol": symbol.upper(), "limit": limit})
         return data if isinstance(data, list) else []
 
     async def get_balance_sheet(self, symbol: str, limit: int = 3) -> list[dict]:
         """Annual balance sheets."""
-        data = await self._get(f"/balance-sheet-statement/{symbol.upper()}", {"limit": limit})
+        data = await self._get("/balance-sheet-statement", {"symbol": symbol.upper(), "limit": limit})
         return data if isinstance(data, list) else []
 
     async def get_peers(self, symbol: str) -> list[str]:
-        """Stock peers/competitors from FMP."""
-        data = await self._get(f"/stock_peers", {"symbol": symbol.upper()})
-        if isinstance(data, list) and data:
-            return data[0].get("peersList", [])
+        """
+        Stock peers. Stable API returns full objects; we extract symbols only.
+        """
+        data = await self._get("/stock-peers", {"symbol": symbol.upper()})
+        if not isinstance(data, list):
+            return []
+        # New format: [{symbol, companyName, price, mktCap}, ...]
+        # Old format: [{peersList: [...]}] — handle both for safety
+        if data and isinstance(data[0], dict):
+            if "peersList" in data[0]:
+                return data[0].get("peersList", [])
+            return [p["symbol"] for p in data if p.get("symbol")]
         return []
-
-    async def search(self, query: str, limit: int = 20) -> list[dict]:
-        """Symbol search."""
-        data = await self._get("/search", {"query": query, "limit": limit})
-        return data if isinstance(data, list) else []
 
     async def get_sec_filings(
         self, symbol: str, filing_type: str = "10-K", limit: int = 1
     ) -> list[dict]:
-        """SEC filing metadata including direct EDGAR document URL (finalLink)."""
-        data = await self._get(
-            f"/sec-filings/{symbol.upper()}",
-            {"type": filing_type, "limit": limit},
-        )
-        return data if isinstance(data, list) else []
+        """
+        Get SEC filing metadata. FMP's stable API doesn't expose sec-filings,
+        so we resolve the latest 10-K URL via SEC EDGAR's free submissions API
+        using the CIK from the company profile.
+        """
+        try:
+            profile = await self.get_profile(symbol)
+            cik = profile.get("cik", "")
+            if not cik:
+                return []
+            return await _edgar_latest_filing(cik, filing_type, limit)
+        except Exception:
+            return []
+
+    async def search(self, query: str, limit: int = 20) -> list[dict]:
+        """Symbol search — uses stable search endpoint, falls back to empty list."""
+        try:
+            data = await self._get("/search", {"query": query, "limit": limit})
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+
+# ── Field normalisation ───────────────────────────────────────────────────────
+
+def _normalise_key_metrics(raw: dict) -> dict:
+    """
+    Map stable-API key-metric field names to the legacy names used by
+    financial_validation_service.py and fmp_adapter.py, so those services
+    need no changes.
+    """
+    out = dict(raw)
+
+    # ROE: stable uses returnOnEquityTTM
+    out.setdefault("roeTTM", raw.get("returnOnEquityTTM"))
+
+    # P/E: stable dropped peRatioTTM; derive from earningsYieldTTM (= E/P)
+    if "peRatioTTM" not in raw:
+        ey = raw.get("earningsYieldTTM")
+        try:
+            out["peRatioTTM"] = round(1.0 / float(ey), 2) if ey and float(ey) > 0 else None
+        except (ValueError, TypeError):
+            out["peRatioTTM"] = None
+
+    # P/S: use EV/Sales as the closest available proxy
+    out.setdefault("priceToSalesRatioTTM", raw.get("evToSalesTTM"))
+
+    # P/B: not in new key-metrics; leave as None (will show "—" in UI)
+    out.setdefault("pbRatioTTM", None)
+
+    # Dividend yield: not in key-metrics-ttm; caller can enrich from profile
+    out.setdefault("dividendYieldPercentageTTM", None)
+
+    # EV/EBITDA alias
+    out.setdefault("enterpriseValueOverEBITDATTM", raw.get("evToEBITDATTM"))
+
+    return out
+
+
+# ── SEC EDGAR helper ──────────────────────────────────────────────────────────
+
+async def _edgar_latest_filing(cik: str, filing_type: str, limit: int) -> list[dict]:
+    """
+    Use SEC EDGAR's free submissions API to find the latest 10-K/10-Q filing URL.
+    CIK must be zero-padded to 10 digits.
+    """
+    cik_clean = cik.lstrip("0")
+    cik_padded = cik_clean.zfill(10)
+    url = f"https://data.sec.gov/submissions/CIK{cik_padded}.json"
+    headers = {
+        "User-Agent": "livermore-research/1.0 contact@livermore.app",
+        "Accept": "application/json",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15.0, headers=headers) as client:
+            resp = await client.get(url)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception:
+        return []
+
+    filings = data.get("filings", {}).get("recent", {})
+    forms = filings.get("form", [])
+    dates = filings.get("filingDate", [])
+    accessions = filings.get("accessionNumber", [])
+    primary_docs = filings.get("primaryDocument", [])
+
+    results = []
+    for form, date, acc, doc in zip(forms, dates, accessions, primary_docs):
+        if form == filing_type:
+            acc_clean = acc.replace("-", "")
+            final_link = (
+                f"https://www.sec.gov/Archives/edgar/data/{cik_clean}/{acc_clean}/{doc}"
+            )
+            results.append({
+                "symbol": "",
+                "type": form,
+                "dateFiled": date,
+                "finalLink": final_link,
+                "link": f"https://www.sec.gov/cgi-bin/browse-edgar?action=getcompany&CIK={cik_padded}&type={filing_type}",
+            })
+            if len(results) >= limit:
+                break
+
+    return results

@@ -36,7 +36,8 @@ class FMPAdapter:
             name=raw.get("companyName", symbol),
             sector=raw.get("sector") or None,
             industry=raw.get("industry") or None,
-            exchange=raw.get("exchangeShortName") or raw.get("exchange") or None,
+            # stable API: exchangeShortName gone; use exchange (short code)
+            exchange=raw.get("exchange") or raw.get("exchangeShortName") or None,
             country=raw.get("country") or None,
             currency=raw.get("currency") or None,
             description=raw.get("description") or None,
@@ -44,9 +45,11 @@ class FMPAdapter:
             employees=employees,
             website=raw.get("website") or None,
             price=raw.get("price"),
-            market_cap=raw.get("mktCap"),
+            # stable API: mktCap → marketCap
+            market_cap=raw.get("marketCap") or raw.get("mktCap"),
             pe_ratio=None,  # comes from key-metrics
-            dividend_yield=raw.get("lastDiv"),
+            # stable API: lastDiv → lastDividend
+            dividend_yield=raw.get("lastDividend") or raw.get("lastDiv"),
             beta=raw.get("beta"),
             week_52_high=week_52_high,
             week_52_low=week_52_low,
