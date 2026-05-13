@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { SessionProvider } from "next-auth/react";
 import { LocaleProvider } from "@/lib/locale-context";
 import { NavHeader } from "@/components/nav-header";
 
@@ -16,6 +17,7 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full">
       <body className="min-h-full bg-background font-sans text-foreground antialiased">
+        <SessionProvider>
         <LocaleProvider>
           {/* Skip to main content — keyboard navigation accessibility */}
           <a
@@ -27,6 +29,7 @@ export default function RootLayout({
           <NavHeader />
           <div id="main-content">{children}</div>
         </LocaleProvider>
+        </SessionProvider>
       </body>
     </html>
   );

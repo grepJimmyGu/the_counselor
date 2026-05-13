@@ -1,13 +1,21 @@
 "use client";
 
-import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Menu, X } from "lucide-react";
+import { useSession, signIn, signOut } from "next-auth/react";
 import type { Route } from "next";
+import { LogIn, LogOut, User } from "lucide-react";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { useLocale } from "@/lib/locale-context";
 import { cn } from "@/lib/utils";
+import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 
 const navLink = (active: boolean) =>
   cn(
@@ -17,26 +25,78 @@ const navLink = (active: boolean) =>
       : "text-muted-foreground hover:text-foreground hover:bg-accent",
   );
 
-const mobileNavLink = (active: boolean) =>
-  cn(
-    "block rounded-md px-3 py-2.5 text-sm font-medium transition-colors",
-    active
-      ? "bg-primary/10 text-primary"
-      : "text-muted-foreground hover:text-foreground hover:bg-accent",
+function UserMenu() {
+  const { data: session, status } = useSession();
+
+  if (status === "loading") {
+    return <div className="h-8 w-8 animate-pulse rounded-full bg-muted" />;
+  }
+
+  if (!session?.user) {
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        className="gap-1.5 text-xs"
+        onClick={() => signIn("google")}
+      >
+        <LogIn className="h-3.5 w-3.5" />
+        Sign in
+      </Button>
+    );
+  }
+
+  const user = session.user;
+  const initials = (user.name ?? user.email ?? "?")
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          className="flex h-8 w-8 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-border bg-primary/10 text-xs font-semibold text-primary transition-colors hover:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label="User menu"
+        >
+          {user.image ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={user.image} alt={user.name ?? "avatar"} className="h-full w-full object-cover" />
+          ) : (
+            initials
+          )}
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-52">
+        <div className="px-3 py-2">
+          <p className="text-sm font-medium truncate">{user.name ?? "User"}</p>
+          <p className="text-xs text-muted-foreground truncate">{user.email}</p>
+        </div>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem asChild>
+          <Link href={"/profile" as Route} className="cursor-pointer">
+            <User className="mr-2 h-3.5 w-3.5" />
+            Profile
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        <DropdownMenuItem
+          onClick={() => signOut({ callbackUrl: "/" })}
+          className="cursor-pointer text-destructive focus:text-destructive"
+        >
+          <LogOut className="mr-2 h-3.5 w-3.5" />
+          Sign out
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
+}
 
 export function NavHeader() {
   const pathname = usePathname();
   const { t } = useLocale();
-  const [open, setOpen] = useState(false);
-
-  const links = [
-    { href: "/", label: t.navHome, exact: true },
-    { href: "/workspace", label: t.navWorkspace },
-    { href: "/stocks", label: t.navStocks },
-    { href: "/sentiment", label: "Sentiment" },
-    { href: "/templates", label: t.navTemplates },
-  ];
 
   return (
     <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
@@ -49,52 +109,21 @@ export function NavHeader() {
           Livermore
         </Link>
 
-        {/* Desktop nav */}
-        <div className="hidden md:flex items-center gap-6">
+        <div className="flex items-center gap-4">
           <nav aria-label="Main navigation" className="flex items-center gap-1">
-            {links.map(({ href, label, exact }) => (
-              <Link
-                key={href}
-                href={href as Route}
-                className={navLink(exact ? pathname === href : pathname.startsWith(href))}
-              >
-                {label}
-              </Link>
-            ))}
+            <Link href="/" className={navLink(pathname === "/")}>{t.navHome}</Link>
+            <Link href={"/workspace" as Route} className={navLink(pathname.startsWith("/workspace"))}>{t.navWorkspace}</Link>
+            <Link href={"/stocks" as Route} className={navLink(pathname.startsWith("/stocks"))}>{t.navStocks}</Link>
+            <Link href={"/sentiment" as Route} className={navLink(pathname.startsWith("/sentiment"))}>Sentiment</Link>
+            <Link href={"/templates" as Route} className={navLink(pathname.startsWith("/templates"))}>{t.navTemplates}</Link>
           </nav>
-          <LanguageSwitcher />
-        </div>
-
-        {/* Mobile hamburger */}
-        <button
-          className="md:hidden rounded-md p-1.5 text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-          onClick={() => setOpen((v) => !v)}
-          aria-label="Toggle menu"
-        >
-          {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-        </button>
-      </div>
-
-      {/* Mobile dropdown */}
-      {open && (
-        <div className="md:hidden border-t border-border bg-background/95 px-4 pb-4 pt-2 backdrop-blur">
-          <nav className="flex flex-col gap-1">
-            {links.map(({ href, label, exact }) => (
-              <Link
-                key={href}
-                href={href as Route}
-                className={mobileNavLink(exact ? pathname === href : pathname.startsWith(href))}
-                onClick={() => setOpen(false)}
-              >
-                {label}
-              </Link>
-            ))}
-          </nav>
-          <div className="mt-3 border-t border-border pt-3">
+          <div className="flex items-center gap-2">
             <LanguageSwitcher />
+            <UserMenu />
           </div>
         </div>
-      )}
+
+      </div>
     </header>
   );
 }
