@@ -102,11 +102,23 @@ async def _compute(
         )
 
     try:
+        # Ensure price data is up to date for all tickers in the strategy
+        # (mirrors what run_backtest does — without this, stale/missing tickers silently fail)
+        from app.services.price_cache_service import PriceCacheService
+        cache_svc = PriceCacheService()
+        all_symbols = list(strategy.universe) + [strategy.benchmark]
+        for symbol in all_symbols:
+            try:
+                await cache_svc.ensure_history(db, symbol, published_at)
+            except Exception:
+                pass  # best-effort; engine will surface missing data errors
+
         from app.services.backtester.engine import BacktestEngine
         engine = BacktestEngine()
         result = await engine.run(db, strategy)
         m = result.metrics
-        curve = [{"date": p.date, "value": p.value} for p in result.equity_curve]
+        # p.date is a date object — convert to ISO string for JSON storage
+        curve = [{"date": p.date.isoformat(), "value": p.value} for p in result.equity_curve]
 
         # Derive current signal from last position in equity curve
         current_signal = _infer_signal(result)
@@ -114,7 +126,7 @@ async def _compute(
         # Count trading days with data
         days_tracked = len(result.equity_curve)
         last_price_date = (
-            date.fromisoformat(result.equity_curve[-1].date)
+            result.equity_curve[-1].date  # already a date object from Pydantic
             if result.equity_curve else None
         )
 
