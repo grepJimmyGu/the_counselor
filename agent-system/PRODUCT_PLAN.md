@@ -382,6 +382,7 @@ FMP 429/5xx → automatic fallback to yfinance, logged but not surfaced as error
 | PRD-08b | Company Deep-Dive — 10-K Business Intelligence | ✅ 2026-05-12 | `prd-08b-complete` | SEC EDGAR fetch, section parser (Items 1/1A/7), LLM extraction, 90-day cache |
 | PRD-09 | News & Community Sentiment — Backend | ✅ 2026-05-12 | `prd-09-complete` | 4-provider system, Haiku LLM chain, 9-score framework, 7 toolkits, Sonnet sandbox |
 | PRD-10 | News & Community Sentiment — Frontend | ✅ 2026-05-12 | `prd-10-complete` | `/sentiment` hub, toolkit cards, provider status, sentiment tab on ticker page |
+| PRD-11 | Authentication — Google OAuth via Auth.js v5 | ✅ 2026-05-12 | `prd-11-complete` | JWT sessions, NavHeader sign-in/avatar, /auth/signin, /auth/error, internal key BFF pattern, adversarial audit passed |
 
 ---
 
@@ -397,10 +398,9 @@ FMP 429/5xx → automatic fallback to yfinance, logged but not surfaced as error
 
 | Order | PRD | Status | Blocker |
 |---|---|---|---|
-| **1** | **PRD-11** | **Ready to start** | None — Phase 1+2 complete |
-| 2 | PRD-12 | Blocked on PRD-11 | Auth required |
-| 3 | PRD-13 | Blocked on PRD-12 | Watchlists required |
-| 4 | PRD-14 | Blocked on PRD-13 | Votes + community signals required |
+| **1** | **PRD-12** | **In progress** | None — PRD-11 complete |
+| 2 | PRD-13 | Next after PRD-12 | Watchlists required for signal score |
+| 3 | PRD-14 | Next after PRD-13 | Votes + signals required |
 | — | PRD-05 | In discussion | Design decision needed |
 
 ---
