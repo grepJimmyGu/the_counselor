@@ -12,6 +12,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { Route } from "next";
 import { SentimentTab } from "./_sentiment-tab";
+import { WatchlistButton } from "@/components/community/watchlist-button";
+import { VoteBar } from "@/components/community/vote-bar";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -162,7 +164,7 @@ export default function CompanyPage() {
                 Run Backtest on {data.symbol}
               </Link>
             </Button>
-            <Button disabled size="sm" title="Sign in to add — coming soon">Watchlist</Button>
+            <WatchlistButton symbol={data.symbol} />
           </div>
         </div>
 
@@ -403,6 +405,12 @@ export default function CompanyPage() {
             </div>
           </section>
         </div>
+
+        {/* Community sentiment */}
+        <section className="rounded-xl border border-border bg-white p-5 shadow-sm">
+          <h2 className="mb-4 font-heading text-sm font-semibold">Community Sentiment</h2>
+          <VoteBar symbol={data.symbol} />
+        </section>
 
         {/* Disclaimer */}
         <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">

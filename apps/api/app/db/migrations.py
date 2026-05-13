@@ -516,3 +516,141 @@ def run_startup_migrations(engine: Engine) -> None:
                 updated_at TIMESTAMPTZ DEFAULT now()
             )
         """))
+
+        # PRD-12: user_watchlists
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS user_watchlists (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id VARCHAR(100) NOT NULL,
+                symbol VARCHAR(20) NOT NULL,
+                added_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (user_id, symbol)
+            )
+        """) if is_sqlite else text("""
+            CREATE TABLE IF NOT EXISTS user_watchlists (
+                id SERIAL PRIMARY KEY,
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                symbol VARCHAR(20) NOT NULL,
+                added_at TIMESTAMPTZ DEFAULT now(),
+                UNIQUE (user_id, symbol)
+            )
+        """))
+        try:
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_watchlists_user ON user_watchlists (user_id)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_watchlists_symbol ON user_watchlists (symbol)"
+            ))
+        except Exception:
+            pass
+
+        # PRD-13: user_votes
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS user_votes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id VARCHAR(100) NOT NULL,
+                symbol VARCHAR(20) NOT NULL,
+                vote VARCHAR(10) NOT NULL,
+                voted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (user_id, symbol)
+            )
+        """) if is_sqlite else text("""
+            CREATE TABLE IF NOT EXISTS user_votes (
+                id SERIAL PRIMARY KEY,
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                symbol VARCHAR(20) NOT NULL,
+                vote VARCHAR(10) NOT NULL CHECK (vote IN ('bull','bear','hold')),
+                voted_at TIMESTAMPTZ DEFAULT now(),
+                updated_at TIMESTAMPTZ DEFAULT now(),
+                UNIQUE (user_id, symbol)
+            )
+        """))
+        try:
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_votes_symbol ON user_votes (symbol)"
+            ))
+        except Exception:
+            pass
+
+        # PRD-13: community_signal_scores (pre-computed, refreshed every 5 min)
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS community_signal_scores (
+                symbol VARCHAR(20) PRIMARY KEY,
+                watchlist_count INTEGER DEFAULT 0,
+                bull_votes INTEGER DEFAULT 0,
+                bear_votes INTEGER DEFAULT 0,
+                hold_votes INTEGER DEFAULT 0,
+                total_votes INTEGER DEFAULT 0,
+                strategy_run_count INTEGER DEFAULT 0,
+                signal_score REAL DEFAULT 0,
+                signal_label VARCHAR(40) DEFAULT 'Neutral',
+                computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """) if is_sqlite else text("""
+            CREATE TABLE IF NOT EXISTS community_signal_scores (
+                symbol VARCHAR(20) PRIMARY KEY,
+                watchlist_count INT DEFAULT 0,
+                bull_votes INT DEFAULT 0,
+                bear_votes INT DEFAULT 0,
+                hold_votes INT DEFAULT 0,
+                total_votes INT DEFAULT 0,
+                strategy_run_count INT DEFAULT 0,
+                signal_score FLOAT DEFAULT 0,
+                signal_label VARCHAR(40) DEFAULT 'Neutral',
+                computed_at TIMESTAMPTZ DEFAULT now()
+            )
+        """))
+
+        # PRD-14: strategy_comments
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS strategy_comments (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id VARCHAR(100) NOT NULL,
+                strategy_slug VARCHAR(128) NOT NULL,
+                content TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """) if is_sqlite else text("""
+            CREATE TABLE IF NOT EXISTS strategy_comments (
+                id SERIAL PRIMARY KEY,
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                strategy_slug VARCHAR(128) NOT NULL,
+                content TEXT NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT now(),
+                updated_at TIMESTAMPTZ DEFAULT now()
+            )
+        """))
+        try:
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_comments_slug ON strategy_comments (strategy_slug)"
+            ))
+        except Exception:
+            pass
+
+        # PRD-14: strategy_upvotes
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS strategy_upvotes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id VARCHAR(100) NOT NULL,
+                strategy_slug VARCHAR(128) NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (user_id, strategy_slug)
+            )
+        """) if is_sqlite else text("""
+            CREATE TABLE IF NOT EXISTS strategy_upvotes (
+                id SERIAL PRIMARY KEY,
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                strategy_slug VARCHAR(128) NOT NULL,
+                created_at TIMESTAMPTZ DEFAULT now(),
+                UNIQUE (user_id, strategy_slug)
+            )
+        """))
+        try:
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_upvotes_slug ON strategy_upvotes (strategy_slug)"
+            ))
+        except Exception:
+            pass

@@ -7,6 +7,8 @@ import { Loader2 } from "lucide-react";
 import { getSavedStrategy } from "@/lib/api";
 import { EquityCurveChart, DrawdownChart } from "@/components/workspace/charts";
 import type { BacktestResult, SavedStrategy } from "@/lib/contracts";
+import { UpvoteButton } from "@/components/community/upvote-button";
+import { CommentsSection } from "@/components/community/comments-section";
 
 function MetricCard({ label, value }: { label: string; value: string }) {
   return (
@@ -72,7 +74,10 @@ export default function SavedStrategyPage() {
             <Badge className="bg-primary/15 text-primary hover:bg-primary/15">Livermore</Badge>
             <Badge variant="outline">Saved Strategy</Badge>
           </div>
-          <h1 className="text-3xl font-semibold tracking-tight">{data.name}</h1>
+          <div className="flex items-center justify-between gap-4">
+            <h1 className="text-3xl font-semibold tracking-tight">{data.name}</h1>
+            <UpvoteButton slug={slug} />
+          </div>
           <p className="text-sm text-muted-foreground">
             Saved {savedDate} · {s.universe.join(", ")} · {s.start_date} – {s.end_date} · Benchmark: {s.benchmark}
           </p>
@@ -153,6 +158,11 @@ export default function SavedStrategyPage() {
             </div>
           </section>
         )}
+
+        {/* Community — comments */}
+        <section className="rounded-xl border border-border bg-white p-5 shadow-sm">
+          <CommentsSection slug={slug} />
+        </section>
 
         {/* Footer disclaimer */}
         <div className="border-t border-border pt-6 text-xs text-muted-foreground">
