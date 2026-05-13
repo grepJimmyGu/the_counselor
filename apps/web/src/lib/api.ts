@@ -168,17 +168,41 @@ export async function saveStrategy(
   resultPayload?: object,
   strategyType?: string,
 ): Promise<{ slug: string; url: string; is_public: boolean }> {
-  return fetchApi<{ slug: string; url: string; is_public: boolean }>("/api/strategies/save", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      backtest_id: backtestId,
-      name,
-      is_public: isPublic,
-      result_payload: resultPayload ?? null,
-      strategy_type: strategyType ?? "unknown",
-    }),
-  });
+  // Attempt 1: lightweight request (no payload) — works for strategies run on production
+  try {
+    return await fetchApi<{ slug: string; url: string; is_public: boolean }>(
+      "/api/strategies/save",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ backtest_id: backtestId, name, is_public: isPublic }),
+      }
+    );
+  } catch (firstErr: unknown) {
+    // Only retry with full payload if the record genuinely doesn't exist (404)
+    // For any other error (already saved, network, etc.) surface immediately
+    const is404 =
+      firstErr instanceof Error &&
+      (firstErr.message.includes("404") || firstErr.message.toLowerCase().includes("not found"));
+
+    if (!is404 || !resultPayload) throw firstErr;
+
+    // Attempt 2: full payload — for strategies run locally / on a different DB
+    return fetchApi<{ slug: string; url: string; is_public: boolean }>(
+      "/api/strategies/save",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          backtest_id: backtestId,
+          name,
+          is_public: isPublic,
+          result_payload: resultPayload,
+          strategy_type: strategyType ?? "unknown",
+        }),
+      }
+    );
+  }
 }
 
 export async function updateStrategyVisibility(
