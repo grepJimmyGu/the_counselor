@@ -4,12 +4,12 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
-import { getSavedStrategy, updateStrategyVisibility } from "@/lib/api";
+import { getSavedStrategy, updateStrategyVisibility, getStrategyLivePerformance } from "@/lib/api";
 import { EquityCurveChart, DrawdownChart } from "@/components/workspace/charts";
-import type { BacktestResult, SavedStrategy } from "@/lib/contracts";
+import type { BacktestResult, LivePerformance, SavedStrategy } from "@/lib/contracts";
 import { UpvoteButton } from "@/components/community/upvote-button";
 import { CommentsSection } from "@/components/community/comments-section";
-import { Globe, Lock } from "lucide-react";
+import { Globe, Lock, RefreshCw, TrendingDown, TrendingUp } from "lucide-react";
 
 function MetricCard({ label, value }: { label: string; value: string }) {
   return (
@@ -30,10 +30,23 @@ export default function SavedStrategyPage() {
   const [error, setError] = useState<string | null>(null);
   const [isPublic, setIsPublic] = useState<boolean | null>(null);
   const [togglingVisibility, setTogglingVisibility] = useState(false);
+  const [livePerf, setLivePerf] = useState<LivePerformance | null>(null);
+  const [perfLoading, setPerfLoading] = useState(false);
 
   useEffect(() => {
     getSavedStrategy(slug)
-      .then((d) => { setData(d); setIsPublic(d.is_public); })
+      .then((d) => {
+        setData(d);
+        setIsPublic(d.is_public);
+        // Fetch live performance in parallel
+        if (d.is_public) {
+          setPerfLoading(true);
+          getStrategyLivePerformance(slug)
+            .then(setLivePerf)
+            .catch(() => {})
+            .finally(() => setPerfLoading(false));
+        }
+      })
       .catch(() => setError("This strategy link is invalid or has been removed."));
   }, [slug]);
 
@@ -166,6 +179,85 @@ export default function SavedStrategyPage() {
             Historical simulation only. Does not account for taxes or real-world execution differences.
           </p>
         </section>
+
+        {/* Live performance since publish */}
+        {isPublic && (
+          <section className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-medium flex items-center gap-2">
+                Live Performance
+                <span className="text-[10px] font-normal text-muted-foreground">since published</span>
+              </h2>
+              <button
+                onClick={() => {
+                  setPerfLoading(true);
+                  getStrategyLivePerformance(slug, true)
+                    .then(setLivePerf)
+                    .catch(() => {})
+                    .finally(() => setPerfLoading(false));
+                }}
+                disabled={perfLoading}
+                className="flex cursor-pointer items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
+              >
+                <RefreshCw className={`h-3 w-3 ${perfLoading ? "animate-spin" : ""}`} />
+                Refresh
+              </button>
+            </div>
+
+            {perfLoading && !livePerf ? (
+              <div className="h-20 animate-pulse rounded-lg bg-muted/40" />
+            ) : livePerf ? (
+              <div className="rounded-lg border border-border bg-background p-4">
+                {livePerf.error && !livePerf.total_return ? (
+                  <p className="text-sm text-muted-foreground">{livePerf.error}</p>
+                ) : (
+                  <div className="flex flex-wrap items-center gap-6">
+                    {/* Return — primary metric */}
+                    <div>
+                      <div className="text-xs text-muted-foreground">Return since published</div>
+                      <div className={`mt-0.5 flex items-center gap-1 text-2xl font-bold font-mono ${
+                        livePerf.total_return_pct == null
+                          ? "text-muted-foreground"
+                          : livePerf.total_return_pct >= 0 ? "text-emerald-600" : "text-red-600"
+                      }`}>
+                        {livePerf.total_return_pct == null ? "—" : (
+                          <>
+                            {livePerf.total_return_pct >= 0
+                              ? <TrendingUp className="h-5 w-5" />
+                              : <TrendingDown className="h-5 w-5" />}
+                            {livePerf.total_return_pct >= 0 ? "+" : ""}
+                            {livePerf.total_return_pct.toFixed(2)}%
+                          </>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs text-muted-foreground">Trading days tracked</div>
+                      <div className="mt-0.5 text-lg font-semibold font-mono">{livePerf.days_tracked}</div>
+                    </div>
+                    {livePerf.current_signal && livePerf.current_signal !== "unknown" && (
+                      <div>
+                        <div className="text-xs text-muted-foreground">Current signal</div>
+                        <div className="mt-0.5 text-sm font-semibold capitalize">{livePerf.current_signal}</div>
+                      </div>
+                    )}
+                    {livePerf.last_price_date && (
+                      <div>
+                        <div className="text-xs text-muted-foreground">Data through</div>
+                        <div className="mt-0.5 text-sm font-mono">{livePerf.last_price_date}</div>
+                      </div>
+                    )}
+                    {livePerf.computed_at && (
+                      <div className="ml-auto text-[10px] text-muted-foreground">
+                        Updated {new Date(livePerf.computed_at).toLocaleString()}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            ) : null}
+          </section>
+        )}
 
         {/* Equity curve */}
         {data.equity_curve.length > 0 && (

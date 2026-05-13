@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import json
+import logging
 import random
 import re
 import string
-from datetime import datetime
+from datetime import date, datetime
+
+logger = logging.getLogger(__name__)
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, text
@@ -12,12 +16,14 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.backtest import BacktestRecord
 from app.schemas.strategy_storage import (
+    LivePerformanceResponse,
     PublicStrategyItem,
     SavedStrategyResponse,
     StrategySaveRequest,
     StrategySaveResponse,
     VisibilityUpdateRequest,
 )
+from app.services.live_performance_service import get_live_performance
 
 router = APIRouter(prefix="/api/strategies", tags=["strategies"])
 
@@ -64,15 +70,18 @@ def update_visibility(
 
 
 @router.get("/public", response_model=list[PublicStrategyItem])
-def list_public_strategies(
+async def list_public_strategies(
     limit: int = Query(default=20, le=50),
     offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> list[PublicStrategyItem]:
-    """All public saved strategies, newest first, with upvote counts."""
+    """
+    Public saved strategies with live performance since publish date.
+    Ranked by actual return (best performing first).
+    """
     rows = db.execute(
         text(
-            "SELECT b.slug, b.name, b.saved_at,"
+            "SELECT b.slug, b.name, b.saved_at, b.result_payload,"
             " COALESCE(u.upvotes, 0) AS upvote_count"
             " FROM backtests b"
             " LEFT JOIN ("
@@ -86,15 +95,94 @@ def list_public_strategies(
         {"limit": limit, "offset": offset},
     ).fetchall()
 
-    return [
-        PublicStrategyItem(
-            slug=r._mapping["slug"],
-            name=r._mapping["name"],
-            saved_at=r._mapping["saved_at"],
-            upvote_count=r._mapping["upvote_count"] or 0,
+    items: list[PublicStrategyItem] = []
+    for r in rows:
+        rm = r._mapping
+        slug = rm["slug"]
+        saved_at = rm["saved_at"]
+
+        # Parse published_at — use saved_at as the tracking start date
+        published_at = saved_at.date() if hasattr(saved_at, "date") else (
+            datetime.fromisoformat(str(saved_at)[:19]).date()
+            if saved_at else datetime.utcnow().date()
         )
-        for r in rows
-    ]
+
+        # Get live performance (cached 24h)
+        live_perf = None
+        try:
+            payload = rm["result_payload"] or {}
+            if isinstance(payload, str):
+                import json as _json
+                payload = _json.loads(payload)
+            strategy_json = payload.get("strategy_json", {})
+            if strategy_json:
+                lp = await get_live_performance(slug, published_at, strategy_json, db)
+                ret_pct = round(lp.total_return * 100, 2) if lp.total_return is not None else None
+                live_perf = LivePerformanceResponse(
+                    slug=slug,
+                    published_at=published_at,
+                    total_return=lp.total_return,
+                    total_return_pct=ret_pct,
+                    days_tracked=lp.days_tracked,
+                    current_signal=lp.current_signal,
+                    last_price_date=lp.last_price_date,
+                    equity_curve=lp.equity_curve[:30],  # trim for listing view
+                    error=lp.error,
+                    computed_at=lp.computed_at,
+                )
+        except Exception as exc:
+            logger.warning("Live perf fetch failed for %s: %s", slug, exc)
+
+        items.append(PublicStrategyItem(
+            slug=slug,
+            name=rm["name"],
+            saved_at=saved_at,
+            upvote_count=rm["upvote_count"] or 0,
+            live=live_perf,
+        ))
+
+    # Sort: strategies with positive returns first (desc), then by upvotes, then newest
+    def sort_key(item: PublicStrategyItem):
+        ret = item.live.total_return if item.live and item.live.total_return is not None else -999
+        return (ret, item.upvote_count)
+
+    items.sort(key=sort_key, reverse=True)
+    return items
+
+
+@router.get("/{slug}/live-performance", response_model=LivePerformanceResponse)
+async def get_strategy_live_performance(
+    slug: str,
+    refresh: bool = Query(default=False),
+    db: Session = Depends(get_db),
+) -> LivePerformanceResponse:
+    """Full live performance for a single strategy — includes complete equity curve."""
+    record = db.scalar(select(BacktestRecord).where(BacktestRecord.slug == slug))
+    if not record:
+        raise HTTPException(status_code=404, detail="Strategy not found.")
+
+    saved_at = record.saved_at
+    published_at = saved_at.date() if hasattr(saved_at, "date") else datetime.utcnow().date()
+    payload = record.result_payload or {}
+    strategy_json = payload.get("strategy_json", {})
+
+    if not strategy_json:
+        raise HTTPException(status_code=422, detail="Strategy JSON not available.")
+
+    lp = await get_live_performance(slug, published_at, strategy_json, db, force_refresh=refresh)
+    ret_pct = round(lp.total_return * 100, 2) if lp.total_return is not None else None
+    return LivePerformanceResponse(
+        slug=slug,
+        published_at=published_at,
+        total_return=lp.total_return,
+        total_return_pct=ret_pct,
+        days_tracked=lp.days_tracked,
+        current_signal=lp.current_signal,
+        last_price_date=lp.last_price_date,
+        equity_curve=lp.equity_curve,
+        error=lp.error,
+        computed_at=lp.computed_at,
+    )
 
 
 @router.get("/{slug}", response_model=SavedStrategyResponse)

@@ -154,22 +154,52 @@ export default function CommunityPage() {
                 </div>
               ) : (
                 <div className="space-y-2">
-                  {strategies.map((s) => (
-                    <div key={s.slug} className="flex items-center gap-3 rounded-xl border border-border bg-white px-4 py-3 shadow-sm hover:border-primary/30 transition-colors">
-                      <div className="flex-1 min-w-0">
-                        <Link
-                          href={`/strategies/${s.slug}` as Route}
-                          className="text-sm font-semibold hover:text-primary transition-colors truncate block"
-                        >
-                          {s.name}
-                        </Link>
-                        <p className="text-[10px] text-muted-foreground">
-                          {new Date(s.saved_at).toLocaleDateString()}
-                        </p>
+                  {strategies.map((s) => {
+                    const ret = s.live?.total_return_pct;
+                    const hasReturn = ret != null;
+                    const isPos = hasReturn && ret >= 0;
+                    const retStr = hasReturn
+                      ? `${isPos ? "+" : ""}${ret.toFixed(2)}%`
+                      : s.live?.error ? "—" : "Computing…";
+                    const days = s.live?.days_tracked ?? 0;
+                    return (
+                      <div key={s.slug} className="flex items-center gap-3 rounded-xl border border-border bg-white px-4 py-3 shadow-sm hover:border-primary/30 transition-colors">
+                        {/* Return badge — primary metric */}
+                        <div className={cn(
+                          "shrink-0 w-20 rounded-lg px-2 py-1.5 text-center",
+                          hasReturn
+                            ? isPos ? "bg-emerald-50 border border-emerald-200" : "bg-red-50 border border-red-200"
+                            : "bg-muted/40 border border-border"
+                        )}>
+                          <div className={cn("font-mono text-sm font-bold",
+                            hasReturn ? (isPos ? "text-emerald-700" : "text-red-600") : "text-muted-foreground"
+                          )}>
+                            {retStr}
+                          </div>
+                          <div className="text-[9px] text-muted-foreground">
+                            {days > 0 ? `${days}d` : "since publish"}
+                          </div>
+                        </div>
+
+                        <div className="flex-1 min-w-0">
+                          <Link
+                            href={`/strategies/${s.slug}` as Route}
+                            className="text-sm font-semibold hover:text-primary transition-colors truncate block"
+                          >
+                            {s.name}
+                          </Link>
+                          <p className="text-[10px] text-muted-foreground">
+                            Published {new Date(s.saved_at).toLocaleDateString()}
+                            {s.live?.current_signal && s.live.current_signal !== "unknown" && (
+                              <span className="ml-2 capitalize">· {s.live.current_signal}</span>
+                            )}
+                          </p>
+                        </div>
+
+                        <UpvoteButton slug={s.slug} />
                       </div>
-                      <UpvoteButton slug={s.slug} />
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </div>

@@ -193,6 +193,13 @@ export async function getPublicStrategies(
   return fetchApi(`/api/strategies/public?limit=${limit}`);
 }
 
+export async function getStrategyLivePerformance(
+  slug: string,
+  refresh = false
+): Promise<import("@/lib/contracts").LivePerformance> {
+  return fetchApi(`/api/strategies/${slug}/live-performance${refresh ? "?refresh=true" : ""}`);
+}
+
 export async function getSavedStrategy(slug: string): Promise<SavedStrategy> {
   return fetchApi<SavedStrategy>(`/api/strategies/${slug}`);
 }

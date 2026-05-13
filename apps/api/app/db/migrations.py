@@ -654,3 +654,32 @@ def run_startup_migrations(engine: Engine) -> None:
             ))
         except Exception:
             pass
+
+        # strategy_live_performance: daily-computed return since publish date (24h TTL)
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS strategy_live_performance (
+                slug VARCHAR(128) PRIMARY KEY,
+                published_at DATE NOT NULL,
+                computed_at TIMESTAMP NOT NULL,
+                expires_at TIMESTAMP NOT NULL,
+                total_return REAL,
+                days_tracked INTEGER DEFAULT 0,
+                current_signal VARCHAR(20),
+                last_price_date DATE,
+                equity_curve TEXT DEFAULT '[]',
+                error TEXT
+            )
+        """) if is_sqlite else text("""
+            CREATE TABLE IF NOT EXISTS strategy_live_performance (
+                slug VARCHAR(128) PRIMARY KEY,
+                published_at DATE NOT NULL,
+                computed_at TIMESTAMPTZ NOT NULL,
+                expires_at TIMESTAMPTZ NOT NULL,
+                total_return FLOAT,
+                days_tracked INT DEFAULT 0,
+                current_signal VARCHAR(20),
+                last_price_date DATE,
+                equity_curve JSONB DEFAULT '[]',
+                error TEXT
+            )
+        """))

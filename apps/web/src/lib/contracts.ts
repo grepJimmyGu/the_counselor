@@ -1113,9 +1113,23 @@ export interface UpvoteResponse {
   user_upvoted: boolean;
 }
 
+export interface LivePerformance {
+  slug: string;
+  published_at: string;
+  total_return?: number | null;
+  total_return_pct?: number | null;
+  days_tracked: number;
+  current_signal?: string | null;
+  last_price_date?: string | null;
+  equity_curve: Array<{ date: string; value: number }>;
+  error?: string | null;
+  computed_at?: string | null;
+}
+
 export interface PublicStrategyItem {
   slug: string;
   name: string;
   saved_at: string;
   upvote_count: number;
+  live?: LivePerformance | null;
 }

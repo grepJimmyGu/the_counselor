@@ -35,8 +35,22 @@ class SavedStrategyResponse(BaseModel):
     warnings: list[str]
 
 
+class LivePerformanceResponse(BaseModel):
+    slug: str
+    published_at: date
+    total_return: Optional[float] = None       # 0.042 = +4.2%
+    total_return_pct: Optional[float] = None   # 4.2 (display value)
+    days_tracked: int = 0
+    current_signal: Optional[str] = None
+    last_price_date: Optional[date] = None
+    equity_curve: list[dict] = []
+    error: Optional[str] = None
+    computed_at: Optional[datetime] = None
+
+
 class PublicStrategyItem(BaseModel):
     slug: str
     name: str
     saved_at: datetime
     upvote_count: int = 0
+    live: Optional[LivePerformanceResponse] = None
