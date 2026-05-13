@@ -30,6 +30,15 @@ class LivePerformance:
     computed_at: Optional[datetime] = None
 
 
+def get_cached_performance(slug: str, db: Session) -> LivePerformance | None:
+    """
+    Return cached live performance only — never triggers a new computation.
+    Used by the public listing so the endpoint stays fast.
+    Returns None if no valid cache exists yet.
+    """
+    return _load_cache(slug, db, datetime.utcnow())
+
+
 async def get_live_performance(
     slug: str,
     published_at: date,

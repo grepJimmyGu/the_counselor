@@ -6,8 +6,8 @@ import { useSession } from "next-auth/react";
 import { ArrowRight, TrendingUp, Users, BarChart2, AlertTriangle } from "lucide-react";
 import type { Route } from "next";
 import { getCommunityBoard } from "@/lib/community-api";
-import { getPublicStrategies } from "@/lib/api";
-import type { PublicStrategyItem, SignalScore } from "@/lib/contracts";
+import { getPublicStrategies, getStrategyLivePerformance } from "@/lib/api";
+import type { LivePerformance, PublicStrategyItem, SignalScore } from "@/lib/contracts";
 import { UpvoteButton } from "@/components/community/upvote-button";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -73,12 +73,23 @@ export default function CommunityPage() {
   const [items, setItems] = useState<SignalScore[]>([]);
   const [strategies, setStrategies] = useState<PublicStrategyItem[]>([]);
   const [loading, setLoading] = useState(true);
+  const [livePerfs, setLivePerfs] = useState<Record<string, LivePerformance>>({});
   const [spotlightSymbol] = useState("AAPL");
 
   useEffect(() => {
     Promise.all([
       getCommunityBoard(20).then((r) => setItems(r.items)).catch(() => {}),
-      getPublicStrategies(10).then(setStrategies).catch(() => {}),
+      getPublicStrategies(20).then((list) => {
+        setStrategies(list);
+        // Trigger lazy live performance computation for any strategy without cached data
+        list.forEach((s) => {
+          if (!s.live) {
+            getStrategyLivePerformance(s.slug)
+              .then((lp) => setLivePerfs((prev) => ({ ...prev, [s.slug]: lp })))
+              .catch(() => {});
+          }
+        });
+      }).catch(() => {}),
     ]).finally(() => setLoading(false));
   }, []);
 
@@ -155,13 +166,15 @@ export default function CommunityPage() {
               ) : (
                 <div className="space-y-2">
                   {strategies.map((s) => {
-                    const ret = s.live?.total_return_pct;
+                    // Use cached live perf from listing OR freshly fetched one
+                    const live = s.live ?? livePerfs[s.slug] ?? null;
+                    const ret = live?.total_return_pct;
                     const hasReturn = ret != null;
                     const isPos = hasReturn && ret >= 0;
                     const retStr = hasReturn
                       ? `${isPos ? "+" : ""}${ret.toFixed(2)}%`
-                      : s.live?.error ? "—" : "Computing…";
-                    const days = s.live?.days_tracked ?? 0;
+                      : live?.error ? "—" : "Computing…";
+                    const days = live?.days_tracked ?? 0;
                     return (
                       <div key={s.slug} className="flex items-center gap-3 rounded-xl border border-border bg-white px-4 py-3 shadow-sm hover:border-primary/30 transition-colors">
                         {/* Return badge — primary metric */}
@@ -190,8 +203,8 @@ export default function CommunityPage() {
                           </Link>
                           <p className="text-[10px] text-muted-foreground">
                             Published {new Date(s.saved_at).toLocaleDateString()}
-                            {s.live?.current_signal && s.live.current_signal !== "unknown" && (
-                              <span className="ml-2 capitalize">· {s.live.current_signal}</span>
+                            {live?.current_signal && live.current_signal !== "unknown" && (
+                              <span className="ml-2 capitalize">· {live.current_signal}</span>
                             )}
                           </p>
                         </div>
