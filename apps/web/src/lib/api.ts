@@ -161,12 +161,36 @@ export async function getRobustnessJob(runId: string): Promise<RobustnessJobResp
   return fetchApi<RobustnessJobResponse>(`/api/robustness/${runId}`);
 }
 
-export async function saveStrategy(backtestId: string, name: string): Promise<{ slug: string; url: string }> {
-  return fetchApi<{ slug: string; url: string }>("/api/strategies/save", {
+export async function saveStrategy(
+  backtestId: string,
+  name: string,
+  isPublic = true
+): Promise<{ slug: string; url: string; is_public: boolean }> {
+  return fetchApi<{ slug: string; url: string; is_public: boolean }>("/api/strategies/save", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ backtest_id: backtestId, name }),
+    body: JSON.stringify({ backtest_id: backtestId, name, is_public: isPublic }),
   });
+}
+
+export async function updateStrategyVisibility(
+  slug: string,
+  isPublic: boolean
+): Promise<{ slug: string; is_public: boolean }> {
+  return fetchApi<{ slug: string; is_public: boolean }>(
+    `/api/strategies/${slug}/visibility`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ is_public: isPublic }),
+    }
+  );
+}
+
+export async function getPublicStrategies(
+  limit = 20
+): Promise<import("@/lib/contracts").PublicStrategyItem[]> {
+  return fetchApi(`/api/strategies/public?limit=${limit}`);
 }
 
 export async function getSavedStrategy(slug: string): Promise<SavedStrategy> {

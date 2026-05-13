@@ -4,11 +4,12 @@ import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
-import { getSavedStrategy } from "@/lib/api";
+import { getSavedStrategy, updateStrategyVisibility } from "@/lib/api";
 import { EquityCurveChart, DrawdownChart } from "@/components/workspace/charts";
 import type { BacktestResult, SavedStrategy } from "@/lib/contracts";
 import { UpvoteButton } from "@/components/community/upvote-button";
 import { CommentsSection } from "@/components/community/comments-section";
+import { Globe, Lock } from "lucide-react";
 
 function MetricCard({ label, value }: { label: string; value: string }) {
   return (
@@ -27,10 +28,12 @@ export default function SavedStrategyPage() {
   const { slug } = useParams<{ slug: string }>();
   const [data, setData] = useState<SavedStrategy | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isPublic, setIsPublic] = useState<boolean | null>(null);
+  const [togglingVisibility, setTogglingVisibility] = useState(false);
 
   useEffect(() => {
     getSavedStrategy(slug)
-      .then(setData)
+      .then((d) => { setData(d); setIsPublic(d.is_public); })
       .catch(() => setError("This strategy link is invalid or has been removed."));
   }, [slug]);
 
@@ -74,9 +77,34 @@ export default function SavedStrategyPage() {
             <Badge className="bg-primary/15 text-primary hover:bg-primary/15">Livermore</Badge>
             <Badge variant="outline">Saved Strategy</Badge>
           </div>
-          <div className="flex items-center justify-between gap-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <h1 className="text-3xl font-semibold tracking-tight">{data.name}</h1>
-            <UpvoteButton slug={slug} />
+            <div className="flex items-center gap-2 shrink-0">
+              {/* Public/private toggle */}
+              <button
+                onClick={async () => {
+                  setTogglingVisibility(true);
+                  try {
+                    const next = !isPublic;
+                    await updateStrategyVisibility(slug, next);
+                    setIsPublic(next);
+                  } catch {/* silent */}
+                  finally { setTogglingVisibility(false); }
+                }}
+                disabled={togglingVisibility}
+                className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-all ${
+                  isPublic
+                    ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                    : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40"
+                }`}
+                title={isPublic ? "Click to make private" : "Click to make public"}
+              >
+                {isPublic
+                  ? <><Globe className="h-3 w-3" /> Public</>
+                  : <><Lock className="h-3 w-3" /> Private</>}
+              </button>
+              <UpvoteButton slug={slug} />
+            </div>
           </div>
           <p className="text-sm text-muted-foreground">
             Saved {savedDate} · {s.universe.join(", ")} · {s.start_date} – {s.end_date} · Benchmark: {s.benchmark}

@@ -14,6 +14,7 @@ export interface SavedStrategy {
   slug: string;
   name: string;
   saved_at: string;
+  is_public: boolean;
   strategy_json: StrategyJson;
   metrics: BacktestMetrics;
   equity_curve: CurvePoint[];
@@ -1110,4 +1111,11 @@ export interface UpvoteResponse {
   slug: string;
   upvote_count: number;
   user_upvoted: boolean;
+}
+
+export interface PublicStrategyItem {
+  slug: string;
+  name: string;
+  saved_at: string;
+  upvote_count: number;
 }

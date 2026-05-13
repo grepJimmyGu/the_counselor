@@ -6,7 +6,9 @@ import { useSession } from "next-auth/react";
 import { ArrowRight, TrendingUp, Users, BarChart2, AlertTriangle } from "lucide-react";
 import type { Route } from "next";
 import { getCommunityBoard } from "@/lib/community-api";
-import type { SignalScore } from "@/lib/contracts";
+import { getPublicStrategies } from "@/lib/api";
+import type { PublicStrategyItem, SignalScore } from "@/lib/contracts";
+import { UpvoteButton } from "@/components/community/upvote-button";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -69,14 +71,15 @@ function BoardRow({ item }: { item: SignalScore }) {
 export default function CommunityPage() {
   const { data: session } = useSession();
   const [items, setItems] = useState<SignalScore[]>([]);
+  const [strategies, setStrategies] = useState<PublicStrategyItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [spotlightSymbol] = useState("AAPL");
 
   useEffect(() => {
-    getCommunityBoard(20)
-      .then((r) => setItems(r.items))
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    Promise.all([
+      getCommunityBoard(20).then((r) => setItems(r.items)).catch(() => {}),
+      getPublicStrategies(10).then(setStrategies).catch(() => {}),
+    ]).finally(() => setLoading(false));
   }, []);
 
   return (
@@ -98,34 +101,79 @@ export default function CommunityPage() {
 
         <div className="grid gap-8 lg:grid-cols-3">
 
-          {/* Board — 2/3 width */}
-          <div className="lg:col-span-2 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-base font-semibold">Most Active This Week</h2>
-              {items.length > 0 && (
-                <Badge variant="outline" className="font-mono text-[10px]">
-                  {items.length} stocks
-                </Badge>
+          {/* Board + Strategies — 2/3 width */}
+          <div className="lg:col-span-2 space-y-8">
+
+            {/* Most active stocks */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-base font-semibold">Most Active This Week</h2>
+                {items.length > 0 && (
+                  <Badge variant="outline" className="font-mono text-[10px]">
+                    {items.length} stocks
+                  </Badge>
+                )}
+              </div>
+              {loading ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 8 }).map((_, i) => (
+                    <Skeleton key={i} className="h-16 w-full rounded-xl" />
+                  ))}
+                </div>
+              ) : items.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border bg-white p-8 text-center text-sm text-muted-foreground">
+                  No community activity yet.
+                  <br />
+                  Add stocks to your watchlist and vote to start building the board.
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {items.map((item) => <BoardRow key={item.symbol} item={item} />)}
+                </div>
               )}
             </div>
 
-            {loading ? (
-              <div className="space-y-2">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <Skeleton key={i} className="h-16 w-full rounded-xl" />
-                ))}
+            {/* Public strategies */}
+            <div className="space-y-4">
+              <div className="flex items-center justify-between">
+                <h2 className="text-base font-semibold">Public Strategies</h2>
+                <Link href={"/workspace" as Route} className="text-xs text-primary hover:underline">
+                  Share a strategy →
+                </Link>
               </div>
-            ) : items.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-border bg-white p-8 text-center text-sm text-muted-foreground">
-                No community activity yet.
-                <br />
-                Add stocks to your watchlist and vote to start building the board.
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {items.map((item) => <BoardRow key={item.symbol} item={item} />)}
-              </div>
-            )}
+              {loading ? (
+                <div className="space-y-2">
+                  {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-14 w-full rounded-xl" />)}
+                </div>
+              ) : strategies.length === 0 ? (
+                <div className="rounded-xl border border-dashed border-border bg-white p-6 text-center text-sm text-muted-foreground">
+                  No public strategies yet.{" "}
+                  <Link href={"/workspace" as Route} className="text-primary hover:underline">
+                    Build and share one →
+                  </Link>
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {strategies.map((s) => (
+                    <div key={s.slug} className="flex items-center gap-3 rounded-xl border border-border bg-white px-4 py-3 shadow-sm hover:border-primary/30 transition-colors">
+                      <div className="flex-1 min-w-0">
+                        <Link
+                          href={`/strategies/${s.slug}` as Route}
+                          className="text-sm font-semibold hover:text-primary transition-colors truncate block"
+                        >
+                          {s.name}
+                        </Link>
+                        <p className="text-[10px] text-muted-foreground">
+                          {new Date(s.saved_at).toLocaleDateString()}
+                        </p>
+                      </div>
+                      <UpvoteButton slug={s.slug} />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
           </div>
 
           {/* Sidebar — 1/3 */}

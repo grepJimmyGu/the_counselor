@@ -212,7 +212,9 @@ export function ResearchWorkspace() {
   const [showEtfProxyCaveat, setShowEtfProxyCaveat] = useState(false);
   const [savedSlug, setSavedSlug] = useState<string | null>(null);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [saveStep, setSaveStep] = useState<"name" | "visibility">("name");
   const [saveName, setSaveName] = useState("");
+  const [saveIsPublic, setSaveIsPublic] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [savedLibrary, setSavedLibrary] = useState<LibraryEntry[]>([]);
   const [compareMode, setCompareMode] = useState<"previous" | string>("previous");
@@ -513,9 +515,10 @@ export function ResearchWorkspace() {
     if (!backtestResult || !saveName.trim()) return;
     setIsSaving(true);
     try {
-      const { slug } = await saveStrategy(backtestResult.backtest_id, saveName.trim());
+      const { slug } = await saveStrategy(backtestResult.backtest_id, saveName.trim(), saveIsPublic);
       setSavedSlug(slug);
       setShowSaveDialog(false);
+      setSaveStep("name");
       const entry: LibraryEntry = { slug, name: saveName.trim(), savedAt: new Date().toISOString() };
       const updated = [entry, ...savedLibrary].slice(0, 20);
       setSavedLibrary(updated);
@@ -935,7 +938,7 @@ export function ResearchWorkspace() {
                     )}
                   </Button>
                   {backtestResult && !savedSlug && (
-                    <Button variant="outline" size="sm" onClick={() => { setSaveName(strategy?.strategy_name ?? ""); setShowSaveDialog(true); }}>
+                    <Button variant="outline" size="sm" onClick={() => { setSaveName(strategy?.strategy_name ?? ""); setSaveStep("name"); setSaveIsPublic(true); setShowSaveDialog(true); }}>
                       Save Strategy
                     </Button>
                   )}
@@ -951,21 +954,82 @@ export function ResearchWorkspace() {
                 </div>
               </div>
               {showSaveDialog && (
-                <div className="flex items-center gap-2 border-b border-border px-4 py-3 bg-muted/30">
-                  <input
-                    autoFocus
-                    type="text"
-                    value={saveName}
-                    onChange={(e) => setSaveName(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") handleSaveStrategy(); if (e.key === "Escape") setShowSaveDialog(false); }}
-                    placeholder={t.saveNamePlaceholder}
-                    maxLength={80}
-                    className="flex-1 rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-                  />
-                  <Button size="sm" disabled={!saveName.trim() || isSaving} onClick={handleSaveStrategy}>
-                    {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : t.saveButtonLabel}
-                  </Button>
-                  <Button size="sm" variant="ghost" onClick={() => setShowSaveDialog(false)}>{t.saveCancel}</Button>
+                <div className="border-b border-border bg-muted/20 px-4 py-4 space-y-3">
+                  {saveStep === "name" ? (
+                    /* Step 1 — name */
+                    <div className="space-y-2">
+                      <p className="text-xs font-semibold text-foreground">Name this strategy</p>
+                      <div className="flex items-center gap-2">
+                        <input
+                          autoFocus
+                          type="text"
+                          value={saveName}
+                          onChange={(e) => setSaveName(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter" && saveName.trim()) setSaveStep("visibility");
+                            if (e.key === "Escape") setShowSaveDialog(false);
+                          }}
+                          placeholder={t.saveNamePlaceholder}
+                          maxLength={80}
+                          className="flex-1 rounded-md border border-border bg-white px-3 py-1.5 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                        />
+                        <Button size="sm" disabled={!saveName.trim()} onClick={() => setSaveStep("visibility")}>
+                          Next →
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setShowSaveDialog(false)}>{t.saveCancel}</Button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Step 2 — public/private */
+                    <div className="space-y-3">
+                      <p className="text-xs font-semibold text-foreground">
+                        Who can see &ldquo;{saveName}&rdquo;?
+                      </p>
+                      <div className="grid grid-cols-2 gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setSaveIsPublic(true)}
+                          className={`rounded-lg border p-3 text-left transition-all cursor-pointer ${
+                            saveIsPublic
+                              ? "border-primary bg-primary/5 ring-1 ring-primary"
+                              : "border-border bg-white hover:border-primary/40"
+                          }`}
+                        >
+                          <div className="text-sm font-semibold">🌍 Public</div>
+                          <div className="mt-0.5 text-xs text-muted-foreground">
+                            Visible in community. Others can comment and upvote.
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setSaveIsPublic(false)}
+                          className={`rounded-lg border p-3 text-left transition-all cursor-pointer ${
+                            !saveIsPublic
+                              ? "border-primary bg-primary/5 ring-1 ring-primary"
+                              : "border-border bg-white hover:border-primary/40"
+                          }`}
+                        >
+                          <div className="text-sm font-semibold">🔒 Private</div>
+                          <div className="mt-0.5 text-xs text-muted-foreground">
+                            Only accessible via direct link. Not listed anywhere.
+                          </div>
+                        </button>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Button size="sm" variant="ghost" onClick={() => setSaveStep("name")}>
+                          ← Back
+                        </Button>
+                        <Button size="sm" disabled={isSaving} onClick={handleSaveStrategy}>
+                          {isSaving
+                            ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                            : `Save as ${saveIsPublic ? "Public" : "Private"}`}
+                        </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setShowSaveDialog(false)}>
+                          {t.saveCancel}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
               {strategy ? (
