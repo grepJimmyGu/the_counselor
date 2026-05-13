@@ -1049,3 +1049,65 @@ export interface SentimentToolkit {
   name: string;
   description: string;
 }
+
+// ── PRD-12/13/14: Community Layer ────────────────────────────────────────────
+
+export interface WatchlistItem {
+  symbol: string;
+  added_at: string;
+}
+
+export interface WatchlistResponse {
+  symbols: WatchlistItem[];
+  count: number;
+}
+
+export interface VoteSummary {
+  symbol: string;
+  bull: number;
+  bear: number;
+  hold: number;
+  total: number;
+  user_vote?: "bull" | "bear" | "hold" | null;
+}
+
+export interface SignalScore {
+  symbol: string;
+  watchlist_count: number;
+  bull_votes: number;
+  bear_votes: number;
+  hold_votes: number;
+  total_votes: number;
+  strategy_run_count: number;
+  signal_score: number;
+  signal_label: string;
+  computed_at?: string | null;
+  disclaimer: string;
+}
+
+export interface CommunityBoardResponse {
+  items: SignalScore[];
+  total: number;
+  disclaimer: string;
+}
+
+export interface CommentResponse {
+  id: number;
+  user_id: string;
+  strategy_slug: string;
+  content: string;
+  created_at: string;
+  display_name?: string | null;
+  avatar_url?: string | null;
+}
+
+export interface CommentsListResponse {
+  comments: CommentResponse[];
+  total: number;
+}
+
+export interface UpvoteResponse {
+  slug: string;
+  upvote_count: number;
+  user_upvoted: boolean;
+}

@@ -13,6 +13,7 @@ from app.api.routes.qa import router as qa_router
 from app.api.routes.robustness import router as robustness_router
 from app.api.routes.uiux import router as uiux_router
 from app.api.routes.auth import router as auth_router
+from app.api.routes.community import router as community_router
 from app.api.routes.sentiment import router as sentiment_router
 from app.api.routes.strategy_storage import router as strategy_storage_router
 from app.api.routes.strategy import router as strategy_router
@@ -51,6 +52,7 @@ app.include_router(qa_router)
 app.include_router(uiux_router)
 app.include_router(strategy_storage_router)
 app.include_router(auth_router)
+app.include_router(community_router)
 app.include_router(sentiment_router)
 
 

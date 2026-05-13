@@ -115,6 +115,7 @@ export function NavHeader() {
             <Link href={"/workspace" as Route} className={navLink(pathname.startsWith("/workspace"))}>{t.navWorkspace}</Link>
             <Link href={"/stocks" as Route} className={navLink(pathname.startsWith("/stocks"))}>{t.navStocks}</Link>
             <Link href={"/sentiment" as Route} className={navLink(pathname.startsWith("/sentiment"))}>Sentiment</Link>
+            <Link href={"/community" as Route} className={navLink(pathname.startsWith("/community"))}>Community</Link>
             <Link href={"/templates" as Route} className={navLink(pathname.startsWith("/templates"))}>{t.navTemplates}</Link>
           </nav>
           <div className="flex items-center gap-2">
