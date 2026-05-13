@@ -31,7 +31,9 @@ function GoogleIcon() {
 
 function SignInContent() {
   const searchParams = useSearchParams();
-  const callbackUrl = searchParams.get("callbackUrl") ?? "/";
+  // Validate callbackUrl — must be a relative path to prevent open redirect
+  const raw = searchParams.get("callbackUrl") ?? "/";
+  const callbackUrl = raw.startsWith("/") && !raw.startsWith("//") ? raw : "/";
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-background px-4">

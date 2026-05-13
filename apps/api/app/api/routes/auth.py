@@ -18,14 +18,17 @@ router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 def verify_internal_key(x_internal_key: Optional[str] = Header(default=None)) -> None:
     """
-    All /api/auth/* endpoints are only callable from the Next.js backend (BFF).
-    They must include X-Internal-Key matching the INTERNAL_API_KEY env var.
-    If INTERNAL_API_KEY is not set (local dev), the check is skipped.
+    All /api/auth/* endpoints are only callable from the Next.js BFF.
+    Requires X-Internal-Key == INTERNAL_API_KEY env var.
+    INTERNAL_API_KEY must be set — there is no dev bypass.
     """
     settings = get_settings()
     required = settings.internal_api_key
     if not required:
-        return  # dev mode — no key required
+        raise HTTPException(
+            status_code=503,
+            detail="INTERNAL_API_KEY is not configured on this server.",
+        )
     if x_internal_key != required:
         raise HTTPException(status_code=401, detail="Invalid internal key.")
 
@@ -64,11 +67,20 @@ def sync_user(body: SyncUserRequest, db: Session = Depends(get_db)) -> UserRespo
     ).fetchone()
 
     if row:
+        # Only update if provider + provider_user_id match — prevents overwrite via forged requests
         db.execute(
             text(
-                "UPDATE users SET display_name = :dn, avatar_url = :av, updated_at = :now WHERE email = :email"
+                "UPDATE users SET display_name = :dn, avatar_url = :av, updated_at = :now"
+                " WHERE email = :email AND provider = :provider AND provider_user_id = :puid"
             ),
-            {"dn": body.display_name, "av": body.avatar_url, "now": now, "email": body.email},
+            {
+                "dn": body.display_name,
+                "av": body.avatar_url,
+                "now": now,
+                "email": body.email,
+                "provider": body.provider,
+                "puid": body.provider_user_id,
+            },
         )
         db.commit()
         r = row._mapping  # type: ignore[attr-defined]
@@ -112,11 +124,17 @@ def sync_user(body: SyncUserRequest, db: Session = Depends(get_db)) -> UserRespo
 
 
 @router.get("/me", dependencies=[Depends(verify_internal_key)])
-def get_me(email: str, db: Session = Depends(get_db)) -> UserResponse:
-    """Look up a user by email — used by Next.js server components."""
+def get_me(provider_user_id: str, provider: str = "google", db: Session = Depends(get_db)) -> UserResponse:
+    """
+    Look up a user by provider + provider_user_id (opaque, not email).
+    Called server-side from Next.js — never exposes email as a lookup key externally.
+    """
     row = db.execute(
-        text("SELECT id, email, display_name, avatar_url, provider, created_at FROM users WHERE email = :email"),
-        {"email": email},
+        text(
+            "SELECT id, email, display_name, avatar_url, provider, created_at FROM users"
+            " WHERE provider_user_id = :puid AND provider = :provider"
+        ),
+        {"puid": provider_user_id, "provider": provider},
     ).fetchone()
     if not row:
         raise HTTPException(status_code=404, detail="User not found.")
