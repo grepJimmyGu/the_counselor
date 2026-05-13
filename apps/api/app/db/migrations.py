@@ -491,3 +491,28 @@ def run_startup_migrations(engine: Engine) -> None:
                 created_at TIMESTAMPTZ DEFAULT now()
             )
         """))
+
+        # PRD-11: users table
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                email VARCHAR(255) NOT NULL UNIQUE,
+                display_name VARCHAR(100),
+                avatar_url TEXT,
+                provider VARCHAR(20) NOT NULL DEFAULT 'google',
+                provider_user_id VARCHAR(100),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """) if is_sqlite else text("""
+            CREATE TABLE IF NOT EXISTS users (
+                id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+                email VARCHAR(255) NOT NULL UNIQUE,
+                display_name VARCHAR(100),
+                avatar_url TEXT,
+                provider VARCHAR(20) NOT NULL DEFAULT 'google',
+                provider_user_id VARCHAR(100),
+                created_at TIMESTAMPTZ DEFAULT now(),
+                updated_at TIMESTAMPTZ DEFAULT now()
+            )
+        """))
