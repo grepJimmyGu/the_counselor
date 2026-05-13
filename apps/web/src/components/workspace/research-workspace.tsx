@@ -515,7 +515,13 @@ export function ResearchWorkspace() {
     if (!backtestResult || !saveName.trim()) return;
     setIsSaving(true);
     try {
-      const { slug } = await saveStrategy(backtestResult.backtest_id, saveName.trim(), saveIsPublic);
+      const { slug } = await saveStrategy(
+        backtestResult.backtest_id,
+        saveName.trim(),
+        saveIsPublic,
+        backtestResult as unknown as object,        // full payload — used if record not in DB
+        strategy?.strategy_type ?? "unknown",
+      );
       setSavedSlug(slug);
       setShowSaveDialog(false);
       setSaveStep("name");

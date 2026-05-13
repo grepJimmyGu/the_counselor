@@ -37,8 +37,24 @@ def _make_slug(name: str) -> str:
 @router.post("/save", response_model=StrategySaveResponse)
 def save_strategy(req: StrategySaveRequest, db: Session = Depends(get_db)) -> StrategySaveResponse:
     record = db.scalar(select(BacktestRecord).where(BacktestRecord.id == req.backtest_id))
+
     if not record:
-        raise HTTPException(status_code=404, detail="Backtest not found.")
+        # Record not in DB — this happens when the strategy was run locally or against a
+        # different database (dev SQLite vs prod PostgreSQL). If the frontend sent the full
+        # result payload, create a new record so the strategy can still be published.
+        if not req.result_payload:
+            raise HTTPException(
+                status_code=404,
+                detail="Backtest not found. Re-run the strategy to publish it.",
+            )
+        record = BacktestRecord(
+            id=req.backtest_id,
+            strategy_type=req.strategy_type,
+            strategy_name=req.name,
+            result_payload=req.result_payload,
+        )
+        db.add(record)
+
     if record.slug:
         raise HTTPException(status_code=400, detail="Strategy already saved.")
 

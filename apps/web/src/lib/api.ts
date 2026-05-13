@@ -164,12 +164,20 @@ export async function getRobustnessJob(runId: string): Promise<RobustnessJobResp
 export async function saveStrategy(
   backtestId: string,
   name: string,
-  isPublic = true
+  isPublic = true,
+  resultPayload?: object,
+  strategyType?: string,
 ): Promise<{ slug: string; url: string; is_public: boolean }> {
   return fetchApi<{ slug: string; url: string; is_public: boolean }>("/api/strategies/save", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ backtest_id: backtestId, name, is_public: isPublic }),
+    body: JSON.stringify({
+      backtest_id: backtestId,
+      name,
+      is_public: isPublic,
+      result_payload: resultPayload ?? null,
+      strategy_type: strategyType ?? "unknown",
+    }),
   });
 }
 

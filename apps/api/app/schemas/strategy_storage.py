@@ -9,6 +9,10 @@ class StrategySaveRequest(BaseModel):
     backtest_id: str
     name: str = Field(..., min_length=1, max_length=80)
     is_public: bool = True
+    # Optional full payload — sent when the record may not exist in the DB
+    # (e.g. strategy was run locally / on a different device / DB was reset)
+    result_payload: Optional[dict] = None
+    strategy_type: str = "unknown"
 
 
 class StrategySaveResponse(BaseModel):
