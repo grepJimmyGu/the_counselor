@@ -216,6 +216,7 @@ export function ResearchWorkspace() {
   const [saveName, setSaveName] = useState("");
   const [saveIsPublic, setSaveIsPublic] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [savedLibrary, setSavedLibrary] = useState<LibraryEntry[]>([]);
   const [compareMode, setCompareMode] = useState<"previous" | string>("previous");
   const [savedCompareResult, setSavedCompareResult] = useState<SavedStrategy | null>(null);
@@ -514,23 +515,36 @@ export function ResearchWorkspace() {
   async function handleSaveStrategy() {
     if (!backtestResult || !saveName.trim()) return;
     setIsSaving(true);
+    setSaveError(null);
     try {
       const { slug } = await saveStrategy(
         backtestResult.backtest_id,
         saveName.trim(),
         saveIsPublic,
-        backtestResult as unknown as object,        // full payload — used if record not in DB
+        backtestResult as unknown as object,
         strategy?.strategy_type ?? "unknown",
       );
       setSavedSlug(slug);
       setShowSaveDialog(false);
       setSaveStep("name");
+      setSaveError(null);
       const entry: LibraryEntry = { slug, name: saveName.trim(), savedAt: new Date().toISOString() };
       const updated = [entry, ...savedLibrary].slice(0, 20);
       setSavedLibrary(updated);
       localStorage.setItem(LIBRARY_KEY, JSON.stringify(updated));
-    } catch {
-      // leave dialog open so user can retry
+    } catch (err: unknown) {
+      // Surface the error so the user knows what went wrong
+      const msg = err instanceof Error ? err.message : String(err);
+      // "Strategy already saved" means this run was already published — show the copy-link button
+      if (msg.toLowerCase().includes("already saved")) {
+        setShowSaveDialog(false);
+        setSaveStep("name");
+        // Try to recover the existing slug from the library
+        const existing = savedLibrary.find((e) => e.name === saveName.trim());
+        if (existing) setSavedSlug(existing.slug);
+      } else {
+        setSaveError(msg || "Save failed — please try again.");
+      }
     } finally {
       setIsSaving(false);
     }
@@ -944,7 +958,7 @@ export function ResearchWorkspace() {
                     )}
                   </Button>
                   {backtestResult && !savedSlug && (
-                    <Button variant="outline" size="sm" onClick={() => { setSaveName(strategy?.strategy_name ?? ""); setSaveStep("name"); setSaveIsPublic(true); setShowSaveDialog(true); }}>
+                    <Button variant="outline" size="sm" onClick={() => { setSaveName(strategy?.strategy_name ?? ""); setSaveStep("name"); setSaveIsPublic(true); setSaveError(null); setShowSaveDialog(true); }}>
                       Save Strategy
                     </Button>
                   )}
@@ -1022,7 +1036,7 @@ export function ResearchWorkspace() {
                         </button>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Button size="sm" variant="ghost" onClick={() => setSaveStep("name")}>
+                        <Button size="sm" variant="ghost" onClick={() => { setSaveStep("name"); setSaveError(null); }}>
                           ← Back
                         </Button>
                         <Button size="sm" disabled={isSaving} onClick={handleSaveStrategy}>
@@ -1030,10 +1044,15 @@ export function ResearchWorkspace() {
                             ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
                             : `Save as ${saveIsPublic ? "Public" : "Private"}`}
                         </Button>
-                        <Button size="sm" variant="ghost" onClick={() => setShowSaveDialog(false)}>
+                        <Button size="sm" variant="ghost" onClick={() => { setShowSaveDialog(false); setSaveError(null); }}>
                           {t.saveCancel}
                         </Button>
                       </div>
+                      {saveError && (
+                        <p className="rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+                          {saveError}
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
