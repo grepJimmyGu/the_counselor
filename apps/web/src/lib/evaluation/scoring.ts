@@ -1,4 +1,4 @@
-import type { StockMetricsInput } from "./types";
+import type { StockMetricsInput, CommodityMetricsInput, DollarTrend } from "./types";
 
 function clamp(v: number): number {
   return Math.max(0, Math.min(100, Math.round(v)));
@@ -175,4 +175,198 @@ export function getScoreStatus(score: number): "strong" | "neutral" | "weak" {
   if (score >= 65) return "strong";
   if (score >= 42) return "neutral";
   return "weak";
+}
+
+// ── Commodity scoring ─────────────────────────────────────────────────────────
+// Weights per spec:
+//   Health:    inventory 30%, supply-demand 25%, spare capacity 15%, cost curve 15%, disruption 15%
+//   Valuation: spot vs marginal cost 25%, historical pct 20%, futures curve 25%, inventory adj 20%, ratio 10%
+//   Trend:     momentum 25%, futures curve momentum 20%, CFTC positioning 20%, ETF flows 15%, macro 20%
+
+function scoreInventoryPercentile(v: number | null): number {
+  // Lower percentile = tighter = bullish
+  if (v === null) return 50;
+  if (v < 10) return 95;
+  if (v < 25) return 82;
+  if (v < 40) return 67;
+  if (v < 60) return 50;
+  if (v < 75) return 35;
+  if (v < 90) return 20;
+  return 10;
+}
+
+function scoreSupplyDemand(label: string | null, balance: number | null): number {
+  if (label === "deficit") return 82;
+  if (label === "balanced") return 55;
+  if (label === "surplus") {
+    // Larger surplus = worse
+    if (balance !== null && balance > 5) return 15;
+    return 28;
+  }
+  return 50;
+}
+
+function scoreSpareCapacity(v: string | null): number {
+  if (v === "low") return 88;    // Low spare capacity = tight market = bullish
+  if (v === "medium") return 55;
+  if (v === "high") return 22;
+  return 50;
+}
+
+function scoreCostCurveSupport(spotPrice: number | null, marginalCost: number | null): number {
+  // Is price above or below the cost of production?
+  if (spotPrice === null || marginalCost === null || marginalCost === 0) return 50;
+  const premium = (spotPrice - marginalCost) / marginalCost;
+  if (premium > 0.5) return 80;   // Well above — healthy incentive
+  if (premium > 0.2) return 65;
+  if (premium > 0.0) return 52;
+  if (premium > -0.1) return 38;  // At or slightly below breakeven
+  return 18;                       // Below cost — producers losing money
+}
+
+function scoreDisruptionRisk(v: string | null): number {
+  // High disruption risk = bullish (supply threat)
+  if (v === "high") return 80;
+  if (v === "medium") return 55;
+  if (v === "low") return 35;
+  return 50;
+}
+
+export function calculateCommodityHealthScore(m: CommodityMetricsInput): number {
+  const s1 = scoreInventoryPercentile(m.inventoryPercentile) * 0.30;
+  const s2 = scoreSupplyDemand(m.supplyDemandLabel, m.supplyDemandBalance) * 0.25;
+  const s3 = scoreSpareCapacity(m.spareCapacity) * 0.15;
+  const s4 = scoreCostCurveSupport(m.spotPrice, m.marginalCostEstimate) * 0.15;
+  const s5 = scoreDisruptionRisk(m.disruptionRisk) * 0.15;
+  return clamp(s1 + s2 + s3 + s4 + s5);
+}
+
+function scoreSpotVsMarginalCost(pct: number | null): number {
+  // How expensive is spot relative to marginal cost?
+  // Slight premium = fair value. Large premium = expensive. Discount = cheap.
+  if (pct === null) return 50;
+  if (pct < -0.10) return 88;   // Deep discount — below cost
+  if (pct < 0.10) return 72;    // Near marginal cost — attractive
+  if (pct < 0.30) return 55;    // Modest premium — fair
+  if (pct < 0.60) return 38;    // Elevated premium
+  if (pct < 1.00) return 22;    // Very expensive vs cost
+  return 10;
+}
+
+function scoreHistoricalPercentile(v: number | null): number {
+  // Where does spot sit in 10yr history? Lower = cheaper
+  if (v === null) return 50;
+  if (v < 15) return 90;
+  if (v < 30) return 75;
+  if (v < 50) return 58;
+  if (v < 70) return 42;
+  if (v < 85) return 26;
+  return 12;
+}
+
+function scoreFuturesCurveValuation(curve: string | null, spread: number | null): number {
+  // Backwardation = tight physical market = constructive
+  if (curve === "backwardation") {
+    if (spread !== null && spread < -0.05) return 88;  // Strong backwardation
+    return 75;
+  }
+  if (curve === "flat") return 52;
+  if (curve === "contango") {
+    if (spread !== null && spread > 0.10) return 20;   // Deep contango = oversupply
+    return 35;
+  }
+  return 50;
+}
+
+function scoreRelatedRatio(pct: number | null): number {
+  // Ratio percentile: low = commodity cheap relative to companion
+  if (pct === null) return 50;
+  if (pct < 20) return 82;
+  if (pct < 40) return 65;
+  if (pct < 60) return 50;
+  if (pct < 80) return 35;
+  return 20;
+}
+
+export function calculateCommodityValuationScore(m: CommodityMetricsInput): number {
+  const s1 = scoreSpotVsMarginalCost(m.spotVsMarginalCostPct) * 0.25;
+  const s2 = scoreHistoricalPercentile(m.spotPercentile10yr) * 0.20;
+  const s3 = scoreFuturesCurveValuation(m.futuresCurve, m.frontBackSpread) * 0.25;
+  const s4 = scoreInventoryPercentile(m.inventoryPercentile) * 0.20; // inventory-adjusted signal
+  const s5 = scoreRelatedRatio(m.relatedRatioPercentile) * 0.10;
+  return clamp(s1 + s2 + s3 + s4 + s5);
+}
+
+function scoreCommodityMomentum(perf3m: number | null, perf12m: number | null): number {
+  let s = 0, w = 0;
+  if (perf3m !== null) {
+    s += (perf3m > 0.12 ? 88 : perf3m > 0.05 ? 70 : perf3m > 0 ? 54 : perf3m > -0.08 ? 38 : 18) * 1.5;
+    w += 1.5;
+  }
+  if (perf12m !== null) {
+    s += perf12m > 0.20 ? 85 : perf12m > 0.08 ? 68 : perf12m > 0 ? 52 : perf12m > -0.15 ? 35 : 15;
+    w++;
+  }
+  return w > 0 ? s / w : 50;
+}
+
+function scoreCFTCPositioning(v: number | null): number {
+  // Crowded long (high pct) = contrarian bearish; crowded short (low pct) = contrarian bullish
+  if (v === null) return 50;
+  if (v > 85) return 22;   // Crowded long — reversal risk
+  if (v > 70) return 40;
+  if (v > 50) return 58;   // Moderate net long — constructive
+  if (v > 30) return 70;
+  if (v > 15) return 80;   // Crowded short — contrarian bullish
+  return 88;
+}
+
+function scoreETFFlows(v: string | null): number {
+  if (v === "inflows") return 72;
+  if (v === "outflows") return 32;
+  return 52;
+}
+
+function scoreMacroSupport(
+  dollar: DollarTrend | null,
+  realYield: string | null,
+  inflation: string | null,
+  chinaPMI: number | null,
+  category: string,
+): number {
+  let s = 0, w = 0;
+  // Dollar: weaker dollar supports USD-priced commodities
+  if (dollar !== null) {
+    const d = dollar as DollarTrend;
+    s += d === "weakening" ? 72 : d === "stable" ? 52 : 32;
+    w++;
+  }
+  // Real yields: falling = bullish for gold and risk assets
+  if (realYield !== null && (category === "metals")) {
+    s += realYield === "falling" ? 72 : realYield === "stable" ? 52 : 32;
+    w++;
+  }
+  // Inflation expectations: rising = bullish for commodities broadly
+  if (inflation !== null) {
+    s += inflation === "rising" ? 70 : inflation === "stable" ? 52 : 35;
+    w++;
+  }
+  // China PMI: industrial metals key driver
+  if (chinaPMI !== null && (category === "metals" || category === "energy")) {
+    s += chinaPMI > 52 ? 78 : chinaPMI > 50 ? 60 : chinaPMI > 48 ? 44 : 28;
+    w++;
+  }
+  return w > 0 ? s / w : 50;
+}
+
+export function calculateCommodityTrendScore(m: CommodityMetricsInput): number {
+  const s1 = scoreCommodityMomentum(m.perf3m, m.perf12m) * 0.25;
+  const s2 = scoreFuturesCurveValuation(m.futuresCurve, m.frontBackSpread) * 0.20;
+  const s3 = scoreCFTCPositioning(m.cftcPositioningPct) * 0.20;
+  const s4 = scoreETFFlows(m.etfFlowsTrend) * 0.15;
+  const s5 = scoreMacroSupport(
+    m.dollarIndexTrend, m.realYieldTrend,
+    m.inflationExpectationTrend, m.chinaPMI, m.category
+  ) * 0.20;
+  return clamp(s1 + s2 + s3 + s4 + s5);
 }
