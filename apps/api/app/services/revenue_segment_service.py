@@ -52,11 +52,19 @@ class RevenueSegmentData:
     fallback_note: Optional[str] = None  # shown when no segment breakdown
 
 
+_META_KEYS = {"date", "symbol", "fiscalYear", "period", "reportedCurrency", "calendarYear"}
+
+
 def _parse_fmp_segment_rows(rows: list[dict]) -> list[SegmentYear]:
     """
-    Convert FMP's flat format [{date, SegA, SegB, ...}]
-    into [{year, segments: {name: value}}] sorted newest-first.
-    Filters out non-numeric keys and normalises values to absolute numbers.
+    Convert FMP segment data into [{year, segments: {name: value}}].
+
+    FMP stable returns one of two formats:
+      Flat:   [{date, iPhone: 201B, Services: 96B, fiscalYear: 2024, ...}]
+      Nested: [{date, "Apple": {iPhone: 201B, Services: 96B}, fiscalYear: 2024}]
+
+    We handle both. In the nested case the company-name wrapper key is skipped
+    and its child keys become segment names.
     """
     result = []
     for row in rows:
@@ -64,18 +72,40 @@ def _parse_fmp_segment_rows(rows: list[dict]) -> list[SegmentYear]:
         try:
             year = int(date_str[:4])
         except (ValueError, TypeError):
-            continue
+            # Try fiscalYear field as fallback
+            fy = row.get("fiscalYear")
+            if fy:
+                try:
+                    year = int(float(fy))
+                except (ValueError, TypeError):
+                    continue
+            else:
+                continue
 
         segments: dict[str, float] = {}
+
         for k, v in row.items():
-            if k == "date" or k == "symbol":
+            if k in _META_KEYS:
                 continue
-            try:
-                fv = float(v)
-                if fv > 0:  # exclude zeroes / negatives (not a real segment)
-                    segments[k] = fv
-            except (TypeError, ValueError):
-                continue
+
+            if isinstance(v, dict):
+                # Nested format — the key is the company name, value is {segment: amount}
+                for seg_name, seg_val in v.items():
+                    if seg_name in _META_KEYS:
+                        continue
+                    try:
+                        fv = float(seg_val)
+                        if fv > 0:
+                            segments[seg_name] = fv
+                    except (TypeError, ValueError):
+                        pass
+            else:
+                try:
+                    fv = float(v)
+                    if fv > 0:
+                        segments[k] = fv
+                except (TypeError, ValueError):
+                    pass
 
         if segments:
             result.append(SegmentYear(year=year, segments=segments))
@@ -92,6 +122,16 @@ def _ordered_names(years: list[SegmentYear]) -> list[str]:
 
 
 # ── DB cache helpers ──────────────────────────────────────────────────────────
+
+def _is_bad_cache(years: list[SegmentYear]) -> bool:
+    """Return True if cached data only has fiscalYear as a segment — broken old format."""
+    if not years:
+        return False
+    for y in years:
+        if set(y.segments.keys()) - {"fiscalYear"}:
+            return False  # has at least one real segment
+    return True  # all years only have fiscalYear
+
 
 def _is_stale(symbol: str, segment_type: str, db: Session) -> bool:
     """Return True if cache is absent or older than 24h."""
@@ -173,7 +213,8 @@ class RevenueSegmentService:
 
         # ── Product segments ───────────────────────────────────────────────────
         product_years: list[SegmentYear] = []
-        if _is_stale(sym, "product", db):
+        cached_product = _load_cache(sym, "product", db)
+        if _is_stale(sym, "product", db) or _is_bad_cache(cached_product):
             try:
                 raw = await self._fmp.get_revenue_segments(sym, limit=5)
                 if raw:
@@ -183,13 +224,14 @@ class RevenueSegmentService:
                     product_years = []
             except Exception as exc:
                 logger.warning("Revenue segment fetch failed for %s: %s", sym, exc)
-                product_years = _load_cache(sym, "product", db)
+                product_years = cached_product
         else:
-            product_years = _load_cache(sym, "product", db)
+            product_years = cached_product
 
         # ── Geographic segments ───────────────────────────────────────────────
         geo_years: list[SegmentYear] = []
-        if _is_stale(sym, "geo", db):
+        cached_geo = _load_cache(sym, "geo", db)
+        if _is_stale(sym, "geo", db) or _is_bad_cache(cached_geo):
             try:
                 raw = await self._fmp.get_geo_segments(sym, limit=5)
                 if raw:
@@ -199,9 +241,9 @@ class RevenueSegmentService:
                     geo_years = []
             except Exception as exc:
                 logger.warning("Geo segment fetch failed for %s: %s", sym, exc)
-                geo_years = _load_cache(sym, "geo", db)
+                geo_years = cached_geo
         else:
-            geo_years = _load_cache(sym, "geo", db)
+            geo_years = cached_geo
 
         segment_names = _ordered_names(product_years)
         geo_names = _ordered_names(geo_years)

@@ -414,8 +414,9 @@ def _synthesize_safety_insight(
     if altman_na_reason:
         parts.append(f"{company}'s balance sheet strength is assessed on a standalone basis ({altman_na_reason}).")
     elif altman_z is not None:
+        zone_text = altman_label if "zone" in altman_label.lower() or "distress" in altman_label.lower() else f"{altman_label} zone"
         parts.append(
-            f"Altman Z-Score of {altman_z:.2f} places {company} in the {altman_label}."
+            f"Altman Z-Score of {altman_z:.2f} places {company} in the {zone_text}."
         )
 
     # Net cash/debt

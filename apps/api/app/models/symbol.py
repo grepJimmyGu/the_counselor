@@ -43,4 +43,5 @@ class SymbolCache(Base):
     week_52_low: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     employees: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     market_cap_category: Mapped[Optional[str]] = mapped_column(String(16), nullable=True)
+    price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     fundamentals_updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

@@ -76,6 +76,12 @@ def run_startup_migrations(engine: Engine) -> None:
             except Exception:
                 pass
 
+        # price column on symbols table (added post-initial-deploy)
+        try:
+            conn.execute(text("ALTER TABLE symbols ADD COLUMN IF NOT EXISTS price FLOAT"))
+        except Exception:
+            pass
+
         # PRD-06: fundamental metadata columns on symbols table
         fundamental_columns = [
             ("sector", "VARCHAR(120)"),
@@ -651,6 +657,18 @@ def run_startup_migrations(engine: Engine) -> None:
         try:
             conn.execute(text(
                 "CREATE INDEX IF NOT EXISTS idx_upvotes_slug ON strategy_upvotes (strategy_slug)"
+            ))
+        except Exception:
+            pass
+
+        # PRD-08d: purge bad revenue_segments rows where segment data = only fiscalYear
+        # (parser bug in first deploy — nested FMP format not handled)
+        try:
+            conn.execute(text(
+                "DELETE FROM revenue_segments WHERE data::text = '{\"fiscalYear\": null}'"
+                " OR data::text LIKE '%fiscalYear%'"
+            ) if not is_sqlite else text(
+                "DELETE FROM revenue_segments WHERE data LIKE '%fiscalYear%'"
             ))
         except Exception:
             pass

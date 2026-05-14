@@ -228,7 +228,14 @@ class CompanyOverviewService:
         except Exception as exc:
             logger.warning("Business intelligence fetch failed for %s: %s", sym, exc)
 
-        # 9. Business Map — merge rule-based baseline with 10-K intelligence
+        # 9. Peers — always fetch fresh (not cached in SymbolCache)
+        peers: list[str] = []
+        try:
+            peers = await self._fmp.get_peers(sym)
+        except Exception:
+            peers = profile.peers or []
+
+        # 11. Business Map — merge rule-based baseline with 10-K intelligence
         role = get_value_chain_role(profile.sector, profile.industry)
         desc = profile.description or ""
         fallback_summary = ". ".join(desc.split(".")[:2]).strip() + "." if desc else None
@@ -276,7 +283,7 @@ class CompanyOverviewService:
             market_growth_label=(bi.market_growth_label if bi else None),
             competitive_position_label=(bi.competitive_position_label if bi else None),
             market_share_notes=(bi.market_share_notes if bi else None),
-            key_competitors=profile.peers[:5] if profile.peers else [],
+            key_competitors=peers[:8],
             key_growth_drivers=(bi.key_growth_drivers if bi else []),
             key_risks=(bi.key_risks if bi else []),
             upstream_suppliers=upstream_entries,

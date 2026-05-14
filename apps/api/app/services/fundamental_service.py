@@ -58,6 +58,7 @@ class FundamentalService:
         existing.week_52_low = profile.week_52_low
         existing.employees = profile.employees
         existing.market_cap_category = _market_cap_category(profile.market_cap)
+        existing.price = profile.price
         existing.exchange = profile.exchange or existing.exchange
         existing.currency = profile.currency or existing.currency
         existing.fundamentals_updated_at = now
@@ -89,6 +90,7 @@ class FundamentalService:
                 country=row.country,
                 currency=row.currency,
                 description=row.description,
+                price=row.price,
                 market_cap=row.market_cap,
                 pe_ratio=row.pe_ratio,
                 dividend_yield=row.dividend_yield,
