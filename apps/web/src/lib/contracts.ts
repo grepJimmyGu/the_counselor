@@ -802,6 +802,31 @@ export interface ScreenerFiltersResponse {
   total_symbols: number;
 }
 
+// ── PRD-08c: Health Score types ───────────────────────────────────────────────
+
+export interface HealthScoreSection {
+  // Piotroski F-Score
+  piotroski_score?: number | null;          // 0-9
+  piotroski_label: string;                  // Weak / Neutral / Good / Strong / N/A
+  piotroski_signals: Record<string, boolean | null | undefined>;
+  // Altman Z-Score
+  altman_z_score?: number | null;
+  altman_z_label: string;                   // Safe / Grey Zone / Distress / N/A
+  altman_z_na_reason?: string | null;
+  // Industry percentile
+  sector_piotroski_pct?: number | null;     // 0-100
+  sector_piotroski_n?: number | null;       // peer count
+  // QSV insights
+  insight_quality?: string | null;
+  insight_safety?: string | null;
+  insight_value?: string | null;
+  // Valuation carry-through
+  ev_ebitda?: number | null;
+  fcf_yield?: number | null;
+  pe_ratio?: number | null;
+  peg_ratio?: number | null;
+}
+
 // ── PRD-08a: Company Overview types ──────────────────────────────────────────
 
 export interface BusinessMapSection {
@@ -879,6 +904,7 @@ export interface CompanyOverviewResponse {
   exchange?: string | null;
   country?: string | null;
   as_of_date?: string | null;
+  health_score: HealthScoreSection;
   business_map: BusinessMapSection;
   market_position: MarketPositionSection;
   financial_check: FinancialCheckSection;

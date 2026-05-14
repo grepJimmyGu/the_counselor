@@ -12,6 +12,7 @@ from app.schemas.company_overview import (
     BusinessMapSection,
     CompanyOverviewResponse,
     FinancialCheckSection,
+    HealthScoreSection,
     MarketPositionSection,
 )
 from app.services.financial_validation_service import FinancialValidationService
@@ -26,6 +27,7 @@ from app.services.fundamental_scoring_service import (
 )
 from app.services.fundamental_service import FundamentalService
 from app.services.business_intelligence_service import BusinessIntelligenceService
+from app.services.health_score_service import HealthScoreService
 from app.services.value_chain_classifier import (
     derive_margin_implication,
     get_cyclicality_implication,
@@ -103,6 +105,7 @@ class CompanyOverviewService:
         self._financial_svc = FinancialValidationService()
         self._fmp = FMPClient()
         self._bi = BusinessIntelligenceService()
+        self._health = HealthScoreService()
 
     async def get_overview(self, db: Session, symbol: str) -> CompanyOverviewResponse:
         sym = symbol.upper()
@@ -126,14 +129,30 @@ class CompanyOverviewService:
         overall = compute_overall_score(fin_score, val_risk)
         warnings = get_warnings(fc, val_risk)
 
-        # 5. Business Intelligence from 10-K (LLM-extracted, 90-day cache)
+        # 5. PRD-08c: Health scores (Piotroski + Altman Z + QSV insights)
+        health_score_result = None
+        try:
+            health_score_result = await self._health.compute(
+                symbol=sym,
+                company_name=profile.name,
+                sector=profile.sector,
+                market_cap=profile.market_cap,
+                db=db,
+                key_metrics=key_metrics_raw,
+                net_debt=fc.net_debt,
+                interest_coverage=fc.interest_coverage,
+            )
+        except Exception as exc:
+            logger.warning("Health score computation failed for %s: %s", sym, exc)
+
+        # 6. Business Intelligence from 10-K (LLM-extracted, 90-day cache)
         bi = None
         try:
             bi = await self._bi.get(sym, db)
         except Exception as exc:
             logger.warning("Business intelligence fetch failed for %s: %s", sym, exc)
 
-        # 6. Business Map — merge rule-based baseline with 10-K intelligence
+        # 7. Business Map — merge rule-based baseline with 10-K intelligence
         role = get_value_chain_role(profile.sector, profile.industry)
         desc = profile.description or ""
         fallback_summary = ". ".join(desc.split(".")[:2]).strip() + "." if desc else None
@@ -152,7 +171,7 @@ class CompanyOverviewService:
             source_notes=(bi.source_notes if bi else ["FMP /profile", "sector-to-value-chain mapping v1"]),
         )
 
-        # 7. Market Position — peers from FMP + intelligence from 10-K
+        # 8. Market Position — peers from FMP + intelligence from 10-K
         market_cat = None
         if bi and bi.market_category:
             market_cat = bi.market_category
@@ -173,7 +192,7 @@ class CompanyOverviewService:
             source_notes=(bi.source_notes if bi else ["FMP /stock_peers", "FinanceDatabase sector mapping"]),
         )
 
-        # 8. Financial Check section
+        # 9. Financial Check section
         financial_check = FinancialCheckSection(
             financial_validation_label=get_financial_validation_label(fin_score),
             financial_validation_score=fin_score,
@@ -212,6 +231,27 @@ class CompanyOverviewService:
             source_notes=["FMP /income-statement", "FMP /cash-flow-statement", "FMP /key-metrics-ttm"],
         )
 
+        # Build HealthScoreSection from computed result
+        health_score = HealthScoreSection()
+        if health_score_result is not None:
+            health_score = HealthScoreSection(
+                piotroski_score=health_score_result.piotroski_score,
+                piotroski_label=health_score_result.piotroski_label,
+                piotroski_signals=health_score_result.piotroski_signals.to_dict(),
+                altman_z_score=health_score_result.altman_z_score,
+                altman_z_label=health_score_result.altman_z_label,
+                altman_z_na_reason=health_score_result.altman_z_na_reason,
+                sector_piotroski_pct=health_score_result.sector_piotroski_pct,
+                sector_piotroski_n=health_score_result.sector_piotroski_n,
+                insight_quality=health_score_result.insight_quality,
+                insight_safety=health_score_result.insight_safety,
+                insight_value=health_score_result.insight_value,
+                ev_ebitda=health_score_result.ev_ebitda,
+                fcf_yield=health_score_result.fcf_yield,
+                pe_ratio=health_score_result.pe_ratio,
+                peg_ratio=health_score_result.peg_ratio,
+            )
+
         return CompanyOverviewResponse(
             symbol=sym,
             name=profile.name,
@@ -222,6 +262,7 @@ class CompanyOverviewService:
             exchange=profile.exchange,
             country=profile.country,
             as_of_date=profile.as_of_date,
+            health_score=health_score,
             business_map=business_map,
             market_position=market_position,
             financial_check=financial_check,

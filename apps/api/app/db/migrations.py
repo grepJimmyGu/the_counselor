@@ -655,6 +655,52 @@ def run_startup_migrations(engine: Engine) -> None:
         except Exception:
             pass
 
+        # PRD-08c: symbol_health_scores (Piotroski + Altman Z, sector percentile)
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS symbol_health_scores (
+                symbol VARCHAR(20) PRIMARY KEY,
+                sector VARCHAR(120),
+                piotroski_score SMALLINT,
+                piotroski_signals TEXT DEFAULT '{}',
+                altman_z_score REAL,
+                altman_z_label VARCHAR(20),
+                sector_piotroski_pct REAL,
+                sector_piotroski_n INTEGER,
+                insight_quality TEXT,
+                insight_safety TEXT,
+                insight_value TEXT,
+                ev_ebitda REAL,
+                fcf_yield REAL,
+                roic REAL,
+                computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """) if is_sqlite else text("""
+            CREATE TABLE IF NOT EXISTS symbol_health_scores (
+                symbol VARCHAR(20) PRIMARY KEY,
+                sector VARCHAR(120),
+                piotroski_score SMALLINT,
+                piotroski_signals JSONB DEFAULT '{}',
+                altman_z_score FLOAT,
+                altman_z_label VARCHAR(20),
+                sector_piotroski_pct FLOAT,
+                sector_piotroski_n INT,
+                insight_quality TEXT,
+                insight_safety TEXT,
+                insight_value TEXT,
+                ev_ebitda FLOAT,
+                fcf_yield FLOAT,
+                roic FLOAT,
+                computed_at TIMESTAMPTZ DEFAULT now()
+            )
+        """))
+        try:
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_health_scores_sector"
+                " ON symbol_health_scores (sector)"
+            ))
+        except Exception:
+            pass
+
         # strategy_live_performance: daily-computed return since publish date (24h TTL)
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS strategy_live_performance (

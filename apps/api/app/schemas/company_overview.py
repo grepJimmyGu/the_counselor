@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Optional
+from typing import Any, Optional
 
 from pydantic import BaseModel
 
@@ -10,6 +10,34 @@ DISCLAIMER = (
     "Market size estimates, competitive position, and financial data may be "
     "incomplete, delayed, or uncertain. Always verify with primary sources."
 )
+
+
+class HealthScoreSection(BaseModel):
+    """PRD-08c: Piotroski F-Score + Altman Z-Score + QSV insights."""
+    # Piotroski
+    piotroski_score: Optional[int] = None          # 0-9 or None
+    piotroski_label: str = "N/A"                   # Weak / Neutral / Good / Strong / N/A
+    piotroski_signals: dict[str, Optional[bool]] = {}  # signal name → pass/fail/None
+
+    # Altman Z
+    altman_z_score: Optional[float] = None
+    altman_z_label: str = "N/A"                    # Safe / Grey Zone / Distress / N/A
+    altman_z_na_reason: Optional[str] = None
+
+    # Industry percentile
+    sector_piotroski_pct: Optional[float] = None   # 0-100 (percentile ABOVE which this stock sits)
+    sector_piotroski_n: Optional[int] = None       # peer count
+
+    # QSV insights (deterministic, no LLM)
+    insight_quality: Optional[str] = None
+    insight_safety: Optional[str] = None
+    insight_value: Optional[str] = None
+
+    # Valuation carry-through for V insight
+    ev_ebitda: Optional[float] = None
+    fcf_yield: Optional[float] = None
+    pe_ratio: Optional[float] = None
+    peg_ratio: Optional[float] = None
 
 
 class BusinessMapSection(BaseModel):
@@ -93,6 +121,7 @@ class CompanyOverviewResponse(BaseModel):
     exchange: Optional[str] = None
     country: Optional[str] = None
     as_of_date: Optional[date] = None
+    health_score: HealthScoreSection = HealthScoreSection()
     business_map: BusinessMapSection
     market_position: MarketPositionSection
     financial_check: FinancialCheckSection
