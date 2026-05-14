@@ -9,7 +9,9 @@ import { EquityCurveChart, DrawdownChart } from "@/components/workspace/charts";
 import type { BacktestResult, LivePerformance, SavedStrategy } from "@/lib/contracts";
 import { UpvoteButton } from "@/components/community/upvote-button";
 import { CommentsSection } from "@/components/community/comments-section";
-import { Globe, Lock, TrendingDown, TrendingUp } from "lucide-react";
+import { Globe, Lock, TrendingDown, TrendingUp, Copy, Check, AlertTriangle } from "lucide-react";
+import { LineChart, Line, ResponsiveContainer, Tooltip, Area, AreaChart } from "recharts";
+import { cn } from "@/lib/utils";
 
 function MetricCard({ label, value }: { label: string; value: string }) {
   return (
@@ -32,6 +34,7 @@ export default function SavedStrategyPage() {
   const [togglingVisibility, setTogglingVisibility] = useState(false);
   const [livePerf, setLivePerf] = useState<LivePerformance | null>(null);
   const [perfLoading, setPerfLoading] = useState(false);
+  const [copied, setCopied] = useState(false);
   const perfPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   function fetchLivePerf(s: string, attempt = 0) {
@@ -100,15 +103,28 @@ export default function SavedStrategyPage() {
       <div className="mx-auto max-w-4xl px-4 py-8 space-y-8">
 
         {/* Header */}
-        <div className="space-y-2 border-b border-border pb-6">
+        <div className="space-y-3 border-b border-border pb-6">
           <div className="flex items-center gap-2">
             <Badge className="bg-primary/15 text-primary hover:bg-primary/15">Livermore</Badge>
-            <Badge variant="outline">Saved Strategy</Badge>
+            <Badge variant="outline">Public Strategy</Badge>
           </div>
           <div className="flex flex-wrap items-start justify-between gap-3">
-            <h1 className="text-3xl font-semibold tracking-tight">{data.name}</h1>
-            <div className="flex items-center gap-2 shrink-0">
-              {/* Public/private toggle */}
+            <h1 className="text-2xl font-bold tracking-tight lg:text-3xl">{data.name}</h1>
+            <div className="flex items-center gap-2 shrink-0 flex-wrap">
+              {/* Share / copy link */}
+              <button
+                onClick={() => {
+                  navigator.clipboard.writeText(`${window.location.origin}/strategies/${slug}`);
+                  setCopied(true);
+                  setTimeout(() => setCopied(false), 2000);
+                }}
+                className="flex cursor-pointer items-center gap-1.5 rounded-full border border-border bg-white px-3 py-1 text-xs font-medium text-muted-foreground transition-all hover:border-primary/40 hover:text-primary"
+                aria-label="Copy share link"
+              >
+                {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
+                {copied ? "Copied!" : "Share"}
+              </button>
+              {/* Visibility toggle */}
               <button
                 onClick={async () => {
                   setTogglingVisibility(true);
@@ -120,22 +136,21 @@ export default function SavedStrategyPage() {
                   finally { setTogglingVisibility(false); }
                 }}
                 disabled={togglingVisibility}
-                className={`flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-all ${
+                className={cn(
+                  "flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-all",
                   isPublic
                     ? "border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                     : "border-border bg-muted/30 text-muted-foreground hover:border-primary/40"
-                }`}
+                )}
                 title={isPublic ? "Click to make private" : "Click to make public"}
               >
-                {isPublic
-                  ? <><Globe className="h-3 w-3" /> Public</>
-                  : <><Lock className="h-3 w-3" /> Private</>}
+                {isPublic ? <><Globe className="h-3 w-3" /> Public</> : <><Lock className="h-3 w-3" /> Private</>}
               </button>
               <UpvoteButton slug={slug} />
             </div>
           </div>
           <p className="text-sm text-muted-foreground">
-            Saved {savedDate} · {s.universe.join(", ")} · {s.start_date} – {s.end_date} · Benchmark: {s.benchmark}
+            Published {savedDate} · {s.universe.join(", ")} · {s.start_date} to {s.end_date} · vs {s.benchmark}
           </p>
         </div>
 
@@ -170,8 +185,9 @@ export default function SavedStrategyPage() {
         {data.warnings.length > 0 && (
           <div className="space-y-2">
             {data.warnings.map((w, i) => (
-              <div key={i} className="rounded-md border border-yellow-500/20 bg-yellow-500/5 px-4 py-2.5 text-xs text-yellow-300/80">
-                ⚠ {w}
+              <div key={i} className="flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800">
+                <AlertTriangle className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+                {w}
               </div>
             ))}
           </div>
@@ -198,67 +214,116 @@ export default function SavedStrategyPage() {
         {/* Live performance since publish */}
         {isPublic && (
           <section className="space-y-3">
-            <h2 className="text-sm font-medium flex items-center gap-2">
-              Live Performance
-              <span className="text-[10px] font-normal text-muted-foreground">since published · updates daily</span>
-              {perfLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className="text-sm font-medium">Live Performance</h2>
+              <span className="text-[10px] text-muted-foreground">since published · updates daily</span>
+              {perfLoading && livePerf && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+            </div>
 
             {!livePerf && perfLoading ? (
-              <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-5 text-sm text-muted-foreground">
-                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
-                Computing performance since publish date…
+              <div className="flex items-center gap-3 rounded-xl border border-border bg-white px-5 py-6">
+                <Loader2 className="h-5 w-5 animate-spin text-muted-foreground shrink-0" />
+                <div>
+                  <p className="text-sm font-medium">Computing live performance…</p>
+                  <p className="text-xs text-muted-foreground">Fetching price data and running the strategy from publish date</p>
+                </div>
               </div>
             ) : livePerf ? (
-              <div className="rounded-lg border border-border bg-background p-4">
+              <div className={cn(
+                "rounded-xl border p-5",
+                livePerf.total_return_pct != null && livePerf.total_return_pct >= 0
+                  ? "border-emerald-200 bg-emerald-50/50"
+                  : livePerf.total_return_pct != null
+                  ? "border-red-200 bg-red-50/50"
+                  : "border-border bg-white"
+              )}>
                 {livePerf.error?.includes("Published today") ? (
-                  <p className="text-sm text-muted-foreground">
-                    Published today — performance tracking begins tomorrow after market close.
-                  </p>
+                  <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                    <div className="h-10 w-10 shrink-0 flex items-center justify-center rounded-full bg-muted/50">
+                      <TrendingUp className="h-5 w-5 text-muted-foreground/60" />
+                    </div>
+                    <div>
+                      <p className="font-medium text-foreground">Tracking starts tomorrow</p>
+                      <p className="text-xs">Performance data will appear after the first trading day.</p>
+                    </div>
+                  </div>
                 ) : livePerf.error && !livePerf.total_return ? (
                   <p className="text-sm text-muted-foreground">{livePerf.error}</p>
                 ) : (
-                  <div className="flex flex-wrap items-center gap-6">
-                    {/* Return — primary metric */}
-                    <div>
-                      <div className="text-xs text-muted-foreground">Return since published</div>
-                      <div className={`mt-0.5 flex items-center gap-1 text-2xl font-bold font-mono ${
-                        livePerf.total_return_pct == null
-                          ? "text-muted-foreground"
-                          : livePerf.total_return_pct >= 0 ? "text-emerald-600" : "text-red-600"
-                      }`}>
+                  <div className="flex flex-wrap items-stretch gap-4 sm:gap-6">
+                    {/* Return — giant hero number */}
+                    <div className="flex flex-col justify-center">
+                      <div className="text-[10px] uppercase tracking-wide font-semibold text-muted-foreground mb-1">Return since published</div>
+                      <div className={cn(
+                        "flex items-center gap-1.5 font-mono font-bold tabular-nums",
+                        livePerf.total_return_pct == null ? "text-muted-foreground text-3xl" :
+                        livePerf.total_return_pct >= 0 ? "text-emerald-700 text-4xl" : "text-red-600 text-4xl"
+                      )}>
                         {livePerf.total_return_pct == null ? "—" : (
                           <>
                             {livePerf.total_return_pct >= 0
-                              ? <TrendingUp className="h-5 w-5" />
-                              : <TrendingDown className="h-5 w-5" />}
+                              ? <TrendingUp className="h-7 w-7" />
+                              : <TrendingDown className="h-7 w-7" />}
                             {livePerf.total_return_pct >= 0 ? "+" : ""}
                             {livePerf.total_return_pct.toFixed(2)}%
                           </>
                         )}
                       </div>
                     </div>
-                    <div>
-                      <div className="text-xs text-muted-foreground">Trading days tracked</div>
-                      <div className="mt-0.5 text-lg font-semibold font-mono">{livePerf.days_tracked}</div>
+
+                    {/* Sparkline of equity curve since publish */}
+                    {livePerf.equity_curve && livePerf.equity_curve.length >= 3 && (
+                      <div className="flex-1 min-w-[120px] h-16">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <AreaChart data={livePerf.equity_curve as Array<{ date: string; value: number }>} margin={{ top: 2, bottom: 2, left: 0, right: 0 }}>
+                            <defs>
+                              <linearGradient id="liveGrad" x1="0" y1="0" x2="0" y2="1">
+                                <stop offset="5%" stopColor={livePerf.total_return_pct != null && livePerf.total_return_pct >= 0 ? "#16a34a" : "#dc2626"} stopOpacity={0.25} />
+                                <stop offset="95%" stopColor={livePerf.total_return_pct != null && livePerf.total_return_pct >= 0 ? "#16a34a" : "#dc2626"} stopOpacity={0} />
+                              </linearGradient>
+                            </defs>
+                            <Area
+                              type="monotone"
+                              dataKey="value"
+                              stroke={livePerf.total_return_pct != null && livePerf.total_return_pct >= 0 ? "#16a34a" : "#dc2626"}
+                              strokeWidth={2}
+                              fill="url(#liveGrad)"
+                              dot={false}
+                            />
+                          </AreaChart>
+                        </ResponsiveContainer>
+                      </div>
+                    )}
+
+                    {/* Secondary stats */}
+                    <div className="flex flex-wrap gap-4 items-center">
+                      <div>
+                        <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Days tracked</div>
+                        <div className="font-mono text-xl font-semibold">{livePerf.days_tracked}</div>
+                      </div>
+                      {livePerf.current_signal && livePerf.current_signal !== "unknown" && (
+                        <div>
+                          <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Signal</div>
+                          <div className={cn(
+                            "mt-0.5 inline-flex items-center rounded px-2 py-0.5 text-xs font-semibold capitalize",
+                            livePerf.current_signal === "long" ? "bg-emerald-100 text-emerald-700" : "bg-muted text-muted-foreground"
+                          )}>
+                            {livePerf.current_signal}
+                          </div>
+                        </div>
+                      )}
+                      {livePerf.last_price_date && (
+                        <div>
+                          <div className="text-[10px] text-muted-foreground uppercase tracking-wide">Data through</div>
+                          <div className="font-mono text-xs">{String(livePerf.last_price_date)}</div>
+                        </div>
+                      )}
+                      {livePerf.computed_at && (
+                        <div className="text-[10px] text-muted-foreground">
+                          Updated {new Date(livePerf.computed_at).toLocaleString()}
+                        </div>
+                      )}
                     </div>
-                    {livePerf.current_signal && livePerf.current_signal !== "unknown" && (
-                      <div>
-                        <div className="text-xs text-muted-foreground">Current signal</div>
-                        <div className="mt-0.5 text-sm font-semibold capitalize">{livePerf.current_signal}</div>
-                      </div>
-                    )}
-                    {livePerf.last_price_date && (
-                      <div>
-                        <div className="text-xs text-muted-foreground">Data through</div>
-                        <div className="mt-0.5 text-sm font-mono">{String(livePerf.last_price_date)}</div>
-                      </div>
-                    )}
-                    {livePerf.computed_at && (
-                      <div className="ml-auto text-[10px] text-muted-foreground">
-                        Updated {new Date(livePerf.computed_at).toLocaleString()}
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
