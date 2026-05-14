@@ -70,6 +70,27 @@ class BusinessMapSection(BaseModel):
     source_notes: list[str] = []
 
 
+class SupplyChainEntry(BaseModel):
+    name: str
+    symbol: Optional[str] = None   # None if not a publicly-traded company
+
+
+class CompetitorRankingEntry(BaseModel):
+    symbol: str
+    name: str
+    revenue: str          # formatted, e.g. "$209B"
+    revenue_raw: float
+    share: float          # 0.0 - 1.0
+    position: str         # Dominant / Market Leader / Major Participant / Niche
+    trend_5yr: list[float] = []
+
+
+class CompetitorSegmentSection(BaseModel):
+    segment: str
+    rankings: list[CompetitorRankingEntry] = []
+    disclaimer: str = ""
+
+
 class MarketPositionSection(BaseModel):
     market_category: Optional[str] = None
     market_size_estimate: str = "estimate unavailable"
@@ -79,6 +100,11 @@ class MarketPositionSection(BaseModel):
     key_competitors: list[str] = []
     key_growth_drivers: list[str] = []
     key_risks: list[str] = []
+    # PRD-08e: supply chain
+    upstream_suppliers: list[SupplyChainEntry] = []
+    downstream_customers: list[SupplyChainEntry] = []
+    # PRD-08e: per-segment competitor rankings
+    competitor_segments: list[CompetitorSegmentSection] = []
     visualization_type: str = "market_position_card"
     confidence: str = "partial"
     source_notes: list[str] = []

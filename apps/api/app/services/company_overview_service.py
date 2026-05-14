@@ -11,11 +11,14 @@ logger = logging.getLogger(__name__)
 from app.schemas.company_overview import (
     BusinessMapSection,
     CompanyOverviewResponse,
+    CompetitorRankingEntry,
+    CompetitorSegmentSection,
     FinancialCheckSection,
     HealthScoreSection,
     MarketPositionSection,
     RevenueSegmentSection,
     SegmentYearSchema,
+    SupplyChainEntry,
 )
 from app.services.financial_validation_service import FinancialValidationService
 from app.services.fmp_client import FMPClient, FMPNotConfiguredError, FMPRateLimitError
@@ -31,11 +34,37 @@ from app.services.fundamental_service import FundamentalService
 from app.services.business_intelligence_service import BusinessIntelligenceService
 from app.services.health_score_service import HealthScoreService
 from app.services.revenue_segment_service import RevenueSegmentService
+from app.services.competitor_group_service import CompetitorGroupService
 from app.services.value_chain_classifier import (
     derive_margin_implication,
     get_cyclicality_implication,
     get_value_chain_role,
 )
+
+
+def _match_names_to_symbols(names: list[str], db: Session) -> dict[str, Optional[str]]:
+    """
+    Fuzzy-match a list of company names against the symbols table.
+    Returns {name: symbol_or_None}.  Uses simple ILIKE — good enough for named entities.
+    """
+    result: dict[str, Optional[str]] = {}
+    for name in names:
+        if not name or len(name) < 2:
+            result[name] = None
+            continue
+        try:
+            row = db.execute(
+                text(
+                    "SELECT symbol FROM symbols"
+                    " WHERE LOWER(name) LIKE LOWER(:pat) OR LOWER(symbol) = LOWER(:exact)"
+                    " ORDER BY LENGTH(name) LIMIT 1"
+                ),
+                {"pat": f"%{name}%", "exact": name.strip()},
+            ).fetchone()
+            result[name] = row[0] if row else None
+        except Exception:
+            result[name] = None
+    return result
 
 
 def _pct(v: Optional[float]) -> Optional[str]:
@@ -110,6 +139,7 @@ class CompanyOverviewService:
         self._bi = BusinessIntelligenceService()
         self._health = HealthScoreService()
         self._segments = RevenueSegmentService()
+        self._competitors = CompetitorGroupService()
 
     async def get_overview(self, db: Session, symbol: str) -> CompanyOverviewResponse:
         sym = symbol.upper()
@@ -156,14 +186,49 @@ class CompanyOverviewService:
         except Exception as exc:
             logger.warning("Revenue segment fetch failed for %s: %s", sym, exc)
 
-        # 7. Business Intelligence from 10-K (LLM-extracted, 90-day cache)
+        # 7. PRD-08e: Competitor group rankings (lazy, 7-day cache)
+        competitor_segment_list: list[CompetitorSegmentSection] = []
+        try:
+            segment_names = seg_data.segment_names if seg_data else []
+            raw_peers = profile.peers[:8] if profile.peers else []
+            if segment_names and raw_peers:
+                rankings = await self._competitors.get_rankings(
+                    symbol=sym,
+                    symbol_name=profile.name,
+                    segments=segment_names,
+                    raw_peers=raw_peers,
+                    db=db,
+                )
+                competitor_segment_list = [
+                    CompetitorSegmentSection(
+                        segment=r.segment,
+                        rankings=[
+                            CompetitorRankingEntry(
+                                symbol=e.symbol,
+                                name=e.name,
+                                revenue=e.revenue,
+                                revenue_raw=e.revenue_raw,
+                                share=e.share,
+                                position=e.position,
+                                trend_5yr=e.trend_5yr,
+                            )
+                            for e in r.rankings
+                        ],
+                        disclaimer=r.disclaimer,
+                    )
+                    for r in rankings
+                ]
+        except Exception as exc:
+            logger.warning("Competitor rankings failed for %s: %s", sym, exc)
+
+        # 8. Business Intelligence from 10-K (LLM-extracted, 90-day cache)
         bi = None
         try:
             bi = await self._bi.get(sym, db)
         except Exception as exc:
             logger.warning("Business intelligence fetch failed for %s: %s", sym, exc)
 
-        # 8. Business Map — merge rule-based baseline with 10-K intelligence
+        # 9. Business Map — merge rule-based baseline with 10-K intelligence
         role = get_value_chain_role(profile.sector, profile.industry)
         desc = profile.description or ""
         fallback_summary = ". ".join(desc.split(".")[:2]).strip() + "." if desc else None
@@ -182,13 +247,28 @@ class CompanyOverviewService:
             source_notes=(bi.source_notes if bi else ["FMP /profile", "sector-to-value-chain mapping v1"]),
         )
 
-        # 9. Market Position — peers from FMP + intelligence from 10-K
+        # 10. Market Position — peers from FMP + intelligence from 10-K
         market_cat = None
         if bi and bi.market_category:
             market_cat = bi.market_category
         elif profile.sector:
             cap_cat = getattr(profile, "market_cap_category", None)
             market_cat = f"{cap_cat}-Cap {profile.sector}" if cap_cat else profile.sector
+
+        # Supply chain — match named suppliers/customers to symbols
+        upstream_entries: list[SupplyChainEntry] = []
+        downstream_entries: list[SupplyChainEntry] = []
+        if bi and (bi.upstream_suppliers or bi.downstream_customers):
+            all_names = (bi.upstream_suppliers or []) + (bi.downstream_customers or [])
+            name_to_sym = _match_names_to_symbols(all_names, db)
+            upstream_entries = [
+                SupplyChainEntry(name=n, symbol=name_to_sym.get(n))
+                for n in (bi.upstream_suppliers or [])
+            ]
+            downstream_entries = [
+                SupplyChainEntry(name=n, symbol=name_to_sym.get(n))
+                for n in (bi.downstream_customers or [])
+            ]
 
         market_position = MarketPositionSection(
             market_category=market_cat,
@@ -199,11 +279,14 @@ class CompanyOverviewService:
             key_competitors=profile.peers[:5] if profile.peers else [],
             key_growth_drivers=(bi.key_growth_drivers if bi else []),
             key_risks=(bi.key_risks if bi else []),
+            upstream_suppliers=upstream_entries,
+            downstream_customers=downstream_entries,
+            competitor_segments=competitor_segment_list,
             confidence=("high" if bi and bi.confidence == "high" else "partial"),
             source_notes=(bi.source_notes if bi else ["FMP /stock_peers", "FinanceDatabase sector mapping"]),
         )
 
-        # 10. Financial Check section
+        # 11. Financial Check section
         financial_check = FinancialCheckSection(
             financial_validation_label=get_financial_validation_label(fin_score),
             financial_validation_score=fin_score,

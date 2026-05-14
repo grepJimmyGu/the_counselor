@@ -25,10 +25,12 @@ Extract the following fields from the provided filing sections. Return ONLY a va
 Rules:
 - Use only information explicitly stated in the filing. Do not infer or fabricate.
 - Keep text fields to 1-2 sentences maximum.
-- Lists: 3-5 items maximum.
+- Lists: 3-6 items maximum.
 - Use null for any field not clearly stated in the text.
 - For market_growth_label choose exactly one: "fast-growing" | "growing" | "stable" | "declining" | "cyclical" | "unclear"
 - For competitive_position_label choose exactly one: "market leader" | "top 3 player" | "significant player" | "niche player" | "unclear"
+- For upstream_suppliers: list named suppliers/manufacturers mentioned (e.g. "TSMC", "Foxconn"). Use short proper names. Max 6.
+- For downstream_customers: list named customers or customer segments (e.g. "Apple", "Enterprise", "US Carriers"). Max 6.
 
 Return JSON with exactly this shape:
 {
@@ -42,7 +44,9 @@ Return JSON with exactly this shape:
   "competitive_position_label": "market leader|top 3 player|significant player|niche player|unclear",
   "market_share_notes": "Any market share data or competitive position statements, or null.",
   "key_growth_drivers": ["driver1", "driver2", "driver3"],
-  "key_risks": ["risk1", "risk2", "risk3"]
+  "key_risks": ["risk1", "risk2", "risk3"],
+  "upstream_suppliers": ["Supplier A", "Supplier B"],
+  "downstream_customers": ["Customer A", "Customer B"]
 }"""
 
 
@@ -63,6 +67,8 @@ class BusinessIntelligence:
     market_share_notes: Optional[str] = None
     key_growth_drivers: list[str] = field(default_factory=list)
     key_risks: list[str] = field(default_factory=list)
+    upstream_suppliers: list[str] = field(default_factory=list)
+    downstream_customers: list[str] = field(default_factory=list)
     confidence: str = "partial"
     source_notes: list[str] = field(default_factory=list)
 
@@ -172,6 +178,8 @@ class BusinessIntelligenceService:
             market_share_notes=payload.get("market_share_notes"),
             key_growth_drivers=payload.get("key_growth_drivers") or [],
             key_risks=payload.get("key_risks") or [],
+            upstream_suppliers=payload.get("upstream_suppliers") or [],
+            downstream_customers=payload.get("downstream_customers") or [],
             confidence="high",
             source_notes=[
                 f"SEC 10-K filed {filing_date or 'date unknown'}",
@@ -191,7 +199,9 @@ def _load_cache(symbol: str, db: Session) -> BusinessIntelligence | None:
             " one_line_summary, revenue_model, customer_types,"
             " pricing_power_implication, market_category, market_size_estimate,"
             " market_growth_label, competitive_position_label, market_share_notes,"
-            " key_growth_drivers, key_risks, confidence, source_notes"
+            " key_growth_drivers, key_risks,"
+            " upstream_suppliers, downstream_customers,"
+            " confidence, source_notes"
             " FROM company_business_intelligence"
             " WHERE symbol = :sym AND expires_at > :now"
             " ORDER BY created_at DESC LIMIT 1"
@@ -230,6 +240,8 @@ def _load_cache(symbol: str, db: Session) -> BusinessIntelligence | None:
         market_share_notes=r.get("market_share_notes"),
         key_growth_drivers=_jl(r.get("key_growth_drivers")),
         key_risks=_jl(r.get("key_risks")),
+        upstream_suppliers=_jl(r.get("upstream_suppliers")),
+        downstream_customers=_jl(r.get("downstream_customers")),
         confidence=r.get("confidence") or "partial",
         source_notes=_jl(r.get("source_notes")),
     )
@@ -245,13 +257,17 @@ def _save_cache(bi: BusinessIntelligence, db: Session) -> None:
                 "  one_line_summary, revenue_model, customer_types,"
                 "  pricing_power_implication, market_category, market_size_estimate,"
                 "  market_growth_label, competitive_position_label, market_share_notes,"
-                "  key_growth_drivers, key_risks, confidence, source_notes, expires_at)"
+                "  key_growth_drivers, key_risks,"
+                "  upstream_suppliers, downstream_customers,"
+                "  confidence, source_notes, expires_at)"
                 " VALUES"
                 " (:symbol, :filing_type, :filing_date, :filing_url,"
                 "  :one_line_summary, :revenue_model, :customer_types,"
                 "  :pricing_power_implication, :market_category, :market_size_estimate,"
                 "  :market_growth_label, :competitive_position_label, :market_share_notes,"
-                "  :key_growth_drivers, :key_risks, :confidence, :source_notes, :expires_at)"
+                "  :key_growth_drivers, :key_risks,"
+                "  :upstream_suppliers, :downstream_customers,"
+                "  :confidence, :source_notes, :expires_at)"
                 " ON CONFLICT (symbol) DO UPDATE SET"
                 "  filing_type = EXCLUDED.filing_type,"
                 "  filing_date = EXCLUDED.filing_date,"
@@ -267,6 +283,8 @@ def _save_cache(bi: BusinessIntelligence, db: Session) -> None:
                 "  market_share_notes = EXCLUDED.market_share_notes,"
                 "  key_growth_drivers = EXCLUDED.key_growth_drivers,"
                 "  key_risks = EXCLUDED.key_risks,"
+                "  upstream_suppliers = EXCLUDED.upstream_suppliers,"
+                "  downstream_customers = EXCLUDED.downstream_customers,"
                 "  confidence = EXCLUDED.confidence,"
                 "  source_notes = EXCLUDED.source_notes,"
                 "  expires_at = EXCLUDED.expires_at,"
@@ -288,6 +306,8 @@ def _save_cache(bi: BusinessIntelligence, db: Session) -> None:
                 "market_share_notes": bi.market_share_notes,
                 "key_growth_drivers": json.dumps(bi.key_growth_drivers),
                 "key_risks": json.dumps(bi.key_risks),
+                "upstream_suppliers": json.dumps(bi.upstream_suppliers),
+                "downstream_customers": json.dumps(bi.downstream_customers),
                 "confidence": bi.confidence,
                 "source_notes": json.dumps(bi.source_notes),
                 "expires_at": expires_at,

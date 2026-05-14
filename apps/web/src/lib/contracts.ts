@@ -859,6 +859,27 @@ export interface BusinessMapSection {
   source_notes: string[];
 }
 
+export interface SupplyChainEntry {
+  name: string;
+  symbol?: string | null;
+}
+
+export interface CompetitorRankingEntry {
+  symbol: string;
+  name: string;
+  revenue: string;           // formatted e.g. "$209B"
+  revenue_raw: number;
+  share: number;             // 0.0 - 1.0
+  position: string;          // Dominant / Market Leader / Major Participant / Niche
+  trend_5yr: number[];
+}
+
+export interface CompetitorSegment {
+  segment: string;
+  rankings: CompetitorRankingEntry[];
+  disclaimer: string;
+}
+
 export interface MarketPositionSection {
   market_category?: string | null;
   market_size_estimate: string;
@@ -868,6 +889,9 @@ export interface MarketPositionSection {
   key_competitors: string[];
   key_growth_drivers: string[];
   key_risks: string[];
+  upstream_suppliers: SupplyChainEntry[];
+  downstream_customers: SupplyChainEntry[];
+  competitor_segments: CompetitorSegment[];
   confidence: string;
   source_notes: string[];
 }

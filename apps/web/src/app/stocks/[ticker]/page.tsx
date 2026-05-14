@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MetricLabel } from "@/components/ui/metric-label";
 import { BusinessModelSection } from "./_business-model-section";
+import { MarketPositionSectionUI } from "./_market-position-section";
 import type { Route } from "next";
 import { SentimentTab } from "./_sentiment-tab";
 import { WatchlistButton } from "@/components/community/watchlist-button";
@@ -550,72 +551,21 @@ export default function CompanyPage() {
           </div>
         </section>
 
-        {/* ── Section: Market Position ───────────────────────────────────── */}
+        {/* ── TIER 4: Market Position ───────────────────────────────────── */}
         <section className="rounded-xl border border-border bg-white shadow-sm">
           <div className="flex items-center gap-2 border-b border-border px-5 py-3.5">
             <div className="h-2 w-2 rounded-full bg-[var(--warning-amber)]" />
             <h2 className="font-heading text-sm font-semibold">Market Position</h2>
-            <Badge variant="outline" className="ml-auto text-[10px] font-mono">Partial · {mp.confidence}</Badge>
+            <Badge variant="outline" className="ml-auto text-[10px] font-mono">
+              {mp.confidence} · {mp.competitor_segments.length > 0 ? `${mp.competitor_segments.length} segments` : "10-K data"}
+            </Badge>
           </div>
-          <div className="p-5 space-y-3">
-            {mp.market_category && (
-              <div className="text-sm font-medium">{mp.market_category}</div>
-            )}
-            {mp.key_competitors.length > 0 && (
-              <div>
-                <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Peers</div>
-                <div className="flex flex-wrap gap-1.5">
-                  {mp.key_competitors.map((c) => (
-                    <Link key={c} href={`/stocks/${c}` as Route}>
-                      <Badge variant="outline" className="cursor-pointer font-mono text-xs hover:border-primary/40 transition-colors">{c}</Badge>
-                    </Link>
-                  ))}
-                </div>
-              </div>
-            )}
-            {(mp.market_growth_label || mp.competitive_position_label || mp.market_size_estimate !== "estimate unavailable") && (
-              <div className="grid gap-2 sm:grid-cols-3">
-                {mp.market_size_estimate && mp.market_size_estimate !== "estimate unavailable" && mp.market_size_estimate !== "Not disclosed" && (
-                  <div className="rounded-lg border border-border bg-muted/30 p-3">
-                    <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Market Size</div>
-                    <div className="mt-1 text-xs font-medium">{mp.market_size_estimate}</div>
-                  </div>
-                )}
-                {mp.market_growth_label && (
-                  <div className="rounded-lg border border-border bg-muted/30 p-3">
-                    <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Market Growth</div>
-                    <div className="mt-1 text-xs font-medium capitalize">{mp.market_growth_label}</div>
-                  </div>
-                )}
-                {mp.competitive_position_label && (
-                  <div className="rounded-lg border border-border bg-muted/30 p-3">
-                    <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Position</div>
-                    <div className="mt-1 text-xs font-medium capitalize">{mp.competitive_position_label}</div>
-                  </div>
-                )}
-              </div>
-            )}
-            {mp.key_growth_drivers && mp.key_growth_drivers.length > 0 && (
-              <div>
-                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Growth Drivers</div>
-                <ul className="space-y-0.5 text-xs text-foreground/70">
-                  {mp.key_growth_drivers.map((d: string) => <li key={d} className="flex gap-1.5"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500" />{d}</li>)}
-                </ul>
-              </div>
-            )}
-            {mp.key_risks && mp.key_risks.length > 0 && (
-              <div>
-                <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Key Risks</div>
-                <ul className="space-y-0.5 text-xs text-foreground/70">
-                  {mp.key_risks.map((r: string) => <li key={r} className="flex gap-1.5"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-red-400" />{r}</li>)}
-                </ul>
-              </div>
-            )}
-            {mp.confidence === "partial" && (
-              <div className="rounded-md border border-dashed border-border bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground">
-                Market size, competitive position, and growth drivers sourced from 10-K filing when available
-              </div>
-            )}
+          <div className="p-5">
+            <MarketPositionSectionUI
+              mp={mp}
+              symbol={data.symbol}
+              competitorSegments={mp.competitor_segments}
+            />
           </div>
         </section>
 
