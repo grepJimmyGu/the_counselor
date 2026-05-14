@@ -12,6 +12,22 @@ DISCLAIMER = (
 )
 
 
+class SegmentYearSchema(BaseModel):
+    year: int
+    segments: dict[str, float] = {}
+
+
+class RevenueSegmentSection(BaseModel):
+    """PRD-08d: Revenue segment + geographic breakdown charts."""
+    product_years: list[SegmentYearSchema] = []    # newest first, up to 5
+    geo_years: list[SegmentYearSchema] = []
+    segment_names: list[str] = []                  # ordered by latest revenue
+    geo_names: list[str] = []
+    segment_colors: list[str] = []
+    geo_colors: list[str] = []
+    fallback_note: Optional[str] = None
+
+
 class HealthScoreSection(BaseModel):
     """PRD-08c: Piotroski F-Score + Altman Z-Score + QSV insights."""
     # Piotroski
@@ -122,6 +138,7 @@ class CompanyOverviewResponse(BaseModel):
     country: Optional[str] = None
     as_of_date: Optional[date] = None
     health_score: HealthScoreSection = HealthScoreSection()
+    revenue_segments: RevenueSegmentSection = RevenueSegmentSection()
     business_map: BusinessMapSection
     market_position: MarketPositionSection
     financial_check: FinancialCheckSection

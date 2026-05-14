@@ -655,6 +655,78 @@ def run_startup_migrations(engine: Engine) -> None:
         except Exception:
             pass
 
+        # PRD-08d: revenue_segments (product + geo, 24h TTL)
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS revenue_segments (
+                symbol VARCHAR(20) NOT NULL,
+                fiscal_year INT NOT NULL,
+                segment_type VARCHAR(10) NOT NULL,
+                data TEXT NOT NULL,
+                fetched_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (symbol, fiscal_year, segment_type)
+            )
+        """) if is_sqlite else text("""
+            CREATE TABLE IF NOT EXISTS revenue_segments (
+                symbol VARCHAR(20) NOT NULL,
+                fiscal_year INT NOT NULL,
+                segment_type VARCHAR(10) NOT NULL,
+                data JSONB NOT NULL,
+                fetched_at TIMESTAMPTZ DEFAULT now(),
+                PRIMARY KEY (symbol, fiscal_year, segment_type)
+            )
+        """))
+
+        # PRD-08e: competitor_groups and competitor_revenue_cache
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS competitor_groups (
+                symbol VARCHAR(20) NOT NULL,
+                segment VARCHAR(100) NOT NULL,
+                peer_symbol VARCHAR(20) NOT NULL,
+                peer_name VARCHAR(200),
+                PRIMARY KEY (symbol, segment, peer_symbol)
+            )
+        """) if is_sqlite else text("""
+            CREATE TABLE IF NOT EXISTS competitor_groups (
+                symbol VARCHAR(20) NOT NULL,
+                segment VARCHAR(100) NOT NULL,
+                peer_symbol VARCHAR(20) NOT NULL,
+                peer_name VARCHAR(200),
+                PRIMARY KEY (symbol, segment, peer_symbol)
+            )
+        """))
+
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS competitor_revenue_cache (
+                symbol VARCHAR(20) NOT NULL,
+                segment VARCHAR(100) NOT NULL,
+                computed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                expires_at TIMESTAMP NOT NULL,
+                rankings TEXT NOT NULL,
+                PRIMARY KEY (symbol, segment)
+            )
+        """) if is_sqlite else text("""
+            CREATE TABLE IF NOT EXISTS competitor_revenue_cache (
+                symbol VARCHAR(20) NOT NULL,
+                segment VARCHAR(100) NOT NULL,
+                computed_at TIMESTAMPTZ DEFAULT now(),
+                expires_at TIMESTAMPTZ NOT NULL,
+                rankings JSONB NOT NULL,
+                PRIMARY KEY (symbol, segment)
+            )
+        """))
+
+        # PRD-08e: supply chain columns on company_business_intelligence
+        for col_name, col_type in [
+            ("upstream_suppliers", "TEXT"),
+            ("downstream_customers", "TEXT"),
+        ]:
+            try:
+                conn.execute(
+                    text(f"ALTER TABLE company_business_intelligence ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT '[]'")
+                )
+            except Exception:
+                pass
+
         # PRD-08c: symbol_health_scores (Piotroski + Altman Z, sector percentile)
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS symbol_health_scores (

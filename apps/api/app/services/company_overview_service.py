@@ -14,6 +14,8 @@ from app.schemas.company_overview import (
     FinancialCheckSection,
     HealthScoreSection,
     MarketPositionSection,
+    RevenueSegmentSection,
+    SegmentYearSchema,
 )
 from app.services.financial_validation_service import FinancialValidationService
 from app.services.fmp_client import FMPClient, FMPNotConfiguredError, FMPRateLimitError
@@ -28,6 +30,7 @@ from app.services.fundamental_scoring_service import (
 from app.services.fundamental_service import FundamentalService
 from app.services.business_intelligence_service import BusinessIntelligenceService
 from app.services.health_score_service import HealthScoreService
+from app.services.revenue_segment_service import RevenueSegmentService
 from app.services.value_chain_classifier import (
     derive_margin_implication,
     get_cyclicality_implication,
@@ -106,6 +109,7 @@ class CompanyOverviewService:
         self._fmp = FMPClient()
         self._bi = BusinessIntelligenceService()
         self._health = HealthScoreService()
+        self._segments = RevenueSegmentService()
 
     async def get_overview(self, db: Session, symbol: str) -> CompanyOverviewResponse:
         sym = symbol.upper()
@@ -145,14 +149,21 @@ class CompanyOverviewService:
         except Exception as exc:
             logger.warning("Health score computation failed for %s: %s", sym, exc)
 
-        # 6. Business Intelligence from 10-K (LLM-extracted, 90-day cache)
+        # 6. PRD-08d: Revenue segments (product + geo, 24h cache)
+        seg_data = None
+        try:
+            seg_data = await self._segments.get(sym, db)
+        except Exception as exc:
+            logger.warning("Revenue segment fetch failed for %s: %s", sym, exc)
+
+        # 7. Business Intelligence from 10-K (LLM-extracted, 90-day cache)
         bi = None
         try:
             bi = await self._bi.get(sym, db)
         except Exception as exc:
             logger.warning("Business intelligence fetch failed for %s: %s", sym, exc)
 
-        # 7. Business Map — merge rule-based baseline with 10-K intelligence
+        # 8. Business Map — merge rule-based baseline with 10-K intelligence
         role = get_value_chain_role(profile.sector, profile.industry)
         desc = profile.description or ""
         fallback_summary = ". ".join(desc.split(".")[:2]).strip() + "." if desc else None
@@ -171,7 +182,7 @@ class CompanyOverviewService:
             source_notes=(bi.source_notes if bi else ["FMP /profile", "sector-to-value-chain mapping v1"]),
         )
 
-        # 8. Market Position — peers from FMP + intelligence from 10-K
+        # 9. Market Position — peers from FMP + intelligence from 10-K
         market_cat = None
         if bi and bi.market_category:
             market_cat = bi.market_category
@@ -192,7 +203,7 @@ class CompanyOverviewService:
             source_notes=(bi.source_notes if bi else ["FMP /stock_peers", "FinanceDatabase sector mapping"]),
         )
 
-        # 9. Financial Check section
+        # 10. Financial Check section
         financial_check = FinancialCheckSection(
             financial_validation_label=get_financial_validation_label(fin_score),
             financial_validation_score=fin_score,
@@ -252,6 +263,25 @@ class CompanyOverviewService:
                 peg_ratio=health_score_result.peg_ratio,
             )
 
+        # Build RevenueSegmentSection from fetched data
+        revenue_segments = RevenueSegmentSection()
+        if seg_data is not None:
+            revenue_segments = RevenueSegmentSection(
+                product_years=[
+                    SegmentYearSchema(year=y.year, segments=y.segments)
+                    for y in seg_data.product_years
+                ],
+                geo_years=[
+                    SegmentYearSchema(year=y.year, segments=y.segments)
+                    for y in seg_data.geo_years
+                ],
+                segment_names=seg_data.segment_names,
+                geo_names=seg_data.geo_names,
+                segment_colors=seg_data.segment_colors,
+                geo_colors=seg_data.geo_colors,
+                fallback_note=seg_data.fallback_note,
+            )
+
         return CompanyOverviewResponse(
             symbol=sym,
             name=profile.name,
@@ -263,6 +293,7 @@ class CompanyOverviewService:
             country=profile.country,
             as_of_date=profile.as_of_date,
             health_score=health_score,
+            revenue_segments=revenue_segments,
             business_map=business_map,
             market_position=market_position,
             financial_check=financial_check,

@@ -802,6 +802,23 @@ export interface ScreenerFiltersResponse {
   total_symbols: number;
 }
 
+// ── PRD-08d: Revenue Segment types ───────────────────────────────────────────
+
+export interface SegmentYear {
+  year: number;
+  segments: Record<string, number>;  // {segmentName: revenueValue}
+}
+
+export interface RevenueSegmentSection {
+  product_years: SegmentYear[];      // newest first, up to 5
+  geo_years: SegmentYear[];
+  segment_names: string[];           // ordered by latest revenue
+  geo_names: string[];
+  segment_colors: string[];
+  geo_colors: string[];
+  fallback_note?: string | null;
+}
+
 // ── PRD-08c: Health Score types ───────────────────────────────────────────────
 
 export interface HealthScoreSection {
@@ -905,6 +922,7 @@ export interface CompanyOverviewResponse {
   country?: string | null;
   as_of_date?: string | null;
   health_score: HealthScoreSection;
+  revenue_segments: RevenueSegmentSection;
   business_map: BusinessMapSection;
   market_position: MarketPositionSection;
   financial_check: FinancialCheckSection;

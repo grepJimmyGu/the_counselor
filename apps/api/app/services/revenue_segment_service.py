@@ -1,0 +1,221 @@
+"""
+PRD-08d: Revenue Segment Service
+=================================
+Fetches and caches product + geographic revenue segmentation from FMP.
+Data source: /stable/revenue-product-segmentation and /revenue-geographic-segmentation
+Cache: revenue_segments table, 24h TTL.
+
+FMP response format:
+  [{date: "2024-09-28", "iPhone": 201183000000, "Services": 96169000000, ...}]
+  (segment names are dynamic keys — everything except "date" is a segment)
+"""
+from __future__ import annotations
+
+import json
+import logging
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from typing import Optional
+
+from sqlalchemy import text
+from sqlalchemy.orm import Session
+
+from app.services.fmp_client import FMPClient
+
+logger = logging.getLogger(__name__)
+
+_CACHE_TTL_HOURS = 24
+_SEGMENT_COLORS = [
+    "#6366f1", "#f59e0b", "#10b981", "#ef4444",
+    "#3b82f6", "#8b5cf6", "#ec4899", "#14b8a6",
+]
+_GEO_COLORS = [
+    "#3b82f6", "#f59e0b", "#10b981", "#ef4444",
+    "#8b5cf6", "#ec4899", "#06b6d4", "#f97316",
+]
+
+
+@dataclass
+class SegmentYear:
+    year: int
+    segments: dict[str, float] = field(default_factory=dict)  # {name: revenue}
+
+
+@dataclass
+class RevenueSegmentData:
+    product_years: list[SegmentYear] = field(default_factory=list)  # newest first
+    geo_years: list[SegmentYear] = field(default_factory=list)
+    segment_names: list[str] = field(default_factory=list)  # ordered by latest revenue
+    geo_names: list[str] = field(default_factory=list)
+    segment_colors: list[str] = field(default_factory=list)
+    geo_colors: list[str] = field(default_factory=list)
+    fallback_note: Optional[str] = None  # shown when no segment breakdown
+
+
+def _parse_fmp_segment_rows(rows: list[dict]) -> list[SegmentYear]:
+    """
+    Convert FMP's flat format [{date, SegA, SegB, ...}]
+    into [{year, segments: {name: value}}] sorted newest-first.
+    Filters out non-numeric keys and normalises values to absolute numbers.
+    """
+    result = []
+    for row in rows:
+        date_str = row.get("date") or ""
+        try:
+            year = int(date_str[:4])
+        except (ValueError, TypeError):
+            continue
+
+        segments: dict[str, float] = {}
+        for k, v in row.items():
+            if k == "date" or k == "symbol":
+                continue
+            try:
+                fv = float(v)
+                if fv > 0:  # exclude zeroes / negatives (not a real segment)
+                    segments[k] = fv
+            except (TypeError, ValueError):
+                continue
+
+        if segments:
+            result.append(SegmentYear(year=year, segments=segments))
+
+    return sorted(result, key=lambda x: x.year, reverse=True)
+
+
+def _ordered_names(years: list[SegmentYear]) -> list[str]:
+    """Return segment names ordered by their revenue in the most recent year."""
+    if not years:
+        return []
+    latest = years[0].segments
+    return sorted(latest.keys(), key=lambda k: latest.get(k, 0), reverse=True)
+
+
+# ── DB cache helpers ──────────────────────────────────────────────────────────
+
+def _is_stale(symbol: str, segment_type: str, db: Session) -> bool:
+    """Return True if cache is absent or older than 24h."""
+    try:
+        row = db.execute(
+            text(
+                "SELECT MAX(fetched_at) FROM revenue_segments"
+                " WHERE symbol = :sym AND segment_type = :stype"
+            ),
+            {"sym": symbol, "stype": segment_type},
+        ).scalar()
+        if not row:
+            return True
+        cutoff = datetime.utcnow() - timedelta(hours=_CACHE_TTL_HOURS)
+        if isinstance(row, str):
+            row = datetime.fromisoformat(row)
+        return row < cutoff
+    except Exception:
+        return True
+
+
+def _load_cache(symbol: str, segment_type: str, db: Session) -> list[SegmentYear]:
+    """Load cached rows from DB and deserialise."""
+    try:
+        rows = db.execute(
+            text(
+                "SELECT fiscal_year, data FROM revenue_segments"
+                " WHERE symbol = :sym AND segment_type = :stype"
+                " ORDER BY fiscal_year DESC"
+            ),
+            {"sym": symbol, "stype": segment_type},
+        ).fetchall()
+        result = []
+        for r in rows:
+            data = r[1]
+            if isinstance(data, str):
+                data = json.loads(data)
+            result.append(SegmentYear(year=r[0], segments=data))
+        return result
+    except Exception:
+        return []
+
+
+def _save_cache(symbol: str, segment_type: str, years: list[SegmentYear], db: Session) -> None:
+    is_sqlite = db.bind.dialect.name == "sqlite" if db.bind else False
+    try:
+        # Delete existing rows for this symbol + type
+        db.execute(
+            text("DELETE FROM revenue_segments WHERE symbol = :sym AND segment_type = :stype"),
+            {"sym": symbol, "stype": segment_type},
+        )
+        for sy in years:
+            data_json = json.dumps(sy.segments)
+            db.execute(
+                text(
+                    "INSERT INTO revenue_segments (symbol, fiscal_year, segment_type, data)"
+                    " VALUES (:sym, :yr, :stype, :data)"
+                    if is_sqlite else
+                    "INSERT INTO revenue_segments (symbol, fiscal_year, segment_type, data)"
+                    " VALUES (:sym, :yr, :stype, :data::jsonb)"
+                ),
+                {"sym": symbol, "yr": sy.year, "stype": segment_type, "data": data_json},
+            )
+        db.commit()
+    except Exception as exc:
+        logger.warning("Failed to cache revenue segments for %s/%s: %s", symbol, segment_type, exc)
+        db.rollback()
+
+
+# ── Main service ──────────────────────────────────────────────────────────────
+
+class RevenueSegmentService:
+
+    def __init__(self) -> None:
+        self._fmp = FMPClient()
+
+    async def get(self, symbol: str, db: Session) -> RevenueSegmentData:
+        sym = symbol.upper()
+
+        # ── Product segments ───────────────────────────────────────────────────
+        product_years: list[SegmentYear] = []
+        if _is_stale(sym, "product", db):
+            try:
+                raw = await self._fmp.get_revenue_segments(sym, limit=5)
+                if raw:
+                    product_years = _parse_fmp_segment_rows(raw)
+                    _save_cache(sym, "product", product_years, db)
+                else:
+                    product_years = []
+            except Exception as exc:
+                logger.warning("Revenue segment fetch failed for %s: %s", sym, exc)
+                product_years = _load_cache(sym, "product", db)
+        else:
+            product_years = _load_cache(sym, "product", db)
+
+        # ── Geographic segments ───────────────────────────────────────────────
+        geo_years: list[SegmentYear] = []
+        if _is_stale(sym, "geo", db):
+            try:
+                raw = await self._fmp.get_geo_segments(sym, limit=5)
+                if raw:
+                    geo_years = _parse_fmp_segment_rows(raw)
+                    _save_cache(sym, "geo", geo_years, db)
+                else:
+                    geo_years = []
+            except Exception as exc:
+                logger.warning("Geo segment fetch failed for %s: %s", sym, exc)
+                geo_years = _load_cache(sym, "geo", db)
+        else:
+            geo_years = _load_cache(sym, "geo", db)
+
+        segment_names = _ordered_names(product_years)
+        geo_names = _ordered_names(geo_years)
+
+        fallback_note = None
+        if not product_years:
+            fallback_note = "Segment breakdown not disclosed by this company."
+
+        return RevenueSegmentData(
+            product_years=product_years[:5],
+            geo_years=geo_years[:5],
+            segment_names=segment_names,
+            geo_names=geo_names,
+            segment_colors=_SEGMENT_COLORS[: len(segment_names)],
+            geo_colors=_GEO_COLORS[: len(geo_names)],
+            fallback_note=fallback_note,
+        )

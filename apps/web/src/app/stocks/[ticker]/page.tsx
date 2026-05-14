@@ -11,6 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { MetricLabel } from "@/components/ui/metric-label";
+import { BusinessModelSection } from "./_business-model-section";
 import type { Route } from "next";
 import { SentimentTab } from "./_sentiment-tab";
 import { WatchlistButton } from "@/components/community/watchlist-button";
@@ -535,58 +536,17 @@ export default function CompanyPage() {
           )}
         </section>
 
-        {/* ── Section: Business Map ─────────────────────────────────────── */}
+        {/* ── TIER 3: Business Model ────────────────────────────────────── */}
         <section className="rounded-xl border border-border bg-white shadow-sm">
           <div className="flex items-center gap-2 border-b border-border px-5 py-3.5">
             <div className="h-2 w-2 rounded-full bg-primary" />
-            <h2 className="font-heading text-sm font-semibold">Business Map</h2>
-            <Badge variant="outline" className="ml-auto text-[10px] font-mono">Partial · {bm.confidence}</Badge>
+            <h2 className="font-heading text-sm font-semibold">Business Model</h2>
+            <Badge variant="outline" className="ml-auto text-[10px] font-mono">
+              {bm.confidence} · {data.revenue_segments.segment_names.length > 0 ? `${data.revenue_segments.segment_names.length} segments` : "FMP data"}
+            </Badge>
           </div>
-          <div className="p-5 space-y-4">
-            {bm.one_line_summary && (
-              <p className="text-sm leading-relaxed text-foreground/80">{bm.one_line_summary}</p>
-            )}
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              <div className="rounded-lg border border-border bg-muted/30 p-3">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Value Chain Role</div>
-                <div className="mt-1 text-sm font-semibold">{bm.primary_value_chain_role || "—"}</div>
-              </div>
-              <div className="rounded-lg border border-border bg-muted/30 p-3">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Cyclicality</div>
-                <div className="mt-1 text-xs leading-relaxed text-foreground/70">{bm.cyclicality_implication || "—"}</div>
-              </div>
-              <div className="rounded-lg border border-border bg-muted/30 p-3">
-                <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Margin Implication</div>
-                <div className="mt-1 text-xs leading-relaxed text-foreground/70">{bm.margin_implication || "—"}</div>
-              </div>
-              {bm.revenue_model && (
-                <div className="rounded-lg border border-border bg-muted/30 p-3">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Revenue Model</div>
-                  <div className="mt-1 text-xs leading-relaxed text-foreground/70">{bm.revenue_model}</div>
-                </div>
-              )}
-              {bm.pricing_power_implication && (
-                <div className="rounded-lg border border-border bg-muted/30 p-3">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Pricing Power</div>
-                  <div className="mt-1 text-xs leading-relaxed text-foreground/70">{bm.pricing_power_implication}</div>
-                </div>
-              )}
-              {bm.customer_types && bm.customer_types.length > 0 && (
-                <div className="rounded-lg border border-border bg-muted/30 p-3">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">Customer Types</div>
-                  <div className="mt-1 flex flex-wrap gap-1">
-                    {bm.customer_types.map((c: string) => (
-                      <span key={c} className="rounded bg-white border border-border px-1.5 py-0.5 text-[10px]">{c}</span>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-            {bm.confidence === "partial" && (
-              <div className="rounded-md border border-dashed border-border bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground">
-                Revenue model, customer types, pricing power sourced from 10-K filing when available
-              </div>
-            )}
+          <div className="p-5">
+            <BusinessModelSection seg={data.revenue_segments} bm={bm} />
           </div>
         </section>
 

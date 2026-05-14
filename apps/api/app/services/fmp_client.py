@@ -116,6 +116,28 @@ class FMPClient:
         except Exception:
             return []
 
+    async def get_revenue_segments(self, symbol: str, limit: int = 5) -> list[dict]:
+        """Annual product/business revenue segmentation (last N years)."""
+        try:
+            data = await self._get(
+                "/revenue-product-segmentation",
+                {"symbol": symbol.upper(), "limit": limit},
+            )
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
+    async def get_geo_segments(self, symbol: str, limit: int = 5) -> list[dict]:
+        """Annual geographic revenue segmentation (last N years)."""
+        try:
+            data = await self._get(
+                "/revenue-geographic-segmentation",
+                {"symbol": symbol.upper(), "limit": limit},
+            )
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
     async def search(self, query: str, limit: int = 20) -> list[dict]:
         """Symbol search — uses stable search endpoint, falls back to empty list."""
         try:

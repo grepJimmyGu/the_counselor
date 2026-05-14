@@ -1,7 +1,11 @@
+import asyncio
+import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+logger = logging.getLogger(__name__)
 
 from app.api.routes.backtest import router as backtest_router
 from app.api.routes.company_overview import router as company_overview_router
@@ -23,10 +27,36 @@ from app.db.session import Base, engine
 from app.models import BacktestRecord, DataFetchLog, PriceBar, SymbolCache  # noqa: F401
 
 
+async def _maybe_prewarm_health_scores() -> None:
+    """
+    Fire the S&P 500 health score pre-warm once if the table is empty.
+    Runs in background — startup is not blocked.
+    """
+    try:
+        from sqlalchemy import text
+        from app.db.session import SessionLocal
+        db = SessionLocal()
+        try:
+            row = db.execute(text("SELECT COUNT(*) FROM symbol_health_scores")).scalar()
+            if row and row > 50:
+                logger.info("Health score pre-warm skipped — %d rows already present", row)
+                return
+        finally:
+            db.close()
+
+        logger.info("Health score pre-warm starting (table is empty or sparse)...")
+        from app.scripts.prewarm_health_scores import run_prewarm
+        await run_prewarm()
+    except Exception as exc:
+        logger.warning("Health score pre-warm failed: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)  # creates all tables first
     run_startup_migrations(engine)          # then backfill/alter existing tables
+    # Pre-warm health scores for top-500 S&P in background (non-blocking)
+    asyncio.create_task(_maybe_prewarm_health_scores())
     yield
 
 

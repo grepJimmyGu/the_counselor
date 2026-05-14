@@ -103,6 +103,13 @@ def _extract_income_metrics(statements: list[dict], metrics: FinancialCheckMetri
     prior_op = prior.get("operatingIncome") if prior else None
     metrics.operating_income_growth = _yoy_growth(op_income, prior_op)
 
+    # Interest coverage = EBIT / interest expense (positive expense is typically negative in FMP)
+    interest_expense = latest.get("interestExpense")
+    if interest_expense is not None:
+        interest_expense = abs(interest_expense)  # FMP returns negative; normalise
+    if op_income is not None and interest_expense and interest_expense > 0:
+        metrics.interest_coverage = round(op_income / interest_expense, 2)
+
     gross_profit = latest.get("grossProfit")
     metrics.gross_margin = _safe_div(gross_profit, revenue)
     metrics.operating_margin = _safe_div(op_income, revenue)
