@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
@@ -9,7 +9,7 @@ import { EquityCurveChart, DrawdownChart } from "@/components/workspace/charts";
 import type { BacktestResult, LivePerformance, SavedStrategy } from "@/lib/contracts";
 import { UpvoteButton } from "@/components/community/upvote-button";
 import { CommentsSection } from "@/components/community/comments-section";
-import { Globe, Lock, RefreshCw, TrendingDown, TrendingUp } from "lucide-react";
+import { Globe, Lock, TrendingDown, TrendingUp } from "lucide-react";
 
 function MetricCard({ label, value }: { label: string; value: string }) {
   return (
@@ -32,19 +32,34 @@ export default function SavedStrategyPage() {
   const [togglingVisibility, setTogglingVisibility] = useState(false);
   const [livePerf, setLivePerf] = useState<LivePerformance | null>(null);
   const [perfLoading, setPerfLoading] = useState(false);
+  const perfPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function fetchLivePerf(s: string, attempt = 0) {
+    setPerfLoading(true);
+    getStrategyLivePerformance(s)
+      .then((lp) => {
+        setLivePerf(lp);
+        setPerfLoading(false);
+        // If still computing (no return yet and no terminal error), poll once after 8s
+        const isComputing = lp.total_return === null && !lp.error?.includes("Published today");
+        if (isComputing && attempt < 3) {
+          perfPollRef.current = setTimeout(() => fetchLivePerf(s, attempt + 1), 8000);
+        }
+      })
+      .catch(() => setPerfLoading(false));
+  }
+
+  // Clean up poll timer on unmount
+  useEffect(() => () => { if (perfPollRef.current) clearTimeout(perfPollRef.current); }, []);
 
   useEffect(() => {
     getSavedStrategy(slug)
       .then((d) => {
         setData(d);
         setIsPublic(d.is_public);
-        // Fetch live performance in parallel
+        // Auto-fetch live performance; poll until computation succeeds
         if (d.is_public) {
-          setPerfLoading(true);
-          getStrategyLivePerformance(slug)
-            .then(setLivePerf)
-            .catch(() => {})
-            .finally(() => setPerfLoading(false));
+          fetchLivePerf(slug);
         }
       })
       .catch(() => setError("This strategy link is invalid or has been removed."));
@@ -183,32 +198,24 @@ export default function SavedStrategyPage() {
         {/* Live performance since publish */}
         {isPublic && (
           <section className="space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="text-sm font-medium flex items-center gap-2">
-                Live Performance
-                <span className="text-[10px] font-normal text-muted-foreground">since published</span>
-              </h2>
-              <button
-                onClick={() => {
-                  setPerfLoading(true);
-                  getStrategyLivePerformance(slug, true)
-                    .then(setLivePerf)
-                    .catch(() => {})
-                    .finally(() => setPerfLoading(false));
-                }}
-                disabled={perfLoading}
-                className="flex cursor-pointer items-center gap-1 text-xs text-muted-foreground hover:text-foreground transition-colors"
-              >
-                <RefreshCw className={`h-3 w-3 ${perfLoading ? "animate-spin" : ""}`} />
-                Refresh
-              </button>
-            </div>
+            <h2 className="text-sm font-medium flex items-center gap-2">
+              Live Performance
+              <span className="text-[10px] font-normal text-muted-foreground">since published · updates daily</span>
+              {perfLoading && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
+            </h2>
 
-            {perfLoading && !livePerf ? (
-              <div className="h-20 animate-pulse rounded-lg bg-muted/40" />
+            {!livePerf && perfLoading ? (
+              <div className="flex items-center gap-2 rounded-lg border border-border bg-background px-4 py-5 text-sm text-muted-foreground">
+                <Loader2 className="h-4 w-4 animate-spin shrink-0" />
+                Computing performance since publish date…
+              </div>
             ) : livePerf ? (
               <div className="rounded-lg border border-border bg-background p-4">
-                {livePerf.error && !livePerf.total_return ? (
+                {livePerf.error?.includes("Published today") ? (
+                  <p className="text-sm text-muted-foreground">
+                    Published today — performance tracking begins tomorrow after market close.
+                  </p>
+                ) : livePerf.error && !livePerf.total_return ? (
                   <p className="text-sm text-muted-foreground">{livePerf.error}</p>
                 ) : (
                   <div className="flex flex-wrap items-center gap-6">
@@ -244,7 +251,7 @@ export default function SavedStrategyPage() {
                     {livePerf.last_price_date && (
                       <div>
                         <div className="text-xs text-muted-foreground">Data through</div>
-                        <div className="mt-0.5 text-sm font-mono">{livePerf.last_price_date}</div>
+                        <div className="mt-0.5 text-sm font-mono">{String(livePerf.last_price_date)}</div>
                       </div>
                     )}
                     {livePerf.computed_at && (

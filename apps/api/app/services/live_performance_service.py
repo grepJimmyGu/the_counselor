@@ -104,8 +104,9 @@ async def _compute(
     try:
         # Ensure price data is up to date for all tickers in the strategy
         # (mirrors what run_backtest does — without this, stale/missing tickers silently fail)
+        from app.services.alpha_vantage import AlphaVantageClient
         from app.services.price_cache_service import PriceCacheService
-        cache_svc = PriceCacheService()
+        cache_svc = PriceCacheService(AlphaVantageClient())
         all_symbols = list(strategy.universe) + [strategy.benchmark]
         for symbol in all_symbols:
             try:
