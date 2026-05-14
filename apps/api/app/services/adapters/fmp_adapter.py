@@ -44,7 +44,7 @@ class FMPAdapter:
             ceo=raw.get("ceo") or None,
             employees=employees,
             website=raw.get("website") or None,
-            price=raw.get("price"),
+            price=raw.get("price") or raw.get("currentPrice") or raw.get("lastSalePrice"),
             # stable API: mktCap → marketCap
             market_cap=raw.get("marketCap") or raw.get("mktCap"),
             pe_ratio=None,  # comes from key-metrics
