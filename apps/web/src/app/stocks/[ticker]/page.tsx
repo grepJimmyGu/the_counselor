@@ -3,27 +3,22 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
-import { AlertTriangle, ArrowLeft, CheckCircle2, ChevronRight, XCircle, Minus } from "lucide-react";
+import { AlertTriangle, ChevronRight } from "lucide-react";
 import { getCompanyOverview } from "@/lib/api";
 import type { CompanyOverviewResponse } from "@/lib/contracts";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { MetricLabel } from "@/components/ui/metric-label";
 import { BusinessModelSection } from "./_business-model-section";
 import { MarketPositionSectionUI } from "./_market-position-section";
 import type { Route } from "next";
 import { SentimentTab } from "./_sentiment-tab";
+import { EvaluationDashboard } from "./_evaluation-dashboard";
 import { WatchlistButton } from "@/components/community/watchlist-button";
 import { VoteBar } from "@/components/community/vote-bar";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
-
-function pct(v: number | null | undefined): string {
-  if (v == null) return "—";
-  return `${(v * 100).toFixed(1)}%`;
-}
 
 function fmtMoney(v: number | null | undefined): string {
   if (v == null) return "—";
@@ -31,121 +26,6 @@ function fmtMoney(v: number | null | undefined): string {
   if (Math.abs(v) >= 1e9) return `$${(v / 1e9).toFixed(1)}B`;
   if (Math.abs(v) >= 1e6) return `$${(v / 1e6).toFixed(0)}M`;
   return `$${v.toFixed(0)}`;
-}
-
-function ScoreBar({ score, invert = false }: { score: number; invert?: boolean }) {
-  const color = invert
-    ? score > 70 ? "bg-[var(--loss)]" : score > 40 ? "bg-[var(--warning-amber)]" : "bg-[var(--profit)]"
-    : score >= 70 ? "bg-[var(--profit)]" : score >= 40 ? "bg-[var(--warning-amber)]" : "bg-[var(--loss)]";
-  return (
-    <div className="flex items-center gap-2">
-      <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
-        <div className={cn("h-full rounded-full transition-all", color)} style={{ width: `${score}%` }} />
-      </div>
-      <span className="w-8 font-mono text-xs font-semibold">{score}</span>
-    </div>
-  );
-}
-
-function MetricRow({ label, value, highlight }: { label: string; value: string; highlight?: "profit" | "loss" | null }) {
-  return (
-    <div className="flex items-center justify-between border-b border-border/40 py-2 last:border-0">
-      <span className="text-sm text-muted-foreground">{label}</span>
-      <span className={cn("font-mono text-sm font-medium",
-        highlight === "profit" ? "text-[var(--profit)]" : highlight === "loss" ? "text-[var(--loss)]" : ""
-      )}>
-        {value}
-      </span>
-    </div>
-  );
-}
-
-// ── PRD-08c: Piotroski signal grid ────────────────────────────────────────────
-
-const PIOTROSKI_TOOLTIPS: Record<string, string> = {
-  roa_positive: "Return on Assets — net income divided by total assets. Positive means the company earns more than it costs to run its asset base.",
-  cash_quality: "Cash Earnings Quality — operating cash flow exceeds net income. Companies where cash exceeds reported profit are less likely to be using aggressive accounting.",
-  roa_improving: "Improving Profitability — ROA is rising year over year, indicating the business is becoming more efficient with its assets.",
-  cfo_improving: "Operating Cash Flow Growth — the company is generating more cash per unit of assets than last year.",
-  leverage_falling: "Falling Leverage — the company reduced its debt-to-equity ratio, lowering financial risk.",
-  liquidity_improving: "Improving Liquidity — the current ratio rose, meaning the company can more comfortably cover short-term obligations.",
-  no_dilution: "No Share Dilution — share count did not increase, protecting existing shareholders from ownership dilution.",
-  gross_margin_improving: "Expanding Gross Margin — the company retained a larger share of each dollar of revenue after direct costs.",
-  asset_turnover_improving: "Improving Asset Efficiency — revenue per dollar of assets rose, indicating better operational productivity.",
-};
-
-const PIOTROSKI_LABELS: Record<string, string> = {
-  roa_positive: "ROA positive",
-  cash_quality: "Cash quality",
-  roa_improving: "ROA improving",
-  cfo_improving: "CFO growth",
-  leverage_falling: "Leverage down",
-  liquidity_improving: "Liquidity up",
-  no_dilution: "No dilution",
-  gross_margin_improving: "Gross margin",
-  asset_turnover_improving: "Asset turnover",
-};
-
-type SignalKey = keyof typeof PIOTROSKI_LABELS;
-
-function PiotroskiSignal({ signalKey, value }: { signalKey: SignalKey; value: boolean | null | undefined }) {
-  const label = PIOTROSKI_LABELS[signalKey];
-  const tooltip = PIOTROSKI_TOOLTIPS[signalKey];
-  return (
-    <div className={cn(
-      "flex items-center gap-1.5 rounded-md px-2 py-1.5 text-xs font-medium transition-colors",
-      value === true ? "bg-emerald-50 text-emerald-700" :
-      value === false ? "bg-red-50 text-red-600" :
-      "bg-muted/50 text-muted-foreground"
-    )}>
-      {value === true ? (
-        <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-600" />
-      ) : value === false ? (
-        <XCircle className="h-3 w-3 shrink-0 text-red-500" />
-      ) : (
-        <Minus className="h-3 w-3 shrink-0" />
-      )}
-      <MetricLabel label={label} tooltip={tooltip} labelClassName="text-xs" />
-    </div>
-  );
-}
-
-// ── Altman Z gauge ────────────────────────────────────────────────────────────
-
-function AltmanZGauge({ z, label }: { z: number; label: string }) {
-  // Map Z to position on a 0-100% track: distress <1.81, grey 1.81-2.99, safe >2.99
-  // We clamp to [0, 5] for display
-  const clamped = Math.min(Math.max(z, 0), 5);
-  const pos = (clamped / 5) * 100;
-  const color = label === "Safe" ? "bg-[var(--profit)]" : label === "Distress" ? "bg-[var(--loss)]" : "bg-[var(--warning-amber)]";
-
-  return (
-    <div className="space-y-1.5">
-      <div className="relative h-3 overflow-visible rounded-full bg-gradient-to-r from-red-200 via-amber-200 to-emerald-200">
-        <div
-          className={cn("absolute top-1/2 h-4 w-4 -translate-x-1/2 -translate-y-1/2 rounded-full border-2 border-white shadow-md", color)}
-          style={{ left: `${pos}%` }}
-        />
-      </div>
-      <div className="flex justify-between text-[10px] text-muted-foreground">
-        <span>Distress (&lt;1.81)</span>
-        <span>Grey</span>
-        <span>Safe (&gt;2.99)</span>
-      </div>
-    </div>
-  );
-}
-
-// ── QSV insight panel ─────────────────────────────────────────────────────────
-
-function InsightPanel({ label, color, insight }: { label: string; color: string; insight: string | null | undefined }) {
-  if (!insight) return null;
-  return (
-    <div className={cn("rounded-lg border p-4", color)}>
-      <div className="mb-2 text-[10px] font-bold uppercase tracking-widest opacity-70">{label}</div>
-      <p className="text-xs leading-relaxed text-foreground/80">{insight}</p>
-    </div>
-  );
 }
 
 // ── Main page ─────────────────────────────────────────────────────────────────
@@ -161,7 +41,6 @@ export default function CompanyPage() {
   const [data, setData] = useState<CompanyOverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [showFinDetails, setShowFinDetails] = useState(false);
 
   useEffect(() => {
     if (!ticker) return;
@@ -220,29 +99,8 @@ export default function CompanyPage() {
     );
   }
 
-  const fc = data.financial_check;
   const bm = data.business_map;
   const mp = data.market_position;
-  const hs = data.health_score;
-
-  const signalKeys: SignalKey[] = [
-    "roa_positive", "cash_quality", "roa_improving",
-    "cfo_improving", "leverage_falling", "liquidity_improving",
-    "no_dilution", "gross_margin_improving", "asset_turnover_improving",
-  ];
-
-  const piotroskiLabelColor =
-    hs.piotroski_label === "Strong" ? "text-emerald-600" :
-    hs.piotroski_label === "Good" ? "text-emerald-500" :
-    hs.piotroski_label === "Neutral" ? "text-amber-500" :
-    hs.piotroski_label === "Weak" ? "text-red-500" :
-    "text-muted-foreground";
-
-  const altmanLabelColor =
-    hs.altman_z_label === "Safe" ? "text-emerald-600" :
-    hs.altman_z_label === "Grey Zone" ? "text-amber-500" :
-    hs.altman_z_label === "Distress" ? "text-red-500" :
-    "text-muted-foreground";
 
   return (
     <main className="min-h-screen bg-background">
@@ -304,237 +162,16 @@ export default function CompanyPage() {
         {/* Overview tab content */}
         {activeTab === "overview" && <>
 
-        {/* ── TIER 2: Financial Health Check ─────────────────────────────── */}
+        {/* ── TIER 2: Asset Evaluation ─────────────────────────────────────── */}
         <section className="rounded-xl border border-border bg-white shadow-sm">
           <div className="flex items-center gap-2 border-b border-border px-5 py-3.5">
             <div className="h-2 w-2 rounded-full bg-primary" />
-            <h2 className="font-heading text-sm font-semibold">Financial Health Check</h2>
-            <Badge variant="outline" className="ml-auto text-[10px] font-mono">Piotroski · Altman Z</Badge>
+            <h2 className="font-heading text-sm font-semibold">Fundamental Analysis</h2>
+            <Badge variant="outline" className="ml-auto text-[10px] font-mono">Health · Valuation · Trend</Badge>
           </div>
-          <div className="p-5 space-y-5">
-
-            {/* Score cards row */}
-            <div className="grid gap-4 sm:grid-cols-2">
-
-              {/* Piotroski F-Score card */}
-              <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
-                <div className="flex items-start justify-between gap-2">
-                  <MetricLabel
-                    label="Piotroski F-Score"
-                    tooltip="The Piotroski F-Score is a 9-point financial quality screen developed by Stanford accounting professor Joseph Piotroski. It identifies financially strengthening companies using nine binary signals across profitability, capital structure, and operating efficiency. Scores of 7–9 indicate strong fundamental health."
-                    labelClassName="text-sm font-semibold"
-                  />
-                  <div className="text-right">
-                    {hs.piotroski_score != null ? (
-                      <>
-                        <span className={cn("font-mono text-2xl font-bold", piotroskiLabelColor)}>
-                          {hs.piotroski_score}
-                        </span>
-                        <span className="font-mono text-sm text-muted-foreground">/9</span>
-                        <div className={cn("text-xs font-semibold", piotroskiLabelColor)}>{hs.piotroski_label}</div>
-                      </>
-                    ) : (
-                      <span className="text-sm text-muted-foreground">N/A</span>
-                    )}
-                  </div>
-                </div>
-
-                {/* Signal grid */}
-                <div className="grid grid-cols-3 gap-1.5">
-                  {signalKeys.map((k) => (
-                    <PiotroskiSignal
-                      key={k}
-                      signalKey={k}
-                      value={hs.piotroski_signals[k]}
-                    />
-                  ))}
-                </div>
-
-                {/* Industry percentile */}
-                {hs.sector_piotroski_pct != null && hs.sector_piotroski_n != null && (
-                  <div className="rounded-md bg-white/60 px-3 py-2 text-xs text-muted-foreground border border-border/40">
-                    <span className="font-semibold text-foreground">
-                      Top {Math.round(100 - hs.sector_piotroski_pct)}%
-                    </span>
-                    {" "}among {hs.sector_piotroski_n} {data.sector ?? ""} companies tracked
-                  </div>
-                )}
-              </div>
-
-              {/* Altman Z-Score card */}
-              <div className="rounded-xl border border-border bg-muted/20 p-4 space-y-3">
-                <div className="flex items-start justify-between gap-2">
-                  <MetricLabel
-                    label="Altman Z-Score"
-                    tooltip="The Altman Z-Score, developed by NYU professor Edward Altman in 1968, predicts the probability of corporate bankruptcy within two years. It combines five financial ratios weighted by their predictive power. Scores above 2.99 indicate low distress risk; below 1.81 signals elevated financial risk. Not applicable to financial sector companies."
-                    labelClassName="text-sm font-semibold"
-                  />
-                  <div className="text-right">
-                    {hs.altman_z_score != null ? (
-                      <>
-                        <span className={cn("font-mono text-2xl font-bold", altmanLabelColor)}>
-                          {hs.altman_z_score.toFixed(2)}
-                        </span>
-                        <div className={cn("text-xs font-semibold", altmanLabelColor)}>{hs.altman_z_label}</div>
-                      </>
-                    ) : (
-                      <div className="text-sm text-muted-foreground">N/A</div>
-                    )}
-                  </div>
-                </div>
-
-                {hs.altman_z_score != null ? (
-                  <AltmanZGauge z={hs.altman_z_score} label={hs.altman_z_label} />
-                ) : hs.altman_z_na_reason ? (
-                  <p className="text-xs text-muted-foreground">{hs.altman_z_na_reason}</p>
-                ) : null}
-
-                {/* Valuation snapshot */}
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1 pt-1 border-t border-border/40">
-                  {hs.ev_ebitda != null && (
-                    <div className="flex items-center justify-between">
-                      <MetricLabel
-                        label="EV/EBITDA"
-                        tooltip="Enterprise Value divided by EBITDA — a valuation multiple used to compare companies across capital structures. Lower generally indicates cheaper relative to peers."
-                        labelClassName="text-[11px] text-muted-foreground"
-                      />
-                      <span className="font-mono text-xs font-medium">{hs.ev_ebitda.toFixed(1)}x</span>
-                    </div>
-                  )}
-                  {hs.fcf_yield != null && (
-                    <div className="flex items-center justify-between">
-                      <MetricLabel
-                        label="FCF Yield"
-                        tooltip="Free Cash Flow Yield — free cash flow per share divided by price per share. Higher yield means more cash generation relative to market price."
-                        labelClassName="text-[11px] text-muted-foreground"
-                      />
-                      <span className="font-mono text-xs font-medium">{pct(hs.fcf_yield)}</span>
-                    </div>
-                  )}
-                  {hs.pe_ratio != null && (
-                    <div className="flex items-center justify-between">
-                      <MetricLabel
-                        label="P/E"
-                        tooltip="Price-to-Earnings ratio — how much investors pay for each dollar of earnings. High P/E may imply growth expectations or overvaluation; low P/E may indicate value or declining prospects."
-                        labelClassName="text-[11px] text-muted-foreground"
-                      />
-                      <span className="font-mono text-xs font-medium">{hs.pe_ratio.toFixed(1)}x</span>
-                    </div>
-                  )}
-                  {hs.peg_ratio != null && (
-                    <div className="flex items-center justify-between">
-                      <MetricLabel
-                        label="PEG"
-                        tooltip="Price/Earnings-to-Growth ratio — P/E divided by the EPS growth rate. A PEG below 1 may indicate the stock is undervalued relative to its growth; above 2 suggests the growth is fully priced in."
-                        labelClassName="text-[11px] text-muted-foreground"
-                      />
-                      <span className="font-mono text-xs font-medium">{hs.peg_ratio.toFixed(2)}x</span>
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {/* QSV Insight panels */}
-            {(hs.insight_quality || hs.insight_safety || hs.insight_value) && (
-              <div className="grid gap-3 sm:grid-cols-3">
-                <InsightPanel
-                  label="Q — Quality"
-                  color="border-emerald-200 bg-emerald-50/50"
-                  insight={hs.insight_quality}
-                />
-                <InsightPanel
-                  label="S — Safety"
-                  color="border-blue-200 bg-blue-50/50"
-                  insight={hs.insight_safety}
-                />
-                <InsightPanel
-                  label="V — Value"
-                  color="border-violet-200 bg-violet-50/50"
-                  insight={hs.insight_value}
-                />
-              </div>
-            )}
-
+          <div className="p-5">
+            <EvaluationDashboard data={data} />
           </div>
-        </section>
-
-        {/* ── Existing Financial Detail (expandable) ──────────────────────── */}
-        <section className="rounded-xl border border-border bg-white shadow-sm">
-          <button
-            onClick={() => setShowFinDetails((v) => !v)}
-            className="flex w-full items-center gap-2 border-b border-border px-5 py-3.5 text-left transition-colors hover:bg-muted/20"
-          >
-            <div className={cn(
-              "h-2 w-2 rounded-full",
-              fc.financial_validation_score >= 60 ? "bg-[var(--profit)]" :
-              fc.financial_validation_score >= 40 ? "bg-[var(--warning-amber)]" : "bg-[var(--loss)]"
-            )} />
-            <h2 className="font-heading text-sm font-semibold">Financial Metrics</h2>
-            <Badge variant="outline" className="ml-auto text-[10px] font-mono">
-              Score {fc.financial_validation_score} · {showFinDetails ? "collapse" : "expand"}
-            </Badge>
-          </button>
-
-          {showFinDetails && (
-            <div className="p-5">
-              {/* Warnings */}
-              {fc.warnings.length > 0 && (
-                <div className="mb-4 flex flex-wrap gap-2">
-                  {fc.warnings.map((w) => (
-                    <div key={w} className="flex items-center gap-1.5 rounded-full border border-amber-300 bg-amber-50 px-3 py-1 text-xs font-medium text-amber-700">
-                      <AlertTriangle className="h-3 w-3" />
-                      {w}
-                    </div>
-                  ))}
-                </div>
-              )}
-              <div className="grid gap-4 lg:grid-cols-2">
-                {/* Growth + Profitability */}
-                <div className="space-y-4">
-                  <div className="rounded-lg border border-border p-4">
-                    <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Growth</h3>
-                    <MetricRow label="Revenue YoY" value={pct(fc.revenue_yoy)} highlight={fc.revenue_yoy != null ? (fc.revenue_yoy > 0 ? "profit" : "loss") : null} />
-                    <MetricRow label="Revenue 3Y CAGR" value={pct(fc.revenue_3y_cagr)} highlight={fc.revenue_3y_cagr != null ? (fc.revenue_3y_cagr > 0 ? "profit" : "loss") : null} />
-                    <MetricRow label="EPS YoY" value={pct(fc.eps_yoy)} highlight={fc.eps_yoy != null ? (fc.eps_yoy > 0 ? "profit" : "loss") : null} />
-                    {fc.growth_summary && <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{fc.growth_summary}</p>}
-                  </div>
-                  <div className="rounded-lg border border-border p-4">
-                    <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Profitability</h3>
-                    <MetricRow label="Gross Margin" value={pct(fc.gross_margin)} />
-                    <MetricRow label="Operating Margin" value={pct(fc.operating_margin)} highlight={fc.operating_margin != null ? (fc.operating_margin > 0 ? "profit" : "loss") : null} />
-                    <MetricRow label="Net Margin" value={pct(fc.net_margin)} highlight={fc.net_margin != null ? (fc.net_margin > 0 ? "profit" : "loss") : null} />
-                    <MetricRow label="ROE" value={fc.roe != null ? `${(fc.roe * 100).toFixed(1)}%` : "—"} />
-                  </div>
-                </div>
-                {/* Cash Flow + Balance Sheet + Valuation */}
-                <div className="space-y-4">
-                  <div className="rounded-lg border border-border p-4">
-                    <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cash Flow</h3>
-                    <MetricRow label="Free Cash Flow" value={fmtMoney(fc.free_cash_flow)} highlight={fc.free_cash_flow != null ? (fc.free_cash_flow > 0 ? "profit" : "loss") : null} />
-                    <MetricRow label="FCF Margin" value={pct(fc.fcf_margin)} />
-                    <MetricRow label="FCF Conversion" value={fc.fcf_conversion != null ? `${(fc.fcf_conversion * 100).toFixed(0)}%` : "—"} />
-                    {fc.cash_flow_summary && <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{fc.cash_flow_summary}</p>}
-                  </div>
-                  <div className="rounded-lg border border-border p-4">
-                    <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Balance Sheet</h3>
-                    <MetricRow label="Cash" value={fmtMoney(fc.cash)} highlight="profit" />
-                    <MetricRow label="Net Debt" value={fmtMoney(fc.net_debt)} highlight={fc.net_debt != null ? (fc.net_debt < 0 ? "profit" : fc.net_debt > 0 ? "loss" : null) : null} />
-                    <MetricRow label="Debt / Equity" value={fc.debt_to_equity != null ? `${fc.debt_to_equity.toFixed(2)}x` : "—"} />
-                    <MetricRow label="Current Ratio" value={fc.current_ratio != null ? fc.current_ratio.toFixed(2) : "—"} />
-                  </div>
-                  <div className="rounded-lg border border-border p-4">
-                    <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-muted-foreground">Valuation</h3>
-                    <MetricRow label="P/E" value={fc.pe_ratio != null ? `${fc.pe_ratio.toFixed(1)}x` : "—"} />
-                    <MetricRow label="P/S" value={fc.ps_ratio != null ? `${fc.ps_ratio.toFixed(1)}x` : "—"} />
-                    <MetricRow label="P/B" value={fc.pb_ratio != null ? `${fc.pb_ratio.toFixed(1)}x` : "—"} />
-                    <MetricRow label="FCF Yield" value={fc.fcf_yield != null ? pct(fc.fcf_yield) : "—"} />
-                    {fc.valuation_summary && <p className="mt-2 text-xs leading-relaxed text-muted-foreground">{fc.valuation_summary}</p>}
-                  </div>
-                </div>
-              </div>
-            </div>
-          )}
         </section>
 
         {/* ── TIER 3: Business Model ────────────────────────────────────── */}
