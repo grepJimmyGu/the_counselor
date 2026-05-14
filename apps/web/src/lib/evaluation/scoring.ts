@@ -108,15 +108,55 @@ export function calculateStockValuationScore(m: StockMetricsInput): number {
   return clamp(s1 + s2 + s3 + s4 + s5);
 }
 
-export function calculateStockTrendScore(m: StockMetricsInput): number {
-  // V1: trend data not yet available from our API
-  // Return neutral 50 with a note
-  const hasAnyTrend = m.perf1m !== null || m.perf3m !== null || m.rsVsSector !== null;
-  if (!hasAnyTrend) return 50;
+function scoreMomentum(perf3m: number | null, perf12m: number | null): number {
   let s = 0, w = 0;
-  if (m.perf3m !== null) { s += m.perf3m > 0.1 ? 80 : m.perf3m > 0 ? 60 : m.perf3m > -0.1 ? 40 : 20; w++; }
-  if (m.perf12m !== null) { s += m.perf12m > 0.2 ? 85 : m.perf12m > 0 ? 60 : m.perf12m > -0.2 ? 35 : 15; w++; }
-  return w > 0 ? clamp(s / w) : 50;
+  if (perf3m !== null) {
+    s += perf3m > 0.15 ? 90 : perf3m > 0.05 ? 72 : perf3m > 0 ? 55 : perf3m > -0.1 ? 38 : 18;
+    w += 1.5; // 3M weighted higher for near-term momentum
+    s = s * 1.5;
+  }
+  if (perf12m !== null) {
+    s += perf12m > 0.25 ? 88 : perf12m > 0.10 ? 70 : perf12m > 0 ? 52 : perf12m > -0.2 ? 33 : 14;
+    w += 1;
+  }
+  return w > 0 ? s / w : 50;
+}
+
+function scoreMAPosition(price: number | null, ma50: number | null, ma200: number | null): number {
+  if (price === null) return 50;
+  let s = 0, w = 0;
+  if (ma50 !== null) {
+    const pct = price / ma50 - 1;
+    s += pct > 0.05 ? 80 : pct > 0 ? 62 : pct > -0.05 ? 42 : 22;
+    w++;
+  }
+  if (ma200 !== null) {
+    const pct = price / ma200 - 1;
+    s += pct > 0.10 ? 85 : pct > 0 ? 65 : pct > -0.10 ? 38 : 18;
+    w++;
+  }
+  return w > 0 ? s / w : 50;
+}
+
+function scoreRelativeStrength(rs3m: number | null): number {
+  if (rs3m === null) return 50;
+  // rs3m is excess return vs SPY over 3M
+  if (rs3m > 0.10) return 88;
+  if (rs3m > 0.03) return 72;
+  if (rs3m > -0.03) return 52;
+  if (rs3m > -0.10) return 34;
+  return 16;
+}
+
+export function calculateStockTrendScore(m: StockMetricsInput): number {
+  const hasAnyTrend = m.perf3m !== null || m.perf12m !== null || m.ma50 !== null || m.ma200 !== null;
+  if (!hasAnyTrend) return 50; // neutral placeholder when no price data
+
+  const s1 = scoreMomentum(m.perf3m, m.perf12m) * 0.35;
+  const s2 = scoreMAPosition(m.price, m.ma50, m.ma200) * 0.30;
+  const s3 = scoreRelativeStrength(m.rsVsSector) * 0.20;
+  const s4 = 50 * 0.15; // volume + EPS revision — neutral placeholder
+  return clamp(s1 + s2 + s3 + s4);
 }
 
 export function getFinalScore(health: number, valuation: number, trend: number): number {

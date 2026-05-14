@@ -12,6 +12,39 @@ DISCLAIMER = (
 )
 
 
+class TrendSection(BaseModel):
+    """PRD-trend: Price trend metrics computed from price_bars (Alpha Vantage)."""
+    latest_price: Optional[float] = None
+    latest_date: Optional[str] = None       # ISO date string
+
+    # Performance (decimal, e.g. 0.12 = +12%)
+    perf_1m: Optional[float] = None
+    perf_3m: Optional[float] = None
+    perf_6m: Optional[float] = None
+    perf_12m: Optional[float] = None
+
+    # Moving averages
+    ma_50: Optional[float] = None
+    ma_200: Optional[float] = None
+    price_vs_ma50: Optional[float] = None    # e.g. 0.08 = 8% above MA50
+    price_vs_ma200: Optional[float] = None
+
+    # Volume
+    vol_trend: Optional[str] = None          # "increasing" | "stable" | "decreasing"
+    avg_vol_20d: Optional[float] = None
+    avg_vol_65d: Optional[float] = None
+
+    # Relative strength vs SPY
+    rs_vs_spy_3m: Optional[float] = None
+    rs_vs_spy_12m: Optional[float] = None
+
+    # 90-day sparkline [{date, price}]
+    price_series_90d: list[dict] = []
+
+    bar_count: int = 0
+    data_source: str = "alpha_vantage"
+
+
 class SegmentYearSchema(BaseModel):
     year: int
     segments: dict[str, float] = {}

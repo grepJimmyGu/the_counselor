@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { LineChart, Line, ResponsiveContainer } from "recharts";
-import { AlertTriangle, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp } from "lucide-react";
+import { AlertTriangle, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { MetricLabel } from "@/components/ui/metric-label";
-import type { CompanyOverviewResponse } from "@/lib/contracts";
+import { getStockTrend } from "@/lib/api";
+import type { CompanyOverviewResponse, StockTrendData } from "@/lib/contracts";
 import type { StockMetricsInput, QuestionScore, MetricRow, DataQuality } from "@/lib/evaluation/types";
 import {
   calculateStockHealthScore,
@@ -414,24 +415,77 @@ function bridgeFromOverview(data: CompanyOverviewResponse): StockMetricsInput {
   };
 }
 
+// ── Trend loading skeleton ────────────────────────────────────────────────────
+
+function TrendLoadingCard() {
+  return (
+    <div className="rounded-xl border border-border bg-white p-5 shadow-sm space-y-3 animate-pulse">
+      <div className="flex items-center justify-between">
+        <div className="h-3 w-24 rounded bg-muted" />
+        <div className="h-5 w-16 rounded-full bg-muted" />
+      </div>
+      <div className="h-6 w-12 rounded bg-muted" />
+      <div className="h-1.5 w-full rounded-full bg-muted" />
+      <div className="h-4 w-3/4 rounded bg-muted" />
+      <div className="space-y-1.5">
+        <div className="h-3 w-full rounded bg-muted" />
+        <div className="h-3 w-4/5 rounded bg-muted" />
+      </div>
+    </div>
+  );
+}
+
 // ── Main exported component ───────────────────────────────────────────────────
 
 interface Props {
   data: CompanyOverviewResponse;
 }
 
+function mergeTrend(m: StockMetricsInput, td: StockTrendData): StockMetricsInput {
+  return {
+    ...m,
+    price: td.latest_price ?? m.price,
+    perf1m:  td.perf_1m  ?? null,
+    perf3m:  td.perf_3m  ?? null,
+    perf6m:  td.perf_6m  ?? null,
+    perf12m: td.perf_12m ?? null,
+    ma50:    td.ma_50    ?? null,
+    ma200:   td.ma_200   ?? null,
+    // rs vs SPY 3M as a proxy for rsVsSector
+    rsVsSector: td.rs_vs_spy_3m ?? null,
+    // Sparkline from price_series_90d mapped to revenue-style shape
+    revenueSeries: td.price_series_90d.map(p => ({
+      date: p.date,
+      revenue: p.price,
+    })),
+  };
+}
+
 export function EvaluationDashboard({ data }: Props) {
-  const m = bridgeFromOverview(data);
+  const baseMetrics = bridgeFromOverview(data);
+  const [trendData, setTrendData] = useState<StockTrendData | null>(null);
+  const [trendLoading, setTrendLoading] = useState(true);
 
-  const healthScore = calculateStockHealthScore(m);
+  useEffect(() => {
+    setTrendLoading(true);
+    getStockTrend(data.symbol)
+      .then(setTrendData)
+      .catch(() => setTrendData(null))
+      .finally(() => setTrendLoading(false));
+  }, [data.symbol]);
+
+  // Merge live trend data into metrics when available
+  const m = trendData ? mergeTrend(baseMetrics, trendData) : baseMetrics;
+
+  const healthScore    = calculateStockHealthScore(m);
   const valuationScore = calculateStockValuationScore(m);
-  const trendScore = calculateStockTrendScore(m);
-  const overallScore = getFinalScore(healthScore, valuationScore, trendScore);
-  const overallLabel = getFinalLabel(overallScore);
+  const trendScore     = calculateStockTrendScore(m);
+  const overallScore   = getFinalScore(healthScore, valuationScore, trendScore);
+  const overallLabel   = getFinalLabel(overallScore);
 
-  const health = interpretStockHealth(m, healthScore);
-  const valuation = interpretStockValuation(m, valuationScore);
-  const trend = interpretStockTrend(m, trendScore);
+  const health      = interpretStockHealth(m, healthScore);
+  const valuation   = interpretStockValuation(m, valuationScore);
+  const trend       = interpretStockTrend(m, trendScore);
   const contradiction = buildContradictionWarning(healthScore, valuationScore, trendScore);
   const { summary, bull, bear, watch } = buildAnalystSummary(m, health, valuation, trend, overallScore, overallLabel);
 
@@ -439,26 +493,34 @@ export function EvaluationDashboard({ data }: Props) {
     <div className="space-y-5">
       {/* Three scorecards */}
       <div className="grid gap-4 lg:grid-cols-3">
-        <QuestionScorecardCard qs={health} label="Asset Health" accent="emerald" />
-        <QuestionScorecardCard qs={valuation} label="Valuation" accent="blue" />
-        <QuestionScorecardCard qs={trend} label="Market Trend" accent="violet" />
+        <QuestionScorecardCard qs={health}    label="Asset Health"  accent="emerald" />
+        <QuestionScorecardCard qs={valuation} label="Valuation"     accent="blue" />
+        {trendLoading ? (
+          <TrendLoadingCard />
+        ) : (
+          <QuestionScorecardCard qs={trend} label="Market Trend" accent="violet" />
+        )}
       </div>
 
       {/* Metric detail panels */}
-      <MetricDetailPanelSection qs={health} label="Asset Health — Detailed Metrics" />
+      <MetricDetailPanelSection qs={health}    label="Asset Health — Detailed Metrics" />
       <MetricDetailPanelSection qs={valuation} label="Valuation — Detailed Metrics" />
-      <MetricDetailPanelSection qs={trend} label="Market Trend — Detailed Metrics" />
+      {!trendLoading && (
+        <MetricDetailPanelSection qs={trend} label="Market Trend — Detailed Metrics" />
+      )}
 
-      {/* Final analyst summary */}
-      <FinalAnalystSummaryCard
-        overallScore={overallScore}
-        overallLabel={overallLabel}
-        summary={summary}
-        bull={bull}
-        bear={bear}
-        watch={watch}
-        contradiction={contradiction}
-      />
+      {/* Final analyst summary — wait for trend before showing final score */}
+      {!trendLoading && (
+        <FinalAnalystSummaryCard
+          overallScore={overallScore}
+          overallLabel={overallLabel}
+          summary={summary}
+          bull={bull}
+          bear={bear}
+          watch={watch}
+          contradiction={contradiction}
+        />
+      )}
     </div>
   );
 }

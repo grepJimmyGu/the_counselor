@@ -802,6 +802,29 @@ export interface ScreenerFiltersResponse {
   total_symbols: number;
 }
 
+// ── PRD-trend: Stock Trend types ──────────────────────────────────────────────
+
+export interface StockTrendData {
+  latest_price?: number | null;
+  latest_date?: string | null;
+  perf_1m?: number | null;
+  perf_3m?: number | null;
+  perf_6m?: number | null;
+  perf_12m?: number | null;
+  ma_50?: number | null;
+  ma_200?: number | null;
+  price_vs_ma50?: number | null;
+  price_vs_ma200?: number | null;
+  vol_trend?: string | null;
+  avg_vol_20d?: number | null;
+  avg_vol_65d?: number | null;
+  rs_vs_spy_3m?: number | null;
+  rs_vs_spy_12m?: number | null;
+  price_series_90d: Array<{ date: string; price: number }>;
+  bar_count: number;
+  data_source: string;
+}
+
 // ── PRD-08d: Revenue Segment types ───────────────────────────────────────────
 
 export interface SegmentYear {

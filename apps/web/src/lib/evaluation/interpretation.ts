@@ -183,61 +183,131 @@ export function interpretStockValuation(m: StockMetricsInput, score: number): Qu
 }
 
 export function interpretStockTrend(m: StockMetricsInput, score: number): QuestionScore {
-  const hasData = m.perf1m !== null || m.perf3m !== null || m.perf12m !== null;
-  const status = getScoreStatus(score);
+  const hasPrice  = m.perf3m !== null || m.perf12m !== null;
+  const hasMA     = m.ma50 !== null || m.ma200 !== null;
+  const hasData   = hasPrice || hasMA;
+  const status    = getScoreStatus(score);
 
-  const answer = hasData
-    ? score >= 65 ? "Market momentum is positive — price action confirms the fundamental thesis."
-    : score >= 45 ? "Trend is mixed — no clear directional confirmation yet."
-    : "Trend is negative — market is moving against the position."
-    : "Market trend data requires price history integration.";
+  // Answer text using real data
+  let answer: string;
+  if (!hasData) {
+    answer = "Price history data is loading…";
+  } else if (score >= 68) {
+    const above200 = m.price && m.ma200 ? m.price > m.ma200 : null;
+    answer = `Momentum is positive${above200 !== null ? ` — price is ${above200 ? "above" : "below"} the 200-day MA` : ""}.${m.perf3m !== null ? ` Up ${fmtPct(m.perf3m)} over 3 months.` : ""}`;
+  } else if (score >= 48) {
+    answer = `Trend is neutral — mixed signals across momentum and moving averages.${m.perf3m !== null ? ` 3M return: ${fmtPct(m.perf3m)}.` : ""}`;
+  } else {
+    answer = `Negative trend — price action is working against the fundamental thesis.${m.perf3m !== null ? ` Down ${fmtPct(Math.abs(m.perf3m))} over 3 months.` : ""}`;
+  }
 
+  // Explanation
+  const parts: string[] = [];
+  if (m.perf3m !== null) parts.push(`3M: ${fmtPct(m.perf3m)}`);
+  if (m.perf12m !== null) parts.push(`12M: ${fmtPct(m.perf12m)}`);
+  if (m.price && m.ma200) {
+    const pct = ((m.price / m.ma200) - 1) * 100;
+    parts.push(`${pct >= 0 ? "+" : ""}${pct.toFixed(1)}% vs 200d MA`);
+  }
+  if (m.rsVsSector !== null) parts.push(`vs SPY 3M: ${fmtPct(m.rsVsSector)}`);
   const explanation = hasData
-    ? `Based on ${m.perf3m !== null ? `3M performance of ${fmtPct(m.perf3m)}` : "available price data"}.`
-    : "Price momentum, moving averages, and relative strength data are not yet available. This section will be populated when market data integration is complete.";
+    ? parts.join("  ·  ")
+    : "Price momentum, moving averages, and relative strength will appear here once price history is loaded.";
+
+  const ma200pct = m.price && m.ma200 ? (m.price / m.ma200 - 1) : null;
+  const ma50pct  = m.price && m.ma50  ? (m.price / m.ma50 - 1)  : null;
 
   const topMetrics: MetricRow[] = [
     {
-      name: "3M Price Performance",
+      name: "3M / 12M Performance",
       value: m.perf3m,
-      formatted: m.perf3m !== null ? fmtPct(m.perf3m) : "Pending",
-      status: m.perf3m !== null ? (m.perf3m > 0.05 ? "strong" : m.perf3m > -0.05 ? "neutral" : "weak") : null,
-      interpretation: m.perf3m !== null ? `${fmtPct(m.perf3m)} over 3 months` : "Requires price history API integration",
+      formatted: [m.perf3m, m.perf12m]
+        .map((v, i) => v !== null ? `${i === 0 ? "3M" : "12M"} ${fmtPct(v)}` : null)
+        .filter(Boolean).join("  ·  ") || "Pending",
+      changeDir: (m.perf3m ?? 0) > 0 ? "up" : (m.perf3m ?? 0) < 0 ? "down" : "neutral",
+      status: m.perf3m !== null
+        ? m.perf3m > 0.05 ? "strong" : m.perf3m > -0.05 ? "neutral" : "weak"
+        : null,
+      interpretation: m.perf3m !== null
+        ? m.perf3m > 0.15 ? "Strong positive momentum — price is confirming the thesis"
+        : m.perf3m > 0.02 ? "Mild positive drift — market is gradually validating"
+        : m.perf3m > -0.05 ? "Sideways — no clear directional signal"
+        : "Negative momentum — market is moving against the position"
+        : "Load price history via the data warmup to see momentum",
       quality: m.perf3m !== null ? "live" : "unavailable",
-      tooltip: "3-month price return. Positive momentum often confirms improving fundamentals.",
+      sparkline: m.revenueSeries.slice(-20).map(r => r.revenue ?? 0).filter(Boolean),
+      tooltip: "3-month and 12-month price returns. Consistent positive momentum validates the fundamental thesis.",
     },
     {
-      name: "vs 200-Day Moving Average",
-      value: m.ma200,
-      formatted: m.ma200 !== null && m.price !== null
-        ? `${m.price > m.ma200 ? "+" : ""}${((m.price / m.ma200 - 1) * 100).toFixed(1)}%`
-        : "Pending",
-      status: m.ma200 !== null && m.price !== null ? (m.price > m.ma200 ? "strong" : "weak") : null,
-      interpretation: m.ma200 !== null && m.price !== null
-        ? `Price is ${m.price > m.ma200 ? "above" : "below"} the 200-day MA`
-        : "Requires price history API integration",
+      name: "vs Moving Averages",
+      value: ma200pct,
+      formatted: [
+        ma50pct  !== null ? `50d ${ma50pct  >= 0 ? "+" : ""}${(ma50pct  * 100).toFixed(1)}%` : null,
+        ma200pct !== null ? `200d ${ma200pct >= 0 ? "+" : ""}${(ma200pct * 100).toFixed(1)}%` : null,
+      ].filter(Boolean).join("  ·  ") || "Pending",
+      status: ma200pct !== null
+        ? ma200pct > 0.05 ? "strong" : ma200pct > -0.05 ? "neutral" : "weak"
+        : null,
+      interpretation: ma200pct !== null
+        ? ma200pct > 0.08 ? `Price is ${(ma200pct * 100).toFixed(1)}% above 200d MA — established uptrend`
+        : ma200pct > 0 ? "Price is marginally above 200d MA — trend is constructive but fragile"
+        : `Price is ${(Math.abs(ma200pct) * 100).toFixed(1)}% below 200d MA — downtrend in effect`
+        : "Requires price history",
       quality: m.ma200 !== null ? "live" : "unavailable",
-      tooltip: "Price relative to 200-day moving average. Above = long-term uptrend, below = downtrend.",
+      tooltip: "Price relative to 50-day and 200-day moving averages. Both above = confirmed uptrend.",
+    },
+    {
+      name: "Relative Strength vs SPY",
+      value: m.rsVsSector,
+      formatted: m.rsVsSector !== null
+        ? `${m.rsVsSector >= 0 ? "+" : ""}${(m.rsVsSector * 100).toFixed(1)}% vs SPY (3M)`
+        : "Pending",
+      changeDir: (m.rsVsSector ?? 0) > 0 ? "up" : "down",
+      status: m.rsVsSector !== null
+        ? m.rsVsSector > 0.03 ? "strong" : m.rsVsSector > -0.03 ? "neutral" : "weak"
+        : null,
+      interpretation: m.rsVsSector !== null
+        ? m.rsVsSector > 0.05 ? "Outperforming the market — institutional interest"
+        : m.rsVsSector > 0 ? "Slight outperformance — holding up better than the index"
+        : m.rsVsSector > -0.05 ? "In line with the market — no relative edge"
+        : "Underperforming the market — sector rotation or specific headwinds"
+        : "Requires SPY price history in DB",
+      quality: m.rsVsSector !== null ? "live" : "unavailable",
+      tooltip: "Excess 3-month return vs S&P 500. Positive = outperforming; negative = underperforming.",
     },
     {
       name: "EPS Revision Trend",
       value: m.epsRevisionTrend,
       formatted: m.epsRevisionTrend
         ? m.epsRevisionTrend.charAt(0).toUpperCase() + m.epsRevisionTrend.slice(1)
-        : "Pending",
+        : "Unavailable",
       status: m.epsRevisionTrend === "positive" ? "strong"
         : m.epsRevisionTrend === "negative" ? "weak"
         : m.epsRevisionTrend === "neutral" ? "neutral"
         : null,
       interpretation: m.epsRevisionTrend
-        ? m.epsRevisionTrend === "positive" ? "Analysts are raising EPS estimates — positive signal"
+        ? m.epsRevisionTrend === "positive" ? "Analysts are raising EPS estimates — bullish signal"
         : m.epsRevisionTrend === "negative" ? "Analysts are cutting estimates — caution warranted"
-        : "Estimates are stable"
-        : "Requires analyst consensus data",
+        : "Consensus estimates are stable"
+        : "Requires analyst consensus data (not yet integrated)",
       quality: m.epsRevisionTrend !== null ? "estimated" : "unavailable",
       tooltip: "Direction of analyst EPS estimate revisions. Upgrades are bullish; downgrades are bearish.",
     },
   ];
+
+  // Warning: pick the worst signal
+  let trendWarning: string | null = null;
+  if (hasData) {
+    if (m.price && m.ma200 && m.price < m.ma200 && (m.perf3m ?? 0) < -0.08) {
+      trendWarning = `Price is ${(Math.abs(ma200pct!) * 100).toFixed(1)}% below 200d MA and momentum is negative — avoid buying into weakness`;
+    } else if (m.rsVsSector !== null && m.rsVsSector < -0.08) {
+      trendWarning = `Significantly underperforming SPY by ${(Math.abs(m.rsVsSector) * 100).toFixed(1)}% over 3M — sector rotation may be underway`;
+    } else if (m.perf12m !== null && m.perf12m < -0.20) {
+      trendWarning = `Down ${fmtPct(Math.abs(m.perf12m))} over 12 months — sustained downtrend, be cautious of catching a falling knife`;
+    }
+  } else {
+    trendWarning = "EPS revision and short interest data require analyst consensus integration";
+  }
 
   return {
     question: "Is the market moving in favor of or against this asset?",
@@ -246,9 +316,7 @@ export function interpretStockTrend(m: StockMetricsInput, score: number): Questi
     status,
     explanation,
     topMetrics,
-    warning: !hasData
-      ? "Market trend data (price history, moving averages, relative strength) requires separate integration"
-      : null,
+    warning: trendWarning,
   };
 }
 
