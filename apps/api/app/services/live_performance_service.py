@@ -71,6 +71,12 @@ async def _compute(
 ) -> LivePerformance:
     today = now.date()
 
+    # Coerce published_at to date — PostgreSQL may return datetime or date objects
+    if isinstance(published_at, datetime):
+        published_at = published_at.date()
+    elif isinstance(published_at, str):
+        published_at = date.fromisoformat(published_at[:10])
+
     if today <= published_at:
         return LivePerformance(
             slug=slug,

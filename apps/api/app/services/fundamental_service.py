@@ -117,4 +117,12 @@ class FundamentalService:
         # Merge P/E from metrics into profile if profile doesn't have it
         if profile.pe_ratio is None and metrics.pe_ratio is not None:
             profile = profile.model_copy(update={"pe_ratio": metrics.pe_ratio})
+            # Write merged PE back to SymbolCache so the screener shows it
+            try:
+                existing = db.get(SymbolCache, symbol.upper())
+                if existing and existing.pe_ratio is None:
+                    existing.pe_ratio = metrics.pe_ratio
+                    db.commit()
+            except Exception:
+                pass
         return FundamentalSummary(profile=profile, metrics=metrics)

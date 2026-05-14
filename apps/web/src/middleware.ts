@@ -7,10 +7,11 @@ export default auth((req: NextRequest & { auth: unknown }) => {
   const { pathname } = req.nextUrl;
 
   // Protected routes — require sign-in
+  // /community is intentionally PUBLIC (trending board + public strategies are read-only)
+  // Only /profile and /watchlist require authentication
   const isProtectedRoute =
     pathname.startsWith("/profile") ||
-    pathname.startsWith("/watchlist") ||
-    pathname.startsWith("/community");
+    pathname.startsWith("/watchlist");
 
   if (isProtectedRoute && !isAuthenticated) {
     const signInUrl = new URL("/auth/signin", req.url);
@@ -26,7 +27,6 @@ export const config = {
   matcher: [
     "/profile/:path*",
     "/watchlist/:path*",
-    "/community/:path*",
     // Exclude API routes, static files, and _next internals
     "/((?!api|_next/static|_next/image|favicon.ico).*)",
   ],
