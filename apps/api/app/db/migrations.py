@@ -98,13 +98,28 @@ def run_startup_migrations(engine: Engine) -> None:
             ("market_cap_category", "VARCHAR(16)"),
             ("fundamentals_updated_at", "TIMESTAMP"),
         ]
-        for col_name, col_type in fundamental_columns:
-            try:
-                conn.execute(
-                    text(f"ALTER TABLE symbols ADD COLUMN IF NOT EXISTS {col_name} {col_type}")
-                )
-            except Exception:
-                pass
+        if is_sqlite:
+            # SQLite <3.35 doesn't support IF NOT EXISTS on ALTER TABLE — check via PRAGMA
+            existing_cols = {
+                row[1]
+                for row in conn.execute(text("PRAGMA table_info(symbols)")).fetchall()
+            }
+            for col_name, col_type in fundamental_columns:
+                if col_name not in existing_cols:
+                    try:
+                        conn.execute(
+                            text(f"ALTER TABLE symbols ADD COLUMN {col_name} {col_type}")
+                        )
+                    except Exception:
+                        pass
+        else:
+            for col_name, col_type in fundamental_columns:
+                try:
+                    conn.execute(
+                        text(f"ALTER TABLE symbols ADD COLUMN IF NOT EXISTS {col_name} {col_type}")
+                    )
+                except Exception:
+                    pass
 
         # PRD-08a: fundamental analysis tables (CREATE IF NOT EXISTS)
         conn.execute(text("""

@@ -80,6 +80,48 @@ class AlphaVantageClient:
             )
         return sorted(bars, key=lambda item: item["trading_date"])
 
+    async def fetch_commodity_spot(
+        self,
+        function: str,
+        interval: str = "monthly",
+    ) -> list[dict]:
+        """
+        Fetch commodity spot price series from Alpha Vantage's commodity endpoints.
+
+        function: "WTI" | "BRENT" | "NATURAL_GAS" | "COPPER" | "WHEAT" | "CORN" etc.
+        interval: "daily" | "weekly" | "monthly" (free plan: monthly only)
+
+        Returns list of {"date": date, "value": float} sorted oldest→newest.
+        The "value" is in the unit Alpha Vantage reports:
+          WTI/BRENT     → dollars per barrel
+          COPPER        → dollars per metric ton (AV) — caller converts to $/lb
+          WHEAT         → cents per bushel
+          NATURAL_GAS   → dollars per million BTU
+        """
+        payload = await self._request({
+            "function": function,
+            "interval": interval,
+            "datatype": "json",
+        })
+        raw_data = payload.get("data", [])
+        if not raw_data:
+            raise AlphaVantageError(
+                f"No commodity data returned for function={function} interval={interval}"
+            )
+
+        result = []
+        for item in raw_data:
+            try:
+                val_str = item.get("value", ".")
+                if val_str and val_str not in (".", "None", ""):
+                    result.append({
+                        "date": datetime.strptime(item["date"], "%Y-%m-%d").date(),
+                        "value": float(val_str),
+                    })
+            except (KeyError, ValueError):
+                continue
+        return sorted(result, key=lambda x: x["date"])
+
     async def search_symbols(self, query: str) -> list[dict]:
         payload = await self._request({"function": "SYMBOL_SEARCH", "keywords": query})
         matches = payload.get("bestMatches", [])
