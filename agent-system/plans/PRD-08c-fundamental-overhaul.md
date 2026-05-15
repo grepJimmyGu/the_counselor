@@ -1,365 +1,180 @@
-# PRD-08c: Fundamental Analysis Overhaul
+# PRD-08c/d/e: Fundamental Analysis Overhaul
 
-**Status:** Pending discussion — calculation decisions needed before implementation  
-**Date:** 2026-05-13  
-**Scope:** Full restructure of `/stocks/[ticker]` Overview tab  
-**Depends on:** PRD-08a ✅, PRD-08b ✅ (10-K extraction already live)  
-**Skills to activate:** `us-stock-analysis`, `safe-migration`
+**Status:** ✅ SHIPPED — 2026-05-13 to 2026-05-15
+**Scope:** Full restructure of `/stocks/[ticker]` Overview tab
+**Depends on:** PRD-08a ✅, PRD-08b ✅ (10-K extraction live)
 
 ---
 
-## Overview
+## What Was Built
 
-Three sections are being overhauled. All use FMP Starter plan data — confirmed available.
+### PRD-08c — Financial Health Check
+**Original plan:** Piotroski F-Score (9-signal) + Altman Z-Score + QSV insight paragraphs + industry percentile via S&P 500 prewarm.
 
-```
-Current structure:           New structure:
-─────────────────────        ─────────────────────────────────
-Business Map (partial)   →   1. Financial Health Check   ★ redesigned
-Market Position (partial) →   2. Business Model           ★ new
-Financial Check           →   3. Market Position          ★ new
-Valuation scores          →   (removed — embedded in #1)
-```
+**What shipped:** Piotroski/Altman Z were fully implemented but subsequently replaced by the 3-question Evaluation Dashboard (see below). The redundant pipeline was removed to eliminate 3 duplicate FMP API calls per page load.
+
+**What remains from PRD-08c:**
+- `EV/EBITDA` sourced from `FMP /key-metrics-ttm` → `FinancialCheckSection.ev_ebitda`
+- `pe_ratio`, `peg_ratio`, `fcf_yield` in `FinancialCheckSection` — used by Evaluation Dashboard
+- `MetricLabel` component (`CircleHelp` icon + shadcn Tooltip) — reused across the app
 
 ---
 
-## Section 1 — Financial Health Check
+### PRD-08c (revised) — Asset Evaluation Dashboard ✅
 
-### 1a. Score redesign: replace three scores with two IB-standard scores
+Three-question framework replacing the Piotroski/Altman display:
 
-**Current scores (being replaced):**
-- `financial_validation_score` (0–100) — 6 weighted dimensions
-- `valuation_risk_score` (0–100) — 4 valuation dimensions
-- `overall_score` (0–100) — weighted combo
+```
+[Health scorecard]   [Valuation scorecard]   [Trend scorecard]
+     0–100                 0–100                   0–100
+  Plain-English         Plain-English           Plain-English
+     answer               answer                  answer
+  3 top metrics        3 top metrics           3 top metrics
+    Warning              Warning                 Warning
 
-**Proposed replacement:**
+[Health detail panel — expandable]
+[Valuation detail panel — expandable]
+[Trend detail panel — expandable]
 
-#### Score A — Piotroski F-Score (0–9)
-The standard hedge fund quality screen. 9 binary signals, 1 point each.
+[Final Analyst Summary]
+  Overall score + label (Attractive / Moderately Positive / Neutral / Caution / Avoid)
+  Analyst paragraph | Bull case | Bear case
+  Key metrics to watch | Contradiction warning
+```
 
-| Signal | Source field | Condition |
+**Scoring weights:**
+
+| Dimension | Weight | Components |
 |---|---|---|
-| ROA positive | `returnOnAssets` | > 0 |
-| CFO positive | `operatingCashFlow / totalAssets` | > 0 |
-| ΔROA improving | vs prior year `returnOnAssets` | current > prior |
-| Accruals low | CFO > Net Income (cash quality) | `operatingCashFlow > netIncome` |
-| Δ Leverage down | vs prior year `debtToEquityRatio` | current < prior |
-| Δ Liquidity up | vs prior year `currentRatio` | current > prior |
-| No dilution | shares outstanding | `sharesOutstanding` ≤ prior year |
-| Δ Gross margin up | vs prior year `grossProfitMargin` | current > prior |
-| Δ Asset turnover up | vs prior year `assetTurnover` | current > prior |
+| Health | Revenue growth 20%, Margin quality 20%, FCF quality 20%, ROE/capital efficiency 20%, Balance sheet 20% |
+| Valuation | FCF yield 28%, EV/EBITDA 27%, P/E 22%, PEG 17%, DCF placeholder 6% |
+| Trend | Momentum 35%, MA50/MA200 position 30%, RS vs SPY 20%, Volume + EPS revisions 15% |
+| **Final** | Health 40%, Valuation 30%, Trend 30% |
 
-**Interpretation:**
-- 7–9 → Strong (green) — financially healthy, improving
-- 4–6 → Average (amber) — mixed signals
-- 0–3 → Weak (red) — deteriorating fundamentals
+**Data sources:**
+- Health + Valuation: `financial_check` fields (FMP income/cashflow/balance + key-metrics-ttm)
+- Trend: Alpha Vantage `price_bars` via `/api/company/{symbol}/trend` (lazy fetch, skeleton while loading)
 
-**Data sources:** `ratios` (annual, limit=2), `income-statement` (annual, limit=2), `cash-flow-statement` (annual, limit=2)
-
----
-
-#### Score B — Altman Z-Score (financial distress)
-Classic bankruptcy predictor used by credit analysts.
-
-```
-Z = 1.2·X1 + 1.4·X2 + 3.3·X3 + 0.6·X4 + 1.0·X5
-
-X1 = (Current Assets − Current Liabilities) / Total Assets
-     → workingCapital / totalAssets
-X2 = Retained Earnings / Total Assets
-     → retainedEarnings / totalAssets
-X3 = EBIT / Total Assets
-     → operatingIncome / totalAssets
-X4 = Market Cap / Total Liabilities
-     → marketCap / totalLiabilities
-X5 = Revenue / Total Assets
-     → revenue / totalAssets
-```
-
-**Interpretation:**
-- Z > 2.99 → Safe Zone (green) — low distress risk
-- 1.81–2.99 → Grey Zone (amber) — monitor closely
-- Z < 1.81 → Distress Zone (red) — elevated risk
-
-**Important caveat:** Z-Score is calibrated for manufacturing companies. For financials/banks, use Altman's Z'-Score variant (adapted). For the MVP, apply to all non-financial companies and flag financial sector companies with a disclaimer.
-
-**Data sources:** `balance-sheet-statement` + `income-statement` + FMP `profile` (for `marketCap`)
+**Files:**
+- `apps/web/src/lib/evaluation/types.ts` — StockMetricsInput, CommodityMetricsInput, QuestionScore, EvaluationResult
+- `apps/web/src/lib/evaluation/scoring.ts` — all score functions
+- `apps/web/src/lib/evaluation/interpretation.ts` — rule-based text generation
+- `apps/web/src/lib/evaluation/mock-data.ts` — AAPL, NVDA, XOM, JPM mocks
+- `apps/web/src/app/stocks/[ticker]/_evaluation-dashboard.tsx` — main component
 
 ---
 
-### 1b. Industry percentile positioning — lightweight approach
+### PRD-08d — Business Model Section ✅
 
-**Goal:** Show where a company ranks vs its sector peers (e.g., "Top 23% in Technology")
+**Revenue Segment Charts:**
+- Data: FMP `/stable/revenue-product-segmentation` + `/revenue-geographic-segmentation`
+- Cache: `revenue_segments` table, 24h TTL
+- Parser handles both FMP flat and nested dict formats
+- Charts: Recharts stacked `BarChart` (5yr product segments) + `PieChart` donut (geographic mix, latest year)
+- Fallback: "Segment breakdown not disclosed" if no data
 
-**Lightweight calculation:**
-- Do NOT compute all 14k+ companies on page load
-- Instead: maintain a `sector_percentile_cache` table, updated lazily
-- On company page load:
-  1. Query `SELECT piotroski, altman_z FROM symbol_fundamentals WHERE sector = :sector AND piotroski IS NOT NULL`
-  2. Count how many have lower score → percentile
-  3. Only compares against companies already cached (companies that have been viewed)
-  4. Cache the percentile result for 24h
-- As more companies are viewed, the percentile becomes more accurate over time
-- Show count: "Top 23% among 84 Technology companies tracked"
+**Business Characteristics Row:**
+- Compact pill chips: Revenue model · Customers · Cyclicality · Pricing power
+- Source: 10-K LLM extraction (rule-based sector mapping as fallback)
 
-**Deferred to Phase 2:** Pre-warming top 500 companies to make percentiles meaningful at launch.
+**Key files:** `revenue_segment_service.py`, `_business-model-section.tsx`
 
 ---
 
-### 1c. Three Key Investment Insights — deterministic synthesis
+### PRD-08e — Market Position Section ✅ (partial)
 
-Replace the verbose financial check cards with 3 clear IB-style verdicts:
+**Supply Chain Flow:**
+- Extended 10-K LLM prompt to extract `upstream_suppliers` + `downstream_customers` (max 6 each)
+- `_match_names_to_symbols()` fuzzy-matches names against `symbols` table → clickable badges for public companies
+- Visual: `[Suppliers] ← SYMBOL → [Customers]` Tailwind badge layout
+- Data refreshes on next 10-K re-extraction (90-day cache)
 
-```
-┌──────────────────────────────────────────────────────────────┐
-│  Q  Quality    Is the business getting healthier?             │
-│     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 7/9 Strong       │
-│     Revenue growing. Margins stable. Cash earnings high.      │
-├──────────────────────────────────────────────────────────────┤
-│  S  Safety     Can it survive a downturn?                     │
-│     Safe Zone ●━━━━━━━━━━━━━━━━━━━━━○ Z=3.8               │
-│     Net cash. Coverage ratio 18×. No dilution in 3 years.    │
-├──────────────────────────────────────────────────────────────┤
-│  V  Value      Is it attractively priced?                     │
-│     EV/EBITDA 27× — Top 15% most expensive in Technology     │
-│     FCF yield 2.6%. PEG 2.4 — growth priced in.             │
-└──────────────────────────────────────────────────────────────┘
-```
+**Competitor Groups:**
+- `CompetitorGroupService`: one LLM call filters FMP peers by segment relevance → stored in `competitor_groups` table
+- Fetches 5yr income statements for all peers (parallel, 10s timeout per peer)
+- Revenue share = peer_rev / sum(group_revs) → Dominant (>50%) / Leader (25–50%) / Major (10–25%) / Niche (<10%)
+- 7-day cache in `competitor_revenue_cache`
+- Per-segment tab UI with revenue/share/position dot/5yr sparkline
 
-**Q — Quality** (Piotroski-derived):
-- Driven by: F-Score + 3-year revenue CAGR + gross margin trend
-- One sentence: "{Revenue direction}, {margin direction}, {cash quality note}"
+**DB tables added:** `revenue_segments`, `competitor_groups`, `competitor_revenue_cache`
+**Columns added to:** `company_business_intelligence` (upstream_suppliers, downstream_customers)
 
-**S — Safety** (Altman Z + coverage):
-- Driven by: Altman Z-Score + interest coverage ratio + net debt/EBITDA
-- One sentence: "{balance sheet posture}, {coverage}, {dilution note}"
-
-**V — Value** (valuation multiples vs sector):
-- Driven by: EV/EBITDA percentile within sector + FCF yield + PEG
-- One sentence: "EV/EBITDA {Nx} — {percentile description}. FCF yield {%}."
-
-All three are **purely deterministic** — no LLM calls, computed from FMP data.
+**Key files:** `competitor_group_service.py`, `_market-position-section.tsx`
 
 ---
 
-### 1d. Existing financial metrics — keep, reorganise
+### Commodity Evaluation Framework ✅
 
-The raw metrics (revenue growth %, margins, FCF, balance sheet ratios, valuation multiples) stay — just reorganised under the three insight panels as expandable drill-down detail. No data is removed.
+**Page:** `/commodities/[symbol]` — Gold, WTI, Copper, Wheat
 
----
+**Physical Market Health scoring:**
+- Inventory percentile 30% + Supply-demand 25% + Spare capacity 15% + Cost curve support 15% + Disruption risk 15%
 
-## Section 2 — Business Model (new section, replaces Business Map)
+**Commodity Valuation scoring:**
+- Spot vs marginal cost 25% + 10yr price percentile 20% + Futures curve 25% + Inventory-adjusted 20% + Related ratio 10%
 
-### 2a. Business description
-- One-paragraph summary (already pulled from FMP `/profile` description)
-- Supplement with LLM-extracted detail from 10-K Item 1 (PRD-08b already provides this)
+**Commodity Trend scoring:**
+- Momentum 25% + Futures curve 20% + CFTC positioning 20% + ETF flows 15% + Macro (dollar/yields/China PMI) 20%
 
-### 2b. Revenue breakdown chart — 5 years, by segment
+**Data sources:**
+- Physical market (inventory, CFTC, futures curve): **mock/estimated** — noted clearly in UI
+- Price trend, performance, MAs: **real Alpha Vantage** via ETF proxies (GLD, USO, COPX, WEAT)
 
-**Data source:** `revenue-product-segmentation` — confirmed available for AAPL, MSFT, etc.
+**New backend endpoints:**
+- `GET /api/commodities/{commodity}/trend` — maps GOLD→GLD, WTI→USO, COPPER→COPX, WHEAT→WEAT
+- `POST /api/admin/warmup-commodity-etfs` — load ETF price bars
 
-**Chart:** Stacked bar chart (Recharts `BarChart` with `Bar` per segment), 5 years on X-axis
-
-```
-Revenue Breakdown ($B) — AAPL
-400 │         ████████████████████████
-    │       ████████████████████████████
-300 │     ██████████████████████████████
-    │   ████████████████████████████████
-200 │ ████████████████████████████████
-    │
-    └─────────────────────────────────
-      2021   2022   2023   2024   2025
-      ■ iPhone  ■ Services  ■ Mac  ■ iPad  ■ Wearables
-```
-
-**Fallback:** If no product segmentation data → show total revenue trend (line chart) with note "Segment data not disclosed"
-
-### 2c. Geographic revenue breakdown
-**Data source:** `revenue-geographic-segmentation` — confirmed available
-
-**Chart:** Donut/pie for most recent year + table showing 3-year trend by region
-
-### 2d. Revenue model + customer types + cyclicality + pricing power (combined)
-These four currently scattered fields go into one compact "Business characteristics" row:
-- Revenue model (from 10-K LLM extraction)
-- Primary customers (B2B / B2C / Government)
-- Cyclicality label
-- Pricing power assessment
+**Files:** `commodity-interpretation.ts`, `_commodity-evaluation-dashboard.tsx`, `commodities/[symbol]/page.tsx`, `apps/api/app/api/routes/commodities.py`
 
 ---
 
-## Section 3 — Market Position (new section, replaces Market Position)
-
-### 3a. What the company does — core business summary
-80–100 words (LLM-extracted from 10-K Item 1, already available via PRD-08b):
-- Core products/services
-- How it makes money
-- Primary revenue segments with % mix
-
-### 3b. Competitive standing — moat analysis
-60–80 words (LLM-extracted from 10-K):
-- Market share estimate
-- Key competitors named
-- Moat type identified: brand / scale / network effects / switching costs / IP
-
-### 3c. Supply chain flowchart
-**Source:** LLM extraction from 10-K Item 1 (PRD-08b text already parsed)
-**Implementation:** Simple horizontal flow using Tailwind/shadcn — no React-Flow dependency needed
+## Page Structure (as shipped)
 
 ```
-[Key Suppliers]  →  [AAPL]  →  [Key Customers]
-TSMC               ↕              Apple Retail
-Samsung          Products         Enterprise
-Foxconn                          Carriers / Telcos
-```
-
-Clickable tags: each company/segment is a badge; clicking goes to `/stocks/[SYMBOL]` if it's a publicly traded peer.
-
-**Limitation:** Supplier extraction accuracy depends on 10-K quality. Always show source note.
-
-### 3d. Geographic and customer mix
-- Reuse geographic breakdown from Section 2
-- Customer concentration: top customer % if disclosed in 10-K
-- End-market exposure (consumer / enterprise / government / industrial)
-
-### 3e. Competitor group + market sizing
-
-**Competitor group mapping:**
-
-For each public peer in FMP `/stock-peers`:
-1. Fetch their revenue (from `/income-statement`)
-2. Sum peer revenues → proxy "addressable market pool"
-3. Rank by revenue share within peer group:
-   - Dominant Player: >50% of peer group revenue
-   - Market Leader: 25–50%
-   - Major Participant: 10–25%
-   - Niche Player: <10%
-
-**5-year trend:** Plot each peer's revenue share change over 5 years using `revenue-product-segmentation` or `income-statement`.
-
-**Honest disclaimer:** "Market share estimate based on public peer group revenue. Actual TAM is larger. This is a relative competitive position indicator, not an absolute market share figure."
-
-**Multi-industry companies:** If a company spans multiple sectors (e.g., GE, Amazon), split by segment revenue and calculate position per segment independently.
-
----
-
-## Data Sources Required
-
-| Endpoint | Used for | Availability |
-|---|---|---|
-| `stable/revenue-product-segmentation` | Section 2 chart | ✅ Confirmed |
-| `stable/revenue-geographic-segmentation` | Section 2/3 chart | ✅ Confirmed |
-| `stable/key-metrics?limit=5` | ROIC, EV/EBITDA history | ✅ Confirmed |
-| `stable/ratios?limit=2` | Piotroski components | ✅ Confirmed |
-| `stable/balance-sheet-statement?limit=2` | Altman Z components | ✅ Confirmed |
-| `stable/income-statement?limit=5` | Revenue history, EBIT | ✅ Confirmed |
-| `stable/stock-peers` | Competitor group | ✅ Confirmed |
-| 10-K parsed sections (PRD-08b) | Supply chain, moat, customers | ✅ Already built |
-
-All endpoints are within FMP Starter plan ($14/mo). No new API subscriptions needed.
-
----
-
-## New DB Columns Required
-
-```sql
--- Add to symbol_fundamentals (new table) OR extend SymbolCache:
-piotroski_score        SMALLINT      -- 0-9
-altman_z_score         FLOAT         -- raw Z value
-altman_z_label         VARCHAR(20)   -- Safe/Grey/Distress
-insight_quality        VARCHAR(200)  -- Q insight text
-insight_safety         VARCHAR(200)  -- S insight text
-insight_value          VARCHAR(200)  -- V insight text
-sector_piotroski_pct   FLOAT         -- percentile 0-1
-sector_altman_pct      FLOAT         -- percentile 0-1
-scores_computed_at     TIMESTAMP     -- 24h TTL
-
--- New tables:
-revenue_segments       -- 5 years of product/geo breakdown (JSONB)
-competitor_positions   -- peer group market sizing cache
+/stocks/[ticker] Overview tab
+│
+├── TIER 1 (~100ms): Company header + live price (FMP /stable/quote, always fresh)
+│
+├── TIER 2 (~300ms): Asset Evaluation Dashboard
+│   ├── Health / Valuation / Trend scorecards
+│   │   └── Trend: skeleton → lazy Alpha Vantage fetch
+│   ├── Expandable detail panels per dimension
+│   └── Final analyst summary + contradiction warning
+│
+├── TIER 3 (~1-2s): Business Model
+│   ├── Revenue segment stacked bar (FMP, 5yr, 24h cache)
+│   ├── Geographic donut (FMP, latest year)
+│   └── Business characteristics chips (10-K LLM extraction)
+│
+└── TIER 4 (~3-5s): Market Position
+    ├── Growth drivers + Key risks (10-K LLM extraction)
+    ├── Peers (FMP /stock-peers, live per request, filtered to universe)
+    ├── Supply chain badges (10-K LLM extraction, 90d cache)
+    └── Competitor segment tabs (LLM + FMP revenues, 7d cache)
 ```
 
 ---
 
-## Cache TTL
+## Removed / Not Built
 
-| Data | TTL | Reason |
-|---|---|---|
-| Piotroski / Altman Z | 24 hours | Annual data, changes slowly |
-| Industry percentile | 24 hours | Depends on how many companies cached |
-| Revenue segments | 24 hours | Annual filings |
-| Competitor market position | 24 hours | Peer revenue data |
-| 3 Key Insights (text) | 24 hours | Derived from above |
-
----
-
-## Loading time strategy
-
-**Current problem:** Company page loads too many things at once.
-
-**Solution: Progressive loading with priority tiers**
-
-- **Tier 1 (instant, ~100ms):** Company header, price, sector badge
-- **Tier 2 (fast, ~300ms):** Piotroski + Altman Z + 3 Key Insights (single DB query if cached)
-- **Tier 3 (medium, ~1–2s):** Revenue segment charts, geographic chart (FMP calls)
-- **Tier 4 (background, ~3–5s):** Competitor group market sizing, supply chain (heavier FMP + 10-K)
-
-Each tier renders independently. User sees meaningful content in <300ms.
+| Item | Decision |
+|---|---|
+| Piotroski F-Score display | Removed — replaced by Evaluation Dashboard Health score |
+| Altman Z-Score display | Removed — not meaningful for mega-cap tech; removed from pipeline |
+| QSV insight paragraphs (Q/S/V) | Removed — replaced by rule-based Evaluation Dashboard interpretation |
+| Industry percentile (S&P 500 prewarm) | Removed — prewarm loop removed; percentile not shown |
+| `symbol_health_scores` table writes | Removed — `HealthScoreService` no longer called per page load |
+| `HealthScoreSection` in API response | Removed — `financial_check` now carries all valuation fields |
 
 ---
 
-## Questions for Jimmy before implementation
+## Outstanding / Future Work
 
-### Q1 — Piotroski F-Score vs custom score
-Option A: Pure Piotroski (9-point binary, IB standard)
-Option B: Hybrid — keep current 6-dimension score + add Piotroski as secondary signal
-**Recommendation:** Option A. Cleaner, industry-standard, easier to explain to users.
-
-### Q2 — Altman Z-Score scope
-Option A: Apply to all companies with disclaimer for financials/banks
-Option B: Apply only to non-financial companies; show "N/A — Banking sector" for financials
-**Recommendation:** Option B. Altman Z is unreliable for banks/insurance — showing it would mislead.
-
-### Q3 — Industry percentile bootstrapping
-Option A: Show "Top X% among Y companies tracked" — grows over time as companies are viewed
-Option B: Pre-warm top 500 S&P companies on deploy (one-time job)
-**Recommendation:** Option B for launch quality. The pre-warm is a single script run (~$2 at gpt-4o-mini rates for 500 company Piotroski calculations, mostly deterministic).
-
-### Q4 — Supply chain flowchart
-Option A: Simple Tailwind badge flow (left = suppliers, right = customers) — no dependency
-Option B: React-Flow interactive diagram — richer but adds a dependency
-**Recommendation:** Option A for MVP. Can upgrade to React-Flow in a later iteration.
-
-### Q5 — Market sizing approach
-Option A: Peer group revenue share (proxy, described above) — deterministic, fast
-Option B: LLM-estimated TAM from 10-K + industry reports — richer, slower, less reliable
-**Recommendation:** Option A with clear labeling ("Relative competitive position within public peer group"). Option B can be added to the Sandbox reviewer output later.
-
-### Q6 — Multi-segment companies (Amazon, Google)
-When a company has product segments AND geographic segments:
-Option A: Show one competitor group based on primary segment only
-Option B: Show per-segment competitor groups (complex UI)
-**Recommendation:** Option A for MVP. Add multi-segment view in PRD-08d-v2.
-
----
-
-## Proposed PRD split
-
-| PRD | Scope | Effort |
-|---|---|---|
-| **PRD-08c** | Financial Health Check (Piotroski + Altman Z + 3 insights + industry percentile) | 3 days |
-| **PRD-08d** | Business Model (revenue breakdown chart, geo chart, combined characteristics row) | 2 days |
-| **PRD-08e** | Market Position (supply chain flow, competitor group, market sizing) | 4 days |
-
-Total: ~9 engineering days. Can run sequentially (08c → 08d → 08e) or 08c + 08d in parallel.
-
----
-
-## Unchanged sections
-
-Per scope: everything outside the three sections above stays the same:
-- Financial Check raw metrics table (growth, margins, FCF, balance sheet, valuation)
-- Score strip at top of page
-- Tab navigation (Overview / News & Sentiment)
-- Sentiment tab (all of Phase 2)
+| Item | Notes |
+|---|---|
+| Commodity physical market data | EIA (oil inventories), CFTC COT data, World Gold Council — not yet integrated |
+| EPS revision trend (Trend scorecard) | Requires analyst consensus data (FMP `/analyst-estimates` or Zacks) — placeholder in UI |
+| Short interest (Trend scorecard) | Not in current FMP plan |
+| ROIC | Computable from existing data — not yet added to `FinancialCheckSection` |
+| Capital return yield | Computable from shares + dividends — not yet surfaced |
+| Competitor segment tabs for multi-segment companies | Works but requires full segment + peer data to be cached first |

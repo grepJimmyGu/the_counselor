@@ -310,3 +310,95 @@ LLM is **opt-in** — if vars are absent, all endpoints fall back to determinist
 ### 3. Frontend pointing at localhost
 **Symptom:** "Failed to fetch" — frontend fell back to `http://127.0.0.1:8001`.  
 **Fix:** Set `NEXT_PUBLIC_API_BASE_URL=https://thecounselor-production.up.railway.app` in Vercel environment variables.
+
+---
+
+## 2026-05-13 to 2026-05-15 — Fundamental Analysis Overhaul (PRD-08c/d/e) + Evaluation Dashboard
+
+### What shipped
+
+#### PRD-08c → superseded by Evaluation Dashboard
+Originally built Piotroski F-Score (9-signal), Altman Z-Score, QSV insight paragraphs, and industry percentile. Fully functional but replaced by the 3-question Evaluation Dashboard (Health / Valuation / Trend) which provides better UX. Redundant pipeline removed — 3 duplicate FMP API calls per page load eliminated. EV/EBITDA now sourced directly from `key_metrics_raw` into `FinancialCheckSection`.
+
+#### PRD-08d — Business Model Section ✅
+- `RevenueSegmentService`: fetches FMP `/stable/revenue-product-segmentation` + `/revenue-geographic-segmentation`, caches 24h in `revenue_segments` table. Handles both FMP flat and nested dict formats.
+- Frontend: Recharts stacked `BarChart` (5yr product segments) + `PieChart` donut (geographic mix) + business characteristics chips (revenue model / customers / cyclicality / pricing power)
+- Bug fixed: FMP stable returns nested `{"Apple": {"iPhone": ..., "Services": ...}}` format — parser now handles both.
+
+#### PRD-08e — Market Position Section ✅ (partial)
+- **Supply chain**: Extended 10-K LLM prompt to extract `upstream_suppliers` and `downstream_customers`. Fuzzy-match against `symbols` table for clickable badge links.
+- **Competitor groups**: `CompetitorGroupService` — LLM filters FMP peers by segment, fetches 5yr revenues for each, computes relative revenue share, classifies Dominant/Market Leader/Major Participant/Niche. 7-day cache. Per-segment tab UI with sparkline.
+
+#### Asset Evaluation Dashboard (replaces PRD-08c display)
+Three-question framework: **Health** / **Valuation** / **Trend** scorecards.
+- Health: scored from `financial_check` (revenue growth 20%, margins 20%, FCF 20%, ROE 20%, balance sheet 20%)
+- Valuation: FCF yield 25%, EV/EBITDA 25%, P/E 20%, PEG 15%, neutral DCF placeholder 6%
+- Trend: real Alpha Vantage price data — 3M/12M momentum 35%, MA50/MA200 position 30%, RS vs SPY 20%, neutral 15%
+- Final score: Health 40%, Valuation 30%, Trend 30% → Attractive / Moderately Positive / Neutral / Caution / Avoid
+- Rule-based analyst summary, bull/bear cases, contradiction warnings, key metrics to watch
+- Lazy trend fetch — Health + Valuation render instantly, Trend loads after with skeleton
+
+#### Commodity Evaluation Framework ✅ (mock physical data + real ETF prices)
+- `CommodityMetricsInput` type with 30+ fields: inventory percentile, supply-demand balance, futures curve, CFTC positioning, macro drivers
+- Scoring: Health (inventory 30% + supply-demand 25% + spare capacity 15% + cost curve 15% + disruption 15%), Valuation (futures curve 25% + marginal cost premium 25% + 10yr percentile 20% + inventory-adj 20% + ratio 10%), Trend (momentum 25% + futures curve 20% + CFTC 20% + ETF flows 15% + macro 20%)
+- `/commodities/[symbol]` page: Gold, WTI, Copper, Wheat with tab selector
+- Real price trend from Alpha Vantage ETF proxies: GLD (Gold), USO (WTI), COPX (Copper), WEAT (Wheat)
+- Physical market data (inventory, CFTC, futures curve) is mock/estimated — noted clearly in UI
+
+#### New backend endpoints
+- `GET /api/company/{symbol}/trend` — price trend from `price_bars` (no FMP call, pure DB)
+- `GET /api/commodities/{commodity}/trend` — maps GOLD→GLD, WTI→USO, etc.
+- `GET /api/admin/health-scores/status` — prewarm progress monitoring
+- `POST /api/admin/refresh-bi/{symbol}` — invalidate 10-K BI cache
+- `POST /api/admin/warmup-commodity-etfs` — load GLD/USO/COPX/WEAT bars
+
+#### Key bugs fixed in this sprint
+| Bug | Fix |
+|---|---|
+| FMP `/profile` returns no price | Added `GET /stable/quote` live price fetch bypassing 24h cache |
+| `symbol_health_scores` always 0 rows | `db.bind` deprecated in SQLAlchemy 2.0 → silent failures. Fixed: `engine.begin()` for all DB writes in health/segment/competitor services |
+| Revenue segments showing `['fiscalYear']` | FMP stable API uses nested dict format. Parser now handles both flat and nested |
+| `upstream_suppliers: [{name: "null"}]` | LLM extracted JSON string literal "null". Added filter for null/empty names |
+| FMP peers include NXT, RIME, TBCH (wrong) | Filtered peers through `symbols` table — non-universe tickers dropped |
+| `cash_quality` signal wrong for AAPL | FMP stable uses `netCashProvidedByOperatingActivities` not `operatingCashFlow` — added fallback key |
+| Commodity ETFs COPX/WEAT not loaded | Added `_warmup_commodity_etfs()` startup background task |
+| `useState` used before import | Fixed import order in `_market-position-section.tsx` |
+| Missing `Suspense` on `useSearchParams` | Split `CompanyPage` into inner + Suspense wrapper |
+
+### Current deployment state
+- Frontend: Vercel (auto-deploy on push)
+- Backend: Railway (PostgreSQL + FastAPI)
+- `price_bars`: GLD (5,402 bars), USO (5,053 bars), COPX (4,043 bars), WEAT (3,685 bars)
+- `symbol_health_scores`: being populated on-demand per page load (no prewarm — removed as redundant)
+- `company_business_intelligence`: auto-invalidates stale rows (missing supply chain fields) on startup
+
+### Architecture as of 2026-05-15
+
+```
+/stocks/[ticker] Overview tab
+├── Company header + live price (FMP /stable/quote)
+├── Evaluation Dashboard (Health / Valuation / Trend)
+│   ├── Health score: from financial_check (revenue, margins, FCF, ROE, balance sheet)
+│   ├── Valuation score: from financial_check (P/E, EV/EBITDA, FCF yield, PEG)
+│   ├── Trend score: from Alpha Vantage price_bars (lazy fetch)
+│   └── Final analyst summary, bull/bear, contradiction warning
+├── Business Model (FMP revenue segments + geographic mix + characteristics chips)
+├── Market Position (FMP peers + 10-K supply chain + competitor revenue share tabs)
+└── News & Sentiment tab
+
+/commodities/[symbol]
+├── CommodityAssetCard (spot price via ETF proxy + snapshot metrics)
+├── Three scorecards: Physical Market Health / Valuation / Market Trend
+├── Metric detail panels (expandable)
+└── Final analyst summary with bull/bear/contradiction
+
+Data sources:
+  FMP Starter plan: /profile, /quote, /income-statement, /cash-flow-statement,
+    /balance-sheet-statement, /key-metrics-ttm, /revenue-product-segmentation,
+    /revenue-geographic-segmentation, /stock-peers
+  Alpha Vantage: price_bars (daily adjusted OHLCV) for stocks + ETF proxies
+  SEC EDGAR: 10-K filings for business intelligence extraction
+  LLM (gpt-4o-mini): 10-K extraction for business summary, supply chain,
+    growth drivers, key risks, competitor segment filtering
+```
+

@@ -15,7 +15,6 @@ from app.schemas.company_overview import (
     CompetitorRankingEntry,
     CompetitorSegmentSection,
     FinancialCheckSection,
-    HealthScoreSection,
     MarketPositionSection,
     RevenueSegmentSection,
     SegmentYearSchema,
@@ -28,12 +27,10 @@ from app.services.fundamental_scoring_service import (
     compute_valuation_risk_score,
     compute_overall_score,
     get_financial_validation_label,
-    get_overall_label,
     get_warnings,
 )
 from app.services.fundamental_service import FundamentalService
 from app.services.business_intelligence_service import BusinessIntelligenceService
-from app.services.health_score_service import HealthScoreService
 from app.services.revenue_segment_service import RevenueSegmentService
 from app.services.competitor_group_service import CompetitorGroupService
 from app.services.value_chain_classifier import (
@@ -41,6 +38,15 @@ from app.services.value_chain_classifier import (
     get_cyclicality_implication,
     get_value_chain_role,
 )
+
+
+def _kf(d: dict, key: str) -> Optional[float]:
+    """Extract a float from a raw dict, returning None on failure."""
+    v = d.get(key)
+    try:
+        return float(v) if v is not None else None
+    except (ValueError, TypeError):
+        return None
 
 
 def _match_names_to_symbols(names: list[str], db: Session) -> dict[str, Optional[str]]:
@@ -138,7 +144,6 @@ class CompanyOverviewService:
         self._financial_svc = FinancialValidationService()
         self._fmp = FMPClient()
         self._bi = BusinessIntelligenceService()
-        self._health = HealthScoreService()
         self._segments = RevenueSegmentService()
         self._competitors = CompetitorGroupService()
 
@@ -166,29 +171,13 @@ class CompanyOverviewService:
         # 3. Financial Check metrics
         fc = await self._financial_svc.compute(sym, key_metrics_raw)
 
-        # 4. Scoring
+        # 4. Scoring (used for backward-compat financial_check section)
         fin_score = compute_financial_validation_score(fc)
         val_risk = compute_valuation_risk_score(fc)
         overall = compute_overall_score(fin_score, val_risk)
         warnings = get_warnings(fc, val_risk)
 
-        # 5. PRD-08c: Health scores (Piotroski + Altman Z + QSV insights)
-        health_score_result = None
-        try:
-            health_score_result = await self._health.compute(
-                symbol=sym,
-                company_name=profile.name,
-                sector=profile.sector,
-                market_cap=profile.market_cap,
-                db=db,
-                key_metrics=key_metrics_raw,
-                net_debt=fc.net_debt,
-                interest_coverage=fc.interest_coverage,
-            )
-        except Exception as exc:
-            logger.warning("Health score computation failed for %s: %s", sym, exc)
-
-        # 6. PRD-08d: Revenue segments (product + geo, 24h cache)
+        # 5. PRD-08d: Revenue segments (product + geo, 24h cache)
         seg_data = None
         try:
             seg_data = await self._segments.get(sym, db)
@@ -358,6 +347,7 @@ class CompanyOverviewService:
             pb_ratio=fc.pb_ratio,
             peg_ratio=fc.peg_ratio,
             fcf_yield=fc.fcf_yield,
+            ev_ebitda=_kf(key_metrics_raw, "evToEBITDATTM") or _kf(key_metrics_raw, "enterpriseValueOverEBITDATTM"),
             dividend_yield=fc.dividend_yield,
             revenue_series=fc.revenue_series,
             margin_series=fc.margin_series,
@@ -365,27 +355,6 @@ class CompanyOverviewService:
             warnings=warnings,
             source_notes=["FMP /income-statement", "FMP /cash-flow-statement", "FMP /key-metrics-ttm"],
         )
-
-        # Build HealthScoreSection from computed result
-        health_score = HealthScoreSection()
-        if health_score_result is not None:
-            health_score = HealthScoreSection(
-                piotroski_score=health_score_result.piotroski_score,
-                piotroski_label=health_score_result.piotroski_label,
-                piotroski_signals=health_score_result.piotroski_signals.to_dict(),
-                altman_z_score=health_score_result.altman_z_score,
-                altman_z_label=health_score_result.altman_z_label,
-                altman_z_na_reason=health_score_result.altman_z_na_reason,
-                sector_piotroski_pct=health_score_result.sector_piotroski_pct,
-                sector_piotroski_n=health_score_result.sector_piotroski_n,
-                insight_quality=health_score_result.insight_quality,
-                insight_safety=health_score_result.insight_safety,
-                insight_value=health_score_result.insight_value,
-                ev_ebitda=health_score_result.ev_ebitda,
-                fcf_yield=health_score_result.fcf_yield,
-                pe_ratio=health_score_result.pe_ratio,
-                peg_ratio=health_score_result.peg_ratio,
-            )
 
         # Build RevenueSegmentSection from fetched data
         revenue_segments = RevenueSegmentSection()
@@ -416,7 +385,6 @@ class CompanyOverviewService:
             exchange=profile.exchange,
             country=profile.country,
             as_of_date=profile.as_of_date,
-            health_score=health_score,
             revenue_segments=revenue_segments,
             business_map=business_map,
             market_position=market_position,

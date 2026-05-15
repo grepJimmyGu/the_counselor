@@ -366,7 +366,6 @@ function FinalAnalystSummaryCard({
 
 function bridgeFromOverview(data: CompanyOverviewResponse): StockMetricsInput {
   const fc = data.financial_check;
-  const hs = data.health_score;
   return {
     ticker: data.symbol,
     companyName: data.name,
@@ -387,10 +386,10 @@ function bridgeFromOverview(data: CompanyOverviewResponse): StockMetricsInput {
     debtToEquity: fc.debt_to_equity ?? null,
     currentRatio: fc.current_ratio ?? null,
     interestCoverage: null,
-    peRatio: hs.pe_ratio ?? fc.pe_ratio ?? null,
-    pegRatio: hs.peg_ratio ?? null,
-    evEbitda: hs.ev_ebitda ?? null,
-    fcfYield: hs.fcf_yield ?? fc.fcf_yield ?? null,
+    peRatio: fc.pe_ratio ?? null,
+    pegRatio: fc.peg_ratio ?? null,
+    evEbitda: fc.ev_ebitda ?? null,
+    fcfYield: fc.fcf_yield ?? null,
     psRatio: fc.ps_ratio ?? null,
     pbRatio: fc.pb_ratio ?? null,
     dividendYield: fc.dividend_yield ?? null,
