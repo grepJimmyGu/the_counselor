@@ -77,6 +77,46 @@ async def _warmup_market_etfs() -> None:
         logger.warning("Market ETF warmup task failed: %s", exc)
 
 
+async def _warmup_commodity_spots() -> None:
+    """
+    Fetch actual commodity spot prices from Alpha Vantage's commodity endpoints
+    (function=WTI, COPPER, WHEAT) and store in price_bars.
+    Gold spot is derived from GLD price_bars (1 GLD ≈ 0.0930 oz).
+
+    Runs after the ETF warmup so GLD bars are available for gold derivation.
+    Monthly data on free AV plan is sufficient for spot price display.
+    """
+    import asyncio
+    from app.services.alpha_vantage import AlphaVantageClient
+    from app.services.commodity_spot_service import CommoditySpotService
+    from app.db.session import SessionLocal
+
+    try:
+        client = AlphaVantageClient()
+        svc = CommoditySpotService()
+        db = SessionLocal()
+        try:
+            # Fetch WTI, Copper, Wheat spot from AV commodity API
+            for commodity in ["WTI", "COPPER", "WHEAT"]:
+                try:
+                    ok = await svc.warmup(commodity, client, db)
+                    if not ok:
+                        logger.warning("Commodity spot warmup skipped: %s", commodity)
+                except Exception as exc:
+                    logger.warning("Commodity spot warmup error for %s: %s", commodity, exc)
+                await asyncio.sleep(0.5)  # gentle rate-limit spacing
+
+            # Gold spot derived from GLD (no AV call needed)
+            try:
+                svc.warmup_gold_from_gld(db)
+            except Exception as exc:
+                logger.warning("Gold spot from GLD failed: %s", exc)
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.warning("Commodity spot warmup task failed: %s", exc)
+
+
 async def _invalidate_stale_bi_caches() -> None:
     """
     Delete BI cache rows that predate the upstream_suppliers/downstream_customers fields
@@ -110,6 +150,8 @@ async def lifespan(_: FastAPI):
     run_startup_migrations(engine)          # then backfill/alter existing tables
     # Ensure all Market Pulse ETF price bars are loaded (non-blocking)
     asyncio.create_task(_warmup_market_etfs())
+    # Fetch actual commodity spot prices (WTI $/bbl, gold $/oz, copper $/lb, wheat ¢/bu)
+    asyncio.create_task(_warmup_commodity_spots())
     # Invalidate stale BI caches (symbols with empty supply chain fields) in background
     asyncio.create_task(_invalidate_stale_bi_caches())
     yield

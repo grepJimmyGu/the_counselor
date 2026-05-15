@@ -433,17 +433,24 @@ export function CommodityEvaluationDashboard({ m }: Props) {
 
   return (
     <div className="space-y-5">
-      {/* Asset summary — shows real ETF price when available */}
+      {/* Asset summary — shows real spot price when available */}
       <CommodityAssetCard m={merged} />
 
       {/* Data source note when real trend loaded */}
       {trendData && !trendError && (
         <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 px-4 py-2 text-xs text-emerald-700">
           <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
-          Price, performance, and moving averages sourced from Alpha Vantage (ETF proxy: {
-            { GOLD: "GLD", WTI: "USO", COPPER: "COPX", WHEAT: "WEAT" }[m.symbol] ?? m.symbol
-          }).
-          Physical market data (inventory, CFTC, futures curve) uses estimated values.
+          {(["WTI","GOLD","COPPER","WHEAT"] as const).includes(m.symbol as never)
+            ? <>
+                Spot price sourced from Alpha Vantage commodity API (monthly average). Moving averages &amp; volume signals via ETF proxy (
+                { ({ GOLD: "GLD", WTI: "USO", COPPER: "COPX", WHEAT: "WEAT" } as Record<string,string>)[m.symbol] ?? m.symbol }).
+              </>
+            : <>
+                Price, performance, and moving averages sourced from Alpha Vantage (ETF proxy:{" "}
+                { ({ GOLD: "GLD", WTI: "USO", COPPER: "COPX", WHEAT: "WEAT" } as Record<string,string>)[m.symbol] ?? m.symbol }).
+              </>
+          }
+          {" "}Physical market data (inventory, CFTC, futures curve) uses estimated values.
         </div>
       )}
 

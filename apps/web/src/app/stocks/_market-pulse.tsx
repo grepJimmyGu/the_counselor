@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import {
-  TrendingUp, TrendingDown, Minus, Search, ArrowRight, RefreshCw,
+  TrendingUp, TrendingDown, Minus, Search, ArrowRight, RefreshCw, AlertTriangle,
 } from "lucide-react";
 import { LineChart, Line, ResponsiveContainer } from "recharts";
 import { cn } from "@/lib/utils";
@@ -33,6 +33,16 @@ function fmtPct(v: number | null | undefined, digits = 2): string {
 function fmtPrice(v: number | null | undefined): string {
   if (v == null) return "—";
   return `$${v.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+function fmtDate(iso: string | null | undefined): string {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso + "T00:00:00");
+    return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  } catch {
+    return iso;
+  }
 }
 
 function fmtMktCap(v: number | null | undefined): string {
@@ -108,18 +118,33 @@ function CMFBar({ value }: { value: number | null | undefined }) {
 
 // ── Index Card ────────────────────────────────────────────────────────────────
 
+function StaleBadge() {
+  return (
+    <span className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[9px] font-semibold bg-amber-100 text-amber-700 border border-amber-200">
+      <AlertTriangle className="h-2.5 w-2.5" />
+      Stale
+    </span>
+  );
+}
+
 function IndexCardUI({ card }: { card: IndexCard }) {
   const chartData = card.sparkline_5d.map((v, i) => ({ i, v }));
   const isUp = card.perf_5d != null ? card.perf_5d >= 0 : (card.perf_1d ?? 0) >= 0;
   return (
     <Link href={`/stocks/${card.symbol}` as Route} className="block cursor-pointer">
-      <div className="rounded-xl border border-border bg-white p-3.5 shadow-sm transition-all hover:border-primary/30 hover:shadow-md">
+      <div className={cn(
+        "rounded-xl border bg-white p-3.5 shadow-sm transition-all hover:border-primary/30 hover:shadow-md",
+        card.is_stale ? "border-amber-200" : "border-border"
+      )}>
         <div className="flex items-start justify-between gap-2">
           <div>
             <div className="font-mono text-xs font-bold text-muted-foreground">{card.symbol}</div>
             <div className="mt-0.5 text-xs text-foreground/70 leading-tight">{card.name}</div>
           </div>
-          <PerfBadge v={card.perf_1d} />
+          <div className="flex flex-col items-end gap-1">
+            <PerfBadge v={card.perf_1d} />
+            {card.is_stale && <StaleBadge />}
+          </div>
         </div>
         <div className="mt-2 flex items-end justify-between gap-2">
           <span className="font-mono text-lg font-bold">{fmtPrice(card.price)}</span>
@@ -135,11 +160,18 @@ function IndexCardUI({ card }: { card: IndexCard }) {
             </ResponsiveContainer>
           )}
         </div>
-        {card.perf_5d != null && (
-          <div className="mt-1 text-[10px] text-muted-foreground">
-            5D: <span className={card.perf_5d >= 0 ? "text-emerald-600" : "text-red-500"}>{fmtPct(card.perf_5d)}</span>
-          </div>
-        )}
+        <div className="mt-1 flex items-center justify-between gap-2">
+          {card.perf_5d != null ? (
+            <span className="text-[10px] text-muted-foreground">
+              5D: <span className={card.perf_5d >= 0 ? "text-emerald-600" : "text-red-500"}>{fmtPct(card.perf_5d)}</span>
+            </span>
+          ) : <span />}
+          {card.latest_date && (
+            <span className={cn("text-[9px]", card.is_stale ? "text-amber-600" : "text-muted-foreground/60")}>
+              {card.is_stale ? "⚠ " : ""}as of {fmtDate(card.latest_date)}
+            </span>
+          )}
+        </div>
       </div>
     </Link>
   );
@@ -204,18 +236,29 @@ function SectorFlowRow({ card, rank }: { card: SectorCard; rank: number }) {
 function AssetCardUI({ card, href }: { card: AssetCard; href: string }) {
   return (
     <Link href={href as Route} className="block cursor-pointer">
-      <div className="flex items-center gap-3 rounded-lg border border-border bg-white px-3.5 py-2.5 shadow-sm transition-all hover:border-primary/30 hover:shadow-md">
+      <div className={cn(
+        "flex items-center gap-3 rounded-lg border bg-white px-3.5 py-2.5 shadow-sm transition-all hover:border-primary/30 hover:shadow-md",
+        card.is_stale ? "border-amber-200" : "border-border"
+      )}>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-1.5">
             <span className="font-mono text-xs font-bold">{card.symbol}</span>
             {card.sector && (
               <Badge variant="outline" className="text-[9px] px-1 py-0 h-4">{card.sector}</Badge>
             )}
+            {card.is_stale && <StaleBadge />}
           </div>
           <div className="text-[11px] text-muted-foreground truncate">{card.name}</div>
-          {card.market_cap && (
-            <div className="text-[10px] text-muted-foreground">{fmtMktCap(card.market_cap)}</div>
-          )}
+          <div className="flex items-center gap-2">
+            {card.market_cap && (
+              <span className="text-[10px] text-muted-foreground">{fmtMktCap(card.market_cap)}</span>
+            )}
+            {card.latest_date && (
+              <span className={cn("text-[9px]", card.is_stale ? "text-amber-600" : "text-muted-foreground/60")}>
+                as of {fmtDate(card.latest_date)}
+              </span>
+            )}
+          </div>
         </div>
         <div className="text-right shrink-0 space-y-0.5">
           <div className="font-mono text-sm font-semibold">{fmtPrice(card.price)}</div>
@@ -529,9 +572,15 @@ export function MarketPulsePage() {
         </section>
 
         {/* Footer note */}
-        <div className="text-[10px] text-muted-foreground/60 text-center pb-2">
-          Data from Alpha Vantage price history · CMF computed from OHLCV ·
-          Updated hourly · Not financial advice
+        <div className="text-[10px] text-muted-foreground/60 text-center pb-2 space-y-0.5">
+          <div>
+            Data from Alpha Vantage price history · CMF computed from OHLCV · Not financial advice
+          </div>
+          {data?.as_of && (
+            <div>
+              Cache computed: {new Date(data.as_of).toLocaleString("en-US", { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" })} UTC · Refreshes hourly
+            </div>
+          )}
         </div>
 
       </div>

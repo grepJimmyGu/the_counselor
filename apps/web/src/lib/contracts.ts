@@ -811,6 +811,8 @@ export interface IndexCard {
   perf_1d: number | null;
   perf_5d: number | null;
   sparkline_5d: number[];
+  latest_date?: string | null;  // ISO date of most recent price bar
+  is_stale?: boolean;           // true if data is >5 calendar days old
 }
 
 export interface MacroCard {
@@ -818,6 +820,8 @@ export interface MacroCard {
   label: string;
   price: number | null;
   perf_1d: number | null;
+  latest_date?: string | null;
+  is_stale?: boolean;
 }
 
 export interface SectorCard {
@@ -829,6 +833,8 @@ export interface SectorCard {
   rs_vs_spy_5d: number | null;  // excess return vs SPY
   cmf_20: number | null;        // Chaikin Money Flow, -1 to +1
   volume_ratio: number | null;  // 5d avg vol / 20d avg vol
+  latest_date?: string | null;
+  is_stale?: boolean;
 }
 
 export interface AssetCard {
@@ -839,6 +845,8 @@ export interface AssetCard {
   perf_1d: number | null;
   cmf_20: number | null;
   market_cap: number | null;
+  latest_date?: string | null;
+  is_stale?: boolean;
 }
 
 export interface MarketPulseResponse {
