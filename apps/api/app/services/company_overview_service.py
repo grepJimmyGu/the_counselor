@@ -4,6 +4,7 @@ import logging
 from datetime import date
 from typing import Optional
 
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 logger = logging.getLogger(__name__)
@@ -237,9 +238,25 @@ class CompanyOverviewService:
             logger.warning("Business intelligence fetch failed for %s: %s", sym, exc)
 
         # 9. Peers — always fetch fresh (not cached in SymbolCache)
+        # Filter to symbols in our screener universe (eliminates garbage FMP peers like RIME, TBCH)
         peers: list[str] = []
         try:
-            peers = await self._fmp.get_peers(sym)
+            raw_peers = await self._fmp.get_peers(sym)
+            if raw_peers:
+                # Keep only peers that exist in our symbols table (large/mid-cap screener universe)
+                peer_placeholders = ", ".join(f":p{i}" for i in range(len(raw_peers)))
+                peer_params = {f"p{i}": s for i, s in enumerate(raw_peers)}
+                try:
+                    existing = db.execute(
+                        text(f"SELECT symbol FROM symbols WHERE symbol IN ({peer_placeholders})"),
+                        peer_params,
+                    ).fetchall()
+                    known = {r[0] for r in existing}
+                    # Preserve original FMP order; fall back to all raw peers if DB has no matches
+                    filtered = [s for s in raw_peers if s in known]
+                    peers = filtered if filtered else raw_peers
+                except Exception:
+                    peers = raw_peers
         except Exception:
             peers = profile.peers or []
 
@@ -271,18 +288,27 @@ class CompanyOverviewService:
             market_cat = f"{cap_cat}-Cap {profile.sector}" if cap_cat else profile.sector
 
         # Supply chain — match named suppliers/customers to symbols
+        def _is_valid_name(name: str | None) -> bool:
+            """Filter out LLM artifacts like 'null', empty strings, or None."""
+            if not name:
+                return False
+            normalized = name.strip().lower()
+            return normalized not in ("null", "none", "n/a", "na", "unknown", "")
+
         upstream_entries: list[SupplyChainEntry] = []
         downstream_entries: list[SupplyChainEntry] = []
         if bi and (bi.upstream_suppliers or bi.downstream_customers):
-            all_names = (bi.upstream_suppliers or []) + (bi.downstream_customers or [])
+            valid_upstream = [n for n in (bi.upstream_suppliers or []) if _is_valid_name(n)]
+            valid_downstream = [n for n in (bi.downstream_customers or []) if _is_valid_name(n)]
+            all_names = valid_upstream + valid_downstream
             name_to_sym = _match_names_to_symbols(all_names, db)
             upstream_entries = [
                 SupplyChainEntry(name=n, symbol=name_to_sym.get(n))
-                for n in (bi.upstream_suppliers or [])
+                for n in valid_upstream
             ]
             downstream_entries = [
                 SupplyChainEntry(name=n, symbol=name_to_sym.get(n))
-                for n in (bi.downstream_customers or [])
+                for n in valid_downstream
             ]
 
         market_position = MarketPositionSection(

@@ -66,7 +66,8 @@ function GeoDonut({ seg }: { seg: RevenueSegmentSection }) {
         Geographic Mix — {latest.year}
       </div>
       <div className="flex items-center gap-4">
-        <ResponsiveContainer width={140} height={140}>
+        <div className="w-[120px] shrink-0 sm:w-[140px]">
+        <ResponsiveContainer width="100%" height={140}>
           <PieChart>
             <Pie
               data={donutData}
@@ -82,6 +83,7 @@ function GeoDonut({ seg }: { seg: RevenueSegmentSection }) {
             <Tooltip formatter={(v) => [typeof v === "number" ? fmtMoney(v) : String(v), ""]} />
           </PieChart>
         </ResponsiveContainer>
+        </div>
         <div className="space-y-1 text-[11px]">
           {donutData.map((d, i) => (
             <div key={d.name} className="flex items-center gap-1.5">

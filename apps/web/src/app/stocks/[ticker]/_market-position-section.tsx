@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { Badge } from "@/components/ui/badge";
@@ -7,7 +8,7 @@ import type { MarketPositionSection, CompetitorSegment } from "@/lib/contracts";
 // CompetitorSegment is used by RankingTable and CompetitorTabs below
 import { cn } from "@/lib/utils";
 import {
-  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend,
+  LineChart, Line, Tooltip, ResponsiveContainer,
 } from "recharts";
 
 // ── Supply chain flow ─────────────────────────────────────────────────────────
@@ -215,8 +216,6 @@ function CompetitorTabs({ segments }: { segments: CompetitorSegment[] }) {
 }
 
 // ── Composed market position section ─────────────────────────────────────────
-
-import { useState } from "react";
 
 interface Props {
   mp: MarketPositionSection;

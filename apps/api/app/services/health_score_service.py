@@ -205,8 +205,9 @@ def _compute_piotroski(
     gross_profit_prior = _f(i_prior, "grossProfit")
     op_income_curr = _f(i_curr, "operatingIncome")
 
-    ocf_curr = _f(cf_curr, "operatingCashFlow")
-    ocf_prior = _f(cf_prior, "operatingCashFlow")
+    # FMP stable API may use either field name depending on account tier/date
+    ocf_curr = _f(cf_curr, "operatingCashFlow", "netCashProvidedByOperatingActivities")
+    ocf_prior = _f(cf_prior, "operatingCashFlow", "netCashProvidedByOperatingActivities")
 
     total_assets_curr = _f(b_curr, "totalAssets")
     total_assets_prior = _f(b_prior, "totalAssets")
@@ -389,7 +390,7 @@ def _synthesize_quality_insight(
 
     # Cash quality
     if income and cashflow:
-        ocf = cashflow[0].get("operatingCashFlow")
+        ocf = cashflow[0].get("operatingCashFlow") or cashflow[0].get("netCashProvidedByOperatingActivities")
         ni = income[0].get("netIncome")
         if ocf is not None and ni is not None:
             quality = "exceeds" if ocf > ni else "trails"
@@ -415,8 +416,13 @@ def _synthesize_safety_insight(
         parts.append(f"{company}'s balance sheet strength is assessed on a standalone basis ({altman_na_reason}).")
     elif altman_z is not None:
         zone_text = altman_label if "zone" in altman_label.lower() or "distress" in altman_label.lower() else f"{altman_label} zone"
+        z_note = ""
+        # Note: for mega-caps (Z > 6) the score is largely driven by market cap (X4 term)
+        # and loses discriminatory power — add a parenthetical caveat
+        if altman_z > 6.0:
+            z_note = " (score elevated by market cap premium; reduced discriminatory power for mega-cap companies)"
         parts.append(
-            f"Altman Z-Score of {altman_z:.2f} places {company} in the {zone_text}."
+            f"Altman Z-Score of {altman_z:.2f} places {company} in the {zone_text}{z_note}."
         )
 
     # Net cash/debt

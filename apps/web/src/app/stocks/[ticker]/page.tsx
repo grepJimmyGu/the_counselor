@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { AlertTriangle, ChevronRight } from "lucide-react";
@@ -32,7 +32,7 @@ function fmtMoney(v: number | null | undefined): string {
 
 type Tab = "overview" | "sentiment";
 
-export default function CompanyPage() {
+function CompanyPageInner() {
   const { ticker } = useParams<{ ticker: string }>();
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -222,5 +222,23 @@ export default function CompanyPage() {
 
       </div>
     </main>
+  );
+}
+
+export default function CompanyPage() {
+  return (
+    <Suspense fallback={
+      <main className="min-h-screen bg-background">
+        <div className="mx-auto max-w-[1200px] px-4 py-6 md:px-6">
+          <div className="space-y-4">
+            <Skeleton className="h-8 w-48" />
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-64 w-full" />
+          </div>
+        </div>
+      </main>
+    }>
+      <CompanyPageInner />
+    </Suspense>
   );
 }
