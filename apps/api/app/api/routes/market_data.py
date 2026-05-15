@@ -139,3 +139,35 @@ async def get_market_overview(
             continue
 
     return results
+
+
+# ── PRD-15: Market Pulse ──────────────────────────────────────────────────────
+
+from app.services.market_pulse_service import MarketPulseService
+
+_pulse_svc = MarketPulseService()
+
+
+@router.get("/market/pulse")
+def get_market_pulse(
+    market: str = Query(default="US", pattern="^(US|CN)$"),
+    db: Session = Depends(get_db),
+) -> dict:
+    """
+    Market Pulse: index ETF performance, macro chips, sector capital flow signals
+    (Chaikin Money Flow 20d), and dynamic top 10 assets by CMF.
+    All data from price_bars — no FMP calls at request time. 1h cache.
+    """
+    try:
+        r = _pulse_svc.get_pulse(market.upper(), db)
+        return {
+            "market": r.market,
+            "as_of": r.as_of,
+            "indices": [vars(i) for i in r.indices],
+            "macro": [vars(m) for m in r.macro],
+            "sectors": [vars(s) for s in r.sectors],
+            "top_assets": [vars(a) for a in r.top_assets],
+            "featured_etfs": [vars(a) for a in r.featured_etfs],
+        }
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

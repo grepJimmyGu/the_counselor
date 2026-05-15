@@ -802,6 +802,55 @@ export interface ScreenerFiltersResponse {
   total_symbols: number;
 }
 
+// ── PRD-15: Market Pulse types ────────────────────────────────────────────────
+
+export interface IndexCard {
+  symbol: string;
+  name: string;
+  price: number | null;
+  perf_1d: number | null;
+  perf_5d: number | null;
+  sparkline_5d: number[];
+}
+
+export interface MacroCard {
+  symbol: string;
+  label: string;
+  price: number | null;
+  perf_1d: number | null;
+}
+
+export interface SectorCard {
+  symbol: string;
+  name: string;
+  price: number | null;
+  perf_1d: number | null;
+  perf_5d: number | null;
+  rs_vs_spy_5d: number | null;  // excess return vs SPY
+  cmf_20: number | null;        // Chaikin Money Flow, -1 to +1
+  volume_ratio: number | null;  // 5d avg vol / 20d avg vol
+}
+
+export interface AssetCard {
+  symbol: string;
+  name: string;
+  sector: string | null;
+  price: number | null;
+  perf_1d: number | null;
+  cmf_20: number | null;
+  market_cap: number | null;
+}
+
+export interface MarketPulseResponse {
+  market: string;               // "US" | "CN"
+  as_of: string;
+  indices: IndexCard[];
+  macro: MacroCard[];
+  sectors: SectorCard[];        // sorted by CMF descending
+  top_assets: AssetCard[];      // top 10 by CMF from full universe
+  featured_etfs: AssetCard[];
+}
+
 // ── PRD-trend: Stock Trend types ──────────────────────────────────────────────
 
 export interface StockTrendData {

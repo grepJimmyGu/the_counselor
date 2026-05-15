@@ -29,30 +29,52 @@ from app.db.session import Base, engine
 from app.models import BacktestRecord, DataFetchLog, PriceBar, SymbolCache  # noqa: F401
 
 
-async def _warmup_commodity_etfs() -> None:
-    """Ensure GLD, USO, COPX, WEAT price bars are loaded (non-blocking)."""
-    try:
-        from datetime import date, timedelta
-        from app.services.alpha_vantage import AlphaVantageClient
-        from app.services.price_cache_service import PriceCacheService
-        from app.db.session import SessionLocal
+async def _warmup_market_etfs() -> None:
+    """
+    Ensure price bars are loaded for all Market Pulse ETFs:
+      - US indices (SPY, QQQ, IWM, DIA)
+      - US sectors (XLK, XLF, XLE, XLY, XLV, XLI, XLP, XLU, XLB, XLRE, XLC)
+      - CN proxies (FXI, KWEB, MCHI)
+      - Macro (VXX, UUP, TLT, HYG)
+      - Commodities (GLD, USO, COPX, WEAT — already loaded if present)
+    Runs on startup, non-blocking, skips symbols already fresh.
+    """
+    from datetime import date, timedelta
+    from app.services.alpha_vantage import AlphaVantageClient
+    from app.services.price_cache_service import PriceCacheService
+    from app.db.session import SessionLocal
 
-        etfs = ["GLD", "USO", "COPX", "WEAT"]
-        required_from = date.today() - timedelta(days=365 * 11)
+    ALL_MARKET_ETFS = [
+        # US indices
+        "SPY", "QQQ", "IWM", "DIA",
+        # US sectors (SPDR)
+        "XLK", "XLF", "XLE", "XLY", "XLV", "XLI", "XLP", "XLU", "XLB", "XLRE", "XLC",
+        # CN proxies (US-listed)
+        "FXI", "KWEB", "MCHI",
+        # Macro
+        "VXX", "UUP", "TLT", "HYG",
+        # Commodities
+        "GLD", "USO", "COPX", "WEAT",
+    ]
+
+    try:
+        required_from = date.today() - timedelta(days=365 * 3)  # 3yr for CMF + RS
         client = AlphaVantageClient()
         svc = PriceCacheService(client)
         db = SessionLocal()
+        loaded = 0
         try:
-            for etf in etfs:
+            for sym in ALL_MARKET_ETFS:
                 try:
-                    await svc.ensure_history(db, etf, required_from, force=False)
-                    logger.info("Commodity ETF %s: price bars ensured", etf)
+                    await svc.ensure_history(db, sym, required_from, force=False)
+                    loaded += 1
                 except Exception as exc:
-                    logger.warning("Commodity ETF warmup failed for %s: %s", etf, exc)
+                    logger.warning("Market ETF warmup failed for %s: %s", sym, exc)
         finally:
             db.close()
+        logger.info("Market ETF warmup complete: %d/%d symbols loaded", loaded, len(ALL_MARKET_ETFS))
     except Exception as exc:
-        logger.warning("Commodity ETF warmup task failed: %s", exc)
+        logger.warning("Market ETF warmup task failed: %s", exc)
 
 
 async def _invalidate_stale_bi_caches() -> None:
@@ -86,8 +108,8 @@ async def _invalidate_stale_bi_caches() -> None:
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)  # creates all tables first
     run_startup_migrations(engine)          # then backfill/alter existing tables
-    # Ensure commodity ETF price bars are loaded (non-blocking)
-    asyncio.create_task(_warmup_commodity_etfs())
+    # Ensure all Market Pulse ETF price bars are loaded (non-blocking)
+    asyncio.create_task(_warmup_market_etfs())
     # Invalidate stale BI caches (symbols with empty supply chain fields) in background
     asyncio.create_task(_invalidate_stale_bi_caches())
     yield

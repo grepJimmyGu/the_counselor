@@ -113,7 +113,8 @@ export function NavHeader() {
           <nav aria-label="Main navigation" className="flex items-center gap-1">
             <Link href="/" className={navLink(pathname === "/")}>{t.navHome}</Link>
             <Link href={"/workspace" as Route} className={navLink(pathname.startsWith("/workspace"))}>{t.navWorkspace}</Link>
-            <Link href={"/stocks" as Route} className={navLink(pathname.startsWith("/stocks"))}>{t.navStocks}</Link>
+            <Link href={"/stocks" as Route} className={navLink(pathname.startsWith("/stocks"))}>Market</Link>
+            <Link href={"/commodities/GOLD" as Route} className={navLink(pathname.startsWith("/commodities"))}>Commodities</Link>
             <Link href={"/sentiment" as Route} className={navLink(pathname.startsWith("/sentiment"))}>Sentiment</Link>
             <Link href={"/community" as Route} className={navLink(pathname.startsWith("/community"))}>Community</Link>
             <Link href={"/templates" as Route} className={navLink(pathname.startsWith("/templates"))}>{t.navTemplates}</Link>

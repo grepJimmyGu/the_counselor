@@ -274,6 +274,10 @@ export async function getCommodityTrend(commodity: string): Promise<import("@/li
   return fetchApi(`/api/commodities/${encodeURIComponent(commodity)}/trend`);
 }
 
+export async function getMarketPulse(market: "US" | "CN" = "US"): Promise<import("@/lib/contracts").MarketPulseResponse> {
+  return fetchApi(`/api/market/pulse?market=${market}`);
+}
+
 // ── PRD-07: Stock Screener ────────────────────────────────────────────────────
 
 export async function getScreenerFilters(): Promise<import("@/lib/contracts").ScreenerFiltersResponse> {

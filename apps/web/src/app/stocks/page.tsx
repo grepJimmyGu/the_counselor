@@ -1,10 +1,10 @@
 import { Suspense } from "react";
-import { StocksPageInner } from "./_page-inner";
+import { MarketPulsePage } from "./_market-pulse";
 
 export default function StocksPage() {
   return (
     <Suspense>
-      <StocksPageInner />
+      <MarketPulsePage />
     </Suspense>
   );
 }

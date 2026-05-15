@@ -25,14 +25,14 @@ import { researchTemplates } from "@/lib/contracts";
 const PILLARS = [
   {
     icon: Search,
-    label: "Stock Screener & Fundamentals",
+    label: "Market Pulse & Stock Analysis",
     color: "text-blue-500",
     bg: "bg-blue-50 border-blue-200",
     description:
-      "Filter 8,000+ US stocks by sector, market cap, and financial metrics. Drill into any ticker for financial health scores, value-chain role, and peer comparison.",
-    cta: "Browse Stocks",
+      "Track sector capital flow using Chaikin Money Flow, monitor index performance, and drill into any stock for a 3-question evaluation: Health, Valuation, and Trend.",
+    cta: "Market Pulse",
     href: "/stocks",
-    features: ["Sector & industry filters", "Financial health score", "Business map + peers"],
+    features: ["Sector capital flow (CMF)", "Health · Valuation · Trend scores", "Business model + market position"],
   },
   {
     icon: Newspaper,
@@ -65,7 +65,7 @@ const HOW_IT_WORKS = [
     icon: Search,
     step: "01",
     title: "Screen & Discover",
-    desc: "Browse 8,000+ US stocks by sector, financials, or sentiment signals. Use pre-built toolkits to find stocks with positive catalysts or rising attention.",
+    desc: "Track sector capital flow, monitor index performance, and evaluate any stock across Health, Valuation, and Trend — plus commodities with physical market signals.",
   },
   {
     icon: BarChart2,
@@ -106,7 +106,7 @@ export default function HomePage() {
               Investment Research Platform
             </div>
             <h1 className="font-heading mt-4 text-4xl font-bold leading-tight tracking-tight lg:text-5xl">
-              Research Stocks.{" "}
+              Market Pulse.{" "}
               <span className="text-primary">Read the Signals.</span>
               <br />
               Build Strategies.
@@ -119,7 +119,7 @@ export default function HomePage() {
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
               <Button asChild size="lg" className="rounded-xl px-6">
                 <Link href={"/stocks" as Route}>
-                  Browse Stocks <ArrowRight className="ml-2 h-4 w-4" />
+                  Market Pulse <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               </Button>
               <Button asChild variant="outline" size="lg" className="rounded-xl px-6">
@@ -271,7 +271,7 @@ export default function HomePage() {
             <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
               <Button asChild size="lg" className="rounded-xl px-8">
                 <Link href={"/stocks" as Route}>
-                  Browse Stocks <ArrowRight className="ml-2 h-4 w-4" />
+                  Market Pulse <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               </Button>
               <Button asChild variant="outline" size="lg" className="rounded-xl px-6">
