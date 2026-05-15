@@ -81,36 +81,65 @@ async def _invalidate_stale_bi_caches() -> None:
         logger.warning("BI cache invalidation failed: %s", exc)
 
 
-async def _maybe_prewarm_health_scores() -> None:
+_PREWARM_INTERVAL_DAYS = 7   # re-score all S&P 500 companies weekly
+
+
+async def _run_prewarm_if_stale() -> None:
     """
-    Fire the S&P 500 health score pre-warm once if the table is empty.
-    Runs in background — startup is not blocked.
+    Run the S&P 500 health score prewarm if:
+      - The table has fewer than 50 rows (first deploy / after reset), OR
+      - The oldest computed_at in the table is > 7 days ago (weekly refresh)
+    Logs but never raises — runs in a non-blocking background task.
     """
     try:
         from sqlalchemy import text
-        from app.db.session import SessionLocal
-        db = SessionLocal()
-        try:
-            row = db.execute(text("SELECT COUNT(*) FROM symbol_health_scores")).scalar()
-            if row and row > 50:
-                logger.info("Health score pre-warm skipped — %d rows already present", row)
-                return
-        finally:
-            db.close()
+        from app.db.session import engine
+        from datetime import datetime, timedelta
 
-        logger.info("Health score pre-warm starting (table is empty or sparse)...")
+        with engine.connect() as conn:
+            total = conn.execute(text("SELECT COUNT(*) FROM symbol_health_scores")).scalar() or 0
+            oldest = None
+            if total > 0:
+                oldest = conn.execute(
+                    text("SELECT MIN(computed_at) FROM symbol_health_scores")
+                ).scalar()
+
+        stale_threshold = datetime.utcnow() - timedelta(days=_PREWARM_INTERVAL_DAYS)
+        needs_run = total < 50 or (oldest is not None and oldest < stale_threshold)
+
+        if not needs_run:
+            logger.info(
+                "Health score prewarm skipped — %d rows, oldest computed %s",
+                total, oldest
+            )
+            return
+
+        reason = "table empty/sparse" if total < 50 else f"scores older than {_PREWARM_INTERVAL_DAYS}d"
+        logger.info("Health score prewarm starting (%s, %d existing rows)…", reason, total)
         from app.scripts.prewarm_health_scores import run_prewarm
         await run_prewarm()
     except Exception as exc:
-        logger.warning("Health score pre-warm failed: %s", exc)
+        logger.warning("Health score prewarm failed: %s", exc)
+
+
+async def _weekly_prewarm_loop() -> None:
+    """
+    Long-running task: fires the prewarm once at startup, then every 7 days.
+    Keeps scores fresh without needing an external cron scheduler.
+    """
+    await _run_prewarm_if_stale()
+    while True:
+        await asyncio.sleep(_PREWARM_INTERVAL_DAYS * 24 * 3600)
+        logger.info("Weekly health score prewarm triggered by background loop")
+        await _run_prewarm_if_stale()
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)  # creates all tables first
     run_startup_migrations(engine)          # then backfill/alter existing tables
-    # Pre-warm health scores for top-500 S&P in background (non-blocking)
-    asyncio.create_task(_maybe_prewarm_health_scores())
+    # Weekly health score prewarm loop — runs now then every 7 days
+    asyncio.create_task(_weekly_prewarm_loop())
     # Ensure commodity ETF price bars are loaded (non-blocking)
     asyncio.create_task(_warmup_commodity_etfs())
     # Invalidate stale BI caches (symbols with empty supply chain fields) in background
