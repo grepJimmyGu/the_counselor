@@ -31,6 +31,8 @@ class Settings(BaseSettings):
         "http://127.0.0.1:3000",
         "http://localhost:3001",
         "http://127.0.0.1:3001",
+        "https://livermoreai.com",
+        "https://www.livermoreai.com",
     ]
 
     @field_validator("allowed_origins", mode="before")
