@@ -55,6 +55,32 @@ async def _warmup_commodity_etfs() -> None:
         logger.warning("Commodity ETF warmup task failed: %s", exc)
 
 
+async def _invalidate_stale_bi_caches() -> None:
+    """
+    Delete BI cache rows that predate the upstream_suppliers/downstream_customers fields
+    (those rows will have NULL for these columns). Forces re-extraction on next page load.
+    """
+    try:
+        from sqlalchemy import text
+        from app.db.session import SessionLocal
+        db = SessionLocal()
+        try:
+            result = db.execute(text(
+                "DELETE FROM company_business_intelligence "
+                "WHERE upstream_suppliers IS NULL OR upstream_suppliers = '[]'"
+            ))
+            db.commit()
+            if result.rowcount > 0:
+                logger.info(
+                    "Invalidated %d stale BI cache rows (missing supply chain fields)",
+                    result.rowcount,
+                )
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.warning("BI cache invalidation failed: %s", exc)
+
+
 async def _maybe_prewarm_health_scores() -> None:
     """
     Fire the S&P 500 health score pre-warm once if the table is empty.
@@ -87,6 +113,8 @@ async def lifespan(_: FastAPI):
     asyncio.create_task(_maybe_prewarm_health_scores())
     # Ensure commodity ETF price bars are loaded (non-blocking)
     asyncio.create_task(_warmup_commodity_etfs())
+    # Invalidate stale BI caches (symbols with empty supply chain fields) in background
+    asyncio.create_task(_invalidate_stale_bi_caches())
     yield
 
 

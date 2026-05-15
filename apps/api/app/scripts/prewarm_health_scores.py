@@ -92,27 +92,44 @@ async def _compute_one(symbol: str, db) -> bool:
 
 
 async def run_prewarm(
-    batch_size: int = 10,
-    delay_between_batches: float = 2.0,
+    batch_size: int = 5,           # smaller batches to avoid FMP rate limits
+    delay_between_batches: float = 4.0,  # longer delay between batches
     max_symbols: int = 500,
 ) -> None:
     """
     Main entry point. Fetches S&P 500 list, computes health scores in batches.
     Rate-limited to avoid overwhelming FMP.
     """
+    from sqlalchemy import text
     from app.db.session import SessionLocal
 
     symbols = await _fetch_sp500_symbols()
     symbols = symbols[:max_symbols]
-    logger.info("Pre-warming health scores for %d symbols...", len(symbols))
 
     db = SessionLocal()
     success = 0
     failed = 0
+    skipped = 0
 
     try:
-        for i in range(0, len(symbols), batch_size):
-            batch = symbols[i:i + batch_size]
+        # Load already-scored symbols to skip them
+        existing_rows = db.execute(
+            text("SELECT symbol FROM symbol_health_scores WHERE piotroski_score IS NOT NULL")
+        ).fetchall()
+        already_done = {r[0] for r in existing_rows}
+
+        todo = [s for s in symbols if s not in already_done]
+        logger.info(
+            "Pre-warming health scores: %d todo, %d already done, %d total symbols",
+            len(todo), len(already_done), len(symbols),
+        )
+
+        if not todo:
+            logger.info("Pre-warm complete — all symbols already scored")
+            return
+
+        for i in range(0, len(todo), batch_size):
+            batch = todo[i:i + batch_size]
             results = await asyncio.gather(
                 *[_compute_one(sym, db) for sym in batch],
                 return_exceptions=True,
@@ -123,15 +140,15 @@ async def run_prewarm(
                 else:
                     failed += 1
             logger.info(
-                "Progress: %d/%d symbols processed (success=%d, failed=%d)",
-                min(i + batch_size, len(symbols)), len(symbols), success, failed,
+                "Progress: %d/%d (success=%d, failed=%d)",
+                min(i + batch_size, len(todo)), len(todo), success, failed,
             )
-            if i + batch_size < len(symbols):
+            if i + batch_size < len(todo):
                 await asyncio.sleep(delay_between_batches)
     finally:
         db.close()
 
-    logger.info("Pre-warm complete: %d succeeded, %d failed", success, failed)
+    logger.info("Pre-warm complete: %d succeeded, %d failed, %d skipped", success, failed, skipped)
 
 
 if __name__ == "__main__":
