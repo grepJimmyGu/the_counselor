@@ -132,7 +132,7 @@ def _save_cache(symbol: str, result: SegmentRankings, db: Session) -> None:
         }
         for r in result.rankings
     ])
-    is_sqlite = db.bind.dialect.name == "sqlite" if db.bind else False
+    is_sqlite = "sqlite" in __import__("app.core.config", fromlist=["get_settings"]).get_settings().database_url
     try:
         if is_sqlite:
             db.execute(

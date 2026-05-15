@@ -176,7 +176,7 @@ def _load_cache(symbol: str, segment_type: str, db: Session) -> list[SegmentYear
 
 
 def _save_cache(symbol: str, segment_type: str, years: list[SegmentYear], db: Session) -> None:
-    is_sqlite = db.bind.dialect.name == "sqlite" if db.bind else False
+    is_sqlite = "sqlite" in __import__("app.core.config", fromlist=["get_settings"]).get_settings().database_url
     try:
         # Delete existing rows for this symbol + type
         db.execute(

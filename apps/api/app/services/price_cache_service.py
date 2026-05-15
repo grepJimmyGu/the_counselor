@@ -104,7 +104,8 @@ class PriceCacheService:
         if not bars:
             return 0
 
-        is_sqlite = db.bind.dialect.name == "sqlite"  # type: ignore[union-attr]
+        from app.core.config import get_settings
+        is_sqlite = "sqlite" in get_settings().database_url
         fetched_at = datetime.utcnow()
         rows = [
             {

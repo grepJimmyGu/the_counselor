@@ -499,7 +499,7 @@ def _synthesize_value_insight(
 
 def _save_health_score(result: HealthScoreResult, db: Session) -> None:
     """Upsert computed scores into symbol_health_scores."""
-    is_sqlite = db.bind.dialect.name == "sqlite" if db.bind else False
+    is_sqlite = "sqlite" in __import__("app.core.config", fromlist=["get_settings"]).get_settings().database_url
     signals_json = json.dumps(result.piotroski_signals.to_dict())
     try:
         if is_sqlite:
