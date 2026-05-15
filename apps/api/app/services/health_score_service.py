@@ -500,69 +500,69 @@ def _synthesize_value_insight(
 def _save_health_score(result: HealthScoreResult, _db: Session) -> None:
     """
     Upsert computed scores into symbol_health_scores.
-    Uses its own short-lived session to avoid inheriting any bad transaction
-    state from the caller's request session.
+    Uses engine.begin() directly — bypasses session and connection pool issues.
     """
     from app.core.config import get_settings
-    from app.db.session import SessionLocal
+    from app.db.session import engine
 
     is_sqlite = "sqlite" in get_settings().database_url
-    signals_json = json.dumps(result.piotroski_signals.to_dict())
+    sigs = json.dumps(result.piotroski_signals.to_dict())
     params = {
-        "sym": result.symbol, "sector": result.sector,
-        "p_score": result.piotroski_score, "p_sigs": signals_json,
-        "az": result.altman_z_score, "az_label": result.altman_z_label,
-        "pct": result.sector_piotroski_pct, "n": result.sector_piotroski_n,
-        "iq": result.insight_quality, "isf": result.insight_safety, "iv": result.insight_value,
-        "ev": result.ev_ebitda, "fcf": result.fcf_yield,
+        "sym": result.symbol,
+        "sec": result.sector,
+        "ps": result.piotroski_score,
+        "az": result.altman_z_score,
+        "azl": result.altman_z_label,
+        "pct": result.sector_piotroski_pct,
+        "pn": result.sector_piotroski_n,
+        "iq": result.insight_quality,
+        "isa": result.insight_safety,
+        "iv": result.insight_value,
+        "ev": result.ev_ebitda,
+        "fy": result.fcf_yield,
         "now": datetime.utcnow(),
     }
-    db = SessionLocal()
+    if is_sqlite:
+        sql = text("""
+            INSERT OR REPLACE INTO symbol_health_scores
+            (symbol, sector, piotroski_score, piotroski_signals,
+             altman_z_score, altman_z_label, sector_piotroski_pct, sector_piotroski_n,
+             insight_quality, insight_safety, insight_value, ev_ebitda, fcf_yield, computed_at)
+            VALUES (:sym, :sec, :ps, :sigs,
+                    :az, :azl, :pct, :pn,
+                    :iq, :isa, :iv, :ev, :fy, :now)
+        """)
+        params["sigs"] = sigs
+    else:
+        sql = text("""
+            INSERT INTO symbol_health_scores
+            (symbol, sector, piotroski_score, piotroski_signals,
+             altman_z_score, altman_z_label, sector_piotroski_pct, sector_piotroski_n,
+             insight_quality, insight_safety, insight_value, ev_ebitda, fcf_yield, computed_at)
+            VALUES (:sym, :sec, :ps, CAST(:sigs AS JSONB),
+                    :az, :azl, :pct, :pn,
+                    :iq, :isa, :iv, :ev, :fy, NOW())
+            ON CONFLICT (symbol) DO UPDATE SET
+                sector = EXCLUDED.sector,
+                piotroski_score = EXCLUDED.piotroski_score,
+                piotroski_signals = EXCLUDED.piotroski_signals,
+                altman_z_score = EXCLUDED.altman_z_score,
+                altman_z_label = EXCLUDED.altman_z_label,
+                sector_piotroski_pct = EXCLUDED.sector_piotroski_pct,
+                sector_piotroski_n = EXCLUDED.sector_piotroski_n,
+                insight_quality = EXCLUDED.insight_quality,
+                insight_safety = EXCLUDED.insight_safety,
+                insight_value = EXCLUDED.insight_value,
+                ev_ebitda = EXCLUDED.ev_ebitda,
+                fcf_yield = EXCLUDED.fcf_yield,
+                computed_at = NOW()
+        """)
+        params["sigs"] = sigs
     try:
-        if is_sqlite:
-            db.execute(text("""
-                INSERT OR REPLACE INTO symbol_health_scores
-                (symbol, sector, piotroski_score, piotroski_signals,
-                 altman_z_score, altman_z_label,
-                 sector_piotroski_pct, sector_piotroski_n,
-                 insight_quality, insight_safety, insight_value,
-                 ev_ebitda, fcf_yield, computed_at)
-                VALUES (:sym, :sector, :p_score, :p_sigs,
-                        :az, :az_label, :pct, :n,
-                        :iq, :isf, :iv, :ev, :fcf, :now)
-            """), params)
-        else:
-            db.execute(text("""
-                INSERT INTO symbol_health_scores
-                (symbol, sector, piotroski_score, piotroski_signals,
-                 altman_z_score, altman_z_label,
-                 sector_piotroski_pct, sector_piotroski_n,
-                 insight_quality, insight_safety, insight_value,
-                 ev_ebitda, fcf_yield, computed_at)
-                VALUES (:sym, :sector, :p_score, :p_sigs::jsonb,
-                        :az, :az_label, :pct, :n,
-                        :iq, :isf, :iv, :ev, :fcf, now())
-                ON CONFLICT (symbol) DO UPDATE SET
-                    sector = EXCLUDED.sector,
-                    piotroski_score = EXCLUDED.piotroski_score,
-                    piotroski_signals = EXCLUDED.piotroski_signals,
-                    altman_z_score = EXCLUDED.altman_z_score,
-                    altman_z_label = EXCLUDED.altman_z_label,
-                    sector_piotroski_pct = EXCLUDED.sector_piotroski_pct,
-                    sector_piotroski_n = EXCLUDED.sector_piotroski_n,
-                    insight_quality = EXCLUDED.insight_quality,
-                    insight_safety = EXCLUDED.insight_safety,
-                    insight_value = EXCLUDED.insight_value,
-                    ev_ebitda = EXCLUDED.ev_ebitda,
-                    fcf_yield = EXCLUDED.fcf_yield,
-                    computed_at = now()
-            """), params)
-        db.commit()
+        with engine.begin() as conn:
+            conn.execute(sql, params)
     except Exception as exc:
-        logger.warning("Failed to save health score for %s: %s", result.symbol, exc)
-        db.rollback()
-    finally:
-        db.close()
+        logger.error("Failed to save health score for %s: %s", result.symbol, exc, exc_info=True)
 
 
 def _get_industry_percentile(
@@ -578,25 +578,23 @@ def _get_industry_percentile(
     """
     if sector is None or piotroski_score is None:
         return None, None
-    from app.db.session import SessionLocal
-    db = SessionLocal()
+    from app.db.session import engine
     try:
-        row = db.execute(
-            text("""
-                SELECT
-                    COUNT(*) FILTER (WHERE piotroski_score < :target) * 100.0 / NULLIF(COUNT(*), 0) AS pct,
-                    COUNT(*) AS peer_count
-                FROM symbol_health_scores
-                WHERE sector = :sector AND piotroski_score IS NOT NULL AND symbol != :sym
-            """),
-            {"target": piotroski_score, "sector": sector, "sym": symbol},
-        ).fetchone()
-        if row and row[1] and row[1] > 0:
-            return round(float(row[0]), 1), int(row[1])
+        with engine.connect() as conn:
+            row = conn.execute(
+                text("""
+                    SELECT
+                        COUNT(*) FILTER (WHERE piotroski_score < :target) * 100.0 / NULLIF(COUNT(*), 0) AS pct,
+                        COUNT(*) AS peer_count
+                    FROM symbol_health_scores
+                    WHERE sector = :sector AND piotroski_score IS NOT NULL AND symbol != :sym
+                """),
+                {"target": piotroski_score, "sector": sector, "sym": symbol},
+            ).fetchone()
+            if row and row[1] and row[1] > 0:
+                return round(float(row[0]), 1), int(row[1])
     except Exception as exc:
         logger.debug("Percentile query failed: %s", exc)
-    finally:
-        db.close()
     return None, None
 
 
