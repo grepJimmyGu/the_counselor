@@ -116,6 +116,18 @@ class FMPClient:
         except Exception:
             return []
 
+    async def get_quote(self, symbol: str) -> dict | None:
+        """Live quote — price, change, volume. Never cached. Extremely fast."""
+        try:
+            data = await self._get("/quote", {"symbol": symbol.upper()})
+            if isinstance(data, list) and data:
+                return data[0]
+            if isinstance(data, dict) and data.get("price"):
+                return data
+        except Exception:
+            pass
+        return None
+
     async def get_revenue_segments(self, symbol: str, limit: int = 5) -> list[dict]:
         """Annual product/business revenue segmentation (last N years)."""
         try:

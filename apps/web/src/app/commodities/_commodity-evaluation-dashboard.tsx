@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { LineChart, Line, ResponsiveContainer } from "recharts";
 import {
   AlertTriangle, TrendingUp, TrendingDown, Minus,
@@ -9,6 +9,8 @@ import {
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { MetricLabel } from "@/components/ui/metric-label";
+import { getCommodityTrend } from "@/lib/api";
+import type { StockTrendData } from "@/lib/contracts";
 import type { CommodityMetricsInput, QuestionScore, MetricRow, DataQuality } from "@/lib/evaluation/types";
 import {
   calculateCommodityHealthScore,
@@ -351,6 +353,47 @@ function CommodityAssetCard({ m }: { m: CommodityMetricsInput }) {
   );
 }
 
+// ── Trend loading skeleton ────────────────────────────────────────────────────
+
+function TrendLoadingSkeleton() {
+  return (
+    <div className="rounded-xl border border-border bg-white p-4 shadow-sm space-y-3 animate-pulse">
+      <div className="flex items-center justify-between">
+        <div className="h-3 w-32 rounded bg-muted" />
+        <div className="h-5 w-16 rounded-full bg-muted" />
+      </div>
+      <div className="h-6 w-10 rounded bg-muted" />
+      <div className="h-1.5 w-full rounded-full bg-muted" />
+      <div className="space-y-2">
+        <div className="h-3 w-4/5 rounded bg-muted" />
+        <div className="h-3 w-3/5 rounded bg-muted" />
+      </div>
+    </div>
+  );
+}
+
+// ── Merge live trend into commodity metrics ───────────────────────────────────
+
+function mergeTrendData(m: CommodityMetricsInput, td: StockTrendData): CommodityMetricsInput {
+  // Map ETF price performance → commodity trend fields
+  // Derive dollar trend from DXY / USD proxies (future), for now keep mock
+  const priceSeries = td.price_series_90d.map(p => ({ date: p.date, price: p.price }));
+
+  return {
+    ...m,
+    spotPrice: td.latest_price ?? m.spotPrice,
+    perf1m:  td.perf_1m  ?? m.perf1m,
+    perf3m:  td.perf_3m  ?? m.perf3m,
+    perf6m:  td.perf_6m  ?? m.perf6m,
+    perf12m: td.perf_12m ?? m.perf12m,
+    ma50:    td.ma_50    ?? m.ma50,
+    ma200:   td.ma_200   ?? m.ma200,
+    // Use rs_vs_spy as proxy for ETF vs broad market
+    // (not commodity-specific RS, but better than nothing)
+    priceSeries: priceSeries.length > 0 ? priceSeries : m.priceSeries,
+  };
+}
+
 // ── Main exported component ───────────────────────────────────────────────────
 
 interface Props {
@@ -358,47 +401,81 @@ interface Props {
 }
 
 export function CommodityEvaluationDashboard({ m }: Props) {
-  const healthScore    = calculateCommodityHealthScore(m);
-  const valuationScore = calculateCommodityValuationScore(m);
-  const trendScore     = calculateCommodityTrendScore(m);
+  const [trendData, setTrendData] = useState<StockTrendData | null>(null);
+  const [trendLoading, setTrendLoading] = useState(true);
+  const [trendError, setTrendError] = useState(false);
+
+  useEffect(() => {
+    setTrendLoading(true);
+    setTrendError(false);
+    getCommodityTrend(m.symbol)
+      .then(setTrendData)
+      .catch(() => { setTrendData(null); setTrendError(true); })
+      .finally(() => setTrendLoading(false));
+  }, [m.symbol]);
+
+  // Merge live price + performance into base commodity metrics
+  const merged = trendData ? mergeTrendData(m, trendData) : m;
+
+  const healthScore    = calculateCommodityHealthScore(merged);
+  const valuationScore = calculateCommodityValuationScore(merged);
+  const trendScore     = calculateCommodityTrendScore(merged);
   const overallScore   = getFinalScore(healthScore, valuationScore, trendScore);
   const overallLabel   = getFinalLabel(overallScore);
 
-  const health      = interpretCommodityHealth(m, healthScore);
-  const valuation   = interpretCommodityValuation(m, valuationScore);
-  const trend       = interpretCommodityTrend(m, trendScore);
-  const contradiction = buildCommodityContradictionWarning(healthScore, valuationScore, trendScore, m);
+  const health      = interpretCommodityHealth(merged, healthScore);
+  const valuation   = interpretCommodityValuation(merged, valuationScore);
+  const trend       = interpretCommodityTrend(merged, trendScore);
+  const contradiction = buildCommodityContradictionWarning(healthScore, valuationScore, trendScore, merged);
   const { summary, bull, bear, watch } = buildCommodityAnalystSummary(
-    m, health, valuation, trend, overallScore, overallLabel
+    merged, health, valuation, trend, overallScore, overallLabel
   );
 
   return (
     <div className="space-y-5">
-      {/* Asset summary */}
-      <CommodityAssetCard m={m} />
+      {/* Asset summary — shows real ETF price when available */}
+      <CommodityAssetCard m={merged} />
+
+      {/* Data source note when real trend loaded */}
+      {trendData && !trendError && (
+        <div className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50/50 px-4 py-2 text-xs text-emerald-700">
+          <span className="inline-block h-1.5 w-1.5 rounded-full bg-emerald-500" />
+          Price, performance, and moving averages sourced from Alpha Vantage (ETF proxy: {
+            { GOLD: "GLD", WTI: "USO", COPPER: "COPX", WHEAT: "WEAT" }[m.symbol] ?? m.symbol
+          }).
+          Physical market data (inventory, CFTC, futures curve) uses estimated values.
+        </div>
+      )}
 
       {/* Three scorecards */}
       <div className="grid gap-4 lg:grid-cols-3">
         <QuestionScorecardCard qs={health}    label="Physical Market Health" accent="amber" />
         <QuestionScorecardCard qs={valuation} label="Valuation"              accent="blue" />
-        <QuestionScorecardCard qs={trend}     label="Market Trend"           accent="violet" />
+        {trendLoading
+          ? <TrendLoadingSkeleton />
+          : <QuestionScorecardCard qs={trend} label="Market Trend" accent="violet" />
+        }
       </div>
 
       {/* Detail panels */}
       <MetricDetailPanelSection qs={health}    label="Physical Market Health — Detailed Metrics" />
       <MetricDetailPanelSection qs={valuation} label="Valuation — Detailed Metrics" />
-      <MetricDetailPanelSection qs={trend}     label="Market Trend — Detailed Metrics" />
+      {!trendLoading && (
+        <MetricDetailPanelSection qs={trend}   label="Market Trend — Detailed Metrics" />
+      )}
 
-      {/* Final summary */}
-      <FinalAnalystSummaryCard
-        overallScore={overallScore}
-        overallLabel={overallLabel}
-        summary={summary}
-        bull={bull}
-        bear={bear}
-        watch={watch}
-        contradiction={contradiction}
-      />
+      {/* Final summary — wait for trend */}
+      {!trendLoading && (
+        <FinalAnalystSummaryCard
+          overallScore={overallScore}
+          overallLabel={overallLabel}
+          summary={summary}
+          bull={bull}
+          bear={bear}
+          watch={watch}
+          contradiction={contradiction}
+        />
+      )}
     </div>
   );
 }

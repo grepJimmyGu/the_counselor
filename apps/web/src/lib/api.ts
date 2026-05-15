@@ -270,6 +270,10 @@ export async function getStockTrend(symbol: string): Promise<import("@/lib/contr
   return fetchApi(`/api/company/${encodeURIComponent(symbol)}/trend`);
 }
 
+export async function getCommodityTrend(commodity: string): Promise<import("@/lib/contracts").StockTrendData> {
+  return fetchApi(`/api/commodities/${encodeURIComponent(commodity)}/trend`);
+}
+
 // ── PRD-07: Stock Screener ────────────────────────────────────────────────────
 
 export async function getScreenerFilters(): Promise<import("@/lib/contracts").ScreenerFiltersResponse> {

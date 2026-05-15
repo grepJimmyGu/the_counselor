@@ -144,8 +144,16 @@ class CompanyOverviewService:
     async def get_overview(self, db: Session, symbol: str) -> CompanyOverviewResponse:
         sym = symbol.upper()
 
-        # 1. Profile (cached in FundamentalService)
+        # 1. Profile (cached in FundamentalService) + live price from /quote
         profile = await self._fundamental.get_profile(db, sym)
+        try:
+            quote = await self._fmp.get_quote(sym)
+            if quote:
+                live_price = quote.get("price") or quote.get("currentPrice")
+                if live_price:
+                    profile = profile.model_copy(update={"price": float(live_price)})
+        except Exception:
+            pass
 
         # 2. Key metrics raw dict (for financial validation service)
         key_metrics_raw: dict = {}

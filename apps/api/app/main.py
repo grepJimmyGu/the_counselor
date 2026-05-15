@@ -16,6 +16,8 @@ from app.api.routes.market_data import router as market_data_router
 from app.api.routes.qa import router as qa_router
 from app.api.routes.robustness import router as robustness_router
 from app.api.routes.uiux import router as uiux_router
+from app.api.routes.admin import router as admin_router
+from app.api.routes.commodities import router as commodities_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.community import router as community_router
 from app.api.routes.sentiment import router as sentiment_router
@@ -25,6 +27,32 @@ from app.core.config import get_settings
 from app.db.migrations import run_startup_migrations
 from app.db.session import Base, engine
 from app.models import BacktestRecord, DataFetchLog, PriceBar, SymbolCache  # noqa: F401
+
+
+async def _warmup_commodity_etfs() -> None:
+    """Ensure GLD, USO, COPX, WEAT price bars are loaded (non-blocking)."""
+    try:
+        from datetime import date, timedelta
+        from app.services.alpha_vantage import AlphaVantageClient
+        from app.services.price_cache_service import PriceCacheService
+        from app.db.session import SessionLocal
+
+        etfs = ["GLD", "USO", "COPX", "WEAT"]
+        required_from = date.today() - timedelta(days=365 * 11)
+        client = AlphaVantageClient()
+        svc = PriceCacheService(client)
+        db = SessionLocal()
+        try:
+            for etf in etfs:
+                try:
+                    await svc.ensure_history(db, etf, required_from, force=False)
+                    logger.info("Commodity ETF %s: price bars ensured", etf)
+                except Exception as exc:
+                    logger.warning("Commodity ETF warmup failed for %s: %s", etf, exc)
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.warning("Commodity ETF warmup task failed: %s", exc)
 
 
 async def _maybe_prewarm_health_scores() -> None:
@@ -57,6 +85,8 @@ async def lifespan(_: FastAPI):
     run_startup_migrations(engine)          # then backfill/alter existing tables
     # Pre-warm health scores for top-500 S&P in background (non-blocking)
     asyncio.create_task(_maybe_prewarm_health_scores())
+    # Ensure commodity ETF price bars are loaded (non-blocking)
+    asyncio.create_task(_warmup_commodity_etfs())
     yield
 
 
@@ -70,6 +100,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.include_router(admin_router)
+app.include_router(commodities_router)
 app.include_router(strategy_router)
 app.include_router(backtest_router)
 app.include_router(fundamental_router)
