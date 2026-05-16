@@ -541,7 +541,9 @@ export function MarketPulsePage() {
 
             <TabsContent value="stocks" className="mt-0 space-y-2">
               <div className="text-[10px] text-muted-foreground mb-2">
-                Top 10 by capital inflow (CMF-20) · Updated hourly
+                {market === "CN"
+                  ? "CN market ETF proxies by capital inflow (CMF-20) · Individual A-share data not available"
+                  : "Top 10 US stocks by capital inflow (CMF-20) · Updated hourly"}
               </div>
               {loading
                 ? Array(5).fill(0).map((_, i) => <Skeleton key={i} className="h-14 rounded-lg" />)
@@ -551,7 +553,9 @@ export function MarketPulsePage() {
                   ))
                 : (
                   <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
-                    Price history loading for universe… check back in a few minutes.
+                    {market === "CN"
+                      ? "CN ETF price data loading… check back shortly."
+                      : "Price history loading for universe… check back in a few minutes."}
                   </div>
                 )
               }
@@ -559,7 +563,9 @@ export function MarketPulsePage() {
 
             <TabsContent value="etfs" className="mt-0 space-y-2">
               <div className="text-[10px] text-muted-foreground mb-2">
-                Featured ETFs — major indices, sectors, and macro proxies
+                {market === "CN"
+                  ? "CN market ETFs — major index and sector proxies"
+                  : "Featured ETFs — major indices, sectors, and macro proxies"}
               </div>
               {loading
                 ? Array(5).fill(0).map((_, i) => <Skeleton key={i} className="h-14 rounded-lg" />)
