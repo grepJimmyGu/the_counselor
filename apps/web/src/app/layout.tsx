@@ -5,8 +5,13 @@ import { LocaleProvider } from "@/lib/locale-context";
 import { NavHeader } from "@/components/nav-header";
 
 export const metadata: Metadata = {
-  title: "Livermore",
+  title: "Livermore Alpha",
   description: "AI-powered investment strategy research and backtesting workspace.",
+  viewport: {
+    width: "device-width",
+    initialScale: 1,
+    maximumScale: 1,
+  },
 };
 
 export default function RootLayout({
@@ -16,7 +21,7 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className="h-full">
-      <body className="min-h-full bg-background font-sans text-foreground antialiased">
+      <body className="min-h-full bg-background font-sans text-foreground antialiased overscroll-y-none">
         <SessionProvider>
         <LocaleProvider>
           {/* Skip to main content — keyboard navigation accessibility */}

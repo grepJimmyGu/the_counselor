@@ -131,7 +131,7 @@ function IndexCardUI({ card }: { card: IndexCard }) {
   const chartData = card.sparkline_5d.map((v, i) => ({ i, v }));
   const isUp = card.perf_5d != null ? card.perf_5d >= 0 : (card.perf_1d ?? 0) >= 0;
   return (
-    <Link href={`/stocks/${card.symbol}` as Route} className="block cursor-pointer">
+    <Link href={`/stocks/${card.symbol}` as Route} className="block cursor-pointer touch-manipulation">
       <div className={cn(
         "rounded-xl border bg-white p-3.5 shadow-sm transition-all hover:border-primary/30 hover:shadow-md",
         card.is_stale ? "border-amber-200" : "border-border"
@@ -183,13 +183,13 @@ function MacroChipUI({ card }: { card: MacroCard }) {
   const dir = card.perf_1d == null ? "flat" : card.perf_1d > 0.001 ? "up" : card.perf_1d < -0.001 ? "down" : "flat";
   return (
     <div className={cn(
-      "flex items-center justify-between rounded-lg border px-3 py-2 transition-colors",
+      "flex items-center justify-between rounded-lg border px-3 py-2.5 min-h-[52px] transition-colors touch-manipulation",
       dir === "up" ? "border-emerald-200 bg-emerald-50/60" :
       dir === "down" ? "border-red-200 bg-red-50/60" :
       "border-border bg-muted/30"
     )}>
-      <div>
-        <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">{card.label}</div>
+      <div className="min-w-0 flex-1">
+        <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground truncate">{card.label}</div>
         <div className="font-mono text-sm font-bold">{fmtPrice(card.price)}</div>
       </div>
       <PerfBadge v={card.perf_1d} />
@@ -201,31 +201,46 @@ function MacroChipUI({ card }: { card: MacroCard }) {
 
 function SectorFlowRow({ card, rank }: { card: SectorCard; rank: number }) {
   return (
-    <Link href={`/stocks/${card.symbol}` as Route} className="block cursor-pointer">
-      <div className="grid grid-cols-[2rem_1fr_5rem_4rem_7rem] items-center gap-3 rounded-lg px-3 py-2.5 transition-colors hover:bg-muted/40">
-        {/* Rank */}
+    <Link href={`/stocks/${card.symbol}` as Route} className="block cursor-pointer touch-manipulation">
+      {/* Desktop: 5-column table row */}
+      <div className="hidden sm:grid grid-cols-[2rem_1fr_5rem_4rem_7rem] items-center gap-3 rounded-lg px-3 py-2.5 min-h-[44px] transition-colors hover:bg-muted/40">
         <span className="text-[10px] font-mono text-muted-foreground text-right">{rank}</span>
-        {/* Name */}
         <div className="min-w-0">
           <div className="text-xs font-semibold truncate">{card.name}</div>
           <div className="font-mono text-[10px] text-muted-foreground">{card.symbol}</div>
         </div>
-        {/* 1D % */}
         <PerfBadge v={card.perf_1d} className="justify-end" />
-        {/* RS vs SPY */}
         <div className="text-right">
           {card.rs_vs_spy_5d != null ? (
-            <span className={cn(
-              "font-mono text-[10px] font-medium",
-              card.rs_vs_spy_5d > 0 ? "text-emerald-600" : "text-red-500"
-            )}>
+            <span className={cn("font-mono text-[10px] font-medium", card.rs_vs_spy_5d > 0 ? "text-emerald-600" : "text-red-500")}>
               {card.rs_vs_spy_5d >= 0 ? "+" : ""}{(card.rs_vs_spy_5d * 100).toFixed(1)}%
             </span>
           ) : <span className="text-[10px] text-muted-foreground">—</span>}
           <div className="text-[9px] text-muted-foreground">vs SPY</div>
         </div>
-        {/* CMF Bar */}
         <CMFBar value={card.cmf_20} />
+      </div>
+
+      {/* Mobile: 2-line card layout */}
+      <div className="sm:hidden flex items-center gap-3 px-3 py-3 min-h-[56px] rounded-lg transition-colors hover:bg-muted/40">
+        <span className="text-[10px] font-mono text-muted-foreground w-4 shrink-0 text-right">{rank}</span>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-1.5">
+            <span className="text-xs font-semibold truncate">{card.name}</span>
+            <span className="font-mono text-[10px] text-muted-foreground shrink-0">{card.symbol}</span>
+          </div>
+          <div className="mt-1 w-full">
+            <CMFBar value={card.cmf_20} />
+          </div>
+        </div>
+        <div className="shrink-0 text-right">
+          <PerfBadge v={card.perf_1d} />
+          {card.rs_vs_spy_5d != null && (
+            <div className={cn("font-mono text-[10px] mt-0.5", card.rs_vs_spy_5d > 0 ? "text-emerald-600" : "text-red-500")}>
+              {card.rs_vs_spy_5d >= 0 ? "+" : ""}{(card.rs_vs_spy_5d * 100).toFixed(1)}%
+            </div>
+          )}
+        </div>
       </div>
     </Link>
   );
@@ -235,37 +250,46 @@ function SectorFlowRow({ card, rank }: { card: SectorCard; rank: number }) {
 
 function AssetCardUI({ card, href }: { card: AssetCard; href: string }) {
   return (
-    <Link href={href as Route} className="block cursor-pointer">
+    <Link href={href as Route} className="block cursor-pointer touch-manipulation">
       <div className={cn(
-        "flex items-center gap-3 rounded-lg border bg-white px-3.5 py-2.5 shadow-sm transition-all hover:border-primary/30 hover:shadow-md",
+        "rounded-lg border bg-white px-3.5 py-3 shadow-sm transition-all hover:border-primary/30 hover:shadow-md min-h-[64px]",
         card.is_stale ? "border-amber-200" : "border-border"
       )}>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-1.5">
-            <span className="font-mono text-xs font-bold">{card.symbol}</span>
+        {/* Top row: symbol + price */}
+        <div className="flex items-start gap-3">
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-mono text-xs font-bold">{card.symbol}</span>
+              {card.sector && (
+                <Badge variant="outline" className="text-[9px] px-1 py-0 h-4 hidden sm:inline-flex">{card.sector}</Badge>
+              )}
+              {card.is_stale && <StaleBadge />}
+            </div>
+            <div className="text-[11px] text-muted-foreground truncate">{card.name}</div>
             {card.sector && (
-              <Badge variant="outline" className="text-[9px] px-1 py-0 h-4">{card.sector}</Badge>
+              <div className="sm:hidden text-[9px] text-muted-foreground truncate mt-0.5">{card.sector}</div>
             )}
-            {card.is_stale && <StaleBadge />}
           </div>
-          <div className="text-[11px] text-muted-foreground truncate">{card.name}</div>
-          <div className="flex items-center gap-2">
+          <div className="text-right shrink-0 space-y-0.5">
+            <div className="font-mono text-sm font-semibold">{fmtPrice(card.price)}</div>
+            <PerfBadge v={card.perf_1d} />
+          </div>
+        </div>
+        {/* Bottom row: CMF bar + meta */}
+        <div className="mt-2 flex items-center gap-3">
+          <div className="flex-1">
+            <CMFBar value={card.cmf_20} />
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
             {card.market_cap && (
               <span className="text-[10px] text-muted-foreground">{fmtMktCap(card.market_cap)}</span>
             )}
             {card.latest_date && (
               <span className={cn("text-[9px]", card.is_stale ? "text-amber-600" : "text-muted-foreground/60")}>
-                as of {fmtDate(card.latest_date)}
+                {fmtDate(card.latest_date)}
               </span>
             )}
           </div>
-        </div>
-        <div className="text-right shrink-0 space-y-0.5">
-          <div className="font-mono text-sm font-semibold">{fmtPrice(card.price)}</div>
-          <PerfBadge v={card.perf_1d} />
-        </div>
-        <div className="w-20 shrink-0">
-          <CMFBar value={card.cmf_20} />
         </div>
       </div>
     </Link>
@@ -448,7 +472,7 @@ export function MarketPulsePage() {
           <div className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
             Macro Signals
           </div>
-          <div className="grid gap-2 grid-cols-3 sm:grid-cols-6">
+          <div className="grid gap-2 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
             {loading
               ? Array(6).fill(0).map((_, i) => <Skeleton key={i} className="h-14 rounded-lg" />)
               : (data?.macro ?? []).map(m => <MacroChipUI key={m.symbol} card={m} />)
@@ -472,8 +496,8 @@ export function MarketPulsePage() {
             )}
           </div>
           <div className="rounded-xl border border-border bg-white shadow-sm overflow-hidden">
-            {/* Table header */}
-            <div className="grid grid-cols-[2rem_1fr_5rem_4rem_7rem] items-center gap-3 border-b border-border/50 px-3 py-2 bg-muted/20">
+            {/* Table header — desktop only */}
+            <div className="hidden sm:grid grid-cols-[2rem_1fr_5rem_4rem_7rem] items-center gap-3 border-b border-border/50 px-3 py-2 bg-muted/20">
               <span className="text-[9px] font-semibold uppercase text-muted-foreground text-right">#</span>
               <span className="text-[9px] font-semibold uppercase text-muted-foreground">Sector</span>
               <span className="text-[9px] font-semibold uppercase text-muted-foreground text-right">1D</span>
