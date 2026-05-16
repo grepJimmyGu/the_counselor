@@ -332,7 +332,7 @@ function CommodityAssetCard({ m }: { m: CommodityMetricsInput }) {
         </div>
       </div>
       {/* Snapshot metrics */}
-      <div className="mt-3 grid grid-cols-4 gap-3 border-t border-border/40 pt-3">
+      <div className="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 border-t border-border/40 pt-3">
         {[
           { label: "1M", value: fmtPct(m.perf1m) },
           { label: "3M", value: fmtPct(m.perf3m) },
@@ -343,9 +343,9 @@ function CommodityAssetCard({ m }: { m: CommodityMetricsInput }) {
           { label: "CFTC Position", value: m.cftcPositioningPct != null ? `${Math.round(m.cftcPositioningPct)}th pct` : "—" },
           { label: "Spare Capacity", value: m.spareCapacity ? m.spareCapacity.charAt(0).toUpperCase() + m.spareCapacity.slice(1) : "—" },
         ].map(({ label, value }) => (
-          <div key={label} className="rounded-lg bg-muted/30 px-3 py-2">
-            <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-            <div className="mt-0.5 font-mono text-xs font-medium">{value}</div>
+          <div key={label} className="rounded-lg bg-muted/30 px-2.5 py-2">
+            <div className="text-[9px] font-semibold uppercase tracking-wide text-muted-foreground truncate">{label}</div>
+            <div className="mt-0.5 font-mono text-xs font-medium truncate">{value}</div>
           </div>
         ))}
       </div>

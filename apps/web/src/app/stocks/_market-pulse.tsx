@@ -146,18 +146,20 @@ function IndexCardUI({ card }: { card: IndexCard }) {
             {card.is_stale && <StaleBadge />}
           </div>
         </div>
-        <div className="mt-2 flex items-end justify-between gap-2">
-          <span className="font-mono text-lg font-bold">{fmtPrice(card.price)}</span>
+        <div className="mt-2 flex items-end justify-between gap-1">
+          <span className="font-mono text-base sm:text-lg font-bold truncate">{fmtPrice(card.price)}</span>
           {chartData.length >= 2 && (
-            <ResponsiveContainer width={60} height={28}>
-              <LineChart data={chartData}>
-                <Line
-                  type="monotone" dataKey="v" dot={false}
-                  stroke={isUp ? "#10b981" : "#ef4444"}
-                  strokeWidth={1.5}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+            <div className="shrink-0">
+              <ResponsiveContainer width={44} height={24}>
+                <LineChart data={chartData}>
+                  <Line
+                    type="monotone" dataKey="v" dot={false}
+                    stroke={isUp ? "#10b981" : "#ef4444"}
+                    strokeWidth={1.5}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            </div>
           )}
         </div>
         <div className="mt-1 flex items-center justify-between gap-2">

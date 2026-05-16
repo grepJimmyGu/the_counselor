@@ -135,7 +135,7 @@ function QuestionScorecardCard({ qs, label, accent }: QuestionScorecardCardProps
       </div>
 
       {/* Top 3 metric pills */}
-      <div className="grid grid-cols-3 gap-1.5">
+      <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5">
         {qs.topMetrics.map((metric) => (
           <div
             key={metric.name}
@@ -191,8 +191,32 @@ function MetricDetailPanelSection({ qs, label }: { qs: QuestionScore; label: str
       </button>
 
       {open && (
-        <div className="border-t border-border px-5 py-4">
-          <div className="overflow-x-auto">
+        <div className="border-t border-border px-4 sm:px-5 py-4">
+          {/* Mobile: card-per-metric layout */}
+          <div className="sm:hidden space-y-2">
+            {qs.topMetrics.map((metric) => (
+              <div key={metric.name} className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs font-medium truncate flex-1">{metric.name}</span>
+                  <div className="flex items-center gap-1.5 shrink-0">
+                    <span className={cn(
+                      "font-mono text-xs font-semibold",
+                      metric.status === "strong" ? "text-emerald-700" :
+                      metric.status === "neutral" ? "text-amber-700" :
+                      metric.status === "weak" ? "text-red-600" :
+                      "text-muted-foreground"
+                    )}>{metric.formatted}</span>
+                    {metric.status && <StatusChip status={metric.status} />}
+                  </div>
+                </div>
+                {metric.interpretation && (
+                  <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">{metric.interpretation}</p>
+                )}
+              </div>
+            ))}
+          </div>
+          {/* Desktop: full table */}
+          <div className="hidden sm:block overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-border/50">
