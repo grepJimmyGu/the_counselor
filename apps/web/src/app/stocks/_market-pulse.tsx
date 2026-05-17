@@ -7,7 +7,7 @@ import type { Route } from "next";
 import {
   TrendingUp, TrendingDown, Minus, Search, ArrowRight, RefreshCw, AlertTriangle,
 } from "lucide-react";
-import { LineChart, Line, ResponsiveContainer } from "recharts";
+import { AreaChart, Area, ResponsiveContainer } from "recharts";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -150,14 +150,21 @@ function IndexCardUI({ card }: { card: IndexCard }) {
           <span className="font-mono text-base sm:text-lg font-bold truncate">{fmtPrice(card.price)}</span>
           {chartData.length >= 2 && (
             <div className="shrink-0">
-              <ResponsiveContainer width={44} height={24}>
-                <LineChart data={chartData}>
-                  <Line
+              <ResponsiveContainer width={80} height={40}>
+                <AreaChart data={chartData} margin={{ top: 2, right: 0, bottom: 2, left: 0 }}>
+                  <defs>
+                    <linearGradient id={`spark-${card.symbol}`} x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="5%" stopColor={isUp ? "#10b981" : "#ef4444"} stopOpacity={0.25} />
+                      <stop offset="95%" stopColor={isUp ? "#10b981" : "#ef4444"} stopOpacity={0} />
+                    </linearGradient>
+                  </defs>
+                  <Area
                     type="monotone" dataKey="v" dot={false}
                     stroke={isUp ? "#10b981" : "#ef4444"}
                     strokeWidth={1.5}
+                    fill={`url(#spark-${card.symbol})`}
                   />
-                </LineChart>
+                </AreaChart>
               </ResponsiveContainer>
             </div>
           )}
@@ -469,53 +476,58 @@ export function MarketPulsePage() {
           </div>
         </section>
 
-        {/* B. Macro signals */}
-        <section>
-          <div className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-            Macro Signals
-          </div>
-          <div className="grid gap-2 grid-cols-2 sm:grid-cols-3 lg:grid-cols-6">
-            {loading
-              ? Array(6).fill(0).map((_, i) => <Skeleton key={i} className="h-14 rounded-lg" />)
-              : (data?.macro ?? []).map(m => <MacroChipUI key={m.symbol} card={m} />)
-            }
-          </div>
-        </section>
+        {/* B+C. Sector Flow (left) + Macro Signals (right) — side-by-side on desktop */}
+        <div className="grid gap-6 lg:grid-cols-[3fr_2fr] lg:items-start">
 
-        {/* C. Sector Capital Flow */}
-        <section>
-          <div className="mb-2 flex items-center justify-between">
-            <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-              Sector Capital Flow
-              <span className="ml-2 normal-case font-normal text-muted-foreground/60">
-                · Chaikin Money Flow (20d) — positive = accumulation, negative = distribution
-              </span>
-            </div>
-            {data && (
-              <div className="text-[10px] text-muted-foreground">
-                Sorted by CMF ↓
+          {/* C. Sector Capital Flow */}
+          <section>
+            <div className="mb-2 flex items-center justify-between">
+              <div className="text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+                Sector Capital Flow
+                <span className="ml-2 normal-case font-normal text-muted-foreground/60">
+                  · Chaikin Money Flow (20d) — positive = accumulation, negative = distribution
+                </span>
               </div>
-            )}
-          </div>
-          <div className="rounded-xl border border-border bg-white shadow-sm overflow-hidden">
-            {/* Table header — desktop only */}
-            <div className="hidden sm:grid grid-cols-[2rem_1fr_5rem_4rem_7rem] items-center gap-3 border-b border-border/50 px-3 py-2 bg-muted/20">
-              <span className="text-[9px] font-semibold uppercase text-muted-foreground text-right">#</span>
-              <span className="text-[9px] font-semibold uppercase text-muted-foreground">Sector</span>
-              <span className="text-[9px] font-semibold uppercase text-muted-foreground text-right">1D</span>
-              <span className="text-[9px] font-semibold uppercase text-muted-foreground text-right">vs SPY 5D</span>
-              <span className="text-[9px] font-semibold uppercase text-muted-foreground">CMF (−0.5 → +0.5)</span>
+              {data && (
+                <div className="text-[10px] text-muted-foreground">
+                  Sorted by CMF ↓
+                </div>
+              )}
             </div>
-            {loading
-              ? Array(11).fill(0).map((_, i) => <SectorRowSkeleton key={i} />)
-              : (data?.sectors ?? []).map((s, i) => (
-                  <div key={s.symbol} className={cn(i < (data?.sectors.length ?? 0) - 1 && "border-b border-border/30")}>
-                    <SectorFlowRow card={s} rank={i + 1} />
-                  </div>
-                ))
-            }
-          </div>
-        </section>
+            <div className="rounded-xl border border-border bg-white shadow-sm overflow-hidden">
+              {/* Table header — desktop only */}
+              <div className="hidden sm:grid grid-cols-[2rem_1fr_5rem_4rem_7rem] items-center gap-3 border-b border-border/50 px-3 py-2 bg-muted/20">
+                <span className="text-[9px] font-semibold uppercase text-muted-foreground text-right">#</span>
+                <span className="text-[9px] font-semibold uppercase text-muted-foreground">Sector</span>
+                <span className="text-[9px] font-semibold uppercase text-muted-foreground text-right">1D</span>
+                <span className="text-[9px] font-semibold uppercase text-muted-foreground text-right">vs SPY 5D</span>
+                <span className="text-[9px] font-semibold uppercase text-muted-foreground">CMF (−0.5 → +0.5)</span>
+              </div>
+              {loading
+                ? Array(11).fill(0).map((_, i) => <SectorRowSkeleton key={i} />)
+                : (data?.sectors ?? []).map((s, i) => (
+                    <div key={s.symbol} className={cn(i < (data?.sectors.length ?? 0) - 1 && "border-b border-border/30")}>
+                      <SectorFlowRow card={s} rank={i + 1} />
+                    </div>
+                  ))
+              }
+            </div>
+          </section>
+
+          {/* B. Macro signals */}
+          <section>
+            <div className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
+              Macro Signals
+            </div>
+            <div className="grid gap-2 grid-cols-2">
+              {loading
+                ? Array(6).fill(0).map((_, i) => <Skeleton key={i} className="h-14 rounded-lg" />)
+                : (data?.macro ?? []).map(m => <MacroChipUI key={m.symbol} card={m} />)
+              }
+            </div>
+          </section>
+
+        </div>
 
         {/* D. Asset Tabs */}
         <section>
