@@ -65,6 +65,45 @@ Railway: INTERNAL_API_KEY (same value as Vercel)
 
 ## Session History
 
+### 2026-05-15 — Market Pulse data quality + domain + mobile UX
+
+**Domain migration:**
+- Registered `livermorealpha.com`; configured DNS (A + CNAME at registrar), Vercel custom domain, `NEXTAUTH_URL` env var, Railway `ALLOWED_ORIGINS`, Google OAuth redirect URI
+- Updated `apps/api/app/core/config.py` CORS defaults to include `livermorealpha.com` and `www.livermorealpha.com`
+
+**Market Pulse data quality (PRD-15 follow-up):**
+- Fixed WTI price showing USO ETF share price ($133) instead of actual WTI $/bbl (~$83)
+- Added `AlphaVantageClient.fetch_commodity_spot()` for AV commodity endpoints (WTI, COPPER, WHEAT)
+- New `CommoditySpotService`: stores monthly spot prices in `price_bars` as `WTI_SPOT`, `GOLD_SPOT`, `COPPER_SPOT`, `WHEAT_SPOT`; gold derived from GLD × 1/0.093
+- Startup warmup `_warmup_commodity_spots()` fetches spot prices at boot
+- Commodities route overlays real spot price onto ETF trend data
+- Market Pulse macro chips now use `GOLD_SPOT`/`WTI_SPOT` (fallback to ETF label)
+- Fixed ETFs (QQQ, DBC, USO) appearing in Stocks tab — added `ETF_SYMBOLS` exclusion set in `_build_top_assets()`
+- Fixed wrong sector labels for featured ETFs — added `ETF_META` with proper names/categories
+- Added `latest_date` + `is_stale` fields to all card types with amber stale badge in UI
+- Fixed `INTERVAL '30 days'` (PostgreSQL-only) → bound date param for SQLite compat
+- Fixed `ADD COLUMN IF NOT EXISTS` migration for SQLite via PRAGMA table_info check
+
+**CN market fix:**
+- `_build_top_assets()` and `_build_featured_etfs()` both ignored `market` param — always returned US data
+- CN market now shows CN ETF proxies (FXI, KWEB, MCHI, CQQQ, CHIE, FLCH, CNYA) in Stocks + ETFs tabs
+- Added `CN_FEATURED_ETFS`, `CN_ETF_META`, `_build_cn_top_assets()` to market pulse service
+- Frontend tab descriptions update dynamically based on selected market
+
+**Mobile UX optimization (ui-ux-pro-max):**
+- Nav: hamburger drawer for mobile (<md) with all 7 links, 44px touch targets, X to close; desktop nav hidden on mobile
+- Market Pulse sector table: 5-column grid → 2-line card layout on mobile (sm:hidden)
+- Macro chips: `grid-cols-3` → `grid-cols-2 sm:grid-cols-3 lg:grid-cols-6`
+- Asset cards: CMF bar moved to full-width row below title row
+- Evaluation detail panel: 5-column table → card-per-metric on mobile, full table at sm+
+- Commodity snapshot: `grid-cols-4` → `grid-cols-2 sm:grid-cols-4` with truncate
+- Metric pills: `grid-cols-3` → `grid-cols-2 sm:grid-cols-3`
+- Index cards: sparkline 60→44px, price `text-base` on mobile with truncate
+- Global: viewport meta locked, `overscroll-y-none`, `touch-action: manipulation` on all tappable elements
+- App title updated to "Livermore Alpha"
+
+**Commits:** `67caaca` → `2491d7d` (9 commits total this session)
+
 ### 2026-05-12 — Phase 3 start
 - PRD-11 complete: Auth.js v5, Google OAuth, JWT sessions, NavHeader sign-in/avatar
 - Adversarial audit run: 3 HIGH findings fixed (internal key bypass, open redirect, ownership check)
