@@ -126,7 +126,7 @@ export function NavHeader() {
           {/* Logo */}
           <Link
             href="/"
-            className="text-sm font-semibold tracking-tight text-foreground hover:text-primary transition-colors"
+            className="text-base font-semibold tracking-tight text-foreground hover:text-primary transition-colors"
           >
             Livermore
           </Link>
