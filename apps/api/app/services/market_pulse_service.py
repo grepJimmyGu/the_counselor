@@ -307,7 +307,7 @@ def _build_index_card(symbol: str, name: str, db: Session) -> IndexCard:
         symbol=symbol, name=name,
         price=float(bars[-1].close),
         perf_1d=_compute_perf(bars, 1),
-        perf_5d=_compute_perf(bars, min(5, len(bars) - 1)),
+        perf_5d=_compute_perf(bars, 5),
         sparkline_5d=[float(b.close) for b in bars[-5:]],
         latest_date=_latest_date_str(bars),
         is_stale=_is_stale(bars),

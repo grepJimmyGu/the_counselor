@@ -400,7 +400,7 @@ export function MarketPulsePage() {
     if (showRefreshing) setRefreshing(true); else setLoading(true);
     setError(null);
     try {
-      const r = await getMarketPulse(m);
+      const r = await getMarketPulse(m, showRefreshing);
       setData(r);
     } catch (e) {
       setError("Market data unavailable — price history may still be loading.");

@@ -151,14 +151,18 @@ _pulse_svc = MarketPulseService()
 @router.get("/market/pulse")
 def get_market_pulse(
     market: str = Query(default="US", pattern="^(US|CN)$"),
+    bypass_cache: bool = Query(default=False),
     db: Session = Depends(get_db),
 ) -> dict:
     """
     Market Pulse: index ETF performance, macro chips, sector capital flow signals
     (Chaikin Money Flow 20d), and dynamic top 10 assets by CMF.
     All data from price_bars — no FMP calls at request time. 1h cache.
+    Pass bypass_cache=true to force recomputation (e.g. after manual refresh).
     """
     try:
+        if bypass_cache:
+            _pulse_svc.invalidate_cache()
         r = _pulse_svc.get_pulse(market.upper(), db)
         return {
             "market": r.market,

@@ -274,8 +274,9 @@ export async function getCommodityTrend(commodity: string): Promise<import("@/li
   return fetchApi(`/api/commodities/${encodeURIComponent(commodity)}/trend`);
 }
 
-export async function getMarketPulse(market: "US" | "CN" = "US"): Promise<import("@/lib/contracts").MarketPulseResponse> {
-  return fetchApi(`/api/market/pulse?market=${market}`);
+export async function getMarketPulse(market: "US" | "CN" = "US", bypassCache = false): Promise<import("@/lib/contracts").MarketPulseResponse> {
+  const qs = bypassCache ? `&bypass_cache=true` : "";
+  return fetchApi(`/api/market/pulse?market=${market}${qs}`);
 }
 
 // ── PRD-07: Stock Screener ────────────────────────────────────────────────────
