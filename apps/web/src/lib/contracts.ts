@@ -4,7 +4,9 @@ export type StrategyType =
   | "momentum_rotation"
   | "rsi_mean_reversion"
   | "breakout"
-  | "static_allocation";
+  | "static_allocation"
+  | "news_sentiment_momentum"
+  | "insider_buying";
 
 export type RebalanceFrequency = "daily" | "weekly" | "monthly" | "quarterly";
 
@@ -27,7 +29,7 @@ export interface SavedStrategy {
 export interface ResearchTemplate {
   id: string;
   name: string;
-  category: "Momentum" | "Rotation" | "Factor" | "Carry";
+  category: "Momentum" | "Rotation" | "Factor" | "Carry" | "Sentiment" | "Alternative";
   description: string;
   whatItTests: string;
   dataRequirement: string;
@@ -41,6 +43,10 @@ export interface ResearchTemplate {
   etfProxyCaveat?: string;
   strategy: StrategyJson;
   chatSeed: string;
+  /** Evidence quality tier label (e.g. "A", "B", "C"). Shown as badge when present. */
+  evidenceTier?: string;
+  /** Intended user capacity (e.g. "Retail", "Prosumer", "Institutional"). */
+  capacityBadge?: string;
 }
 
 export interface StrategyRule {
@@ -55,6 +61,7 @@ export interface StrategyRule {
   entry_window?: number;
   exit_window?: number;
   top_n?: number;
+  top_pct?: number;
   ranking_measure?: "total_return";
   ranking_lookback_days?: number;
 }
@@ -706,6 +713,82 @@ export const researchTemplates: ResearchTemplate[] = [
     },
     chatSeed:
       "I want to build a commodity carry strategy using ETF proxies. My universe is {tickers}. Tell me: which commodity ETFs to include and how to rank them.",
+  },
+  {
+    id: "news-sentiment-momentum",
+    name: "News Sentiment Momentum",
+    category: "Sentiment",
+    description:
+      "Rank stocks by rolling 30-day mean news sentiment score and go long the top decile. Combines NLP-derived sentiment signals with monthly rebalancing.",
+    whatItTests:
+      "Tests whether stocks with persistently positive news sentiment outperform over a one-month holding window. The 30-day rolling mean smooths day-to-day noise. Note: sentiment-only alpha has mixed empirical support in 2024–2025 literature — consider combining with a fundamental signal.",
+    dataRequirement: "News sentiment scores (requires sentiment data pipeline)",
+    universeDescription: "Large-cap equities with active news coverage",
+    defaultTickers: [],
+    multiTicker: true,
+    minTickers: 5,
+    tickerLabel: "Enter your universe (comma-separated, min 5 symbols)",
+    availability: "unavailable",
+    dataGapReason:
+      "Requires live news sentiment scores from the sentiment data pipeline. Not yet available for backtesting — shown here so you can plan your research.",
+    evidenceTier: "B",
+    capacityBadge: "Prosumer",
+    strategy: {
+      strategy_name: "News Sentiment Momentum",
+      strategy_type: "news_sentiment_momentum",
+      universe: ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"],
+      benchmark: "SPY",
+      start_date: "2022-01-01",
+      end_date: "2024-12-31",
+      initial_capital: 100000,
+      rebalance_frequency: "monthly",
+      transaction_cost_bps: 15,
+      slippage_bps: 10,
+      rules: [{ top_pct: 0.1 }],
+      position_sizing: { method: "equal_weight" },
+      risk_management: {},
+      cash_management: { hold_cash_when_no_signal: true },
+    },
+    chatSeed:
+      "I want to build a news sentiment momentum strategy. My universe is {tickers}. Tell me: how to rank by sentiment, what lookback window to use, and how to combine with a second signal.",
+  },
+  {
+    id: "insider-buying",
+    name: "Insider Buying Cluster",
+    category: "Alternative",
+    description:
+      "Rank stocks by rolling 30-day net insider-purchase dollars (cluster buys) and hold the top 20. Insider purchases are weighted by dollar value, not count.",
+    whatItTests:
+      "Tests whether cluster insider purchasing — multiple insiders buying the same stock in the same rolling window — predicts positive short-term returns. Weekly rebalancing captures new filing disclosures (Form 4, ~2-day lag).",
+    dataRequirement: "SEC Form 4 insider transaction data (via FMP or EDGAR)",
+    universeDescription: "S&P 500 or Russell 1000 constituents",
+    defaultTickers: [],
+    multiTicker: true,
+    minTickers: 50,
+    tickerLabel: "Enter your universe (comma-separated, min 50 symbols for signal diversity)",
+    availability: "unavailable",
+    dataGapReason:
+      "Requires real-time SEC Form 4 insider transaction data. Not yet available for backtesting — shown here so you can plan your research.",
+    evidenceTier: "B",
+    capacityBadge: "Prosumer",
+    strategy: {
+      strategy_name: "Insider Buying Cluster",
+      strategy_type: "insider_buying",
+      universe: ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL"],
+      benchmark: "SPY",
+      start_date: "2022-01-01",
+      end_date: "2024-12-31",
+      initial_capital: 100000,
+      rebalance_frequency: "weekly",
+      transaction_cost_bps: 15,
+      slippage_bps: 10,
+      rules: [{ top_n: 20 }],
+      position_sizing: { method: "equal_weight" },
+      risk_management: {},
+      cash_management: { hold_cash_when_no_signal: true },
+    },
+    chatSeed:
+      "I want to build an insider buying strategy. My universe is {tickers}. Tell me: how to filter for cluster buys, what dollar threshold to use, and how to size positions.",
   },
 ];
 

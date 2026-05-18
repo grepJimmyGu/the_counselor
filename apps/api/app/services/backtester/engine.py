@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 _FUNDAMENTAL_STRATEGY_TYPES = frozenset({
     "value_composite", "quality_piotroski", "buyback_yield",
     "pead_drift", "earnings_revision",
+    "news_sentiment_momentum", "insider_buying",
 })
 
 from app.models.backtest import BacktestRecord
@@ -550,6 +551,37 @@ class BacktestEngine:
                 top_n=top_n, top_pct=top_pct, rank_direction="top",
             )
 
+        elif strategy.strategy_type == "news_sentiment_momentum":
+            # 30-day rolling mean sentiment score (SentimentSignalProvider).
+            # Note: validate_strategy() emits a mixed-evidence warning for this type.
+            ps = precomputed_signals or {}
+            score_matrix = ps.get(
+                "sentiment_score",
+                pd.DataFrame(float("nan"), index=index, columns=close_matrix.columns),
+            )
+            rule = strategy.rules[0] if strategy.rules else None
+            top_pct = (rule.top_pct if rule else None) or 0.1
+            top_n   = (rule.top_n   if rule else None)
+            weights = self._generate_cross_sectional_weights(
+                close_matrix, score_matrix, rebalance_mask,
+                top_n=top_n, top_pct=top_pct, rank_direction="top",
+            )
+
+        elif strategy.strategy_type == "insider_buying":
+            # Rolling 30-day cluster-insider net-$ buying (InsiderSignalProvider).
+            ps = precomputed_signals or {}
+            score_matrix = ps.get(
+                "insider_net_buy",
+                pd.DataFrame(float("nan"), index=index, columns=close_matrix.columns),
+            )
+            rule = strategy.rules[0] if strategy.rules else None
+            top_n   = (rule.top_n   if rule else None) or 20
+            top_pct = (rule.top_pct if rule else None)
+            weights = self._generate_cross_sectional_weights(
+                close_matrix, score_matrix, rebalance_mask,
+                top_n=top_n, top_pct=top_pct, rank_direction="top",
+            )
+
         # ── Post-processing (shared for all strategies) ───────────────────────
 
         # Signal strategies produce a new 0/1 weight each day — clip to binary.
@@ -725,6 +757,12 @@ class BacktestEngine:
                     return [EarningsEventSignalProvider()]
                 if stype == "earnings_revision":
                     return [FundamentalSignalProvider("estimate_revision_3m")]
+                if stype == "news_sentiment_momentum":
+                    from app.services.backtester.signal_provider import SentimentSignalProvider
+                    return [SentimentSignalProvider()]
+                if stype == "insider_buying":
+                    from app.services.backtester.signal_provider import InsiderSignalProvider
+                    return [InsiderSignalProvider()]
                 return []
 
             providers = _build_providers(strategy.strategy_type)

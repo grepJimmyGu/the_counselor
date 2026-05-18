@@ -20,6 +20,15 @@ def validate_strategy(strategy: StrategyJSON) -> list[str]:
         if rule and rule.fast_window and rule.slow_window and rule.fast_window >= rule.slow_window:
             warnings.append("Fast moving average should typically be shorter than slow moving average.")
 
+    # Sentiment strategies: mixed evidence warning
+    if strategy.strategy_type == "news_sentiment_momentum":
+        warnings.append(
+            "Sentiment-only alpha has mixed empirical support in 2024-2025 literature "
+            "(see Leung & Ton 2024; Chen et al. 2025). The signal may be noisy for "
+            "small universes. Consider combining with a fundamental or momentum signal "
+            "to improve robustness."
+        )
+
     # Warn (not error) when a new strategy type has no rules defined
     if strategy.strategy_type not in ENGINE_SUPPORTED_TYPES and not strategy.rules:
         warnings.append(

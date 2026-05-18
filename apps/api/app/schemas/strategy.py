@@ -36,6 +36,9 @@ StrategyType = Literal[
     "buyback_yield",
     "pead_drift",
     "earnings_revision",
+    # Prompt-5 alternative signal strategies
+    "news_sentiment_momentum",
+    "insider_buying",
 ]
 
 # The types that the backtester engine currently handles
@@ -62,6 +65,9 @@ ENGINE_SUPPORTED_TYPES = frozenset({
     # Prompt-4 event/revision strategies
     "pead_drift",
     "earnings_revision",
+    # Prompt-5 alternative signal strategies
+    "news_sentiment_momentum",
+    "insider_buying",
 })
 
 RebalanceFrequency = Literal["daily", "weekly", "monthly", "quarterly"]
