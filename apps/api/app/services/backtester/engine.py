@@ -1,12 +1,18 @@
 from __future__ import annotations
 
-from datetime import date
+import logging
+from datetime import date, timedelta
 from typing import Literal, Optional
 from uuid import uuid4
 
 import numpy as np
 import pandas as pd
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
+
+# Strategy types whose weights are driven by fundamental SignalProviders
+_FUNDAMENTAL_STRATEGY_TYPES = frozenset({"value_composite", "quality_piotroski", "buyback_yield"})
 
 from app.models.backtest import BacktestRecord
 from app.schemas.backtest import (
@@ -91,6 +97,9 @@ class BacktestEngine:
             rule0 = rules[0] if rules else None
             lookback = (rule0.lookback_days if rule0 else None) or 60
             return int(lookback * 1.4) + 10
+        # Fundamental signal strategies: no price-based lookback needed
+        if stype in _FUNDAMENTAL_STRATEGY_TYPES:
+            return 5
         return 252
 
     async def _load_prices(self, db: Session, strategy: StrategyJSON) -> tuple[dict[str, pd.DataFrame], pd.DataFrame]:
@@ -126,6 +135,60 @@ class BacktestEngine:
             return pd.DataFrame(), aligned
         close_matrix = pd.concat(closes, axis=1).sort_index().ffill().dropna(how="all")
         return close_matrix, aligned
+
+    async def _fetch_signal_matrix(
+        self,
+        providers: list,
+        universe: list[str],
+        db: Session,
+        close_index: pd.DatetimeIndex,
+        signal_start: date,
+        signal_end: date,
+    ) -> dict[str, pd.DataFrame]:
+        """
+        Fetch signal frames for each provider × each universe symbol and align
+        to close_index via forward-fill only (no look-ahead bias).
+
+        Returns {signal_name: DataFrame(columns=universe, index=close_index)}.
+        Observations dated before the first disclosure are NaN.
+        """
+        result: dict[str, pd.DataFrame] = {}
+        for provider in providers:
+            cols: dict[str, pd.Series] = {}
+            for sym in universe:
+                try:
+                    sparse = await provider.get_signal_frame(db, sym, signal_start, signal_end)
+                except Exception as exc:
+                    logger.warning(
+                        "_fetch_signal_matrix: provider=%s sym=%s error=%s",
+                        provider.name, sym, exc,
+                    )
+                    sparse = pd.Series(dtype=float)
+
+                if sparse.empty:
+                    cols[sym] = pd.Series(float("nan"), index=close_index, dtype=float)
+                else:
+                    # Merge disclosure dates with trading dates, ffill, keep only trading dates
+                    combined_idx = sparse.index.union(close_index)
+                    cols[sym] = (
+                        sparse
+                        .reindex(combined_idx)
+                        .ffill()
+                        .reindex(close_index)
+                    )
+            result[provider.name] = pd.DataFrame(cols, index=close_index)
+        return result
+
+    @staticmethod
+    def _zscore_row(row: pd.Series) -> pd.Series:
+        """Cross-sectional z-score: standardize a row of values across symbols."""
+        valid = row.dropna()
+        if len(valid) < 2:
+            return pd.Series(float("nan"), index=row.index)
+        std = valid.std()
+        if std == 0:
+            return pd.Series(0.0, index=row.index)
+        return (row - valid.mean()) / std
 
     def _generate_cross_sectional_weights(
         self,
@@ -167,7 +230,11 @@ class BacktestEngine:
         return weights
 
     def _generate_weights(
-        self, strategy: StrategyJSON, close_matrix: pd.DataFrame, aligned_frames: dict[str, pd.DataFrame]
+        self,
+        strategy: StrategyJSON,
+        close_matrix: pd.DataFrame,
+        aligned_frames: dict[str, pd.DataFrame],
+        precomputed_signals: dict[str, pd.DataFrame] | None = None,
     ) -> pd.DataFrame:
         index = close_matrix.index
         weights = pd.DataFrame(0.0, index=index, columns=close_matrix.columns)
@@ -386,6 +453,62 @@ class BacktestEngine:
                 positions.append(1.0 if in_position else 0.0)
             weights[sym_a] = positions
 
+        # ── Fundamental signal strategies (require precomputed_signals) ────────
+
+        elif strategy.strategy_type == "value_composite":
+            # z-score fcf_yield, book_to_market, ebitda_ev cross-sectionally;
+            # average the z-scores; rank top_pct by composite.
+            ps = precomputed_signals or {}
+            _empty = pd.DataFrame(float("nan"), index=index, columns=close_matrix.columns)
+            fcf_mat = ps.get("fcf_yield", _empty)
+            btm_mat = ps.get("book_to_market", _empty)
+            ev_mat  = ps.get("ebitda_ev", _empty)
+            # Cross-sectional z-score each signal matrix row-by-row
+            z_fcf = fcf_mat.apply(self._zscore_row, axis=1)
+            z_btm = btm_mat.apply(self._zscore_row, axis=1)
+            z_ev  = ev_mat.apply(self._zscore_row, axis=1)
+            # Average z-scores treating NaN as missing (nanmean across 3 layers)
+            arr = np.stack([z_fcf.values, z_btm.values, z_ev.values], axis=2)
+            composite = pd.DataFrame(
+                np.nanmean(arr, axis=2), index=index, columns=close_matrix.columns
+            )
+            rule = strategy.rules[0] if strategy.rules else None
+            top_pct = (rule.top_pct if rule else None) or 0.1
+            top_n   = (rule.top_n   if rule else None)
+            weights = self._generate_cross_sectional_weights(
+                close_matrix, composite, rebalance_mask,
+                top_n=top_n, top_pct=top_pct, rank_direction="top",
+            )
+
+        elif strategy.strategy_type == "quality_piotroski":
+            # Long if f_score >= 8; equal-weight across qualifying names.
+            ps = precomputed_signals or {}
+            f_mat = ps.get("f_score", pd.DataFrame(float("nan"), index=index,
+                                                     columns=close_matrix.columns))
+            threshold = 8.0
+            for dt in index[rebalance_mask]:
+                row = f_mat.loc[dt]
+                qualifying = [
+                    sym for sym in close_matrix.columns
+                    if pd.notna(row.get(sym)) and float(row.get(sym, -1)) >= threshold
+                ]
+                if qualifying:
+                    weights.loc[dt, qualifying] = 1.0 / len(qualifying)
+
+        elif strategy.strategy_type == "buyback_yield":
+            ps = precomputed_signals or {}
+            score_matrix = ps.get(
+                "buyback_yield_ttm",
+                pd.DataFrame(float("nan"), index=index, columns=close_matrix.columns),
+            )
+            rule = strategy.rules[0] if strategy.rules else None
+            top_pct = (rule.top_pct if rule else None) or 0.1
+            top_n   = (rule.top_n   if rule else None)
+            weights = self._generate_cross_sectional_weights(
+                close_matrix, score_matrix, rebalance_mask,
+                top_n=top_n, top_pct=top_pct, rank_direction="top",
+            )
+
         # ── Post-processing (shared for all strategies) ───────────────────────
 
         # Signal strategies produce a new 0/1 weight each day — clip to binary.
@@ -509,7 +632,31 @@ class BacktestEngine:
         close_matrix = close_matrix.reindex(benchmark_close.index).ffill().dropna(how="all")
         benchmark_close = benchmark_close.reindex(close_matrix.index).ffill()
 
-        weights = self._generate_weights(strategy, close_matrix, aligned_frames)
+        # Pre-fetch fundamental signals before generating weights (async step)
+        precomputed_signals: dict[str, pd.DataFrame] = {}
+        if strategy.strategy_type in _FUNDAMENTAL_STRATEGY_TYPES:
+            from app.services.backtester.signal_provider import FundamentalSignalProvider
+            _provider_map: dict[str, list[str]] = {
+                "value_composite":   ["fcf_yield", "book_to_market", "ebitda_ev"],
+                "quality_piotroski": ["f_score"],
+                "buyback_yield":     ["buyback_yield_ttm"],
+            }
+            providers = [
+                FundamentalSignalProvider(sig)
+                for sig in _provider_map.get(strategy.strategy_type, [])
+            ]
+            # Request a 2-year pre-strategy window to capture prior disclosures
+            signal_start = strategy.start_date - timedelta(days=2 * 365)
+            precomputed_signals = await self._fetch_signal_matrix(
+                providers,
+                strategy.universe,
+                db,
+                close_matrix.index,
+                signal_start,
+                strategy.end_date,
+            )
+
+        weights = self._generate_weights(strategy, close_matrix, aligned_frames, precomputed_signals)
         asset_returns = close_matrix.pct_change().fillna(0.0)
         turnover = weights.diff().abs().sum(axis=1).fillna(0.0)
         costs = turnover * ((strategy.transaction_cost_bps + strategy.slippage_bps) / 10000)

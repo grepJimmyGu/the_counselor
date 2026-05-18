@@ -169,10 +169,25 @@ def test_end_date_must_be_after_start_date():
 # ── (e) Validator warning for new type with no rules ─────────────────────────
 
 def test_validator_warns_new_type_no_rules():
-    s = make(strategy_type="pairs_trading", rules=[])
-    warnings = validate_strategy(s)
-    assert any("pairs_trading" in w for w in warnings)
-    assert any("not yet supported" in w for w in warnings)
+    # Prompt-2 and prompt-3 moved all schema types into ENGINE_SUPPORTED_TYPES,
+    # so the "not yet supported" warning can no longer be triggered by normal
+    # StrategyJSON construction.  We verify the logic still fires correctly by
+    # temporarily shrinking the set, simulating a future schema extension that
+    # has not yet been wired into the engine.
+    import app.services.strategy_validator as _sv_mod
+    import app.schemas.strategy as _schema_mod
+    original = _schema_mod.ENGINE_SUPPORTED_TYPES
+    try:
+        # Remove pairs_trading from the supported set for this test
+        _schema_mod.ENGINE_SUPPORTED_TYPES = original - {"pairs_trading"}
+        _sv_mod.ENGINE_SUPPORTED_TYPES = _schema_mod.ENGINE_SUPPORTED_TYPES
+        s = make(strategy_type="pairs_trading", rules=[])
+        warnings = validate_strategy(s)
+        assert any("pairs_trading" in w for w in warnings)
+        assert any("not yet supported" in w for w in warnings)
+    finally:
+        _schema_mod.ENGINE_SUPPORTED_TYPES = original
+        _sv_mod.ENGINE_SUPPORTED_TYPES = original
 
 
 # ── (f) No warning when rules are present ────────────────────────────────────
