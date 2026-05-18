@@ -307,7 +307,7 @@ def _build_index_card(symbol: str, name: str, db: Session) -> IndexCard:
         symbol=symbol, name=name,
         price=float(bars[-1].close),
         perf_1d=_compute_perf(bars, 1),
-        perf_5d=_compute_perf(bars, min(5, len(bars) - 1)),
+        perf_5d=_compute_perf(bars, 5),
         sparkline_5d=[float(b.close) for b in bars[-5:]],
         latest_date=_latest_date_str(bars),
         is_stale=_is_stale(bars),
@@ -344,16 +344,20 @@ def _build_macro_card(symbol: str, label: str, db: Session) -> MacroCard:
 
 def _build_top_assets(market: str, db: Session, limit: int = 10) -> list[AssetCard]:
     """
-    Return top `limit` stocks by CMF from our warmed universe.
-    ETFs are explicitly excluded so the Stocks tab only shows equities.
+    Return top `limit` assets by CMF for the given market.
+
+    US: equities from our warmed universe (ETFs excluded).
+    CN: CN market ETF proxies ranked by CMF (individual CN stocks are not
+        in our price_bars DB — ETF proxies are the best available signal).
     """
+    if market == "CN":
+        return _build_cn_top_assets(db, limit)
+
+    # ── US: equities ranked by CMF ────────────────────────────────────────────
     try:
-        # Build exclusion placeholders for known ETF symbols
         etf_list = list(ETF_SYMBOLS)
         placeholders = ", ".join(f":e{i}" for i in range(len(etf_list)))
         etf_params = {f"e{i}": sym for i, sym in enumerate(etf_list)}
-
-        # Use a bound date parameter for cross-dialect compatibility (SQLite + PG)
         cutoff = (date.today() - timedelta(days=30)).isoformat()
         etf_params["cutoff"] = cutoff
 
@@ -393,19 +397,70 @@ def _build_top_assets(market: str, db: Session, limit: int = 10) -> list[AssetCa
             is_stale=_is_stale(bars),
         ))
 
-    # Sort by CMF descending (strongest accumulation first)
     assets.sort(key=lambda a: a.cmf_20 or -99, reverse=True)
     return assets[:limit]
 
 
-def _build_featured_etfs(db: Session) -> list[AssetCard]:
-    etf_list = ["SPY", "QQQ", "GLD", "TLT", "XLK", "XLE", "FXI", "USO", "KWEB", "IWM"]
+def _build_cn_top_assets(db: Session, limit: int = 10) -> list[AssetCard]:
+    """
+    CN market capital-flow leaders ranked by CMF.
+    Uses US-listed CN ETF proxies (FXI, KWEB, MCHI, CQQQ, CHIE, FLCH, CNYA)
+    since individual A-share / HK price bars are not in our DB.
+    """
+    cn_proxies = ["FXI", "KWEB", "MCHI", "CQQQ", "CHIE", "FLCH", "CNYA"]
+    meta_map = {**ETF_META, **CN_ETF_META}
+    assets: list[AssetCard] = []
+    for sym in cn_proxies:
+        bars = _load_bars(sym, db)
+        if not bars:
+            continue
+        cmf = _compute_cmf(bars)
+        if cmf is None:
+            continue
+        meta = meta_map.get(sym, (sym, "CN Market Proxy"))
+        name, sector = meta
+        assets.append(AssetCard(
+            symbol=sym,
+            name=name,
+            sector=sector,
+            price=float(bars[-1].close),
+            perf_1d=_compute_perf(bars, 1),
+            cmf_20=cmf,
+            market_cap=None,
+            latest_date=_latest_date_str(bars),
+            is_stale=_is_stale(bars),
+        ))
+
+    assets.sort(key=lambda a: a.cmf_20 or -99, reverse=True)
+    return assets[:limit]
+
+
+US_FEATURED_ETFS = ["SPY", "QQQ", "GLD", "TLT", "XLK", "XLE", "FXI", "USO", "KWEB", "IWM"]
+
+CN_FEATURED_ETFS = ["FXI", "KWEB", "MCHI", "CQQQ", "CHIE", "FLCH", "CNYA"]
+
+# CN ETF metadata (supplements ETF_META for CN-specific labels)
+CN_ETF_META: dict[str, tuple[str, str]] = {
+    "FXI":  ("iShares China Large-Cap",        "ETF — CN Large-Cap"),
+    "KWEB": ("KraneShares China Internet",      "ETF — CN Internet"),
+    "MCHI": ("iShares MSCI China",             "ETF — CN Broad Market"),
+    "CQQQ": ("Invesco China Technology",        "ETF — CN Technology"),
+    "CHIE": ("Global X China Energy",           "ETF — CN Energy"),
+    "FLCH": ("Franklin FTSE China",             "ETF — CN Financials"),
+    "CNYA": ("iShares MSCI China A",            "ETF — CN A-Shares"),
+}
+
+
+def _build_featured_etfs(market: str, db: Session) -> list[AssetCard]:
+    is_cn = market == "CN"
+    etf_list = CN_FEATURED_ETFS if is_cn else US_FEATURED_ETFS
+    meta_map = {**ETF_META, **CN_ETF_META}
     cards = []
     for sym in etf_list:
         bars = _load_bars(sym, db)
         if not bars:
             continue
-        meta = ETF_META.get(sym, (sym, "ETF"))
+        meta = meta_map.get(sym, (sym, "ETF"))
         name, category = meta
         cards.append(AssetCard(
             symbol=sym,
@@ -473,7 +528,7 @@ class MarketPulseService:
         )
 
         top_assets = _build_top_assets(market, db)
-        featured_etfs = _build_featured_etfs(db)
+        featured_etfs = _build_featured_etfs(market, db)
 
         return MarketPulseResponse(
             market=market,

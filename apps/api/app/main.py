@@ -49,8 +49,8 @@ async def _warmup_market_etfs() -> None:
         "SPY", "QQQ", "IWM", "DIA",
         # US sectors (SPDR)
         "XLK", "XLF", "XLE", "XLY", "XLV", "XLI", "XLP", "XLU", "XLB", "XLRE", "XLC",
-        # CN proxies (US-listed)
-        "FXI", "KWEB", "MCHI",
+        # CN proxies (US-listed) — must match CN_SECTORS + CN_FEATURED_ETFS in market_pulse_service
+        "FXI", "KWEB", "MCHI", "CQQQ", "CHIE", "FLCH", "CNYA",
         # Macro
         "VXX", "UUP", "TLT", "HYG",
         # Commodities
@@ -117,6 +117,94 @@ async def _warmup_commodity_spots() -> None:
         logger.warning("Commodity spot warmup task failed: %s", exc)
 
 
+_TOP_US_STOCKS = [
+    ("AAPL",  "Apple Inc",                  "Technology"),
+    ("MSFT",  "Microsoft Corp",             "Technology"),
+    ("NVDA",  "NVIDIA Corp",                "Technology"),
+    ("GOOGL", "Alphabet Inc",               "Communication Services"),
+    ("AMZN",  "Amazon.com Inc",             "Consumer Discretionary"),
+    ("META",  "Meta Platforms Inc",         "Technology"),
+    ("TSLA",  "Tesla Inc",                  "Consumer Discretionary"),
+    ("LLY",   "Eli Lilly and Co",           "Healthcare"),
+    ("JPM",   "JPMorgan Chase & Co",        "Financials"),
+    ("AVGO",  "Broadcom Inc",               "Technology"),
+    ("UNH",   "UnitedHealth Group",         "Healthcare"),
+    ("V",     "Visa Inc",                   "Financials"),
+    ("WMT",   "Walmart Inc",                "Consumer Staples"),
+    ("XOM",   "Exxon Mobil Corp",           "Energy"),
+    ("MA",    "Mastercard Inc",             "Financials"),
+    ("ORCL",  "Oracle Corp",               "Technology"),
+    ("COST",  "Costco Wholesale Corp",      "Consumer Staples"),
+    ("HD",    "Home Depot Inc",             "Consumer Discretionary"),
+    ("NFLX",  "Netflix Inc",               "Communication Services"),
+    ("AMD",   "Advanced Micro Devices",     "Technology"),
+    ("PG",    "Procter & Gamble Co",        "Consumer Staples"),
+    ("BAC",   "Bank of America Corp",       "Financials"),
+    ("JNJ",   "Johnson & Johnson",          "Healthcare"),
+    ("ABBV",  "AbbVie Inc",                 "Healthcare"),
+    ("CRM",   "Salesforce Inc",             "Technology"),
+    ("CVX",   "Chevron Corp",               "Energy"),
+    ("CSCO",  "Cisco Systems Inc",          "Technology"),
+    ("MCD",   "McDonald's Corp",            "Consumer Discretionary"),
+    ("INTU",  "Intuit Inc",                 "Technology"),
+    ("CAT",   "Caterpillar Inc",            "Industrials"),
+]
+
+
+async def _seed_and_warmup_stock_universe() -> None:
+    """
+    Seed top US stocks into the symbols table (name + sector only, no hardcoded
+    market cap) and warmup their price bars so the Market Pulse Stocks tab is
+    populated on a fresh deployment.  Skips symbols already present in the DB.
+    Rate-limit failures are logged and skipped — data builds up over multiple days.
+    """
+    from datetime import date, datetime, timedelta
+    from app.models.symbol import SymbolCache
+    from app.services.alpha_vantage import AlphaVantageClient
+    from app.services.price_cache_service import PriceCacheService
+    from app.db.session import SessionLocal
+
+    try:
+        required_from = date.today() - timedelta(days=365 * 3)
+        client = AlphaVantageClient()
+        svc = PriceCacheService(client)
+        db = SessionLocal()
+        loaded = 0
+        now = datetime.utcnow()
+        try:
+            for sym, name, sector in _TOP_US_STOCKS:
+                # Insert into symbols table if not already present
+                try:
+                    if db.get(SymbolCache, sym) is None:
+                        db.add(SymbolCache(
+                            symbol=sym,
+                            name=name,
+                            sector=sector,
+                            instrument_type="Equity",
+                            is_active=True,
+                            last_seen_at=now,
+                            created_at=now,
+                            updated_at=now,
+                        ))
+                        db.commit()
+                except Exception:
+                    db.rollback()
+
+                # Warmup price bars (skips if already fresh)
+                try:
+                    await svc.ensure_history(db, sym, required_from, force=False)
+                    loaded += 1
+                except Exception as exc:
+                    logger.warning("Stock universe warmup failed for %s: %s", sym, exc)
+        finally:
+            db.close()
+        logger.info(
+            "Stock universe warmup complete: %d/%d symbols loaded", loaded, len(_TOP_US_STOCKS)
+        )
+    except Exception as exc:
+        logger.warning("Stock universe warmup task failed: %s", exc)
+
+
 async def _invalidate_stale_bi_caches() -> None:
     """
     Delete BI cache rows that predate the upstream_suppliers/downstream_customers fields
@@ -152,6 +240,8 @@ async def lifespan(_: FastAPI):
     asyncio.create_task(_warmup_market_etfs())
     # Fetch actual commodity spot prices (WTI $/bbl, gold $/oz, copper $/lb, wheat ¢/bu)
     asyncio.create_task(_warmup_commodity_spots())
+    # Seed top US stocks into symbols table and warmup their price bars
+    asyncio.create_task(_seed_and_warmup_stock_universe())
     # Invalidate stale BI caches (symbols with empty supply chain fields) in background
     asyncio.create_task(_invalidate_stale_bi_caches())
     yield

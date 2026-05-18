@@ -1,10 +1,11 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signIn, signOut } from "next-auth/react";
 import type { Route } from "next";
-import { LogIn, LogOut, User } from "lucide-react";
+import { LogIn, LogOut, User, Menu, X } from "lucide-react";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { useLocale } from "@/lib/locale-context";
 import { cn } from "@/lib/utils";
@@ -25,6 +26,14 @@ const navLink = (active: boolean) =>
       : "text-muted-foreground hover:text-foreground hover:bg-accent",
   );
 
+const mobileNavLink = (active: boolean) =>
+  cn(
+    "flex items-center rounded-lg px-4 py-3 text-sm font-medium transition-colors duration-200 min-h-[44px] touch-manipulation",
+    active
+      ? "bg-primary/10 text-primary"
+      : "text-foreground hover:bg-accent hover:text-foreground",
+  );
+
 function UserMenu() {
   const { data: session, status } = useSession();
 
@@ -37,7 +46,7 @@ function UserMenu() {
       <Button
         variant="outline"
         size="sm"
-        className="gap-1.5 text-xs"
+        className="gap-1.5 text-xs min-h-[36px] touch-manipulation"
         onClick={() => signIn("google")}
       >
         <LogIn className="h-3.5 w-3.5" />
@@ -58,7 +67,7 @@ function UserMenu() {
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <button
-          className="flex h-8 w-8 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-border bg-primary/10 text-xs font-semibold text-primary transition-colors hover:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex h-9 w-9 cursor-pointer items-center justify-center overflow-hidden rounded-full border border-border bg-primary/10 text-xs font-semibold text-primary transition-colors hover:bg-primary/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring touch-manipulation"
           aria-label="User menu"
         >
           {user.image ? (
@@ -76,7 +85,7 @@ function UserMenu() {
         </div>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <Link href={"/profile" as Route} className="cursor-pointer">
+          <Link href={"/profile" as Route} className="cursor-pointer min-h-[44px]">
             <User className="mr-2 h-3.5 w-3.5" />
             Profile
           </Link>
@@ -84,7 +93,7 @@ function UserMenu() {
         <DropdownMenuSeparator />
         <DropdownMenuItem
           onClick={() => signOut({ callbackUrl: "/" })}
-          className="cursor-pointer text-destructive focus:text-destructive"
+          className="cursor-pointer text-destructive focus:text-destructive min-h-[44px]"
         >
           <LogOut className="mr-2 h-3.5 w-3.5" />
           Sign out
@@ -97,35 +106,82 @@ function UserMenu() {
 export function NavHeader() {
   const pathname = usePathname();
   const { t } = useLocale();
+  const [mobileOpen, setMobileOpen] = useState(false);
+
+  const NAV_LINKS = [
+    { href: "/",                  label: t.navHome,       match: (p: string) => p === "/" },
+    { href: "/stocks",            label: "Market",        match: (p: string) => p.startsWith("/stocks") },
+    { href: "/commodities/GOLD",  label: "Commodities",   match: (p: string) => p.startsWith("/commodities") },
+    { href: "/sentiment",         label: "Sentiment",     match: (p: string) => p.startsWith("/sentiment") },
+    { href: "/workspace",         label: t.navWorkspace,  match: (p: string) => p.startsWith("/workspace") },
+    { href: "/community",         label: "Community",     match: (p: string) => p.startsWith("/community") },
+    { href: "/templates",         label: t.navTemplates,  match: (p: string) => p.startsWith("/templates") },
+  ] as const;
 
   return (
-    <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
-      <div className="mx-auto flex h-12 w-full max-w-[1600px] items-center justify-between px-4 md:px-6 lg:px-8">
+    <>
+      <header className="sticky top-0 z-50 w-full border-b border-border bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/80">
+        <div className="mx-auto flex h-12 w-full max-w-[1600px] items-center justify-between px-4 md:px-6 lg:px-8">
 
-        <Link
-          href="/"
-          className="text-sm font-semibold tracking-tight text-foreground hover:text-primary transition-colors"
-        >
-          Livermore
-        </Link>
+          {/* Logo */}
+          <Link
+            href="/"
+            className="text-base font-semibold tracking-tight text-foreground hover:text-primary transition-colors"
+          >
+            Livermore
+          </Link>
 
-        <div className="flex items-center gap-4">
-          <nav aria-label="Main navigation" className="flex items-center gap-1">
-            <Link href="/" className={navLink(pathname === "/")}>{t.navHome}</Link>
-            <Link href={"/workspace" as Route} className={navLink(pathname.startsWith("/workspace"))}>{t.navWorkspace}</Link>
-            <Link href={"/stocks" as Route} className={navLink(pathname.startsWith("/stocks"))}>Market</Link>
-            <Link href={"/commodities/GOLD" as Route} className={navLink(pathname.startsWith("/commodities"))}>Commodities</Link>
-            <Link href={"/sentiment" as Route} className={navLink(pathname.startsWith("/sentiment"))}>Sentiment</Link>
-            <Link href={"/community" as Route} className={navLink(pathname.startsWith("/community"))}>Community</Link>
-            <Link href={"/templates" as Route} className={navLink(pathname.startsWith("/templates"))}>{t.navTemplates}</Link>
-          </nav>
-          <div className="flex items-center gap-2">
-            <LanguageSwitcher />
-            <UserMenu />
+          {/* Desktop nav */}
+          <div className="hidden md:flex items-center gap-4">
+            <nav aria-label="Main navigation" className="flex items-center gap-1">
+              {NAV_LINKS.map(({ href, label, match }) => (
+                <Link key={href} href={href as Route} className={navLink(match(pathname))}>
+                  {label}
+                </Link>
+              ))}
+            </nav>
+            <div className="flex items-center gap-2">
+              <LanguageSwitcher />
+              <UserMenu />
+            </div>
           </div>
+
+          {/* Mobile right: user + hamburger */}
+          <div className="flex md:hidden items-center gap-2">
+            <UserMenu />
+            <button
+              onClick={() => setMobileOpen((v) => !v)}
+              className="flex h-9 w-9 items-center justify-center rounded-lg border border-border bg-background text-foreground transition-colors hover:bg-accent touch-manipulation cursor-pointer"
+              aria-label={mobileOpen ? "Close menu" : "Open menu"}
+              aria-expanded={mobileOpen}
+            >
+              {mobileOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+            </button>
+          </div>
+
         </div>
 
-      </div>
-    </header>
+        {/* Mobile drawer */}
+        {mobileOpen && (
+          <div className="md:hidden border-t border-border bg-background/98 backdrop-blur">
+            <nav aria-label="Mobile navigation" className="flex flex-col px-3 py-3 gap-1">
+              {NAV_LINKS.map(({ href, label, match }) => (
+                <Link
+                  key={href}
+                  href={href as Route}
+                  className={mobileNavLink(match(pathname))}
+                  onClick={() => setMobileOpen(false)}
+                >
+                  {label}
+                </Link>
+              ))}
+              <div className="pt-2 border-t border-border/60 mt-1">
+                <LanguageSwitcher />
+              </div>
+            </nav>
+          </div>
+        )}
+      </header>
+    </>
   );
 }
