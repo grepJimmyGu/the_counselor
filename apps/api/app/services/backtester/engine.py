@@ -12,7 +12,10 @@ from sqlalchemy.orm import Session
 logger = logging.getLogger(__name__)
 
 # Strategy types whose weights are driven by fundamental SignalProviders
-_FUNDAMENTAL_STRATEGY_TYPES = frozenset({"value_composite", "quality_piotroski", "buyback_yield"})
+_FUNDAMENTAL_STRATEGY_TYPES = frozenset({
+    "value_composite", "quality_piotroski", "buyback_yield",
+    "pead_drift", "earnings_revision",
+})
 
 from app.models.backtest import BacktestRecord
 from app.schemas.backtest import (
@@ -97,7 +100,7 @@ class BacktestEngine:
             rule0 = rules[0] if rules else None
             lookback = (rule0.lookback_days if rule0 else None) or 60
             return int(lookback * 1.4) + 10
-        # Fundamental signal strategies: no price-based lookback needed
+        # Signal-provider-backed strategies: no price-based lookback needed
         if stype in _FUNDAMENTAL_STRATEGY_TYPES:
             return 5
         return 252
@@ -144,10 +147,15 @@ class BacktestEngine:
         close_index: pd.DatetimeIndex,
         signal_start: date,
         signal_end: date,
+        ffill_limit: Optional[int] = None,
     ) -> dict[str, pd.DataFrame]:
         """
         Fetch signal frames for each provider × each universe symbol and align
         to close_index via forward-fill only (no look-ahead bias).
+
+        ffill_limit: maximum number of trading-day rows to forward-fill from each
+          disclosure date.  None = unlimited (hold until next disclosure).
+          Set to holding_window_days for PEAD to expire positions automatically.
 
         Returns {signal_name: DataFrame(columns=universe, index=close_index)}.
         Observations dated before the first disclosure are NaN.
@@ -168,12 +176,11 @@ class BacktestEngine:
                 if sparse.empty:
                     cols[sym] = pd.Series(float("nan"), index=close_index, dtype=float)
                 else:
-                    # Merge disclosure dates with trading dates, ffill, keep only trading dates
                     combined_idx = sparse.index.union(close_index)
                     cols[sym] = (
                         sparse
                         .reindex(combined_idx)
-                        .ffill()
+                        .ffill(limit=ffill_limit)
                         .reindex(close_index)
                     )
             result[provider.name] = pd.DataFrame(cols, index=close_index)
@@ -509,6 +516,40 @@ class BacktestEngine:
                 top_n=top_n, top_pct=top_pct, rank_direction="top",
             )
 
+        elif strategy.strategy_type == "pead_drift":
+            # Post-earnings announcement drift.
+            # SUE signals were fetched with ffill_limit=holding_window_days, so
+            # each symbol's signal is active only for the holding window after
+            # its earnings announcement.  Cross-sectional ranking selects the
+            # top decile of symbols with ACTIVE (non-expired) top-decile SUE.
+            ps = precomputed_signals or {}
+            sue_mat = ps.get(
+                "earnings_surprise",
+                pd.DataFrame(float("nan"), index=index, columns=close_matrix.columns),
+            )
+            rule = strategy.rules[0] if strategy.rules else None
+            top_pct = (rule.top_pct if rule else None) or 0.1
+            top_n   = (rule.top_n   if rule else None)
+            weights = self._generate_cross_sectional_weights(
+                close_matrix, sue_mat, rebalance_mask,
+                top_n=top_n, top_pct=top_pct, rank_direction="top",
+            )
+
+        elif strategy.strategy_type == "earnings_revision":
+            # Rank by 3-quarter EPS momentum (proxy for analyst estimate revision).
+            ps = precomputed_signals or {}
+            score_matrix = ps.get(
+                "estimate_revision_3m",
+                pd.DataFrame(float("nan"), index=index, columns=close_matrix.columns),
+            )
+            rule = strategy.rules[0] if strategy.rules else None
+            top_pct = (rule.top_pct if rule else None) or 0.1
+            top_n   = (rule.top_n   if rule else None)
+            weights = self._generate_cross_sectional_weights(
+                close_matrix, score_matrix, rebalance_mask,
+                top_n=top_n, top_pct=top_pct, rank_direction="top",
+            )
+
         # ── Post-processing (shared for all strategies) ───────────────────────
 
         # Signal strategies produce a new 0/1 weight each day — clip to binary.
@@ -613,8 +654,40 @@ class BacktestEngine:
                 )
         return trades
 
+    async def _check_microcap(self, strategy: StrategyJSON, db: Session) -> list[str]:
+        """
+        For pead_drift strategies: warn if the universe consists of microcaps
+        (average market cap from the symbols table < $300M).
+        """
+        from sqlalchemy import text
+        try:
+            placeholders = ", ".join(f":s{i}" for i in range(len(strategy.universe)))
+            params = {f"s{i}": sym for i, sym in enumerate(strategy.universe)}
+            rows = db.execute(
+                text(f"SELECT market_cap FROM symbols WHERE symbol IN ({placeholders})"),
+                params,
+            ).fetchall()
+            caps = [float(r[0]) for r in rows if r[0] is not None]
+            if caps:
+                avg_cap = sum(caps) / len(caps)
+                if avg_cap < 300_000_000:
+                    return [
+                        f"PEAD drift with microcap universe "
+                        f"(avg market cap ${avg_cap / 1e6:.0f}M < $300M threshold): "
+                        "SUE signals can be noisy for small companies and "
+                        "execution may be challenging due to liquidity constraints."
+                    ]
+        except Exception as exc:
+            logger.debug("Microcap check failed: %s", exc)
+        return []
+
     async def run(self, db: Session, strategy: StrategyJSON) -> BacktestResult:
-        warnings = validate_strategy(strategy)
+        warnings = list(validate_strategy(strategy))
+
+        # Microcap warning for PEAD strategies (requires DB access)
+        if strategy.strategy_type == "pead_drift":
+            warnings.extend(await self._check_microcap(strategy, db))
+
         universe_frames, benchmark_frame = await self._load_prices(db, strategy)
         close_matrix, aligned_frames = self._build_price_matrix(universe_frames)
         if close_matrix.empty:
@@ -632,20 +705,37 @@ class BacktestEngine:
         close_matrix = close_matrix.reindex(benchmark_close.index).ffill().dropna(how="all")
         benchmark_close = benchmark_close.reindex(close_matrix.index).ffill()
 
-        # Pre-fetch fundamental signals before generating weights (async step)
+        # Pre-fetch fundamental/event signals before generating weights (async step)
         precomputed_signals: dict[str, pd.DataFrame] = {}
         if strategy.strategy_type in _FUNDAMENTAL_STRATEGY_TYPES:
-            from app.services.backtester.signal_provider import FundamentalSignalProvider
-            _provider_map: dict[str, list[str]] = {
-                "value_composite":   ["fcf_yield", "book_to_market", "ebitda_ev"],
-                "quality_piotroski": ["f_score"],
-                "buyback_yield":     ["buyback_yield_ttm"],
-            }
-            providers = [
-                FundamentalSignalProvider(sig)
-                for sig in _provider_map.get(strategy.strategy_type, [])
-            ]
-            # Request a 2-year pre-strategy window to capture prior disclosures
+            from app.services.backtester.signal_provider import (
+                EarningsEventSignalProvider,
+                FundamentalSignalProvider,
+            )
+
+            def _build_providers(stype: str) -> list:
+                if stype == "value_composite":
+                    return [FundamentalSignalProvider(s)
+                            for s in ("fcf_yield", "book_to_market", "ebitda_ev")]
+                if stype == "quality_piotroski":
+                    return [FundamentalSignalProvider("f_score")]
+                if stype == "buyback_yield":
+                    return [FundamentalSignalProvider("buyback_yield_ttm")]
+                if stype == "pead_drift":
+                    return [EarningsEventSignalProvider()]
+                if stype == "earnings_revision":
+                    return [FundamentalSignalProvider("estimate_revision_3m")]
+                return []
+
+            providers = _build_providers(strategy.strategy_type)
+
+            # PEAD: limited ffill so positions expire after holding_window_days
+            ffill_limit: Optional[int] = None
+            if strategy.strategy_type == "pead_drift":
+                rule0 = strategy.rules[0] if strategy.rules else None
+                ffill_limit = (rule0.holding_window_days if rule0 else None) or 60
+
+            # 2-year pre-strategy window captures prior disclosures / earnings
             signal_start = strategy.start_date - timedelta(days=2 * 365)
             precomputed_signals = await self._fetch_signal_matrix(
                 providers,
@@ -654,6 +744,7 @@ class BacktestEngine:
                 close_matrix.index,
                 signal_start,
                 strategy.end_date,
+                ffill_limit=ffill_limit,
             )
 
         weights = self._generate_weights(strategy, close_matrix, aligned_frames, precomputed_signals)

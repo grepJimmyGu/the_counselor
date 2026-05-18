@@ -170,7 +170,7 @@ async def _run(strategy: StrategyJSON, close_df: pd.DataFrame):
         signal_names = signal_names_map.get(strategy.strategy_type, [])
         mock_providers = [_provider_mock_for(sn) for sn in signal_names]
 
-        async def _fake_fetch_signal_matrix(providers, universe, db, close_index, sig_start, sig_end):
+        async def _fake_fetch_signal_matrix(providers, universe, db, close_index, sig_start, sig_end, ffill_limit=None):
             result = {}
             for p in mock_providers:
                 cols = {}
