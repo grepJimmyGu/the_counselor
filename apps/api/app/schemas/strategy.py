@@ -14,17 +14,39 @@ class ClarificationState(str, Enum):
 
 
 StrategyType = Literal[
+    # ── Original 6 (engine-backed) ───────────────────────────────────────────
     "moving_average_filter",
     "moving_average_crossover",
     "momentum_rotation",
     "rsi_mean_reversion",
     "breakout",
     "static_allocation",
+    # ── Extended template types (schema only — backtester support pending) ───
+    "cross_sectional_momentum",
+    "time_series_momentum",
+    "short_term_reversal",
+    "pairs_trading",
+    "sector_rotation",
+    "dual_momentum",
+    "low_volatility",
+    "bollinger_mean_reversion",
 ]
+
+# The 6 types that the backtester engine currently handles
+ENGINE_SUPPORTED_TYPES = frozenset({
+    "moving_average_filter",
+    "moving_average_crossover",
+    "momentum_rotation",
+    "rsi_mean_reversion",
+    "breakout",
+    "static_allocation",
+})
+
 RebalanceFrequency = Literal["daily", "weekly", "monthly", "quarterly"]
 
 
 class StrategyRule(BaseModel):
+    # ── Original fields (preserved unchanged) ────────────────────────────────
     indicator: Optional[str] = None
     lookback_days: Optional[int] = None
     threshold: Optional[float] = None
@@ -43,11 +65,33 @@ class StrategyRule(BaseModel):
     ranking_measure: Optional[Literal["total_return"]] = None
     ranking_lookback_days: Optional[int] = None
 
+    # ── Extended fields for new strategy templates ────────────────────────────
+    signal_source: Optional[Literal[
+        "price", "return", "vol", "sentiment_score", "f_score",
+        "buyback_yield", "value_composite", "quality_composite",
+        "earnings_surprise", "estimate_revision", "insider_net_buy",
+        "safe_asset",   # dual_momentum: marks a rule as the cash-substitute allocation
+    ]] = None
+    rank_direction: Optional[Literal["top", "bottom"]] = None
+    zscore_entry: Optional[float] = None
+    zscore_exit: Optional[float] = None
+    zscore_stop: Optional[float] = None
+    pair_symbol: Optional[str] = None
+    hedge_ratio: Optional[float] = None
+    target_vol_annual: Optional[float] = None
+    formation_period_days: Optional[int] = None
+    skip_period_days: Optional[int] = None
+    num_std: Optional[float] = None
+    top_pct: Optional[float] = None
+
 
 class PositionSizing(BaseModel):
-    method: Literal["equal_weight", "fixed_weight"]
+    method: Literal["equal_weight", "fixed_weight", "vol_target", "signal_weighted"]
     max_positions: Optional[int] = None
     weights: Optional[dict[str, float]] = None
+    # New fields for vol_target and signal_weighted methods
+    target_vol_annual: Optional[float] = None
+    signal_power: Optional[float] = None
 
 
 class RiskManagement(BaseModel):
@@ -91,9 +135,11 @@ class StrategyJSON(BaseModel):
     def validate_dates(self) -> "StrategyJSON":
         if self.end_date <= self.start_date:
             raise ValueError("end_date must be after start_date")
+        # fixed_weight requires weights (unchanged behavior)
         if self.position_sizing.method == "fixed_weight":
             if not self.position_sizing.weights:
                 raise ValueError("fixed_weight position sizing requires weights")
+        # static_allocation weight-sum check (unchanged behavior)
         if self.strategy_type == "static_allocation":
             weights = self.position_sizing.weights or {}
             if not weights:
@@ -101,6 +147,7 @@ class StrategyJSON(BaseModel):
             total_weight = sum(weights.values())
             if not 0.99 <= total_weight <= 1.01:
                 raise ValueError("static allocation weights must sum to 1.0")
+        # vol_target and signal_weighted do NOT require weights
         return self
 
 
