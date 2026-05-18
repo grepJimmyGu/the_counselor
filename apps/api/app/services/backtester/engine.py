@@ -413,6 +413,39 @@ class BacktestEngine:
         over_allocated = exposure > 1.0
         if over_allocated.any():
             weights.loc[over_allocated] = weights.loc[over_allocated].div(exposure[over_allocated], axis=0)
+
+        # ── Position-sizing overlay (applied after strategy logic is complete) ──
+
+        ps_method = strategy.position_sizing.method
+        if ps_method == "vol_target":
+            target_vol = strategy.position_sizing.target_vol_annual or 0.10
+            vol_window = 21  # trading-day window for realized-vol estimate
+            # Daily portfolio return from raw (pre-scaled) weights, using a 1-day
+            # lag so vol is estimated from past data only (no look-ahead bias).
+            asset_rets = close_matrix.pct_change().fillna(0.0)
+            raw_port_ret = (weights.shift(1).fillna(0.0) * asset_rets).sum(axis=1)
+            # Annualized realized vol over trailing vol_window days
+            realized_vol = raw_port_ret.rolling(vol_window).std() * np.sqrt(252)
+            # Scale: target / realized, capped at 1.0 (long-only; no leverage)
+            scale = (target_vol / realized_vol.replace(0.0, np.nan)).clip(upper=1.0)
+            # During warmup window: ffill then fall back to 1.0 (full allocation)
+            scale = scale.ffill().fillna(1.0)
+            weights = weights.mul(scale, axis=0)
+            # Defensively re-normalize (scale <= 1 guarantees sum still <= 1,
+            # but floating-point drift could push a row marginally over)
+            exposure = weights.sum(axis=1)
+            over_vol = exposure > 1.0
+            if over_vol.any():
+                weights.loc[over_vol] = weights.loc[over_vol].div(exposure[over_vol], axis=0)
+
+        elif ps_method == "signal_weighted":
+            # TODO: implement signal-weighted position sizing
+            raise NotImplementedError(
+                "signal_weighted position sizing is not yet implemented."
+            )
+        # "equal_weight" and "fixed_weight": no overlay — strategy logic already
+        # handles allocation; PositionSizing fields are used by the parser/validator.
+
         return weights
 
     def _extract_trade_log(self, close_matrix: pd.DataFrame, weights: pd.DataFrame) -> list[TradeLogItem]:
