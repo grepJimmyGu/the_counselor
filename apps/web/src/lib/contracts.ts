@@ -5,6 +5,19 @@ export type StrategyType =
   | "rsi_mean_reversion"
   | "breakout"
   | "static_allocation"
+  | "cross_sectional_momentum"
+  | "time_series_momentum"
+  | "short_term_reversal"
+  | "pairs_trading"
+  | "sector_rotation"
+  | "dual_momentum"
+  | "low_volatility"
+  | "bollinger_mean_reversion"
+  | "value_composite"
+  | "quality_piotroski"
+  | "buyback_yield"
+  | "pead_drift"
+  | "earnings_revision"
   | "news_sentiment_momentum"
   | "insider_buying"
   | "multi_factor_composite";
@@ -30,8 +43,13 @@ export interface SavedStrategy {
 export interface ResearchTemplate {
   id: string;
   name: string;
-  category: "Momentum" | "Rotation" | "Factor" | "Carry" | "Sentiment" | "Alternative";
+  category:
+    | "Momentum" | "Rotation" | "Factor" | "Carry"
+    | "Sentiment" | "Alternative"
+    | "Reversal" | "Arbitrage";
   description: string;
+  /** Two-sentence thesis — what the strategy captures and why it works. */
+  whatItCaptures?: string;
   whatItTests: string;
   dataRequirement: string;
   universeDescription: string;
@@ -44,10 +62,16 @@ export interface ResearchTemplate {
   etfProxyCaveat?: string;
   strategy: StrategyJson;
   chatSeed: string;
-  /** Evidence quality tier label (e.g. "A", "B", "C"). Shown as badge when present. */
+  /** Evidence quality tier: A=strong academic, B=mixed, C=practitioner-only. */
   evidenceTier?: string;
   /** Intended user capacity (e.g. "Retail", "Prosumer", "Institutional"). */
   capacityBadge?: string;
+  /** Typical holding horizon: "Intraday" | "Swing" | "Position" | "Multi-quarter". */
+  horizonBadge?: string;
+  /** Risk / regime / capacity caveats surfaced from the strategy library. */
+  caveats?: string[];
+  /** True = Phase B/C template shown with "Coming soon" overlay. */
+  comingSoon?: boolean;
 }
 
 export interface StrategyRule {
@@ -65,13 +89,39 @@ export interface StrategyRule {
   top_pct?: number;
   ranking_measure?: "total_return";
   ranking_lookback_days?: number;
+  signal_source?:
+    | "price"
+    | "return"
+    | "vol"
+    | "sentiment_score"
+    | "f_score"
+    | "buyback_yield"
+    | "value_composite"
+    | "quality_composite"
+    | "earnings_surprise"
+    | "estimate_revision"
+    | "insider_net_buy"
+    | "safe_asset";
+  rank_direction?: "top" | "bottom";
+  zscore_entry?: number;
+  zscore_exit?: number;
+  zscore_stop?: number;
+  pair_symbol?: string;
+  hedge_ratio?: number;
+  target_vol_annual?: number;
+  formation_period_days?: number;
+  skip_period_days?: number;
+  num_std?: number;
+  holding_window_days?: number;
   factor_weights?: Record<string, number>;  // multi_factor_composite: factor → weight
 }
 
 export interface PositionSizing {
-  method: "equal_weight" | "fixed_weight";
+  method: "equal_weight" | "fixed_weight" | "vol_target" | "signal_weighted";
   max_positions?: number;
   weights?: Record<string, number>;
+  target_vol_annual?: number;
+  signal_power?: number;
 }
 
 export interface RiskManagement {
@@ -838,7 +888,434 @@ export const researchTemplates: ResearchTemplate[] = [
     chatSeed:
       "I want to build a multi-factor composite strategy. My universe is {tickers}. Tell me: how to weight each factor, whether to tilt toward value or momentum, and how to handle factor timing.",
   },
+  // ── Phase A: 8 new engine-backed templates ────────────────────────────────
+
+  {
+    id: "cross-sectional-momentum-12-1",
+    name: "Cross-Sectional Momentum (12-1)",
+    category: "Momentum" as const,
+    description:
+      "Each month, rank your universe by trailing 12-month return (skipping the most recent month) and hold the top quintile. The 12-1 specification is the most-replicated momentum variant across asset classes.",
+    whatItCaptures:
+      "Assets that have outperformed their peers over the past year tend to continue outperforming over the next 1–3 months. The 1-month skip prevents short-term reversal from contaminating the signal.",
+    whatItTests:
+      "Whether trailing 12-month relative return predicts near-term outperformance within the cross-section, net of a 1-month skip period.",
+    dataRequirement: "Price data — at least 14 months of history per symbol",
+    universeDescription: "Large- and mid-cap equities — min 10 symbols for meaningful cross-section",
+    defaultTickers: ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","JPM","JNJ","XOM","V","UNH","PG","HD","CVX","TSLA"],
+    multiTicker: true,
+    minTickers: 10,
+    tickerLabel: "Enter your universe (comma-separated, min 10 symbols)",
+    availability: "ready" as const,
+    evidenceTier: "A",
+    capacityBadge: "Institutional",
+    horizonBadge: "Position",
+    caveats: [
+      "Momentum crashes: large drawdowns during sharp market reversals (e.g. March 2009, COVID recovery 2020).",
+      "Requires a broad universe — fewer than 10 symbols reduces the cross-sectional signal-to-noise ratio significantly.",
+      "High turnover (~100% annually) makes transaction costs critical; run the backtest with realistic 10+ bps assumptions.",
+      "Regime sensitivity: underperforms in low-dispersion environments where stocks move in lockstep.",
+    ],
+    strategy: {
+      strategy_name: "Cross-Sectional Momentum (12-1)",
+      strategy_type: "cross_sectional_momentum",
+      universe: ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","JPM","JNJ","XOM","V","UNH","PG","HD","CVX","TSLA"],
+      benchmark: "SPY",
+      start_date: fiveYearsAgo,
+      end_date: today,
+      initial_capital: 100000,
+      rebalance_frequency: "monthly" as const,
+      transaction_cost_bps: 10,
+      slippage_bps: 10,
+      rules: [{ formation_period_days: 252, skip_period_days: 21, top_pct: 0.2 }],
+      position_sizing: { method: "equal_weight" as const },
+      risk_management: {},
+      cash_management: { hold_cash_when_no_signal: true },
+    },
+    chatSeed:
+      "I want to build a 12-1 cross-sectional momentum strategy. My universe is {tickers}. Tell me: what lookback, whether to skip the most recent month, and how many names to hold.",
+  },
+  {
+    id: "time-series-momentum",
+    name: "Time-Series Momentum / Trend",
+    category: "Momentum" as const,
+    description:
+      "Hold each asset only when its own 12-month absolute return is positive; equal-weight all qualifying assets. Moves to cash when most assets are in downtrends — providing a built-in bear market hedge.",
+    whatItCaptures:
+      "Each asset's own trend — whether it is moving up or down on its own merits — predicts near-term returns. Unlike cross-sectional momentum, this strategy can hold 0% during broad bear markets.",
+    whatItTests:
+      "Whether positive absolute 12-month momentum for individual assets predicts positive near-term returns, with cash as the alternative when the signal is off.",
+    dataRequirement: "Price data — at least 14 months of history per symbol",
+    universeDescription: "Multi-asset or equity universe — best across uncorrelated assets",
+    defaultTickers: ["SPY","QQQ","IWM","EFA","EEM","TLT","GLD","DBC","VNQ","HYG"],
+    multiTicker: true,
+    minTickers: 3,
+    tickerLabel: "Enter your universe (comma-separated)",
+    availability: "ready" as const,
+    evidenceTier: "A",
+    capacityBadge: "Prosumer",
+    horizonBadge: "Position",
+    caveats: [
+      "Whipsaw risk in choppy, mean-reverting markets where trend signals repeatedly reverse in quick succession.",
+      "Works best with a diversified multi-asset universe; single-sector equity universes show weaker out-of-sample results.",
+      "The 12-month lookback is slow to adapt — consider also testing 6M and 3M variants to understand parameter sensitivity.",
+    ],
+    strategy: {
+      strategy_name: "Time-Series Momentum",
+      strategy_type: "time_series_momentum",
+      universe: ["SPY","QQQ","IWM","EFA","EEM","TLT","GLD","DBC","VNQ","HYG"],
+      benchmark: "SPY",
+      start_date: fiveYearsAgo,
+      end_date: today,
+      initial_capital: 100000,
+      rebalance_frequency: "monthly" as const,
+      transaction_cost_bps: 10,
+      slippage_bps: 10,
+      rules: [{ lookback_days: 252 }],
+      position_sizing: { method: "equal_weight" as const },
+      risk_management: {},
+      cash_management: { hold_cash_when_no_signal: true },
+    },
+    chatSeed:
+      "I want to build a time-series momentum strategy. My universe is {tickers}. Tell me: what lookback is optimal, and whether to scale position sizes by signal strength.",
+  },
+  {
+    id: "short-term-reversal",
+    name: "Short-Term Reversal",
+    category: "Reversal" as const,
+    description:
+      "Every week, rank your universe by 1-week return and buy the biggest losers. Short-term price pressure from liquidity-demanding sellers creates transient mispricings that revert as market makers are compensated.",
+    whatItCaptures:
+      "Liquidity providers absorbing temporary selling pressure earn a short-horizon premium. The strategy attempts to replicate this by systematically buying the recent losers who are most likely to bounce.",
+    whatItTests:
+      "Whether the bottom quintile of 5-day return within a cross-section outperforms over the subsequent week, after realistic transaction costs.",
+    dataRequirement: "Price data only",
+    universeDescription: "Liquid large-cap equities — min 20 symbols; requires tight spreads",
+    defaultTickers: ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","JPM","JNJ","XOM","V","UNH","PG","HD","CVX","TSLA"],
+    multiTicker: true,
+    minTickers: 10,
+    tickerLabel: "Enter your universe (comma-separated, min 10 symbols)",
+    availability: "ready" as const,
+    evidenceTier: "B",
+    capacityBadge: "Institutional",
+    horizonBadge: "Swing",
+    caveats: [
+      "Transaction costs are critical — with 10+ bps round-trip much of the alpha is consumed. Originally profitable mainly for institutional desks with near-zero execution costs.",
+      "Very high turnover (~5,000% annually with weekly rebalance) — the backtest result is extremely sensitive to cost assumptions.",
+      "Not suitable for retail investors without near-zero commissions and tight spreads on all universe members.",
+    ],
+    strategy: {
+      strategy_name: "Short-Term Reversal",
+      strategy_type: "short_term_reversal",
+      universe: ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","JPM","JNJ","XOM","V","UNH","PG","HD","CVX","TSLA"],
+      benchmark: "SPY",
+      start_date: fiveYearsAgo,
+      end_date: today,
+      initial_capital: 100000,
+      rebalance_frequency: "weekly" as const,
+      transaction_cost_bps: 5,
+      slippage_bps: 5,
+      rules: [{ formation_period_days: 5, rank_direction: "bottom" as const, top_pct: 0.2 }],
+      position_sizing: { method: "equal_weight" as const },
+      risk_management: {},
+      cash_management: { hold_cash_when_no_signal: true },
+    },
+    chatSeed:
+      "I want to build a short-term reversal strategy. My universe is {tickers}. Tell me: what reversal lookback and how to handle the transaction cost drag.",
+  },
+  {
+    id: "pairs-trading-long-only",
+    name: "Pairs Trading (Long-Only)",
+    category: "Arbitrage" as const,
+    description:
+      "Track the log-price spread between two correlated assets. Go long the cheaper asset when the z-score is 2+ standard deviations below its mean, exit when the spread normalises.",
+    whatItCaptures:
+      "Temporary deviations in the relative valuation of two economically linked assets tend to revert. The long-only variant captures the cheaper leg of classic statistical arbitrage.",
+    whatItTests:
+      "Whether deviations of 2+ standard deviations in the log-spread between two historically correlated assets revert to mean within a 60-day window.",
+    dataRequirement: "Price data — two correlated assets",
+    universeDescription: "Two positively correlated assets (e.g. AAPL/MSFT, SPY/QQQ)",
+    defaultTickers: ["AAPL","MSFT"],
+    multiTicker: true,
+    minTickers: 2,
+    tickerLabel: "Enter exactly 2 correlated assets",
+    availability: "ready" as const,
+    evidenceTier: "B",
+    capacityBadge: "Prosumer",
+    horizonBadge: "Swing",
+    caveats: [
+      "Long-only variant captures only half the spread trade — full statistical arbitrage requires short-selling capability.",
+      "Cointegration can break down permanently (e.g. Nokia/Ericsson). Always verify the pair has a genuine economic link.",
+      "Stop-loss at z = –3 is essential to prevent losses when the spread diverges instead of reverting.",
+    ],
+    strategy: {
+      strategy_name: "Pairs Trading (Long-Only) — AAPL / MSFT",
+      strategy_type: "pairs_trading",
+      universe: ["AAPL","MSFT"],
+      benchmark: "SPY",
+      start_date: fiveYearsAgo,
+      end_date: today,
+      initial_capital: 100000,
+      rebalance_frequency: "daily" as const,
+      transaction_cost_bps: 10,
+      slippage_bps: 10,
+      rules: [{ lookback_days: 60, zscore_entry: 2.0, zscore_exit: 0.5, zscore_stop: 3.0, hedge_ratio: 1.0 }],
+      position_sizing: { method: "equal_weight" as const },
+      risk_management: {},
+      cash_management: { hold_cash_when_no_signal: true },
+    },
+    chatSeed:
+      "I want to build a long-only pairs trading strategy between {tickers}. Tell me: what z-score to use for entry and exit, and how to set the stop-loss.",
+  },
+  {
+    id: "sector-rotation-spdr",
+    name: "Sector Rotation (SPDR)",
+    category: "Rotation" as const,
+    description:
+      "Monthly, rank the 11 SPDR sector ETFs by trailing 3–6 month total return and hold the top 3. Rotate out of lagging sectors into the current economic cycle leaders.",
+    whatItCaptures:
+      "Different economic sectors lead and lag through the business cycle. By rotating into recent leaders, the strategy attempts to ride the dominant economic theme — technology in 2020–21, energy in 2022.",
+    whatItTests:
+      "Whether trailing 3–6 month relative return among SPDR sector ETFs predicts near-term relative outperformance, net of monthly rebalancing costs.",
+    dataRequirement: "Price data — SPDR sector ETF history",
+    universeDescription: "11 SPDR sector ETFs",
+    defaultTickers: ["XLK","XLF","XLE","XLV","XLI","XLP","XLU","XLY","XLB","XLRE","XLC"],
+    multiTicker: true,
+    minTickers: 5,
+    tickerLabel: "Enter sector ETFs (comma-separated)",
+    availability: "ready" as const,
+    evidenceTier: "A",
+    capacityBadge: "Retail",
+    horizonBadge: "Position",
+    caveats: [
+      "ETF-level rotation misses intra-sector stock selection alpha — you're getting broad sector beta, not individual stock outperformance.",
+      "Concentration risk: holding 3 of 11 sectors creates meaningful tracking error versus SPY.",
+      "Formation period sensitivity: results vary significantly across 1M/3M/6M lookbacks — treat the lookback as a free parameter that could be overfit.",
+    ],
+    strategy: {
+      strategy_name: "Sector Rotation — SPDR Top 3",
+      strategy_type: "sector_rotation",
+      universe: ["XLK","XLF","XLE","XLV","XLI","XLP","XLU","XLY","XLB","XLRE","XLC"],
+      benchmark: "SPY",
+      start_date: fiveYearsAgo,
+      end_date: today,
+      initial_capital: 100000,
+      rebalance_frequency: "monthly" as const,
+      transaction_cost_bps: 5,
+      slippage_bps: 5,
+      rules: [{ formation_period_days: 126, top_n: 3 }],
+      position_sizing: { method: "equal_weight" as const, max_positions: 3 },
+      risk_management: {},
+      cash_management: { hold_cash_when_no_signal: false },
+    },
+    chatSeed:
+      "I want to build a sector rotation strategy using {tickers}. Tell me: what lookback period works best and how many sectors to hold simultaneously.",
+  },
+  {
+    id: "dual-momentum",
+    name: "Dual Momentum",
+    category: "Momentum" as const,
+    description:
+      "Gary Antonacci's Dual Momentum: first check absolute momentum (is SPY above cash?), then relative momentum (does SPY beat bonds?). Holds US equities, international equities, or bonds depending on signals.",
+    whatItCaptures:
+      "Combining absolute momentum (trend filter) with relative momentum (asset selection) reduces bear market drawdowns while capturing uptrends. The dual filter removes most of the large equity drawdowns historically.",
+    whatItTests:
+      "Whether a two-signal filter — absolute return above the risk-free rate AND equities above bonds — improves Sharpe ratio versus buy-and-hold (per Antonacci 2014).",
+    dataRequirement: "Price data — broad asset class ETFs",
+    universeDescription: "Broad equity and bond ETFs",
+    defaultTickers: ["SPY","EFA","TLT"],
+    multiTicker: true,
+    minTickers: 2,
+    tickerLabel: "Enter equity + bond ETFs",
+    availability: "ready" as const,
+    evidenceTier: "A",
+    capacityBadge: "Retail",
+    horizonBadge: "Multi-quarter",
+    caveats: [
+      "Very low turnover (~1–2 switches per year) — timing is concentrated and a single bad switch meaningfully impacts annual returns.",
+      "Slow to adapt: the 12-month lookback holds losing positions for months before the signal flips.",
+      "Post-publication alpha decay: the strategy attracted significant retail AUM after Antonacci's 2014 book, potentially compressing returns.",
+    ],
+    strategy: {
+      strategy_name: "Dual Momentum — Equity / Bond",
+      strategy_type: "dual_momentum",
+      universe: ["SPY","EFA","TLT"],
+      benchmark: "SPY",
+      start_date: fiveYearsAgo,
+      end_date: today,
+      initial_capital: 100000,
+      rebalance_frequency: "monthly" as const,
+      transaction_cost_bps: 5,
+      slippage_bps: 5,
+      rules: [{ formation_period_days: 252 }],
+      position_sizing: { method: "equal_weight" as const },
+      risk_management: {},
+      cash_management: { hold_cash_when_no_signal: true },
+    },
+    chatSeed:
+      "I want to build a dual momentum strategy across {tickers}. Tell me: how to incorporate an absolute momentum filter against a cash return proxy.",
+  },
+  {
+    id: "low-volatility",
+    name: "Low Volatility",
+    category: "Factor" as const,
+    description:
+      "Monthly, rank your universe by trailing 63-day realised volatility and hold the lowest-volatility quintile equal-weight. Lower-risk stocks historically deliver superior Sharpe ratios — the 'low vol anomaly'.",
+    whatItCaptures:
+      "Low-volatility stocks outperform on a risk-adjusted basis because investors systematically overpay for high-volatility lottery-like stocks and underweight boring low-risk names due to leverage constraints and benchmark hugging.",
+    whatItTests:
+      "Whether the bottom quintile of realised volatility earns superior Sharpe ratios versus an equal-weight index, net of monthly rebalancing costs.",
+    dataRequirement: "Price data — at least 4 months of history per symbol for vol estimation",
+    universeDescription: "Broad equity universe — min 15 symbols",
+    defaultTickers: ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","JPM","JNJ","XOM","V","UNH","PG","HD","CVX","TSLA"],
+    multiTicker: true,
+    minTickers: 10,
+    tickerLabel: "Enter your universe (comma-separated, min 10 symbols)",
+    availability: "ready" as const,
+    evidenceTier: "A",
+    capacityBadge: "Institutional",
+    horizonBadge: "Multi-quarter",
+    caveats: [
+      "Crowding risk: large AUM inflows post-2010 compressed returns and created periodic factor unwinds.",
+      "Rate sensitivity: low-volatility portfolios are bond-like and underperform during rising-rate regimes.",
+      "Sector concentration: typically overweights utilities, consumer staples, and healthcare — check sector exposure.",
+    ],
+    strategy: {
+      strategy_name: "Low Volatility Factor",
+      strategy_type: "low_volatility",
+      universe: ["AAPL","MSFT","NVDA","AMZN","GOOGL","META","JPM","JNJ","XOM","V","UNH","PG","HD","CVX","TSLA"],
+      benchmark: "SPY",
+      start_date: fiveYearsAgo,
+      end_date: today,
+      initial_capital: 100000,
+      rebalance_frequency: "monthly" as const,
+      transaction_cost_bps: 10,
+      slippage_bps: 10,
+      rules: [{ lookback_days: 63, top_pct: 0.2 }],
+      position_sizing: { method: "equal_weight" as const },
+      risk_management: {},
+      cash_management: { hold_cash_when_no_signal: true },
+    },
+    chatSeed:
+      "I want to build a low volatility strategy. My universe is {tickers}. Tell me: what vol lookback to use and whether to add a minimum-variance optimiser.",
+  },
+  {
+    id: "bollinger-mean-reversion",
+    name: "Bollinger Mean Reversion",
+    category: "Reversal" as const,
+    description:
+      "Enter long when price closes below the lower 2-sigma Bollinger Band (20-day MA). Exit when price crosses back above the middle band. A dynamic, volatility-scaled oversold signal.",
+    whatItCaptures:
+      "Short-term oversold conditions relative to recent price range tend to revert as buying interest returns. Bollinger Bands scale the entry threshold by the asset's own volatility, making the signal adaptive.",
+    whatItTests:
+      "Whether a close below the lower 2-standard-deviation Bollinger Band predicts positive returns over the subsequent 1–5 days for a single liquid asset.",
+    dataRequirement: "Price data only",
+    universeDescription: "Single liquid equity or ETF with mean-reverting character",
+    defaultTickers: ["AAPL"],
+    multiTicker: false,
+    tickerLabel: "Which stock or ETF do you want to test?",
+    availability: "ready" as const,
+    evidenceTier: "C",
+    capacityBadge: "Prosumer",
+    horizonBadge: "Swing",
+    caveats: [
+      "Regime-dependent: fails in strong trending markets where price walks along the lower band without reverting.",
+      "Evidence tier C: results are highly sensitive to the lookback and standard-deviation parameters — easy to overfit.",
+      "Single-asset focus provides no diversification; a bad period for the underlying hits the whole portfolio.",
+    ],
+    strategy: {
+      strategy_name: "Bollinger Mean Reversion — AAPL",
+      strategy_type: "bollinger_mean_reversion",
+      universe: ["AAPL"],
+      benchmark: "SPY",
+      start_date: fiveYearsAgo,
+      end_date: today,
+      initial_capital: 100000,
+      rebalance_frequency: "daily" as const,
+      transaction_cost_bps: 5,
+      slippage_bps: 5,
+      rules: [{ lookback_days: 20, num_std: 2.0 }],
+      position_sizing: { method: "equal_weight" as const, max_positions: 1 },
+      risk_management: {},
+      cash_management: { hold_cash_when_no_signal: true },
+    },
+    chatSeed:
+      "I want to build a Bollinger Band mean-reversion strategy on {ticker}. Tell me: what window and standard-deviation threshold to use.",
+  },
+
+  // ── Phase B / C — Coming soon ─────────────────────────────────────────────
+
+  {
+    id: "value-composite-cs",
+    name: "Value Composite",
+    category: "Factor" as const,
+    description: "Rank stocks by a composite of FCF yield, book-to-market, and EV/EBITDA. Hold the cheapest decile monthly.",
+    whatItCaptures: "Stocks trading at low prices relative to fundamentals tend to outperform as the market corrects mispricings over 12–36 month horizons.",
+    whatItTests: "Whether a multi-metric value composite outperforms single-metric value screens.",
+    dataRequirement: "Fundamental data (FCF, book value, EBITDA) — not yet available",
+    universeDescription: "Large- and mid-cap equities",
+    defaultTickers: [],
+    multiTicker: true,
+    minTickers: 20,
+    tickerLabel: "",
+    availability: "unavailable" as const,
+    evidenceTier: "A",
+    capacityBadge: "Institutional",
+    horizonBadge: "Multi-quarter",
+    comingSoon: true,
+    caveats: ["Requires fundamental data pipeline."],
+    dataGapReason: "Requires FCF yield, book-to-market, and EV/EBITDA data — coming in Phase B.",
+    strategy: { strategy_name: "Value Composite", strategy_type: "value_composite", universe: ["AAPL"], benchmark: "SPY", start_date: fiveYearsAgo, end_date: today, initial_capital: 100000, rebalance_frequency: "monthly" as const, transaction_cost_bps: 10, slippage_bps: 10, rules: [{ top_pct: 0.1 }], position_sizing: { method: "equal_weight" as const }, risk_management: {}, cash_management: { hold_cash_when_no_signal: true } },
+    chatSeed: "",
+  },
+  {
+    id: "quality-piotroski-cs",
+    name: "Quality — Piotroski F-Score",
+    category: "Factor" as const,
+    description: "Long stocks with an F-Score of 8 or 9 — companies with strengthening profitability, leverage, and efficiency.",
+    whatItCaptures: "Piotroski's 9 binary signals identify companies with improving fundamentals that the market is slow to reprice upward.",
+    whatItTests: "Whether high-F-Score stocks generate excess returns versus the broader market.",
+    dataRequirement: "Annual financial statements — not yet available",
+    universeDescription: "Broad equity universe",
+    defaultTickers: [],
+    multiTicker: true,
+    minTickers: 20,
+    tickerLabel: "",
+    availability: "unavailable" as const,
+    evidenceTier: "A",
+    capacityBadge: "Prosumer",
+    horizonBadge: "Multi-quarter",
+    comingSoon: true,
+    caveats: ["Requires annual financial statement data."],
+    dataGapReason: "Requires annual financial statement data — coming in Phase B.",
+    strategy: { strategy_name: "Quality Piotroski F-Score", strategy_type: "quality_piotroski", universe: ["AAPL"], benchmark: "SPY", start_date: fiveYearsAgo, end_date: today, initial_capital: 100000, rebalance_frequency: "monthly" as const, transaction_cost_bps: 10, slippage_bps: 10, rules: [{ top_pct: 0.3 }], position_sizing: { method: "equal_weight" as const }, risk_management: {}, cash_management: { hold_cash_when_no_signal: true } },
+    chatSeed: "",
+  },
+  {
+    id: "pead-drift-cs",
+    name: "Post-Earnings Drift (PEAD)",
+    category: "Momentum" as const,
+    description: "After a top-decile earnings surprise, hold the stock for 60 days to capture the gradual market revaluation.",
+    whatItCaptures: "Markets under-react to large earnings surprises — positive shocks continue to generate abnormal returns for weeks after announcement.",
+    whatItTests: "Whether post-announcement drift is exploitable after realistic transaction costs.",
+    dataRequirement: "Quarterly EPS and analyst estimates — not yet available",
+    universeDescription: "Active-reporting equities",
+    defaultTickers: [],
+    multiTicker: true,
+    minTickers: 20,
+    tickerLabel: "",
+    availability: "unavailable" as const,
+    evidenceTier: "A",
+    capacityBadge: "Prosumer",
+    horizonBadge: "Swing",
+    comingSoon: true,
+    caveats: ["Requires EPS surprise data pipeline."],
+    dataGapReason: "Requires quarterly EPS and analyst estimate data — coming in Phase B.",
+    strategy: { strategy_name: "Post-Earnings Announcement Drift", strategy_type: "pead_drift", universe: ["AAPL"], benchmark: "SPY", start_date: fiveYearsAgo, end_date: today, initial_capital: 100000, rebalance_frequency: "weekly" as const, transaction_cost_bps: 10, slippage_bps: 10, rules: [{ holding_window_days: 60, top_pct: 0.1 }], position_sizing: { method: "equal_weight" as const }, risk_management: {}, cash_management: { hold_cash_when_no_signal: true } },
+    chatSeed: "",
+  },
 ];
+
 
 // ── PRD-06: Fundamental Analysis types ───────────────────────────────────────
 
@@ -1334,6 +1811,8 @@ export interface SignalScore {
   hold_votes: number;
   total_votes: number;
   strategy_run_count: number;
+  thesis_count: number;
+  latest_thesis_at?: string | null;
   signal_score: number;
   signal_label: string;
   computed_at?: string | null;
@@ -1367,6 +1846,26 @@ export interface UpvoteResponse {
   user_upvoted: boolean;
 }
 
+export interface StockThesis {
+  id: number;
+  user_id: string;
+  symbol: string;
+  stance: "bull" | "bear" | "hold";
+  timeframe: string;
+  thesis: string;
+  risks: string;
+  evidence_url?: string | null;
+  created_at: string;
+  display_name?: string | null;
+  avatar_url?: string | null;
+}
+
+export interface StockThesisListResponse {
+  theses: StockThesis[];
+  total: number;
+  disclaimer: string;
+}
+
 export interface LivePerformance {
   slug: string;
   published_at: string;
@@ -1385,5 +1884,8 @@ export interface PublicStrategyItem {
   name: string;
   saved_at: string;
   upvote_count: number;
+  trust_score: number;
+  verification_status: string;
+  follower_count: number;
   live?: LivePerformance | null;
 }
