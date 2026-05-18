@@ -30,9 +30,13 @@ StrategyType = Literal[
     "dual_momentum",
     "low_volatility",
     "bollinger_mean_reversion",
+    # ── Fundamental signal templates (engine-backed via SignalProvider) ───────
+    "value_composite",
+    "quality_piotroski",
+    "buyback_yield",
 ]
 
-# The 6 types that the backtester engine currently handles
+# The types that the backtester engine currently handles
 ENGINE_SUPPORTED_TYPES = frozenset({
     "moving_average_filter",
     "moving_average_crossover",
@@ -40,6 +44,19 @@ ENGINE_SUPPORTED_TYPES = frozenset({
     "rsi_mean_reversion",
     "breakout",
     "static_allocation",
+    # Prompt-2 cross-sectional strategies
+    "cross_sectional_momentum",
+    "time_series_momentum",
+    "short_term_reversal",
+    "pairs_trading",
+    "sector_rotation",
+    "dual_momentum",
+    "low_volatility",
+    "bollinger_mean_reversion",
+    # Prompt-3 fundamental signal strategies
+    "value_composite",
+    "quality_piotroski",
+    "buyback_yield",
 })
 
 RebalanceFrequency = Literal["daily", "weekly", "monthly", "quarterly"]
