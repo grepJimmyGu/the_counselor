@@ -6,7 +6,8 @@ export type StrategyType =
   | "breakout"
   | "static_allocation"
   | "news_sentiment_momentum"
-  | "insider_buying";
+  | "insider_buying"
+  | "multi_factor_composite";
 
 export type RebalanceFrequency = "daily" | "weekly" | "monthly" | "quarterly";
 
@@ -64,6 +65,7 @@ export interface StrategyRule {
   top_pct?: number;
   ranking_measure?: "total_return";
   ranking_lookback_days?: number;
+  factor_weights?: Record<string, number>;  // multi_factor_composite: factor → weight
 }
 
 export interface PositionSizing {
@@ -789,6 +791,52 @@ export const researchTemplates: ResearchTemplate[] = [
     },
     chatSeed:
       "I want to build an insider buying strategy. My universe is {tickers}. Tell me: how to filter for cluster buys, what dollar threshold to use, and how to size positions.",
+  },
+  {
+    id: "multi-factor-composite",
+    name: "Multi-Factor Composite",
+    category: "Factor",
+    description:
+      "Combine Value, Momentum, Quality, and Low-Volatility into a single equal-weighted composite score. Rank the top decile monthly. Each factor is cross-sectionally z-scored before blending.",
+    whatItTests:
+      "Tests whether a diversified factor composite (value 25%, momentum 25%, quality 25%, low-vol 25%) outperforms single-factor strategies over a full market cycle. Factor weights are customisable — e.g. tilt toward value in bear markets and momentum in bull runs.",
+    dataRequirement: "Price data + fundamental data (FCF, book value, EBITDA, F-Score)",
+    universeDescription: "Large- and mid-cap equities (min 20 symbols recommended)",
+    defaultTickers: [],
+    multiTicker: true,
+    minTickers: 10,
+    tickerLabel: "Enter your universe (comma-separated, min 10 symbols for factor diversity)",
+    availability: "unavailable",
+    dataGapReason:
+      "Requires fundamental signal data (FCF yield, book-to-market, Piotroski F-Score). Not yet available for backtesting — shown here so you can plan your research.",
+    evidenceTier: "A",
+    capacityBadge: "Pro",
+    strategy: {
+      strategy_name: "Multi-Factor Composite — Equal-Weighted",
+      strategy_type: "multi_factor_composite",
+      universe: ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META", "BRK.B", "JPM", "JNJ", "XOM"],
+      benchmark: "SPY",
+      start_date: "2020-01-01",
+      end_date: "2024-12-31",
+      initial_capital: 100000,
+      rebalance_frequency: "monthly",
+      transaction_cost_bps: 15,
+      slippage_bps: 10,
+      rules: [{
+        factor_weights: {
+          value_composite: 0.25,
+          momentum_12_1: 0.25,
+          quality_f_score: 0.25,
+          low_volatility: 0.25,
+        },
+        top_pct: 0.1,
+      }],
+      position_sizing: { method: "equal_weight" },
+      risk_management: {},
+      cash_management: { hold_cash_when_no_signal: true },
+    },
+    chatSeed:
+      "I want to build a multi-factor composite strategy. My universe is {tickers}. Tell me: how to weight each factor, whether to tilt toward value or momentum, and how to handle factor timing.",
   },
 ];
 

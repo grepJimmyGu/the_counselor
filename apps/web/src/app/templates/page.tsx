@@ -49,7 +49,14 @@ function TemplateCard({ template }: { template: ResearchTemplate }) {
               </Badge>
             )}
             {template.capacityBadge && (
-              <Badge variant="outline" className="text-xs border-indigo-500/50 text-indigo-400 bg-indigo-500/10">
+              <Badge
+                variant="outline"
+                className={`text-xs ${
+                  template.capacityBadge === "Pro"
+                    ? "border-amber-500/60 text-amber-400 bg-amber-500/10"
+                    : "border-indigo-500/50 text-indigo-400 bg-indigo-500/10"
+                }`}
+              >
                 {template.capacityBadge}
               </Badge>
             )}
