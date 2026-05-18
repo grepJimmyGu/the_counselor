@@ -39,6 +39,8 @@ StrategyType = Literal[
     # Prompt-5 alternative signal strategies
     "news_sentiment_momentum",
     "insider_buying",
+    # Prompt-6 composite factor strategy
+    "multi_factor_composite",
 ]
 
 # The types that the backtester engine currently handles
@@ -68,6 +70,8 @@ ENGINE_SUPPORTED_TYPES = frozenset({
     # Prompt-5 alternative signal strategies
     "news_sentiment_momentum",
     "insider_buying",
+    # Prompt-6 composite factor strategy
+    "multi_factor_composite",
 })
 
 RebalanceFrequency = Literal["daily", "weekly", "monthly", "quarterly"]
@@ -112,6 +116,7 @@ class StrategyRule(BaseModel):
     num_std: Optional[float] = None
     top_pct: Optional[float] = None
     holding_window_days: Optional[int] = None   # PEAD: trading days to hold post-announcement
+    factor_weights: Optional[dict[str, float]] = None  # multi_factor_composite: factor → weight
 
 
 class PositionSizing(BaseModel):

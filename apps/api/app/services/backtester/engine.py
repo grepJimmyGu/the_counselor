@@ -16,6 +16,7 @@ _FUNDAMENTAL_STRATEGY_TYPES = frozenset({
     "value_composite", "quality_piotroski", "buyback_yield",
     "pead_drift", "earnings_revision",
     "news_sentiment_momentum", "insider_buying",
+    "multi_factor_composite",
 })
 
 from app.models.backtest import BacktestRecord
@@ -101,6 +102,9 @@ class BacktestEngine:
             rule0 = rules[0] if rules else None
             lookback = (rule0.lookback_days if rule0 else None) or 60
             return int(lookback * 1.4) + 10
+        # Multi-factor composite: momentum_12_1 sub-factor needs 252+21 days
+        if stype == "multi_factor_composite":
+            return int(273 * 1.4) + 10   # 392 — covers 12-1 momentum warmup
         # Signal-provider-backed strategies: no price-based lookback needed
         if stype in _FUNDAMENTAL_STRATEGY_TYPES:
             return 5
@@ -197,6 +201,53 @@ class BacktestEngine:
         if std == 0:
             return pd.Series(0.0, index=row.index)
         return (row - valid.mean()) / std
+
+    def _build_factor_score_matrix(
+        self,
+        factor_name: str,
+        close_matrix: pd.DataFrame,
+        precomputed_signals: dict[str, pd.DataFrame],
+    ) -> pd.DataFrame:
+        """
+        Return a raw (un-z-scored) score matrix for a single named factor.
+        Supported factor names:
+          "value_composite"  — average z-score of fcf_yield, book_to_market, ebitda_ev
+          "momentum_12_1"    — 12-month return shifted 1 month (standard cross-sectional momentum)
+          "quality_f_score"  — Piotroski F-Score from FundamentalSignalProvider("f_score")
+          "low_volatility"   — negated 63-day rolling volatility (higher = lower vol)
+        Unknown factor names produce a NaN matrix and log a warning.
+        """
+        index = close_matrix.index
+        empty = pd.DataFrame(float("nan"), index=index, columns=close_matrix.columns)
+
+        if factor_name == "value_composite":
+            ps = precomputed_signals
+            fcf = ps.get("fcf_yield", empty)
+            btm = ps.get("book_to_market", empty)
+            ev  = ps.get("ebitda_ev", empty)
+            z_fcf = fcf.apply(self._zscore_row, axis=1)
+            z_btm = btm.apply(self._zscore_row, axis=1)
+            z_ev  = ev.apply(self._zscore_row, axis=1)
+            arr = np.stack([z_fcf.values, z_btm.values, z_ev.values], axis=2)
+            return pd.DataFrame(
+                np.nanmean(arr, axis=2), index=index, columns=close_matrix.columns
+            )
+
+        if factor_name == "momentum_12_1":
+            # 12-month total return, skip most recent month (standard 12-1 momentum)
+            return close_matrix.pct_change(252).shift(21)
+
+        if factor_name == "quality_f_score":
+            return precomputed_signals.get("f_score", empty)
+
+        if factor_name == "low_volatility":
+            vol = close_matrix.pct_change().rolling(63).std()
+            return -vol   # higher score → lower vol → preferred
+
+        logger.warning(
+            "_build_factor_score_matrix: unknown factor '%s' — treating as zero.", factor_name
+        )
+        return empty
 
     def _generate_cross_sectional_weights(
         self,
@@ -582,6 +633,41 @@ class BacktestEngine:
                 top_n=top_n, top_pct=top_pct, rank_direction="top",
             )
 
+        elif strategy.strategy_type == "multi_factor_composite":
+            # Weighted composite of named factors.  Each factor is z-scored
+            # cross-sectionally; contributions are combined by supplied weights.
+            rule = strategy.rules[0] if strategy.rules else None
+            fw: dict[str, float] = (rule.factor_weights if rule else None) or {}
+            top_pct = (rule.top_pct if rule else None) or 0.1
+            top_n   = (rule.top_n   if rule else None)
+            ps = precomputed_signals or {}
+
+            if fw:
+                total_w = sum(abs(w) for w in fw.values()) or 1.0
+                # Accumulate weighted z-scores; track total valid weight per cell
+                numerator   = np.zeros((len(index), len(close_matrix.columns)))
+                denominator = np.zeros_like(numerator)
+                for factor_name, factor_w in fw.items():
+                    raw = self._build_factor_score_matrix(factor_name, close_matrix, ps)
+                    z   = raw.apply(self._zscore_row, axis=1).values
+                    valid = ~np.isnan(z)
+                    norm_w = factor_w / total_w
+                    numerator   += np.where(valid, z * norm_w, 0.0)
+                    denominator += np.where(valid, norm_w, 0.0)
+                with np.errstate(invalid="ignore", divide="ignore"):
+                    composite_vals = np.where(
+                        denominator > 0,
+                        numerator / denominator,
+                        float("nan"),
+                    )
+                composite = pd.DataFrame(composite_vals,
+                                          index=index, columns=close_matrix.columns)
+                weights = self._generate_cross_sectional_weights(
+                    close_matrix, composite, rebalance_mask,
+                    top_n=top_n, top_pct=top_pct, rank_direction="top",
+                )
+            # else: no factors → hold cash (weights remain all-zero)
+
         # ── Post-processing (shared for all strategies) ───────────────────────
 
         # Signal strategies produce a new 0/1 weight each day — clip to binary.
@@ -763,6 +849,26 @@ class BacktestEngine:
                 if stype == "insider_buying":
                     from app.services.backtester.signal_provider import InsiderSignalProvider
                     return [InsiderSignalProvider()]
+                if stype == "multi_factor_composite":
+                    rule0 = strategy.rules[0] if strategy.rules else None
+                    fw = (rule0.factor_weights if rule0 else None) or {}
+                    providers_for_composite = []
+                    if "value_composite" in fw:
+                        providers_for_composite += [
+                            FundamentalSignalProvider(s)
+                            for s in ("fcf_yield", "book_to_market", "ebitda_ev")
+                        ]
+                    if "quality_f_score" in fw:
+                        providers_for_composite.append(FundamentalSignalProvider("f_score"))
+                    # momentum_12_1 and low_volatility are price-derived — no providers needed
+                    # Dedup by name (avoids fetching the same signal twice)
+                    seen: set[str] = set()
+                    deduped = []
+                    for p in providers_for_composite:
+                        if p.name not in seen:
+                            seen.add(p.name)
+                            deduped.append(p)
+                    return deduped
                 return []
 
             providers = _build_providers(strategy.strategy_type)
