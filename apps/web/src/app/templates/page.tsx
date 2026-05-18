@@ -25,10 +25,12 @@ function TemplateCard({ template }: { template: ResearchTemplate }) {
   }
 
   const categoryColor: Record<ResearchTemplate["category"], string> = {
-    Momentum: "border-blue-500/50 text-blue-400 bg-blue-500/10",
-    Rotation:  "border-primary/50 text-primary bg-primary/10",
-    Factor:    "border-yellow-500/50 text-yellow-400 bg-yellow-500/10",
-    Carry:     "border-orange-500/50 text-orange-400 bg-orange-500/10",
+    Momentum:    "border-blue-500/50 text-blue-400 bg-blue-500/10",
+    Rotation:    "border-primary/50 text-primary bg-primary/10",
+    Factor:      "border-yellow-500/50 text-yellow-400 bg-yellow-500/10",
+    Carry:       "border-orange-500/50 text-orange-400 bg-orange-500/10",
+    Sentiment:   "border-purple-500/50 text-purple-400 bg-purple-500/10",
+    Alternative: "border-teal-500/50 text-teal-400 bg-teal-500/10",
   };
 
   return (
@@ -36,15 +38,27 @@ function TemplateCard({ template }: { template: ResearchTemplate }) {
 
       {/* Header */}
       <div className="space-y-3">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
           <Badge variant="outline" className={`text-xs font-medium ${categoryColor[template.category]}`}>
             {template.category.toUpperCase()}
           </Badge>
-          {template.availability === "proxy" && (
-            <Badge variant="outline" className="text-xs border-yellow-500/50 text-yellow-400">
-              ETF Proxy
-            </Badge>
-          )}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {template.evidenceTier && (
+              <Badge variant="outline" className="text-xs border-slate-500/50 text-slate-400 bg-slate-500/10">
+                Evidence {template.evidenceTier}
+              </Badge>
+            )}
+            {template.capacityBadge && (
+              <Badge variant="outline" className="text-xs border-indigo-500/50 text-indigo-400 bg-indigo-500/10">
+                {template.capacityBadge}
+              </Badge>
+            )}
+            {template.availability === "proxy" && (
+              <Badge variant="outline" className="text-xs border-yellow-500/50 text-yellow-400">
+                ETF Proxy
+              </Badge>
+            )}
+          </div>
         </div>
 
         <div>
