@@ -193,15 +193,19 @@ class FundamentalSignalProvider(SignalProvider):
 
     Supported signal names
     ----------------------
-    "fcf_yield"        free cash flow / market cap (from cashflow + profile)
-    "book_to_market"   total equity / market cap (from balance sheet + profile)
-    "ebitda_ev"        EBITDA / enterprise value  (from income + key metrics)
-    "f_score"          Piotroski F-Score (0–9) computed from annual statements
-    "buyback_yield_ttm" share repurchases / market cap (cashflow + profile)
+    "fcf_yield"             free cash flow / market cap (from cashflow + profile)
+    "book_to_market"        total equity / market cap (from balance sheet + profile)
+    "ebitda_ev"             EBITDA / enterprise value  (from income + key metrics)
+    "f_score"               Piotroski F-Score (0–9) computed from annual statements
+    "buyback_yield_ttm"     share repurchases / market cap (cashflow + profile)
+    "estimate_revision_3m"  3-quarter EPS momentum proxy for analyst estimate revision
+                            = (EPS_t - EPS_{t-3}) / |EPS_{t-3}|. Positive = upward
+                            revisions; dated at period_end + report_date_lag.
     """
 
     SUPPORTED = frozenset(
-        {"fcf_yield", "book_to_market", "ebitda_ev", "f_score", "buyback_yield_ttm"}
+        {"fcf_yield", "book_to_market", "ebitda_ev", "f_score",
+         "buyback_yield_ttm", "estimate_revision_3m"}
     )
 
     def __init__(self, signal: str, report_date_lag: int = 45) -> None:
@@ -222,6 +226,8 @@ class FundamentalSignalProvider(SignalProvider):
         try:
             if self.name == "f_score":
                 return await self._f_score_series(sym, start, end)
+            elif self.name == "estimate_revision_3m":
+                return await self._estimate_revision_series(sym, start, end)
             else:
                 return await self._metric_series(sym, start, end)
         except Exception as exc:
@@ -243,6 +249,60 @@ class FundamentalSignalProvider(SignalProvider):
         ]
         values = [float(score) for _, score in scored]
         series = pd.Series(values, index=disclosure_dates, name=self.name)
+        return series.loc[
+            (series.index >= pd.Timestamp(start)) & (series.index <= pd.Timestamp(end))
+        ]
+
+    async def _estimate_revision_series(
+        self, symbol: str, start: date, end: date
+    ) -> pd.Series:
+        """
+        3-quarter EPS momentum as a proxy for analyst estimate revision trend.
+
+        revision = (EPS_t - EPS_{t-3}) / |EPS_{t-3}|
+
+        Positive value → upward EPS trend (estimates likely being revised up).
+        Dated at fiscal_period_end + report_date_lag to prevent look-ahead.
+        """
+        income = await self._fmp.get_income_statement(symbol, limit=20)
+        if not income:
+            return pd.Series(dtype=float)
+
+        def _eps(row: dict) -> Optional[float]:
+            for k in ("epsDiluted", "eps", "earningsPerShareBasic"):
+                v = row.get(k)
+                if v is not None:
+                    try:
+                        return float(v)
+                    except (ValueError, TypeError):
+                        pass
+            return None
+
+        # Sort oldest → newest
+        rows_dated = sorted(
+            [(r, _to_date(r.get("date"))) for r in income],
+            key=lambda x: x[1] or date.min,
+        )
+        rows_dated = [(r, d) for r, d in rows_dated if d is not None]
+
+        records: list[tuple[pd.Timestamp, float]] = []
+        for i in range(3, len(rows_dated)):
+            row, period_end = rows_dated[i]
+            prev_row, _ = rows_dated[i - 3]
+            curr_eps = _eps(row)
+            prev_eps = _eps(prev_row)
+            if curr_eps is None or prev_eps is None or prev_eps == 0:
+                continue
+            revision = (curr_eps - prev_eps) / abs(prev_eps)
+            disclosure_ts = pd.Timestamp(period_end + timedelta(days=self._lag_days))
+            records.append((disclosure_ts, revision))
+
+        if not records:
+            return pd.Series(dtype=float)
+
+        records.sort(key=lambda x: x[0])
+        idx, vals = zip(*records)
+        series = pd.Series(list(vals), index=list(idx), name=self.name)
         return series.loc[
             (series.index >= pd.Timestamp(start)) & (series.index <= pd.Timestamp(end))
         ]
@@ -502,7 +562,8 @@ _REGISTRY: dict[str, SignalProvider] = {
     "book_to_market":   FundamentalSignalProvider("book_to_market"),
     "ebitda_ev":        FundamentalSignalProvider("ebitda_ev"),
     "f_score":          FundamentalSignalProvider("f_score"),
-    "buyback_yield_ttm": FundamentalSignalProvider("buyback_yield_ttm"),
+    "buyback_yield_ttm":     FundamentalSignalProvider("buyback_yield_ttm"),
+    "estimate_revision_3m":  FundamentalSignalProvider("estimate_revision_3m"),
     # Sentiment
     "sentiment_score":  SentimentSignalProvider(),
     # Events

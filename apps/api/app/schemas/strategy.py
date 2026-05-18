@@ -34,6 +34,8 @@ StrategyType = Literal[
     "value_composite",
     "quality_piotroski",
     "buyback_yield",
+    "pead_drift",
+    "earnings_revision",
 ]
 
 # The types that the backtester engine currently handles
@@ -57,6 +59,9 @@ ENGINE_SUPPORTED_TYPES = frozenset({
     "value_composite",
     "quality_piotroski",
     "buyback_yield",
+    # Prompt-4 event/revision strategies
+    "pead_drift",
+    "earnings_revision",
 })
 
 RebalanceFrequency = Literal["daily", "weekly", "monthly", "quarterly"]
@@ -100,6 +105,7 @@ class StrategyRule(BaseModel):
     skip_period_days: Optional[int] = None
     num_std: Optional[float] = None
     top_pct: Optional[float] = None
+    holding_window_days: Optional[int] = None   # PEAD: trading days to hold post-announcement
 
 
 class PositionSizing(BaseModel):
