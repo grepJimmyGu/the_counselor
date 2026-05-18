@@ -81,8 +81,20 @@ AMBIGUOUS_TERMS = {
     "may": "The memo uses discretionary language like 'may', which is not directly backtestable.",
 }
 SUPPORTED_STRATEGY_FAMILIES = (
+    # Original 6
     "moving_average_filter, moving_average_crossover, momentum_rotation, "
-    "rsi_mean_reversion, breakout, static_allocation"
+    "rsi_mean_reversion, breakout, static_allocation, "
+    # Cross-sectional / time-series momentum
+    "cross_sectional_momentum, time_series_momentum, short_term_reversal, "
+    "sector_rotation, dual_momentum, "
+    # Technical / single-asset
+    "low_volatility, bollinger_mean_reversion, pairs_trading, "
+    # Fundamental signal
+    "value_composite, quality_piotroski, buyback_yield, "
+    # Event / alternative
+    "pead_drift, earnings_revision, news_sentiment_momentum, insider_buying, "
+    # Composite
+    "multi_factor_composite"
 )
 
 
@@ -108,7 +120,24 @@ _CHAT_PARSE_SYSTEM_PROMPT: str = (
     "commodity trend following / CTA trend / price trend on commodity → moving_average_filter or moving_average_crossover; "
     "commodity momentum / rotate commodities / commodity rotation / 大宗商品动量 → momentum_rotation (monthly rebalance); "
     "commodity seasonality / seasonal commodity / 季节性 → momentum_rotation (monthly rebalance, use total_return ranking); "
-    "commodity carry / roll yield / spread → static_allocation. "
+    "commodity carry / roll yield / spread → static_allocation; "
+    # ── New template mappings ──────────────────────────────────────────────
+    "low vol / minimum volatility / low volatility → low_volatility (monthly, lookback_days=63, top_pct=0.2); "
+    "sector rotation / spdr rotation / sector etf rotation → sector_rotation (monthly, formation_period_days=126, top_n=3); "
+    "time series momentum / time-series momentum / trend following momentum → time_series_momentum (monthly, lookback_days=252); "
+    "12 month momentum / 12-1 momentum / cross-sectional momentum / cross sectional → cross_sectional_momentum (monthly, formation_period_days=252, skip_period_days=21, top_pct=0.2); "
+    "short term reversal / short-term reversal / 1-week reversal → short_term_reversal (weekly, formation_period_days=5, top_pct=0.2, rank_direction=bottom); "
+    "dual momentum / absolute momentum and relative momentum → dual_momentum (monthly, formation_period_days=252); "
+    "bollinger / bollinger bands / mean reversion bollinger → bollinger_mean_reversion (daily, lookback_days=20, num_std=2.0); "
+    "pairs trading / stat arb / pair trade / spread trade → pairs_trading (daily, lookback_days=60, zscore_entry=2.0, zscore_exit=0.5); "
+    "value composite / value tilt / composite value score → value_composite (monthly, top_pct=0.1); "
+    "piotroski / f-score / f score / quality piotroski → quality_piotroski (monthly, top_pct=0.3); "
+    "buyback yield / share repurchase / buyback → buyback_yield (monthly, top_pct=0.1); "
+    "pead / earnings drift / post earnings announcement / post-earnings → pead_drift (weekly, holding_window_days=60, top_pct=0.1); "
+    "estimate revision / analyst upgrade / analyst revision → earnings_revision (monthly, top_pct=0.1); "
+    "news sentiment / sentiment momentum → news_sentiment_momentum (monthly, top_pct=0.1); "
+    "insider buying / insider trading / cluster insider → insider_buying (weekly, top_n=20); "
+    "multi factor / multi-factor / factor composite / multifactor → multi_factor_composite (monthly, factor_weights equal 0.25 each across value_composite/momentum_12_1/quality_f_score/low_volatility, top_pct=0.1). "
     "For momentum_rotation strategies, always populate the rules array with exactly one rule: "
     "{top_n: <number of assets to hold>, ranking_measure: 'total_return', ranking_lookback_days: <lookback in trading days>}. "
     "Also set position_sizing.max_positions to the same value as top_n. "
@@ -276,8 +305,83 @@ def _extract_symbols(message: str) -> list[str]:
     return list(dict.fromkeys(filtered))
 
 
-def _extract_strategy_type(text: str) -> Optional[str]:
+def _extract_strategy_type(text: str) -> Optional[str]:  # noqa: C901 (intentionally long)
     lowered = text.lower()
+
+    # ── New template types — checked first (more specific than legacy patterns) ──
+
+    # Multi-factor composite
+    if re.search(r"\bmulti.?factor\b|\bfactor.?composite\b|\bmultifactor\b", lowered):
+        return "multi_factor_composite"
+
+    # Insider buying
+    if re.search(r"\binsider\b", lowered):
+        return "insider_buying"
+
+    # News sentiment
+    if re.search(r"\bnews.?sentiment\b|\bsentiment.?momentum\b", lowered):
+        return "news_sentiment_momentum"
+
+    # PEAD / earnings drift
+    if re.search(r"\bpead\b|\bearnings.?drift\b|\bpost.?earnings\b", lowered):
+        return "pead_drift"
+
+    # Estimate revision
+    if re.search(r"\bestimate.?revision\b|\banalyst.?upgrade\b|\banalyst.?revision\b", lowered):
+        return "earnings_revision"
+
+    # Buyback yield
+    if re.search(r"\bbuyback.?yield\b|\bbuyback\b|\bshare.?repurchase\b", lowered):
+        return "buyback_yield"
+
+    # Piotroski / quality F-score
+    if re.search(r"\bpiotroski\b|\bf.score\b|\bquality.?f.?score\b|\bquality.?piotroski\b", lowered):
+        return "quality_piotroski"
+
+    # Value composite
+    if re.search(r"\bvalue.?composite\b|\bvalue.?tilt\b", lowered):
+        return "value_composite"
+
+    # Pairs trading — check before broad momentum/rotation
+    if re.search(r"\bpairs?.?trading\b|\bstat.?arb\b|\bpair.?trade\b|\bspread.?trade\b", lowered):
+        return "pairs_trading"
+
+    # Bollinger — check before moving_average_filter
+    if re.search(r"\bbollinger\b", lowered):
+        return "bollinger_mean_reversion"
+
+    # Dual momentum — check before generic momentum
+    if re.search(r"\bdual.?momentum\b|\babsolute.?and.?relative.?momentum\b", lowered):
+        return "dual_momentum"
+
+    # Short-term reversal — check before generic mean reversion / momentum
+    if re.search(r"\bshort.?term.?reversal\b|\b1.?week.?reversal\b", lowered) or (
+        re.search(r"\bmean.?reversion\b", lowered)
+        and re.search(r"\b(1.?week|5.?day|short.?term)\b", lowered)
+    ):
+        return "short_term_reversal"
+
+    # Cross-sectional momentum — check before generic momentum/rotation
+    if re.search(
+        r"\b12.?1.?momentum\b|\b12.?month.?momentum\b"
+        r"|\bcross.?sectional.?momentum\b|\bcross.?sectional\b",
+        lowered,
+    ):
+        return "cross_sectional_momentum"
+
+    # Time-series momentum — check before moving_average_filter's "trend"
+    if re.search(r"\btime.?series.?momentum\b|\btime-series.?momentum\b", lowered):
+        return "time_series_momentum"
+
+    # Sector rotation — check before generic momentum_rotation
+    if re.search(r"\bsector.?rotation\b|\bspdr.?rotation\b", lowered):
+        return "sector_rotation"
+
+    # Low volatility — check before generic momentum
+    if re.search(r"\blow.?vol\b|\bminimum.?volatility\b|\blow.?volatility\b", lowered):
+        return "low_volatility"
+
+    # ── Original 6 (unchanged order) ──────────────────────────────────────────
     if "rsi" in lowered:
         return "rsi_mean_reversion"
     if "breakout" in lowered or ("day high" in lowered and "day low" in lowered):
@@ -460,6 +564,210 @@ def _infer_strategy_from_text(
             rules=[StrategyRule(entry_window=entry_window, exit_window=exit_window)],
             position_sizing=PositionSizing(method="equal_weight", max_positions=1),
         )
+    elif strategy_type == "low_volatility":
+        lookback = _find_first_number(r"(\d+)[-\s]?day", lowered) or 63
+        top_n = _find_first_number(r"top\s+(\d+)", lowered) or min(3, len(symbols))
+        strategy = _base_strategy(
+            strategy_name="Low Volatility",
+            strategy_type="low_volatility",
+            universe=symbols,
+            rebalance_frequency=rebalance_frequency or "monthly",
+            rules=[StrategyRule(lookback_days=lookback, top_n=top_n)],
+            position_sizing=PositionSizing(method="equal_weight", max_positions=top_n),
+        )
+    elif strategy_type == "sector_rotation":
+        formation = _find_first_number(r"(\d+)[-\s]?day", lowered) or 126
+        top_n = _find_first_number(r"top\s+(\d+)", lowered) or 3
+        strategy = _base_strategy(
+            strategy_name="Sector Rotation",
+            strategy_type="sector_rotation",
+            universe=symbols,
+            rebalance_frequency=rebalance_frequency or "monthly",
+            rules=[StrategyRule(formation_period_days=formation, top_n=top_n)],
+            position_sizing=PositionSizing(method="equal_weight", max_positions=top_n),
+        )
+        strategy.cash_management.hold_cash_when_no_signal = False
+    elif strategy_type == "time_series_momentum":
+        lookback = _find_first_number(r"(\d+)[-\s]?(?:day|month)", lowered)
+        if not lookback:
+            lookback = 252
+        elif lookback < 30:  # assume months if small number
+            lookback = lookback * 21
+        strategy = _base_strategy(
+            strategy_name="Time-Series Momentum",
+            strategy_type="time_series_momentum",
+            universe=symbols,
+            rebalance_frequency=rebalance_frequency or "monthly",
+            rules=[StrategyRule(lookback_days=lookback)],
+            position_sizing=PositionSizing(method="equal_weight"),
+        )
+    elif strategy_type == "cross_sectional_momentum":
+        formation = _find_first_number(r"(\d+)[-\s]?(?:day|month)", lowered)
+        if not formation:
+            formation = 252
+        elif formation < 30:
+            formation = formation * 21
+        top_n = _find_first_number(r"top\s+(\d+)", lowered)
+        strategy = _base_strategy(
+            strategy_name="Cross-Sectional Momentum",
+            strategy_type="cross_sectional_momentum",
+            universe=symbols,
+            rebalance_frequency=rebalance_frequency or "monthly",
+            rules=[StrategyRule(
+                formation_period_days=formation,
+                skip_period_days=21,
+                top_n=top_n,
+                top_pct=None if top_n else 0.2,
+            )],
+            position_sizing=PositionSizing(method="equal_weight"),
+        )
+        strategy.cash_management.hold_cash_when_no_signal = False
+    elif strategy_type == "short_term_reversal":
+        formation = _find_first_number(r"(\d+)[-\s]?day", lowered) or 5
+        top_n = _find_first_number(r"top\s+(\d+)", lowered)
+        strategy = _base_strategy(
+            strategy_name="Short-Term Reversal",
+            strategy_type="short_term_reversal",
+            universe=symbols,
+            rebalance_frequency=rebalance_frequency or "weekly",
+            rules=[StrategyRule(
+                formation_period_days=formation,
+                rank_direction="bottom",
+                top_n=top_n,
+                top_pct=None if top_n else 0.2,
+            )],
+            position_sizing=PositionSizing(method="equal_weight"),
+        )
+    elif strategy_type == "dual_momentum":
+        formation = _find_first_number(r"(\d+)[-\s]?(?:day|month)", lowered)
+        if not formation:
+            formation = 252
+        elif formation < 30:
+            formation = formation * 21
+        strategy = _base_strategy(
+            strategy_name="Dual Momentum",
+            strategy_type="dual_momentum",
+            universe=symbols,
+            rebalance_frequency=rebalance_frequency or "monthly",
+            rules=[StrategyRule(formation_period_days=formation)],
+            position_sizing=PositionSizing(method="equal_weight"),
+        )
+    elif strategy_type == "bollinger_mean_reversion":
+        lookback = _find_first_number(r"(\d+)[-\s]?day", lowered) or 20
+        strategy = _base_strategy(
+            strategy_name=f"{symbols[0]} Bollinger Mean Reversion",
+            strategy_type="bollinger_mean_reversion",
+            universe=[symbols[0]],
+            rebalance_frequency=rebalance_frequency or "daily",
+            rules=[StrategyRule(lookback_days=lookback, num_std=2.0)],
+            position_sizing=PositionSizing(method="equal_weight", max_positions=1),
+        )
+    elif strategy_type == "pairs_trading":
+        lookback = _find_first_number(r"(\d+)[-\s]?day", lowered) or 60
+        pair_symbols = symbols[:2]
+        strategy = _base_strategy(
+            strategy_name="Pairs Trading",
+            strategy_type="pairs_trading",
+            universe=pair_symbols if len(pair_symbols) >= 2 else pair_symbols + ["SPY"],
+            rebalance_frequency=rebalance_frequency or "daily",
+            rules=[StrategyRule(
+                lookback_days=lookback,
+                zscore_entry=2.0,
+                zscore_exit=0.5,
+                zscore_stop=3.0,
+                hedge_ratio=1.0,
+            )],
+            position_sizing=PositionSizing(method="equal_weight"),
+        )
+    elif strategy_type == "value_composite":
+        top_n = _find_first_number(r"top\s+(\d+)", lowered)
+        strategy = _base_strategy(
+            strategy_name="Value Composite",
+            strategy_type="value_composite",
+            universe=symbols,
+            rebalance_frequency=rebalance_frequency or "monthly",
+            rules=[StrategyRule(top_n=top_n, top_pct=None if top_n else 0.1)],
+            position_sizing=PositionSizing(method="equal_weight"),
+        )
+    elif strategy_type == "quality_piotroski":
+        top_n = _find_first_number(r"top\s+(\d+)", lowered)
+        strategy = _base_strategy(
+            strategy_name="Quality Piotroski F-Score",
+            strategy_type="quality_piotroski",
+            universe=symbols,
+            rebalance_frequency=rebalance_frequency or "monthly",
+            rules=[StrategyRule(top_n=top_n, top_pct=None if top_n else 0.3)],
+            position_sizing=PositionSizing(method="equal_weight"),
+        )
+    elif strategy_type == "buyback_yield":
+        top_n = _find_first_number(r"top\s+(\d+)", lowered)
+        strategy = _base_strategy(
+            strategy_name="Buyback Yield",
+            strategy_type="buyback_yield",
+            universe=symbols,
+            rebalance_frequency=rebalance_frequency or "monthly",
+            rules=[StrategyRule(top_n=top_n, top_pct=None if top_n else 0.1)],
+            position_sizing=PositionSizing(method="equal_weight"),
+        )
+    elif strategy_type == "pead_drift":
+        holding = _find_first_number(r"(\d+)[-\s]?day", lowered) or 60
+        strategy = _base_strategy(
+            strategy_name="Post-Earnings Announcement Drift (PEAD)",
+            strategy_type="pead_drift",
+            universe=symbols,
+            rebalance_frequency=rebalance_frequency or "weekly",
+            rules=[StrategyRule(holding_window_days=holding, top_pct=0.1)],
+            position_sizing=PositionSizing(method="equal_weight"),
+        )
+    elif strategy_type == "earnings_revision":
+        top_n = _find_first_number(r"top\s+(\d+)", lowered)
+        strategy = _base_strategy(
+            strategy_name="Earnings Revision Momentum",
+            strategy_type="earnings_revision",
+            universe=symbols,
+            rebalance_frequency=rebalance_frequency or "monthly",
+            rules=[StrategyRule(top_n=top_n, top_pct=None if top_n else 0.1)],
+            position_sizing=PositionSizing(method="equal_weight"),
+        )
+    elif strategy_type == "news_sentiment_momentum":
+        top_n = _find_first_number(r"top\s+(\d+)", lowered)
+        strategy = _base_strategy(
+            strategy_name="News Sentiment Momentum",
+            strategy_type="news_sentiment_momentum",
+            universe=symbols,
+            rebalance_frequency=rebalance_frequency or "monthly",
+            rules=[StrategyRule(top_n=top_n, top_pct=None if top_n else 0.1)],
+            position_sizing=PositionSizing(method="equal_weight"),
+        )
+    elif strategy_type == "insider_buying":
+        top_n = _find_first_number(r"top\s+(\d+)", lowered) or 20
+        strategy = _base_strategy(
+            strategy_name="Insider Buying Cluster",
+            strategy_type="insider_buying",
+            universe=symbols,
+            rebalance_frequency=rebalance_frequency or "weekly",
+            rules=[StrategyRule(top_n=top_n)],
+            position_sizing=PositionSizing(method="equal_weight", max_positions=top_n),
+        )
+    elif strategy_type == "multi_factor_composite":
+        top_n = _find_first_number(r"top\s+(\d+)", lowered)
+        strategy = _base_strategy(
+            strategy_name="Multi-Factor Composite",
+            strategy_type="multi_factor_composite",
+            universe=symbols,
+            rebalance_frequency=rebalance_frequency or "monthly",
+            rules=[StrategyRule(
+                factor_weights={
+                    "value_composite": 0.25,
+                    "momentum_12_1": 0.25,
+                    "quality_f_score": 0.25,
+                    "low_volatility": 0.25,
+                },
+                top_n=top_n,
+                top_pct=None if top_n else 0.1,
+            )],
+            position_sizing=PositionSizing(method="equal_weight"),
+        )
     else:
         weights = _extract_static_weights(text, symbols)
         if not weights:
@@ -601,7 +909,13 @@ def parse_strategy_message_fallback(
             validation_status="needs_clarification",
             missing_fields=["strategy_type", "rules"],
             clarification_questions=[
-                "Which strategy type should I use: moving average filter, MA crossover, momentum rotation, RSI mean reversion, breakout, or static allocation?"
+                "Which strategy type should I use? Common options: "
+                "moving average filter, MA crossover, momentum rotation, RSI mean reversion, breakout, "
+                "static allocation, low volatility, sector rotation, time-series momentum, "
+                "cross-sectional momentum, short-term reversal, dual momentum, Bollinger mean reversion, "
+                "pairs trading, value composite, quality Piotroski, buyback yield, "
+                "PEAD drift, earnings revision, news sentiment momentum, insider buying, "
+                "or multi-factor composite."
             ],
             clarification_state=ClarificationState.needs_parameters,
         )
@@ -650,7 +964,12 @@ def parse_strategy_markdown_fallback(
     if not strategy_type:
         missing_fields.append("strategy_type")
         clarification_questions.append(
-            "Which supported strategy family does this memo map to: moving average filter, crossover, momentum rotation, RSI mean reversion, breakout, or static allocation?"
+            "Which supported strategy family does this memo map to? "
+            "e.g. moving average filter, crossover, momentum rotation, RSI mean reversion, breakout, "
+            "static allocation, low volatility, sector rotation, cross-sectional/time-series momentum, "
+            "short-term reversal, dual momentum, Bollinger mean reversion, pairs trading, "
+            "value composite, quality Piotroski, buyback yield, PEAD drift, earnings revision, "
+            "news sentiment momentum, insider buying, or multi-factor composite."
         )
 
     if missing_fields:
