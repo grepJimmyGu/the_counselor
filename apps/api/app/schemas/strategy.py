@@ -70,6 +70,7 @@ class StrategyRule(BaseModel):
         "price", "return", "vol", "sentiment_score", "f_score",
         "buyback_yield", "value_composite", "quality_composite",
         "earnings_surprise", "estimate_revision", "insider_net_buy",
+        "safe_asset",   # dual_momentum: marks a rule as the cash-substitute allocation
     ]] = None
     rank_direction: Optional[Literal["top", "bottom"]] = None
     zscore_entry: Optional[float] = None
