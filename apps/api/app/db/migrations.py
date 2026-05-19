@@ -4,9 +4,107 @@ from sqlalchemy import text
 from sqlalchemy.engine import Engine
 
 
+def _col_exists(conn, table: str, col: str) -> bool:
+    """Check column existence via information_schema (Postgres) or PRAGMA (SQLite)."""
+    row = conn.execute(
+        text("SELECT 1 FROM information_schema.columns WHERE table_name=:t AND column_name=:c"),
+        {"t": table, "c": col},
+    ).fetchone()
+    return row is not None
+
+
+def _run_stage1_isolated_ddl(engine: Engine, is_sqlite: bool) -> None:
+    """Stage 1 risky DDL — each statement gets its own transaction.
+
+    In Postgres, a failed ALTER TABLE inside a transaction puts the entire
+    transaction into ABORTED state, causing every subsequent SQL to fail with
+    InFailedSqlTransaction. By using a fresh engine.begin() per statement we
+    isolate failures so one no-op (e.g., column already renamed) never poisons
+    the startup migration.
+    """
+    # ── 1. Rename provider → oauth_provider, provider_user_id → oauth_subject ──
+    for old_col, new_col in [
+        ("provider", "oauth_provider"),
+        ("provider_user_id", "oauth_subject"),
+    ]:
+        if is_sqlite:
+            # SQLite doesn't abort the whole transaction on DDL failure, try/except is safe
+            try:
+                with engine.begin() as c:
+                    c.execute(text(f"ALTER TABLE users RENAME COLUMN {old_col} TO {new_col}"))
+            except Exception:
+                pass
+        else:
+            # Postgres: check existence before renaming to avoid any exception at all
+            with engine.begin() as c:
+                if _col_exists(c, "users", old_col):
+                    c.execute(text(f"ALTER TABLE users RENAME COLUMN {old_col} TO {new_col}"))
+
+    # ── 2. Add new columns to users table ──────────────────────────────────────
+    users_new_cols = [
+        ("handle",            "VARCHAR(32)"),
+        ("locale",            "VARCHAR(8) DEFAULT 'en'"),
+        ("email_verified_at", "TIMESTAMP"),
+        ("password_hash",     "VARCHAR(255)"),
+        ("last_login_at",     "TIMESTAMP"),
+    ]
+    for col_name, col_type in users_new_cols:
+        try:
+            with engine.begin() as c:
+                if is_sqlite:
+                    c.execute(text(f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"))
+                else:
+                    # Postgres 9.6+ supports IF NOT EXISTS — no exception, no abort risk
+                    c.execute(text(f"ALTER TABLE users ADD COLUMN IF NOT EXISTS {col_name} {col_type}"))
+        except Exception:
+            pass  # SQLite: column already exists
+
+    # ── 3. Add nullable user_id to backtests and robustness_jobs ──────────────
+    for table in ("backtests", "robustness_jobs"):
+        try:
+            with engine.begin() as c:
+                if is_sqlite:
+                    c.execute(text(f"ALTER TABLE {table} ADD COLUMN user_id VARCHAR(36)"))
+                else:
+                    c.execute(text(f"ALTER TABLE {table} ADD COLUMN IF NOT EXISTS user_id VARCHAR(36)"))
+        except Exception:
+            pass
+
+    # ── 4. Fix community tables: user_id UUID → TEXT (Postgres only) ───────────
+    # Community tables were created with user_id UUID REFERENCES users(id).
+    # The frontend passes string user identifiers (including Google numeric IDs)
+    # that are not valid UUIDs, causing INSERT/SELECT failures.
+    # We drop the FK constraint and widen the column to TEXT.
+    if not is_sqlite:
+        community_tables = [
+            "user_watchlists",
+            "user_votes",
+            "strategy_upvotes",
+            "strategy_comments",
+            "stock_theses",
+        ]
+        for tbl in community_tables:
+            # Drop FK constraint (Postgres auto-names it {table}_user_id_fkey)
+            try:
+                with engine.begin() as c:
+                    c.execute(text(f"ALTER TABLE {tbl} DROP CONSTRAINT IF EXISTS {tbl}_user_id_fkey"))
+            except Exception:
+                pass
+            # Widen column from UUID to TEXT (USING casts existing UUID values to their text representation)
+            try:
+                with engine.begin() as c:
+                    c.execute(text(f"ALTER TABLE {tbl} ALTER COLUMN user_id TYPE TEXT USING user_id::text"))
+            except Exception:
+                pass  # Already TEXT or table doesn't exist
+
+
 def run_startup_migrations(engine: Engine) -> None:
     """Idempotent DDL for columns added after initial deploy. Safe to run every startup."""
     is_sqlite = engine.dialect.name == "sqlite"
+
+    # Stage 1 risky DDL runs BEFORE the main transaction block using isolated connections.
+    # This prevents Postgres transaction-abort pollution from try/except DDL failures.
+    _run_stage1_isolated_ddl(engine, is_sqlite)
 
     # New columns for the symbols table (already exists in production)
     new_columns = [
@@ -876,48 +974,19 @@ def run_startup_migrations(engine: Engine) -> None:
         """))
 
         # ── Stage 1: Identity + Entitlements ─────────────────────────────────
-        # Option A: rename existing provider/provider_user_id → oauth_provider/oauth_subject.
-        # All operations are idempotent (try/except on every ALTER).
+        # Risky DDL (RENAME/ADD COLUMN) was moved to _run_stage1_isolated_ddl()
+        # which runs BEFORE this block using per-statement transactions.
+        # Only safe CREATE TABLE IF NOT EXISTS and seed operations remain here.
 
-        # 1. Rename columns (both SQLite 3.25+ and Postgres support RENAME COLUMN)
-        for old_col, new_col in [
-            ("provider", "oauth_provider"),
-            ("provider_user_id", "oauth_subject"),
-        ]:
-            try:
-                conn.execute(text(
-                    f"ALTER TABLE users RENAME COLUMN {old_col} TO {new_col}"
-                ))
-            except Exception:
-                pass  # already renamed or column doesn't exist
-
-        # 2. Add new columns to users table
-        users_new_cols = [
-            ("handle",            "VARCHAR(32)"),
-            ("locale",            "VARCHAR(8) DEFAULT 'en'"),
-            ("email_verified_at", "TIMESTAMP"),
-            ("password_hash",     "VARCHAR(255)"),
-            ("last_login_at",     "TIMESTAMP"),
-        ]
-        for col_name, col_type in users_new_cols:
-            try:
-                conn.execute(text(
-                    f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"
-                ))
-            except Exception:
-                pass  # already exists
-
-        # 3. Unique index on handle (case-insensitive enforcement done in app layer)
+        # Unique index on handle — safe (IF NOT EXISTS prevents abort)
         try:
             conn.execute(text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_handle ON users (handle)"
-                if not is_sqlite else
                 "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_handle ON users (handle)"
             ))
         except Exception:
             pass
 
-        # 4. plans table
+        # plans table
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS plans (
                 user_id VARCHAR(36) PRIMARY KEY,
@@ -955,12 +1024,8 @@ def run_startup_migrations(engine: Engine) -> None:
         except Exception:
             pass
 
-        # 6. Add nullable user_id FK to backtests and robustness_jobs
+        # Index on user_id for backtests and robustness_jobs (safe with IF NOT EXISTS)
         for table in ("backtests", "robustness_jobs"):
-            try:
-                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN user_id VARCHAR(36)"))
-            except Exception:
-                pass
             try:
                 conn.execute(text(
                     f"CREATE INDEX IF NOT EXISTS ix_{table}_user_id ON {table} (user_id)"
@@ -968,8 +1033,7 @@ def run_startup_migrations(engine: Engine) -> None:
             except Exception:
                 pass
 
-        # 7. Seed the legacy-anon synthetic user and plan (idempotent)
-        import uuid as _uuid
+        # ── Stage 1: Seed legacy-anon synthetic user and plan ─────────────────
         legacy_id = "legacy-anon-0000"
         legacy_email = "legacy@livermore.app"
         try:
