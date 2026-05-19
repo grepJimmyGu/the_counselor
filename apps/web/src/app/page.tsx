@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import {
   ArrowRight,
@@ -18,6 +19,7 @@ import { AssetSearch } from "@/components/home/asset-search";
 import { StrategyTeaser } from "@/components/home/strategy-teaser";
 import { CapabilityGlossary } from "@/components/home/capability-glossary";
 import { researchTemplates } from "@/lib/contracts";
+import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
 
 // ── Three main pillars ────────────────────────────────────────────────────────
 
@@ -89,12 +91,15 @@ const HOW_IT_WORKS = [
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function HomePage() {
+  const [builderOpen, setBuilderOpen] = useState(false);
+
   const featuredTemplates = researchTemplates
     .filter((t) => t.availability !== "unavailable")
     .slice(0, 3);
 
   return (
     <main className="min-h-screen bg-background">
+      <StrategyBuilderModal open={builderOpen} onClose={() => setBuilderOpen(false)} />
 
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section className="relative overflow-hidden border-b border-border bg-gradient-to-br from-primary/5 via-background to-background">
@@ -126,10 +131,8 @@ export default function HomePage() {
                   Community
                 </Link>
               </Button>
-              <Button asChild variant="outline" size="lg" className="rounded-xl px-6">
-                <Link href={"/templates" as Route}>
-                  Strategy Builder
-                </Link>
+              <Button variant="outline" size="lg" className="rounded-xl px-6" onClick={() => setBuilderOpen(true)}>
+                Strategy Builder
               </Button>
             </div>
             <div className="mt-8 flex flex-wrap justify-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
@@ -278,11 +281,9 @@ export default function HomePage() {
                   Community
                 </Link>
               </Button>
-              <Button asChild variant="outline" size="lg" className="rounded-xl px-6">
-                <Link href={"/templates" as Route}>
-                  <Zap className="mr-2 h-4 w-4" />
-                  Strategy Builder
-                </Link>
+              <Button variant="outline" size="lg" className="rounded-xl px-6" onClick={() => setBuilderOpen(true)}>
+                <Zap className="mr-2 h-4 w-4" />
+                Strategy Builder
               </Button>
             </div>
           </div>

@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import {
   ChevronDown, ChevronUp, AlertTriangle, Lock,
@@ -15,6 +14,7 @@ import { UniverseInput } from "@/components/universe-input";
 import { researchTemplates, type ResearchTemplate } from "@/lib/contracts";
 import { useLocale } from "@/lib/locale-context";
 import { cn } from "@/lib/utils";
+import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
 
 // ── Badge style maps ─────────────────────────────────────────────────────────
 
@@ -148,19 +148,11 @@ function CaveatSection({ caveats }: { caveats: string[] }) {
 
 // ── Template card ─────────────────────────────────────────────────────────────
 
-function TemplateCard({ template }: { template: ResearchTemplate }) {
-  const router = useRouter();
+function TemplateCard({ template, onOpen }: { template: ResearchTemplate; onOpen: (t: ResearchTemplate) => void }) {
   const { t } = useLocale();
   const [tickers, setTickers] = useState<string[]>(template.defaultTickers);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const tickerStr = tickers.join(",");
   const canAct = template.availability !== "unavailable" && tickers.length > 0;
-
-  function navigateTo(path: "load" | "build", autorun = false) {
-    const param = template.multiTicker ? `tickers=${tickerStr}` : `ticker=${tickerStr}`;
-    const ar = autorun ? "&autorun=true" : "";
-    router.push(`/workspace?templateId=${template.id}&path=${path}&${param}${ar}`);
-  }
 
   return (
     <div className={cn(
@@ -279,18 +271,10 @@ function TemplateCard({ template }: { template: ResearchTemplate }) {
 
       {/* CTA */}
       {template.availability !== "unavailable" && !template.comingSoon && (
-        <div className="space-y-2 mt-auto">
-          <Button size="sm" disabled={!canAct} onClick={() => navigateTo("load", true)} className="w-full text-sm font-semibold">
-            Try template <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+        <div className="mt-auto">
+          <Button size="sm" disabled={!canAct} onClick={() => onOpen(template)} className="w-full text-sm font-semibold">
+            Build with this template <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
           </Button>
-          <button
-            type="button"
-            disabled={!canAct}
-            onClick={() => navigateTo("build")}
-            className="w-full cursor-pointer text-center text-xs text-muted-foreground transition-colors hover:text-foreground disabled:opacity-40"
-          >
-            {t.templateCustomise}
-          </button>
         </div>
       )}
     </div>
@@ -301,6 +285,13 @@ function TemplateCard({ template }: { template: ResearchTemplate }) {
 
 export default function TemplatesPage() {
   const [activeCategory, setActiveCategory] = useState<string>("All");
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const [builderTemplate, setBuilderTemplate] = useState<ResearchTemplate | undefined>(undefined);
+
+  function handleOpenBuilder(template: ResearchTemplate) {
+    setBuilderTemplate(template);
+    setBuilderOpen(true);
+  }
 
   const phaseA = researchTemplates.filter(t => t.availability !== "unavailable" && !t.comingSoon);
   const comingSoon = researchTemplates.filter(t => t.comingSoon);
@@ -317,6 +308,11 @@ export default function TemplatesPage() {
 
   return (
     <main className="min-h-screen bg-background">
+      <StrategyBuilderModal
+        open={builderOpen}
+        onClose={() => { setBuilderOpen(false); setBuilderTemplate(undefined); }}
+        initialTemplate={builderTemplate}
+      />
       <div className="mx-auto max-w-6xl px-4 py-8 space-y-10 md:px-6">
 
         {/* Page header */}
@@ -392,7 +388,7 @@ export default function TemplatesPage() {
             <p className="text-sm text-muted-foreground py-4">No templates in this category.</p>
           ) : (
             <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              {visible.map(t => <TemplateCard key={t.id} template={t} />)}
+              {visible.map(t => <TemplateCard key={t.id} template={t} onOpen={handleOpenBuilder} />)}
             </div>
           )}
         </section>
@@ -407,7 +403,7 @@ export default function TemplatesPage() {
               </p>
             </div>
             <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              {comingSoon.map(t => <TemplateCard key={t.id} template={t} />)}
+              {comingSoon.map(t => <TemplateCard key={t.id} template={t} onOpen={handleOpenBuilder} />)}
             </div>
           </section>
         )}
@@ -420,7 +416,7 @@ export default function TemplatesPage() {
               <p className="text-xs text-muted-foreground mt-0.5">Shown for research planning.</p>
             </div>
             <div className="grid gap-5 sm:grid-cols-2">
-              {legacyUnavailable.map(t => <TemplateCard key={t.id} template={t} />)}
+              {legacyUnavailable.map(t => <TemplateCard key={t.id} template={t} onOpen={handleOpenBuilder} />)}
             </div>
           </section>
         )}

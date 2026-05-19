@@ -72,6 +72,10 @@ export interface ResearchTemplate {
   caveats?: string[];
   /** True = Phase B/C template shown with "Coming soon" overlay. */
   comingSoon?: boolean;
+  /** Academic or practitioner citation + one-line credibility note. */
+  academicRef?: { citation: string; note: string };
+  /** Indicative historical performance context shown in the Strategy Brief card. */
+  perfContext?: { returnRange: string; sharpeRange: string; worstStretch: string };
 }
 
 export interface StrategyRule {
@@ -632,6 +636,8 @@ export const researchTemplates: ResearchTemplate[] = [
     },
     chatSeed:
       "I want to build a trend following strategy for {ticker}. Tell me your rules — breakout window, exit window, or stop type.",
+    academicRef: { citation: "Donchian (1970s) · Covel — Trend Following (2004) · Hurst, Ooi & Pedersen (2017)", note: "Price trend-following is one of the oldest systematic strategies — documented in live CTA fund returns for 50+ years across asset classes." },
+    perfContext: { returnRange: "+3% to +12% annual (varies widely by asset and lookback)", sharpeRange: "Sharpe ~0.5 – 1.0", worstStretch: "−20% to −35% in choppy, mean-reverting markets" },
   },
   {
     id: "cross-sectional-momentum",
@@ -665,6 +671,8 @@ export const researchTemplates: ResearchTemplate[] = [
     },
     chatSeed:
       "I want to build a cross-sectional momentum strategy. My universe is {tickers}. Tell me: how many top performers to hold, and what lookback period to rank by.",
+    academicRef: { citation: "Jegadeesh & Titman (1993, JF) · Carhart (1997) · AQR Capital Research", note: "Cross-sectional momentum is one of the most replicated anomalies in finance — documented across equities, bonds, commodities, and currencies." },
+    perfContext: { returnRange: "+4% to +12% annual alpha over benchmark", sharpeRange: "Sharpe ~0.8 – 1.3", worstStretch: "−25% to −40% in momentum crashes (2009, 2020)" },
   },
   {
     id: "etf-rotation",
@@ -697,6 +705,8 @@ export const researchTemplates: ResearchTemplate[] = [
     },
     chatSeed:
       "I want to build an ETF rotation strategy. My benchmark is {ticker}. Tell me: which ETFs to rotate across, what lookback period to rank by, and how many to hold at once.",
+    academicRef: { citation: "Faber — GTAA (2007) · Antonacci (2012) · Blitz & Van Vliet (2008)", note: "Systematic asset class rotation using momentum has been shown to improve risk-adjusted returns vs. static allocation across multiple market cycles." },
+    perfContext: { returnRange: "+2% to +8% annual vs buy-and-hold", sharpeRange: "Sharpe ~0.6 – 1.0", worstStretch: "−20% to −35% in sharp broad-market drawdowns" },
   },
   {
     id: "value-momentum",
@@ -765,6 +775,8 @@ export const researchTemplates: ResearchTemplate[] = [
     },
     chatSeed:
       "I want to build a commodity carry strategy using ETF proxies. My universe is {tickers}. Tell me: which commodity ETFs to include and how to rank them.",
+    academicRef: { citation: "Gorton & Rouwenhorst (2006, JF) · Erb & Harvey (2006, FAJ)", note: "Commodity carry has been documented in futures roll-yield data since the 1980s. This ETF proxy approximates the concept but deviates from true futures carry." },
+    perfContext: { returnRange: "+2% to +8% annual (ETF proxy — true futures carry differs)", sharpeRange: "Sharpe ~0.5 – 1.0", worstStretch: "−25% to −45% in commodity bear markets" },
   },
   {
     id: "news-sentiment-momentum",
@@ -934,6 +946,8 @@ export const researchTemplates: ResearchTemplate[] = [
     },
     chatSeed:
       "I want to build a 12-1 cross-sectional momentum strategy. My universe is {tickers}. Tell me: what lookback, whether to skip the most recent month, and how many names to hold.",
+    academicRef: { citation: "Jegadeesh & Titman (1993, JF) · Fama & French (2012) · AQR Capital (live since 1994)", note: "The 12-1 specification is the single most-replicated momentum variant — documented in 40+ markets and 200+ years of return data." },
+    perfContext: { returnRange: "+4% to +16% annual alpha over benchmark", sharpeRange: "Sharpe ~1.0 – 1.5", worstStretch: "−30% to −50% in momentum crashes (March 2009, COVID recovery 2020)" },
   },
   {
     id: "time-series-momentum",
@@ -978,6 +992,8 @@ export const researchTemplates: ResearchTemplate[] = [
     },
     chatSeed:
       "I want to build a time-series momentum strategy. My universe is {tickers}. Tell me: what lookback is optimal, and whether to scale position sizes by signal strength.",
+    academicRef: { citation: "Moskowitz, Ooi & Pedersen (2012, JFE) · AQR White Paper — TSMOM", note: "Time-series momentum has been documented across 58 liquid futures markets over 25 years — and provides a natural bear-market hedge by moving to cash during downtrends." },
+    perfContext: { returnRange: "+3% to +10% annual alpha, with lower drawdowns than equity buy-and-hold", sharpeRange: "Sharpe ~0.7 – 1.3", worstStretch: "−15% to −25% in rapid trend-reversal environments" },
   },
   {
     id: "short-term-reversal",
@@ -1022,6 +1038,8 @@ export const researchTemplates: ResearchTemplate[] = [
     },
     chatSeed:
       "I want to build a short-term reversal strategy. My universe is {tickers}. Tell me: what reversal lookback and how to handle the transaction cost drag.",
+    academicRef: { citation: "Jegadeesh (1990, JF) · Lehmann (1990, JF) · Lo & MacKinlay (1990)", note: "Short-term reversal is well-documented in academic literature but profitable mainly at institutional scale — retail transaction costs typically erode most of the alpha." },
+    perfContext: { returnRange: "+2% to +8% gross (near-zero after typical retail costs)", sharpeRange: "Sharpe ~0.5 – 1.0 before costs", worstStretch: "−10% to −20%; cost drag creates persistent headwind" },
   },
   {
     id: "pairs-trading-long-only",
@@ -1066,6 +1084,8 @@ export const researchTemplates: ResearchTemplate[] = [
     },
     chatSeed:
       "I want to build a long-only pairs trading strategy between {tickers}. Tell me: what z-score to use for entry and exit, and how to set the stop-loss.",
+    academicRef: { citation: "Gatev, Goetzmann & Rouwenhorst (2006, RFS) · Vidyamurthy (2004) — Pairs Trading", note: "Pairs trading has been practiced by quantitative desks since the 1980s. Academic evidence is solid for the full long-short variant; long-only captures half the opportunity." },
+    perfContext: { returnRange: "+2% to +8% annual (long-only variant)", sharpeRange: "Sharpe ~0.5 – 1.0", worstStretch: "−15% to −25% if spread diverges instead of reverting" },
   },
   {
     id: "sector-rotation-spdr",
@@ -1110,6 +1130,8 @@ export const researchTemplates: ResearchTemplate[] = [
     },
     chatSeed:
       "I want to build a sector rotation strategy using {tickers}. Tell me: what lookback period works best and how many sectors to hold simultaneously.",
+    academicRef: { citation: "Moskowitz & Grinblatt (1999, JF) · Faber (2007) · Blitz & Van Vliet (2008)", note: "Sector momentum is well-documented — industry-level price momentum is a significant driver of individual stock momentum returns." },
+    perfContext: { returnRange: "+2% to +8% annual alpha vs SPY", sharpeRange: "Sharpe ~0.6 – 1.1", worstStretch: "−25% to −40% in broad market crashes (sector rotation does not hedge market beta)" },
   },
   {
     id: "dual-momentum",
@@ -1154,6 +1176,8 @@ export const researchTemplates: ResearchTemplate[] = [
     },
     chatSeed:
       "I want to build a dual momentum strategy across {tickers}. Tell me: how to incorporate an absolute momentum filter against a cash return proxy.",
+    academicRef: { citation: "Antonacci — Dual Momentum Investing (2014) · Faber — GTAA (2007)", note: "The dual-filter approach (absolute + relative momentum) has demonstrated significantly lower drawdowns than buy-and-hold with comparable long-run returns across live strategy data." },
+    perfContext: { returnRange: "+2% to +7% annual vs buy-and-hold with materially lower drawdowns", sharpeRange: "Sharpe ~0.8 – 1.3", worstStretch: "−10% to −20% (vs −50%+ for buy-and-hold in 2008)" },
   },
   {
     id: "low-volatility",
@@ -1198,6 +1222,8 @@ export const researchTemplates: ResearchTemplate[] = [
     },
     chatSeed:
       "I want to build a low volatility strategy. My universe is {tickers}. Tell me: what vol lookback to use and whether to add a minimum-variance optimiser.",
+    academicRef: { citation: "Baker, Bradley & Wurgler (2011, FAJ) · Frazzini & Pedersen (2014, JFE) — Betting Against Beta", note: "The low-volatility anomaly is one of the most persistent puzzles in finance — lower-risk stocks earn higher risk-adjusted returns, contradicting CAPM predictions." },
+    perfContext: { returnRange: "+2% to +8% annual risk-adjusted alpha", sharpeRange: "Sharpe ~0.8 – 1.5 (superior Sharpe is the core claim)", worstStretch: "−20% to −35% in sharp drawdowns (still lower than equal-weight market)" },
   },
   {
     id: "bollinger-mean-reversion",
@@ -1241,6 +1267,8 @@ export const researchTemplates: ResearchTemplate[] = [
     },
     chatSeed:
       "I want to build a Bollinger Band mean-reversion strategy on {ticker}. Tell me: what window and standard-deviation threshold to use.",
+    academicRef: { citation: "Bollinger — Bollinger on Bollinger Bands (2002) · Connors & Alvarez (2009) — Short-Term Strategies", note: "Bollinger Band mean reversion is a widely used practitioner technique. Academic evidence is mixed — results are highly parameter-sensitive and regime-dependent." },
+    perfContext: { returnRange: "+2% to +10% annual (highly sensitive to asset and parameters)", sharpeRange: "Sharpe ~0.5 – 1.2", worstStretch: "−20% to −40% in sustained trending markets where price walks along the band" },
   },
 
   // ── Phase B / C — Coming soon ─────────────────────────────────────────────
