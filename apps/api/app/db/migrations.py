@@ -972,9 +972,13 @@ def run_startup_migrations(engine: Engine) -> None:
         import uuid as _uuid
         legacy_id = "legacy-anon-0000"
         legacy_email = "legacy@livermore.app"
-        legacy_exists = conn.execute(
-            text("SELECT 1 FROM users WHERE id = :id"), {"id": legacy_id}
-        ).fetchone()
+        try:
+            legacy_exists = conn.execute(
+                text("SELECT 1 FROM users WHERE id = :id"), {"id": legacy_id}
+            ).fetchone()
+        except Exception:
+            # legacy_id is not a valid UUID and cannot exist in the UUID-typed users.id column
+            legacy_exists = None
         if not legacy_exists:
             conn.execute(text(
                 "INSERT INTO users (id, email, locale, oauth_provider, created_at, updated_at)"
