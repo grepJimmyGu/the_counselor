@@ -47,7 +47,7 @@ function UserMenu() {
         variant="outline"
         size="sm"
         className="gap-1.5 text-xs min-h-[36px] touch-manipulation"
-        onClick={() => signIn("google")}
+        onClick={() => signIn()}
       >
         <LogIn className="h-3.5 w-3.5" />
         Sign in
@@ -85,9 +85,9 @@ function UserMenu() {
         </div>
         <DropdownMenuSeparator />
         <DropdownMenuItem asChild>
-          <Link href={"/profile" as Route} className="cursor-pointer min-h-[44px]">
+          <Link href={"/account" as Route} className="cursor-pointer min-h-[44px]">
             <User className="mr-2 h-3.5 w-3.5" />
-            Profile
+            Account
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />

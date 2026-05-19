@@ -19,6 +19,7 @@ from app.api.routes.uiux import router as uiux_router
 from app.api.routes.admin import router as admin_router
 from app.api.routes.commodities import router as commodities_router
 from app.api.routes.auth import router as auth_router
+from app.api.routes.me import router as me_router
 from app.api.routes.community import router as community_router
 from app.api.routes.sentiment import router as sentiment_router
 from app.api.routes.strategy_storage import router as strategy_storage_router
@@ -26,7 +27,7 @@ from app.api.routes.strategy import router as strategy_router
 from app.core.config import get_settings
 from app.db.migrations import run_startup_migrations
 from app.db.session import Base, engine
-from app.models import BacktestRecord, DataFetchLog, PriceBar, SymbolCache  # noqa: F401
+from app.models import BacktestRecord, DataFetchLog, PriceBar, SymbolCache, User, Plan, MonthlyUsage  # noqa: F401
 
 
 async def _warmup_market_etfs() -> None:
@@ -232,10 +233,36 @@ async def _invalidate_stale_bi_caches() -> None:
 
 
 
+def _start_scheduler() -> None:
+    """Daily GC: purge monthly_usage rows older than 13 months."""
+    try:
+        from apscheduler.schedulers.background import BackgroundScheduler
+        from datetime import timedelta
+        from app.db.session import SessionLocal
+        from app.models.user import MonthlyUsage as _MU
+        import datetime as _dt
+
+        def _cleanup_old_usage() -> None:
+            cutoff = _dt.date.today() - timedelta(days=400)
+            db = SessionLocal()
+            try:
+                db.query(_MU).filter(_MU.period_start < cutoff).delete()
+                db.commit()
+            finally:
+                db.close()
+
+        scheduler = BackgroundScheduler()
+        scheduler.add_job(_cleanup_old_usage, "cron", hour=4, minute=0)
+        scheduler.start()
+    except Exception as exc:
+        logger.warning("APScheduler failed to start: %s", exc)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)  # creates all tables first
     run_startup_migrations(engine)          # then backfill/alter existing tables
+    _start_scheduler()
     # Ensure all Market Pulse ETF price bars are loaded (non-blocking)
     asyncio.create_task(_warmup_market_etfs())
     # Fetch actual commodity spot prices (WTI $/bbl, gold $/oz, copper $/lb, wheat ¢/bu)
@@ -271,6 +298,7 @@ app.include_router(qa_router)
 app.include_router(uiux_router)
 app.include_router(strategy_storage_router)
 app.include_router(auth_router)
+app.include_router(me_router)
 app.include_router(community_router)
 app.include_router(sentiment_router)
 

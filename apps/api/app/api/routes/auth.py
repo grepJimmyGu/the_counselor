@@ -3,39 +3,189 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException
-from pydantic import BaseModel
-from sqlalchemy import text
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
-from app.core.config import get_settings
 from app.db.session import get_db
+from app.models.user import User, Plan
+from app.schemas.identity import (
+    LoginRequest,
+    OAuthGoogleRequest,
+    PatchMeRequest,
+    SignupRequest,
+    TokenResponse,
+    UserPublic,
+)
+from app.services.auth_service import (
+    create_session_token,
+    hash_password,
+    new_user_id,
+    validate_handle,
+    verify_google_id_token,
+    verify_password_safe,
+)
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
 
-# ── Internal key dependency ───────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────────────
 
-def verify_internal_key(x_internal_key: Optional[str] = Header(default=None)) -> None:
-    """
-    All /api/auth/* endpoints are only callable from the Next.js BFF.
-    Requires X-Internal-Key == INTERNAL_API_KEY env var.
-    INTERNAL_API_KEY must be set — there is no dev bypass.
-    """
-    settings = get_settings()
-    required = settings.internal_api_key
-    if not required:
-        raise HTTPException(
-            status_code=503,
-            detail="INTERNAL_API_KEY is not configured on this server.",
-        )
-    if x_internal_key != required:
-        raise HTTPException(status_code=401, detail="Invalid internal key.")
+def _make_token_response(user: User) -> TokenResponse:
+    token = create_session_token(user.id, user.plan.tier)
+    pub = UserPublic(
+        id=user.id,
+        handle=user.handle,
+        display_name=user.display_name,
+        avatar_url=user.avatar_url,
+        locale=user.locale,
+    )
+    return TokenResponse(user=pub, session_token=token)
 
 
-# ── Schemas ───────────────────────────────────────────────────────────────────
+def _get_user_by_email(db: Session, email: str) -> Optional[User]:
+    return db.query(User).filter(User.email == email.lower()).first()
 
-class SyncUserRequest(BaseModel):
+
+def _create_user_with_plan(
+    db: Session,
+    *,
+    email: str,
+    password_hash: Optional[str] = None,
+    display_name: Optional[str] = None,
+    locale: str = "en",
+    oauth_provider: Optional[str] = None,
+    oauth_subject: Optional[str] = None,
+    avatar_url: Optional[str] = None,
+    email_verified_at: Optional[datetime] = None,
+) -> User:
+    user = User(
+        id=new_user_id(),
+        email=email.lower(),
+        password_hash=password_hash,
+        display_name=display_name,
+        locale=locale,
+        oauth_provider=oauth_provider,
+        oauth_subject=oauth_subject,
+        avatar_url=avatar_url,
+        email_verified_at=email_verified_at,
+    )
+    plan = Plan(user_id=user.id, tier="scout", status="active")
+    db.add(user)
+    db.add(plan)
+    db.commit()
+    db.refresh(user)
+    return user
+
+
+# ── Password signup / login ───────────────────────────────────────────────────
+
+@router.post("/password/signup", status_code=201)
+def password_signup(body: SignupRequest, db: Session = Depends(get_db)) -> TokenResponse:
+    existing = _get_user_by_email(db, body.email)
+    if existing:
+        raise HTTPException(status_code=409, detail="An account with this email already exists.")
+    hashed = hash_password(body.password)
+    user = _create_user_with_plan(
+        db,
+        email=body.email,
+        password_hash=hashed,
+        display_name=body.display_name,
+        locale=body.locale,
+    )
+    return _make_token_response(user)
+
+
+@router.post("/password/login")
+def password_login(body: LoginRequest, db: Session = Depends(get_db)) -> TokenResponse:
+    existing = _get_user_by_email(db, body.email)
+    # Always run bcrypt to normalise timing even if user doesn't exist
+    stored_hash = existing.password_hash if existing else None
+    if not verify_password_safe(body.password, stored_hash):
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+    if existing is None:
+        raise HTTPException(status_code=401, detail="Invalid email or password.")
+    existing.last_login_at = datetime.utcnow()
+    db.commit()
+    return _make_token_response(existing)
+
+
+# ── Google OAuth callback ─────────────────────────────────────────────────────
+
+@router.post("/oauth/google/callback")
+def google_oauth_callback(
+    body: OAuthGoogleRequest, db: Session = Depends(get_db)
+) -> dict:
+    try:
+        payload = verify_google_id_token(body.id_token)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    google_sub = payload.get("sub")
+    email = payload.get("email", "").lower()
+    name = payload.get("name")
+    picture = payload.get("picture")
+    email_verified = payload.get("email_verified", False)
+
+    # Look up by oauth_subject first (most reliable)
+    user = db.query(User).filter(
+        User.oauth_provider == "google", User.oauth_subject == google_sub
+    ).first()
+
+    is_new = False
+    if user is None:
+        # Check if email already exists (may be a password account)
+        existing_by_email = _get_user_by_email(db, email)
+        if existing_by_email and existing_by_email.password_hash is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "An account with this email already exists. "
+                    "Sign in with your password instead."
+                ),
+            )
+        if existing_by_email:
+            # Existing Google-only user whose oauth_subject wasn't set yet — update
+            existing_by_email.oauth_provider = "google"
+            existing_by_email.oauth_subject = google_sub
+            existing_by_email.last_login_at = datetime.utcnow()
+            db.commit()
+            user = existing_by_email
+        else:
+            user = _create_user_with_plan(
+                db,
+                email=email,
+                oauth_provider="google",
+                oauth_subject=google_sub,
+                display_name=name,
+                avatar_url=picture,
+                email_verified_at=datetime.utcnow() if email_verified else None,
+            )
+            is_new = True
+    else:
+        # Update profile fields from Google on each login
+        user.display_name = user.display_name or name
+        user.avatar_url = user.avatar_url or picture
+        user.last_login_at = datetime.utcnow()
+        db.commit()
+
+    token = create_session_token(user.id, user.plan.tier)
+    pub = UserPublic(
+        id=user.id,
+        handle=user.handle,
+        display_name=user.display_name,
+        avatar_url=user.avatar_url,
+        locale=user.locale,
+    )
+    return {"user": pub.model_dump(), "session_token": token, "is_new": is_new}
+
+
+# ── Legacy sync-user endpoint (NextAuth Google OAuth — kept for backward compat) ──
+
+from fastapi import Header  # noqa: E402
+from pydantic import BaseModel  # noqa: E402
+
+
+class _SyncUserRequest(BaseModel):
     email: str
     display_name: Optional[str] = None
     avatar_url: Optional[str] = None
@@ -43,107 +193,81 @@ class SyncUserRequest(BaseModel):
     provider_user_id: str
 
 
-class UserResponse(BaseModel):
+class _UserResponse(BaseModel):
     id: str
     email: str
     display_name: Optional[str]
     avatar_url: Optional[str]
-    provider: str
     created_at: datetime
 
 
-# ── Routes ────────────────────────────────────────────────────────────────────
+def _verify_internal_key(x_internal_key: Optional[str] = Header(default=None)) -> None:
+    from app.core.config import get_settings
+    settings = get_settings()
+    required = settings.internal_api_key
+    if not required:
+        raise HTTPException(status_code=503, detail="INTERNAL_API_KEY not configured.")
+    if x_internal_key != required:
+        raise HTTPException(status_code=401, detail="Invalid internal key.")
 
-@router.post("/sync-user", response_model=UserResponse, dependencies=[Depends(verify_internal_key)])
-def sync_user(body: SyncUserRequest, db: Session = Depends(get_db)) -> UserResponse:
-    """
-    Upsert a user on OAuth sign-in. Called server-side from Next.js auth.ts.
-    Creates the user on first sign-in; updates display_name and avatar on subsequent logins.
-    """
+
+@router.post("/sync-user", response_model=_UserResponse, dependencies=[Depends(_verify_internal_key)])
+def sync_user(body: _SyncUserRequest, db: Session = Depends(get_db)) -> _UserResponse:
+    """Upsert a user on OAuth sign-in from Next.js server-side auth."""
     now = datetime.utcnow()
-    row = db.execute(
-        text("SELECT id, email, display_name, avatar_url, provider, created_at FROM users WHERE email = :email"),
-        {"email": body.email},
-    ).fetchone()
+    user = db.query(User).filter(
+        User.oauth_provider == body.provider,
+        User.oauth_subject == body.provider_user_id,
+    ).first()
 
-    if row:
-        # Only update if provider + provider_user_id match — prevents overwrite via forged requests
-        db.execute(
-            text(
-                "UPDATE users SET display_name = :dn, avatar_url = :av, updated_at = :now"
-                " WHERE email = :email AND provider = :provider AND provider_user_id = :puid"
-            ),
-            {
-                "dn": body.display_name,
-                "av": body.avatar_url,
-                "now": now,
-                "email": body.email,
-                "provider": body.provider,
-                "puid": body.provider_user_id,
-            },
-        )
+    if user is None:
+        user = _get_user_by_email(db, body.email)
+
+    if user:
+        user.display_name = body.display_name or user.display_name
+        user.avatar_url = body.avatar_url or user.avatar_url
+        user.last_login_at = now
+        if not user.oauth_subject:
+            user.oauth_provider = body.provider
+            user.oauth_subject = body.provider_user_id
         db.commit()
-        r = row._mapping  # type: ignore[attr-defined]
-        return UserResponse(
-            id=str(r["id"]),
-            email=r["email"],
-            display_name=r["display_name"],
-            avatar_url=r["avatar_url"],
-            provider=r["provider"],
-            created_at=r["created_at"],
+    else:
+        user = _create_user_with_plan(
+            db,
+            email=body.email,
+            display_name=body.display_name,
+            avatar_url=body.avatar_url,
+            oauth_provider=body.provider,
+            oauth_subject=body.provider_user_id,
+            email_verified_at=now,
         )
 
-    # New user — insert
-    db.execute(
-        text(
-            "INSERT INTO users (email, display_name, avatar_url, provider, provider_user_id)"
-            " VALUES (:email, :dn, :av, :provider, :puid)"
-        ),
-        {
-            "email": body.email,
-            "dn": body.display_name,
-            "av": body.avatar_url,
-            "provider": body.provider,
-            "puid": body.provider_user_id,
-        },
-    )
-    db.commit()
-    row = db.execute(
-        text("SELECT id, email, display_name, avatar_url, provider, created_at FROM users WHERE email = :email"),
-        {"email": body.email},
-    ).fetchone()
-    r = row._mapping  # type: ignore[attr-defined]
-    return UserResponse(
-        id=str(r["id"]),
-        email=r["email"],
-        display_name=r["display_name"],
-        avatar_url=r["avatar_url"],
-        provider=r["provider"],
-        created_at=r["created_at"],
+    return _UserResponse(
+        id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        avatar_url=user.avatar_url,
+        created_at=user.created_at,
     )
 
 
-@router.get("/me", dependencies=[Depends(verify_internal_key)])
-def get_me(provider_user_id: str, provider: str = "google", db: Session = Depends(get_db)) -> UserResponse:
-    """
-    Look up a user by provider + provider_user_id (opaque, not email).
-    Called server-side from Next.js — never exposes email as a lookup key externally.
-    """
-    row = db.execute(
-        text(
-            "SELECT id, email, display_name, avatar_url, provider, created_at FROM users"
-            " WHERE provider_user_id = :puid AND provider = :provider"
-        ),
-        {"puid": provider_user_id, "provider": provider},
-    ).fetchone()
-    if not row:
+@router.get("/me", dependencies=[Depends(_verify_internal_key)])
+def legacy_get_me(
+    provider_user_id: str,
+    provider: str = "google",
+    db: Session = Depends(get_db),
+) -> _UserResponse:
+    """Legacy lookup by provider + provider_user_id (called from Next.js)."""
+    user = db.query(User).filter(
+        User.oauth_subject == provider_user_id,
+        User.oauth_provider == provider,
+    ).first()
+    if not user:
         raise HTTPException(status_code=404, detail="User not found.")
-    r = row._mapping  # type: ignore[attr-defined]
-    return UserResponse(
-        id=str(r["id"]),
-        email=r["email"],
-        display_name=r["display_name"],
-        avatar_url=r["avatar_url"],
-        provider=r["provider"],
-        created_at=r["created_at"],
+    return _UserResponse(
+        id=user.id,
+        email=user.email,
+        display_name=user.display_name,
+        avatar_url=user.avatar_url,
+        created_at=user.created_at,
     )
