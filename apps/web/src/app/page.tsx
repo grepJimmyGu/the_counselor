@@ -18,7 +18,7 @@ import { MarketSnapshot } from "@/components/home/market-snapshot";
 import { AssetSearch } from "@/components/home/asset-search";
 import { StrategyTeaser } from "@/components/home/strategy-teaser";
 import { CapabilityGlossary } from "@/components/home/capability-glossary";
-import { researchTemplates } from "@/lib/contracts";
+import { researchTemplates, type ResearchTemplate } from "@/lib/contracts";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
 
 // ── Three main pillars ────────────────────────────────────────────────────────
@@ -92,14 +92,33 @@ const HOW_IT_WORKS = [
 
 export default function HomePage() {
   const [builderOpen, setBuilderOpen] = useState(false);
+  const [builderTemplate, setBuilderTemplate] = useState<ResearchTemplate | undefined>(undefined);
+  const [builderIdea, setBuilderIdea] = useState<string | undefined>(undefined);
 
   const featuredTemplates = researchTemplates
     .filter((t) => t.availability !== "unavailable")
     .slice(0, 3);
 
+  function openBuilder(idea?: string) {
+    setBuilderTemplate(undefined);
+    setBuilderIdea(idea);
+    setBuilderOpen(true);
+  }
+
+  function openTemplate(template: ResearchTemplate) {
+    setBuilderIdea(undefined);
+    setBuilderTemplate(template);
+    setBuilderOpen(true);
+  }
+
   return (
     <main className="min-h-screen bg-background">
-      <StrategyBuilderModal open={builderOpen} onClose={() => setBuilderOpen(false)} />
+      <StrategyBuilderModal
+        open={builderOpen}
+        onClose={() => { setBuilderOpen(false); setBuilderTemplate(undefined); setBuilderIdea(undefined); }}
+        initialTemplate={builderTemplate}
+        initialIdea={builderIdea}
+      />
 
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section className="relative overflow-hidden border-b border-border bg-gradient-to-br from-primary/5 via-background to-background">
@@ -131,7 +150,7 @@ export default function HomePage() {
                   Community
                 </Link>
               </Button>
-              <Button variant="outline" size="lg" className="rounded-xl px-6" onClick={() => setBuilderOpen(true)}>
+              <Button variant="outline" size="lg" className="rounded-xl px-6" onClick={() => openBuilder()}>
                 Strategy Builder
               </Button>
             </div>
@@ -179,11 +198,17 @@ export default function HomePage() {
                     </li>
                   ))}
                 </ul>
-                <Button asChild variant="outline" size="sm" className="mt-5">
-                  <Link href={href as Route}>
+                {label === "Strategy Builder" ? (
+                  <Button variant="outline" size="sm" className="mt-5" onClick={() => openBuilder()}>
                     {cta} <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-                  </Link>
-                </Button>
+                  </Button>
+                ) : (
+                  <Button asChild variant="outline" size="sm" className="mt-5">
+                    <Link href={href as Route}>
+                      {cta} <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                    </Link>
+                  </Button>
+                )}
               </div>
             ))}
           </div>
@@ -193,10 +218,10 @@ export default function HomePage() {
         <MarketSnapshot />
 
         {/* ── Asset Explorer ────────────────────────────────────────────── */}
-        <AssetSearch />
+        <AssetSearch onBuildStrategyPrompt={openBuilder} />
 
         {/* ── Strategy Builder Teaser ───────────────────────────────────── */}
-        <StrategyTeaser />
+        <StrategyTeaser onOpenBuilder={openBuilder} />
 
         {/* ── Capability Glossary ───────────────────────────────────────── */}
         <CapabilityGlossary />
@@ -251,12 +276,13 @@ export default function HomePage() {
                 </div>
                 <h3 className="font-heading mt-3 text-sm font-semibold">{tmpl.name}</h3>
                 <p className="mt-1.5 flex-1 text-xs leading-relaxed text-muted-foreground">{tmpl.description}</p>
-                <Link
-                  href={"/templates" as Route}
-                  className="mt-4 text-xs font-medium text-primary hover:underline"
+                <button
+                  type="button"
+                  onClick={() => openTemplate(tmpl)}
+                  className="mt-4 cursor-pointer text-left text-xs font-medium text-primary hover:underline"
                 >
                   Use this template →
-                </Link>
+                </button>
               </div>
             ))}
           </div>
