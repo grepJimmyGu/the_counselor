@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, date
 from typing import Optional, List
 
-from sqlalchemy import Uuid, String, DateTime, Date, Integer, ForeignKey, UniqueConstraint, Index
+from sqlalchemy import String, DateTime, Date, Integer, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -12,7 +12,7 @@ from app.db.session import Base
 class User(Base):
     __tablename__ = "users"
 
-    id: Mapped[str] = mapped_column(Uuid(as_uuid=False), primary_key=True)
+    id: Mapped[str] = mapped_column(String(36), primary_key=True)
     email: Mapped[str] = mapped_column(String(320), unique=True, nullable=False, index=True)
     email_verified_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -45,7 +45,7 @@ class Plan(Base):
     Stage 2 populates stripe_* fields."""
     __tablename__ = "plans"
 
-    user_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     tier: Mapped[str] = mapped_column(String(16), default="scout", nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)
     billing_cycle: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
@@ -65,7 +65,7 @@ class MonthlyUsage(Base):
     """One row per (user_id, period_start). New month → new row on first metered action."""
     __tablename__ = "monthly_usage"
 
-    user_id: Mapped[str] = mapped_column(Uuid(as_uuid=False), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    user_id: Mapped[str] = mapped_column(String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
     period_start: Mapped[date] = mapped_column(Date, primary_key=True)
     backtest_runs: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     robustness_runs: Mapped[int] = mapped_column(Integer, default=0, nullable=False)

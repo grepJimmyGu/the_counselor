@@ -70,7 +70,64 @@ def _run_stage1_isolated_ddl(engine: Engine, is_sqlite: bool) -> None:
         except Exception:
             pass
 
-    # ── 4. Fix community tables: user_id UUID → TEXT (Postgres only) ───────────
+    # ── 4. Indexes that depend on columns added above ─────────────────────────
+    # These live here (not in main conn) because IF NOT EXISTS still aborts a Postgres
+    # transaction if the referenced COLUMN is missing — even though the INDEX might not exist.
+
+    for stmt in [
+        "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_handle ON users (handle)",
+        "CREATE INDEX IF NOT EXISTS ix_plans_stripe_customer ON plans (stripe_customer_id)",
+        "CREATE INDEX IF NOT EXISTS ix_plans_stripe_sub ON plans (stripe_subscription_id)",
+        "CREATE INDEX IF NOT EXISTS ix_monthly_usage_period ON monthly_usage (period_start)",
+        "CREATE INDEX IF NOT EXISTS ix_backtests_user_id ON backtests (user_id)",
+        "CREATE INDEX IF NOT EXISTS ix_robustness_jobs_user_id ON robustness_jobs (user_id)",
+    ]:
+        try:
+            with engine.begin() as c:
+                c.execute(text(stmt))
+        except Exception:
+            pass  # index already exists or referenced table/column not yet present
+
+    # ── 5. Seed legacy-anon synthetic user and plan ────────────────────────────
+    # Runs in its own connection so a DataError (e.g., 'legacy-anon-0000' is not a
+    # valid UUID in production Postgres) cannot abort the main migration transaction.
+    # The get_current_user_or_anonymous dep has a transient fallback so this seed
+    # is non-fatal if the users.id column is UUID type (production pre-Stage-1 schema).
+    _LEGACY_ID = "legacy-anon-0000"
+    _LEGACY_EMAIL = "legacy@livermore.app"
+    try:
+        with engine.begin() as c:
+            exists = c.execute(
+                text("SELECT 1 FROM users WHERE id = :id"), {"id": _LEGACY_ID}
+            ).fetchone()
+            if not exists:
+                c.execute(
+                    text(
+                        "INSERT INTO users (id, email, locale, oauth_provider, created_at, updated_at)"
+                        " VALUES (:id, :email, 'en', NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+                    ),
+                    {"id": _LEGACY_ID, "email": _LEGACY_EMAIL},
+                )
+    except Exception:
+        pass  # non-fatal: DataError if users.id is UUID and 'legacy-anon-0000' is invalid
+
+    try:
+        with engine.begin() as c:
+            exists = c.execute(
+                text("SELECT 1 FROM plans WHERE user_id = :uid"), {"uid": _LEGACY_ID}
+            ).fetchone()
+            if not exists:
+                c.execute(
+                    text(
+                        "INSERT INTO plans (user_id, tier, status, updated_at)"
+                        " VALUES (:uid, 'scout', 'active', CURRENT_TIMESTAMP)"
+                    ),
+                    {"uid": _LEGACY_ID},
+                )
+    except Exception:
+        pass  # non-fatal
+
+    # ── 6. Fix community tables: user_id UUID → TEXT (Postgres only) ───────────
     # Community tables were created with user_id UUID REFERENCES users(id).
     # The frontend passes string user identifiers (including Google numeric IDs)
     # that are not valid UUIDs, causing INSERT/SELECT failures.
@@ -974,19 +1031,11 @@ def run_startup_migrations(engine: Engine) -> None:
         """))
 
         # ── Stage 1: Identity + Entitlements ─────────────────────────────────
-        # Risky DDL (RENAME/ADD COLUMN) was moved to _run_stage1_isolated_ddl()
-        # which runs BEFORE this block using per-statement transactions.
-        # Only safe CREATE TABLE IF NOT EXISTS and seed operations remain here.
+        # CREATE TABLE IF NOT EXISTS is always safe (never raises in Postgres).
+        # All index creates and the legacy-anon seed are in _run_stage1_isolated_ddl()
+        # which runs BEFORE this block using per-statement isolated connections.
 
-        # Unique index on handle — safe (IF NOT EXISTS prevents abort)
-        try:
-            conn.execute(text(
-                "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_handle ON users (handle)"
-            ))
-        except Exception:
-            pass
-
-        # plans table
+        # plans table — safe (CREATE TABLE IF NOT EXISTS)
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS plans (
                 user_id VARCHAR(36) PRIMARY KEY,
@@ -1001,13 +1050,8 @@ def run_startup_migrations(engine: Engine) -> None:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """))
-        try:
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_plans_stripe_customer ON plans (stripe_customer_id)"))
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_plans_stripe_sub ON plans (stripe_subscription_id)"))
-        except Exception:
-            pass
 
-        # 5. monthly_usage table
+        # monthly_usage table — safe (CREATE TABLE IF NOT EXISTS)
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS monthly_usage (
                 user_id VARCHAR(36) NOT NULL,
@@ -1019,43 +1063,6 @@ def run_startup_migrations(engine: Engine) -> None:
                 PRIMARY KEY (user_id, period_start)
             )
         """))
-        try:
-            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_monthly_usage_period ON monthly_usage (period_start)"))
-        except Exception:
-            pass
-
-        # Index on user_id for backtests and robustness_jobs (safe with IF NOT EXISTS)
-        for table in ("backtests", "robustness_jobs"):
-            try:
-                conn.execute(text(
-                    f"CREATE INDEX IF NOT EXISTS ix_{table}_user_id ON {table} (user_id)"
-                ))
-            except Exception:
-                pass
-
-        # ── Stage 1: Seed legacy-anon synthetic user and plan ─────────────────
-        legacy_id = "legacy-anon-0000"
-        legacy_email = "legacy@livermore.app"
-        try:
-            legacy_exists = conn.execute(
-                text("SELECT 1 FROM users WHERE id = :id"), {"id": legacy_id}
-            ).fetchone()
-        except Exception:
-            # legacy_id is not a valid UUID and cannot exist in the UUID-typed users.id column
-            legacy_exists = None
-        if not legacy_exists:
-            conn.execute(text(
-                "INSERT INTO users (id, email, locale, oauth_provider, created_at, updated_at)"
-                " VALUES (:id, :email, 'en', NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
-            ), {"id": legacy_id, "email": legacy_email})
-        plan_exists = conn.execute(
-            text("SELECT 1 FROM plans WHERE user_id = :uid"), {"uid": legacy_id}
-        ).fetchone()
-        if not plan_exists:
-            conn.execute(text(
-                "INSERT INTO plans (user_id, tier, status, updated_at)"
-                " VALUES (:uid, 'scout', 'active', CURRENT_TIMESTAMP)"
-            ), {"uid": legacy_id})
 
         # ── Stage 2: Billing + Trials ─────────────────────────────────────────
         # stripe_events table for webhook idempotency (handled by Base.metadata.create_all
