@@ -1,12 +1,10 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
 import { ArrowRight, WandSparkles } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
-const PROMPT_CHIPS = [
+const IDEA_STARTERS = [
   "Buy SPY when 50-day MA crosses above 200-day MA",
   "RSI mean reversion on AAPL: buy below 30, sell above 60",
   "Rotate monthly into top 2 commodities from GLD, USO, UNG, DBA",
@@ -14,16 +12,7 @@ const PROMPT_CHIPS = [
   "Equal-weight SPY, QQQ, IEF, GLD rebalanced monthly",
 ];
 
-export function StrategyTeaser() {
-  const router = useRouter();
-  const [prompt, setPrompt] = useState("");
-
-  function launch(text: string) {
-    const p = text.trim();
-    if (!p) return;
-    router.push(`/workspace?prompt=${encodeURIComponent(p)}&autorun=true`);
-  }
-
+export function StrategyTeaser({ onOpenBuilder }: { onOpenBuilder: (idea?: string) => void }) {
   return (
     <section className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/5 via-background to-background p-8">
       <div className="mx-auto max-w-2xl space-y-5 text-center">
@@ -33,37 +22,20 @@ export function StrategyTeaser() {
         </div>
         <h2 className="font-heading text-2xl font-bold">Describe Your Strategy, We Handle the Rest</h2>
         <p className="text-muted-foreground">
-          Write a trading idea in plain language. The AI parser converts it to structured strategy JSON,
-          runs a deterministic backtest, and delivers an AI-powered analysis.
+          Start from a research-backed template or describe a strategy idea in plain language.
+          The builder turns it into structured backtest settings before anything runs.
         </p>
 
-        {/* Prompt input */}
-        <div className="relative">
-          <textarea
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); launch(prompt); } }}
-            rows={3}
-            placeholder="e.g. Buy SPY when the 50-day moving average crosses above the 200-day moving average…"
-            className="w-full resize-none rounded-xl border border-border bg-white px-4 py-3 text-sm shadow-sm outline-none placeholder:text-muted-foreground focus:border-primary focus:ring-2 focus:ring-primary/20 transition-all duration-200"
-          />
-          <Button
-            onClick={() => launch(prompt)}
-            disabled={!prompt.trim()}
-            className="absolute bottom-3 right-3"
-            size="sm"
-          >
-            Analyze <ArrowRight className="ml-1 h-3.5 w-3.5" />
-          </Button>
-        </div>
+        <Button onClick={() => onOpenBuilder()} className="gap-2">
+          Open Strategy Builder <ArrowRight className="h-4 w-4" />
+        </Button>
 
-        {/* Chips */}
         <div className="flex flex-wrap justify-center gap-2">
-          {PROMPT_CHIPS.map((chip) => (
+          {IDEA_STARTERS.map((chip) => (
             <button
               key={chip}
               type="button"
-              onClick={() => launch(chip)}
+              onClick={() => onOpenBuilder(chip)}
               className={cn(
                 "cursor-pointer rounded-full border border-border bg-white px-3 py-1.5 text-xs text-muted-foreground",
                 "transition-colors duration-200 hover:border-primary/40 hover:bg-primary/5 hover:text-foreground",

@@ -874,3 +874,117 @@ def run_startup_migrations(engine: Engine) -> None:
                 error TEXT
             )
         """))
+
+        # ── Stage 1: Identity + Entitlements ─────────────────────────────────
+        # Option A: rename existing provider/provider_user_id → oauth_provider/oauth_subject.
+        # All operations are idempotent (try/except on every ALTER).
+
+        # 1. Rename columns (both SQLite 3.25+ and Postgres support RENAME COLUMN)
+        for old_col, new_col in [
+            ("provider", "oauth_provider"),
+            ("provider_user_id", "oauth_subject"),
+        ]:
+            try:
+                conn.execute(text(
+                    f"ALTER TABLE users RENAME COLUMN {old_col} TO {new_col}"
+                ))
+            except Exception:
+                pass  # already renamed or column doesn't exist
+
+        # 2. Add new columns to users table
+        users_new_cols = [
+            ("handle",            "VARCHAR(32)"),
+            ("locale",            "VARCHAR(8) DEFAULT 'en'"),
+            ("email_verified_at", "TIMESTAMP"),
+            ("password_hash",     "VARCHAR(255)"),
+            ("last_login_at",     "TIMESTAMP"),
+        ]
+        for col_name, col_type in users_new_cols:
+            try:
+                conn.execute(text(
+                    f"ALTER TABLE users ADD COLUMN {col_name} {col_type}"
+                ))
+            except Exception:
+                pass  # already exists
+
+        # 3. Unique index on handle (case-insensitive enforcement done in app layer)
+        try:
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_handle ON users (handle)"
+                if not is_sqlite else
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_handle ON users (handle)"
+            ))
+        except Exception:
+            pass
+
+        # 4. plans table
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS plans (
+                user_id VARCHAR(36) PRIMARY KEY,
+                tier VARCHAR(16) NOT NULL DEFAULT 'scout',
+                status VARCHAR(16) NOT NULL DEFAULT 'active',
+                billing_cycle VARCHAR(8),
+                stripe_customer_id VARCHAR(64),
+                stripe_subscription_id VARCHAR(64),
+                trial_end TIMESTAMP,
+                current_period_end TIMESTAMP,
+                canceled_at TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        try:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_plans_stripe_customer ON plans (stripe_customer_id)"))
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_plans_stripe_sub ON plans (stripe_subscription_id)"))
+        except Exception:
+            pass
+
+        # 5. monthly_usage table
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS monthly_usage (
+                user_id VARCHAR(36) NOT NULL,
+                period_start DATE NOT NULL,
+                backtest_runs INTEGER NOT NULL DEFAULT 0,
+                robustness_runs INTEGER NOT NULL DEFAULT 0,
+                chat_prompts INTEGER NOT NULL DEFAULT 0,
+                saved_strategies INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id, period_start)
+            )
+        """))
+        try:
+            conn.execute(text("CREATE INDEX IF NOT EXISTS ix_monthly_usage_period ON monthly_usage (period_start)"))
+        except Exception:
+            pass
+
+        # 6. Add nullable user_id FK to backtests and robustness_jobs
+        for table in ("backtests", "robustness_jobs"):
+            try:
+                conn.execute(text(f"ALTER TABLE {table} ADD COLUMN user_id VARCHAR(36)"))
+            except Exception:
+                pass
+            try:
+                conn.execute(text(
+                    f"CREATE INDEX IF NOT EXISTS ix_{table}_user_id ON {table} (user_id)"
+                ))
+            except Exception:
+                pass
+
+        # 7. Seed the legacy-anon synthetic user and plan (idempotent)
+        import uuid as _uuid
+        legacy_id = "legacy-anon-0000"
+        legacy_email = "legacy@livermore.app"
+        legacy_exists = conn.execute(
+            text("SELECT 1 FROM users WHERE id = :id"), {"id": legacy_id}
+        ).fetchone()
+        if not legacy_exists:
+            conn.execute(text(
+                "INSERT INTO users (id, email, locale, oauth_provider, created_at, updated_at)"
+                " VALUES (:id, :email, 'en', NULL, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)"
+            ), {"id": legacy_id, "email": legacy_email})
+        plan_exists = conn.execute(
+            text("SELECT 1 FROM plans WHERE user_id = :uid"), {"uid": legacy_id}
+        ).fetchone()
+        if not plan_exists:
+            conn.execute(text(
+                "INSERT INTO plans (user_id, tier, status, updated_at)"
+                " VALUES (:uid, 'scout', 'active', CURRENT_TIMESTAMP)"
+            ), {"uid": legacy_id})

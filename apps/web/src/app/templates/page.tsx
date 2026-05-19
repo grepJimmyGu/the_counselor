@@ -12,7 +12,6 @@ import { Button } from "@/components/ui/button";
 import { TickerSearch } from "@/components/workspace/ticker-search";
 import { UniverseInput } from "@/components/universe-input";
 import { researchTemplates, type ResearchTemplate } from "@/lib/contracts";
-import { useLocale } from "@/lib/locale-context";
 import { cn } from "@/lib/utils";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
 
@@ -148,8 +147,13 @@ function CaveatSection({ caveats }: { caveats: string[] }) {
 
 // ── Template card ─────────────────────────────────────────────────────────────
 
-function TemplateCard({ template, onOpen }: { template: ResearchTemplate; onOpen: (t: ResearchTemplate) => void }) {
-  const { t } = useLocale();
+function TemplateCard({
+  template,
+  onOpen,
+}: {
+  template: ResearchTemplate;
+  onOpen: (template: ResearchTemplate, tickers: string[]) => void;
+}) {
   const [tickers, setTickers] = useState<string[]>(template.defaultTickers);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const canAct = template.availability !== "unavailable" && tickers.length > 0;
@@ -272,7 +276,7 @@ function TemplateCard({ template, onOpen }: { template: ResearchTemplate; onOpen
       {/* CTA */}
       {template.availability !== "unavailable" && !template.comingSoon && (
         <div className="mt-auto">
-          <Button size="sm" disabled={!canAct} onClick={() => onOpen(template)} className="w-full text-sm font-semibold">
+          <Button size="sm" disabled={!canAct} onClick={() => onOpen(template, tickers)} className="w-full text-sm font-semibold">
             Build with this template <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
           </Button>
         </div>
@@ -287,9 +291,11 @@ export default function TemplatesPage() {
   const [activeCategory, setActiveCategory] = useState<string>("All");
   const [builderOpen, setBuilderOpen] = useState(false);
   const [builderTemplate, setBuilderTemplate] = useState<ResearchTemplate | undefined>(undefined);
+  const [builderTickers, setBuilderTickers] = useState("");
 
-  function handleOpenBuilder(template: ResearchTemplate) {
+  function handleOpenBuilder(template: ResearchTemplate, tickers: string[]) {
     setBuilderTemplate(template);
+    setBuilderTickers(tickers.join(", "));
     setBuilderOpen(true);
   }
 
@@ -310,8 +316,9 @@ export default function TemplatesPage() {
     <main className="min-h-screen bg-background">
       <StrategyBuilderModal
         open={builderOpen}
-        onClose={() => { setBuilderOpen(false); setBuilderTemplate(undefined); }}
+        onClose={() => { setBuilderOpen(false); setBuilderTemplate(undefined); setBuilderTickers(""); }}
         initialTemplate={builderTemplate}
+        initialTemplateTickers={builderTickers}
       />
       <div className="mx-auto max-w-6xl px-4 py-8 space-y-10 md:px-6">
 

@@ -17,6 +17,7 @@ import { SentimentTab } from "./_sentiment-tab";
 import { EvaluationDashboard } from "./_evaluation-dashboard";
 import { WatchlistButton } from "@/components/community/watchlist-button";
 import { VoteBar } from "@/components/community/vote-bar";
+import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -41,14 +42,24 @@ function CompanyPageInner() {
   const [data, setData] = useState<CompanyOverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [builderOpen, setBuilderOpen] = useState(false);
+  const [builderIdea, setBuilderIdea] = useState<string | undefined>(undefined);
 
   useEffect(() => {
     if (!ticker) return;
-    setLoading(true);
-    getCompanyOverview(ticker.toUpperCase())
-      .then(setData)
-      .catch((e) => setError(e.message || "Failed to load company data"))
-      .finally(() => setLoading(false));
+    let cancelled = false;
+    const loadTimer = setTimeout(() => {
+      setLoading(true);
+      setError(null);
+      getCompanyOverview(ticker.toUpperCase())
+        .then((overview) => { if (!cancelled) setData(overview); })
+        .catch((e) => { if (!cancelled) setError(e.message || "Failed to load company data"); })
+        .finally(() => { if (!cancelled) setLoading(false); });
+    }, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(loadTimer);
+    };
   }, [ticker]);
 
   const setTab = (tab: Tab) => {
@@ -104,6 +115,12 @@ function CompanyPageInner() {
 
   return (
     <main className="min-h-screen bg-background">
+      <StrategyBuilderModal
+        open={builderOpen}
+        onClose={() => { setBuilderOpen(false); setBuilderIdea(undefined); }}
+        initialIdea={builderIdea}
+        initialCustomTickers={data.symbol}
+      />
       <div className="mx-auto max-w-[1200px] space-y-6 px-4 py-6 md:px-6 lg:px-8">
 
         {/* Breadcrumb */}
@@ -129,10 +146,15 @@ function CompanyPageInner() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button asChild variant="outline" size="sm">
-              <Link href={`/workspace?prompt=Backtest a strategy on ${data.symbol}` as Route}>
-                Run Backtest on {data.symbol}
-              </Link>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setBuilderIdea(`Backtest a strategy on ${data.symbol}`);
+                setBuilderOpen(true);
+              }}
+            >
+              Run Backtest on {data.symbol}
             </Button>
             <WatchlistButton symbol={data.symbol} />
           </div>

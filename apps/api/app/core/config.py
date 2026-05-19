@@ -18,6 +18,9 @@ class Settings(BaseSettings):
     reddit_client_secret: str = ""
     reddit_user_agent: str = "livermore-research/1.0"
     internal_api_key: str = ""  # shared secret for Next.js → FastAPI internal calls
+    nextauth_secret: str = ""   # signs session JWTs; must match NEXTAUTH_SECRET in Next.js
+    google_client_id: str = ""
+    google_client_secret: str = ""
     llm_provider: str = "disabled"
     llm_api_key: str = ""
     llm_base_url: str = "https://api.openai.com/v1"

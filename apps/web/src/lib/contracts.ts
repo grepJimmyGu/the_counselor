@@ -1,3 +1,57 @@
+// ── Identity & Entitlements (Stage 1) ────────────────────────────────────────
+
+export type Tier = "scout" | "strategist" | "quant";
+
+export type PlanStatus = "active" | "trialing" | "past_due" | "canceled";
+
+export interface UserPublic {
+  id: string;
+  handle: string | null;
+  display_name: string | null;
+  avatar_url: string | null;
+  locale: string;
+}
+
+export interface PlanInfo {
+  tier: Tier;
+  status: PlanStatus;
+  billing_cycle: "monthly" | "annual" | null;
+  trial_end: string | null;
+  current_period_end: string | null;
+}
+
+export interface UsageThisMonth {
+  period_start: string;
+  backtest_runs: number;
+  robustness_runs: number;
+  saved_strategies_count: number;
+}
+
+export interface UserMe extends UserPublic {
+  email: string;
+  created_at: string;
+  plan: PlanInfo;
+  usage: UsageThisMonth;
+}
+
+export interface Entitlements {
+  tier: Tier;
+  status: PlanStatus;
+  backtest_runs_remaining: number | null;
+  universe_size_max: number;
+  history_window_years: number;
+  asset_classes: ("equities" | "commodities" | "a_shares")[];
+  robustness_tests: string[];
+  market_pulse_ticker_scope: "top_250" | "all_us" | "all_us_plus_alerts";
+  business_model_section: "full" | "full_plus_supply_chain";
+  commodity_framework: boolean;
+  saved_strategies_max: number;
+  api_access: boolean;
+  community_badge: "verified" | "creator" | null;
+}
+
+// ── Strategy types ────────────────────────────────────────────────────────────
+
 export type StrategyType =
   | "moving_average_filter"
   | "moving_average_crossover"

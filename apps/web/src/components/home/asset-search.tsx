@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { Search, X, TrendingUp, TrendingDown, ArrowRight, BarChart2, Newspaper } from "lucide-react";
-import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import { getDailyPrices, searchSymbolsApi } from "@/lib/api";
 import type { PriceBarResponse, SymbolSearchItem } from "@/lib/contracts";
@@ -73,10 +72,10 @@ function formatPrice(n: number) {
 interface AssetSearchProps {
   preloadSymbol?: string | null;
   sectionRef?: React.RefObject<HTMLElement | null>;
+  onBuildStrategyPrompt?: (prompt: string) => void;
 }
 
-export function AssetSearch({ preloadSymbol, sectionRef }: AssetSearchProps) {
-  const router = useRouter();
+export function AssetSearch({ preloadSymbol, sectionRef, onBuildStrategyPrompt }: AssetSearchProps) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<SymbolSearchItem[]>([]);
   const [searching, setSearching] = useState(false);
@@ -96,7 +95,10 @@ export function AssetSearch({ preloadSymbol, sectionRef }: AssetSearchProps) {
   }, [preloadSymbol]);
 
   useEffect(() => {
-    if (!query.trim()) { setResults([]); return; }
+    if (!query.trim()) {
+      const resetTimer = setTimeout(() => setResults([]), 0);
+      return () => clearTimeout(resetTimer);
+    }
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
       setSearching(true);
@@ -293,9 +295,8 @@ export function AssetSearch({ preloadSymbol, sectionRef }: AssetSearchProps) {
                     </div>
                     <button
                       type="button"
-                      onClick={() =>
-                        router.push(`/workspace?prompt=${encodeURIComponent(strat.prompt)}&autorun=true`)
-                      }
+                      onClick={() => onBuildStrategyPrompt?.(strat.prompt)}
+                      disabled={!onBuildStrategyPrompt}
                       className="mt-3 flex w-full cursor-pointer items-center justify-center gap-1.5 rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-white transition-colors duration-200 hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
                       Run Backtest <ArrowRight className="h-3 w-3" />
