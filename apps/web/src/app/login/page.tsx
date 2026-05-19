@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { Suspense, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
@@ -9,7 +9,12 @@ import { Input } from "@/components/ui/input";
 import { Loader2 } from "lucide-react";
 import type { Route } from "next";
 
-export default function LoginPage() {
+// Opt out of static prerendering — this page reads searchParams at runtime.
+export const dynamic = "force-dynamic";
+
+// ── Inner component reads useSearchParams (must be inside Suspense) ────────────
+
+function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const callbackUrl = searchParams.get("callbackUrl") ?? "/";
@@ -24,11 +29,7 @@ export default function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError(null);
-    const result = await signIn("credentials", {
-      email,
-      password,
-      redirect: false,
-    });
+    const result = await signIn("credentials", { email, password, redirect: false });
     setLoading(false);
     if (result?.error) {
       setError("Invalid email or password.");
@@ -43,78 +44,84 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm space-y-6">
-        <div className="text-center">
-          <h1 className="font-heading text-2xl font-bold">Sign in</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Don&apos;t have an account?{" "}
-            <Link href={"/signup" as Route} className="text-primary hover:underline">
-              Sign up
-            </Link>
-          </p>
-        </div>
-
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="space-y-1">
-            <label htmlFor="email" className="text-sm font-medium">Email</label>
-            <Input
-              id="email"
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="you@example.com"
-            />
-          </div>
-          <div className="space-y-1">
-            <label htmlFor="password" className="text-sm font-medium">Password</label>
-            <Input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••"
-            />
-          </div>
-
-          {error && (
-            <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {error}
-            </p>
-          )}
-
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Sign in"}
-          </Button>
-        </form>
-
-        <div className="relative">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-border" />
-          </div>
-          <div className="relative flex justify-center text-xs text-muted-foreground">
-            <span className="bg-background px-2">or</span>
-          </div>
-        </div>
-
-        <Button
-          variant="outline"
-          className="w-full gap-2"
-          onClick={handleGoogle}
-          disabled={googleLoading}
-        >
-          {googleLoading ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
-          ) : (
-            <GoogleIcon />
-          )}
-          Continue with Google
-        </Button>
+    <div className="w-full max-w-sm space-y-6">
+      <div className="text-center">
+        <h1 className="font-heading text-2xl font-bold">Sign in</h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Don&apos;t have an account?{" "}
+          <Link href={"/signup" as Route} className="text-primary hover:underline">
+            Sign up
+          </Link>
+        </p>
       </div>
+
+      <form onSubmit={handleSubmit} className="space-y-4">
+        <div className="space-y-1">
+          <label htmlFor="email" className="text-sm font-medium">Email</label>
+          <Input
+            id="email"
+            type="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            placeholder="you@example.com"
+          />
+        </div>
+        <div className="space-y-1">
+          <label htmlFor="password" className="text-sm font-medium">Password</label>
+          <Input
+            id="password"
+            type="password"
+            autoComplete="current-password"
+            required
+            value={password}
+            onChange={e => setPassword(e.target.value)}
+            placeholder="••••••••"
+          />
+        </div>
+
+        {error && (
+          <p className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {error}
+          </p>
+        )}
+
+        <Button type="submit" className="w-full" disabled={loading}>
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : "Sign in"}
+        </Button>
+      </form>
+
+      <div className="relative">
+        <div className="absolute inset-0 flex items-center">
+          <div className="w-full border-t border-border" />
+        </div>
+        <div className="relative flex justify-center text-xs text-muted-foreground">
+          <span className="bg-background px-2">or</span>
+        </div>
+      </div>
+
+      <Button
+        variant="outline"
+        className="w-full gap-2"
+        onClick={handleGoogle}
+        disabled={googleLoading}
+      >
+        {googleLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <GoogleIcon />}
+        Continue with Google
+      </Button>
+    </div>
+  );
+}
+
+// ── Page shell ────────────────────────────────────────────────────────────────
+
+export default function LoginPage() {
+  return (
+    <main className="flex min-h-screen items-center justify-center bg-background px-4">
+      <Suspense fallback={<Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />}>
+        <LoginForm />
+      </Suspense>
     </main>
   );
 }
