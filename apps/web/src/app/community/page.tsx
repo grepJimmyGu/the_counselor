@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, type ComponentType, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { signIn, useSession } from "next-auth/react";
@@ -11,8 +11,10 @@ import {
   BarChart2,
   CheckCircle2,
   Clock,
+  DollarSign,
   FileText,
   Flame,
+  Gauge,
   MessageSquare,
   Newspaper,
   Scale,
@@ -29,8 +31,15 @@ import {
   getCommunityBoard,
   getStockTheses,
 } from "@/lib/community-api";
-import { getPublicStrategies, getStrategyLivePerformance } from "@/lib/api";
-import type { LivePerformance, PublicStrategyItem, SignalScore, StockThesis } from "@/lib/contracts";
+import { getCompanyOverview, getPublicStrategies, getStockTrend, getStrategyLivePerformance } from "@/lib/api";
+import type { CompanyOverviewResponse, LivePerformance, PublicStrategyItem, SignalScore, StockThesis, StockTrendData } from "@/lib/contracts";
+import {
+  calculateStockHealthScore,
+  calculateStockTrendScore,
+  calculateStockValuationScore,
+  getFinalScore,
+} from "@/lib/evaluation/scoring";
+import type { StockMetricsInput } from "@/lib/evaluation/types";
 import { UpvoteButton } from "@/components/community/upvote-button";
 import { VoteBar } from "@/components/community/vote-bar";
 import { Badge } from "@/components/ui/badge";
@@ -39,22 +48,17 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 type BoardWindow = "today" | "7d" | "30d" | "all";
-type BoardFilter = "all" | "bullish" | "bearish" | "controversial" | "rising";
 type MobileTab = "stocks" | "strategies" | "debates";
+type StockBoardAnalysis = {
+  price: number | null;
+  analystScore: number | null;
+};
 
 const BOARD_WINDOWS: Array<{ id: BoardWindow; label: string }> = [
   { id: "today", label: "Today" },
   { id: "7d", label: "7D" },
   { id: "30d", label: "30D" },
   { id: "all", label: "All" },
-];
-
-const BOARD_FILTERS: Array<{ id: BoardFilter; label: string }> = [
-  { id: "all", label: "All" },
-  { id: "bullish", label: "Bullish" },
-  { id: "bearish", label: "Bearish" },
-  { id: "controversial", label: "Contested" },
-  { id: "rising", label: "Rising" },
 ];
 
 function RankBadge({ rank }: { rank: number }) {
@@ -67,15 +71,6 @@ function RankBadge({ rank }: { rank: number }) {
   return (
     <div className={cn("flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ring-1", topClass)}>
       {rank}
-    </div>
-  );
-}
-
-function SignalBar({ score }: { score: number }) {
-  const color = score >= 65 ? "bg-emerald-500" : score >= 52 ? "bg-amber-500" : "bg-slate-300";
-  return (
-    <div className="h-1.5 overflow-hidden rounded-full bg-muted">
-      <div className={cn("h-full rounded-full transition-all duration-300", color)} style={{ width: `${Math.min(100, score)}%` }} />
     </div>
   );
 }
@@ -94,6 +89,92 @@ function getBullPct(item: SignalScore) {
 function formatDate(value?: string | null) {
   if (!value) return "No discussion yet";
   return new Date(value).toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
+function formatCompactNumber(value: number) {
+  if (value >= 1000) return `${(value / 1000).toFixed(value >= 10000 ? 0 : 1)}K`;
+  return value.toString();
+}
+
+function formatPrice(value?: number | null) {
+  if (value == null || Number.isNaN(value)) return "--";
+  if (Math.abs(value) >= 1000) {
+    return `$${value.toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
+  }
+  return `$${value.toFixed(2)}`;
+}
+
+function formatAnalystScore(value?: number | null) {
+  if (value == null || Number.isNaN(value)) return "--";
+  return Math.round(value).toString();
+}
+
+function scoreTone(value?: number | null) {
+  if (value == null) return "text-slate-600";
+  if (value >= 65) return "text-emerald-600";
+  if (value >= 42) return "text-amber-600";
+  return "text-red-600";
+}
+
+function communityMetricsFromOverview(
+  data: CompanyOverviewResponse,
+  trend: StockTrendData | null,
+): StockMetricsInput {
+  const fc = data.financial_check;
+  return {
+    ticker: data.symbol,
+    companyName: data.name,
+    sector: data.sector ?? null,
+    marketCap: data.market_cap ?? null,
+    price: trend?.latest_price ?? data.price ?? null,
+    revenueYoy: fc.revenue_yoy ?? null,
+    revenue3yCagr: fc.revenue_3y_cagr ?? null,
+    grossMargin: fc.gross_margin ?? null,
+    operatingMargin: fc.operating_margin ?? null,
+    netMargin: fc.net_margin ?? null,
+    roe: fc.roe ?? null,
+    freeCashFlow: fc.free_cash_flow ?? null,
+    fcfMargin: fc.fcf_margin ?? null,
+    fcfConversion: fc.fcf_conversion ?? null,
+    cash: fc.cash ?? null,
+    netDebt: fc.net_debt ?? null,
+    debtToEquity: fc.debt_to_equity ?? null,
+    currentRatio: fc.current_ratio ?? null,
+    interestCoverage: null,
+    peRatio: fc.pe_ratio ?? null,
+    pegRatio: fc.peg_ratio ?? null,
+    evEbitda: fc.ev_ebitda ?? null,
+    fcfYield: fc.fcf_yield ?? null,
+    psRatio: fc.ps_ratio ?? null,
+    pbRatio: fc.pb_ratio ?? null,
+    dividendYield: fc.dividend_yield ?? null,
+    perf1m: trend?.perf_1m ?? null,
+    perf3m: trend?.perf_3m ?? null,
+    perf6m: trend?.perf_6m ?? null,
+    perf12m: trend?.perf_12m ?? null,
+    ma50: trend?.ma_50 ?? null,
+    ma200: trend?.ma_200 ?? null,
+    rsVsSector: trend?.rs_vs_spy_3m ?? null,
+    epsRevisionTrend: null,
+    shortInterest: null,
+    revenueSeries: (fc.revenue_series ?? []).map((row) => ({
+      date: row.date,
+      revenue: row.revenue ?? null,
+    })),
+    marginSeries: fc.margin_series ?? [],
+    fcfSeries: (fc.fcf_series ?? []).map((row) => ({
+      date: row.date,
+      fcf: row.fcf ?? null,
+    })),
+  };
+}
+
+function calculateCommunityAnalystScore(data: CompanyOverviewResponse, trend: StockTrendData | null) {
+  const metrics = communityMetricsFromOverview(data, trend);
+  const health = calculateStockHealthScore(metrics);
+  const valuation = calculateStockValuationScore(metrics);
+  const trendScore = calculateStockTrendScore(metrics);
+  return getFinalScore(health, valuation, trendScore);
 }
 
 function ReturnSparkline({ curve }: { curve: Array<{ date: string; value: number }> }) {
@@ -126,19 +207,47 @@ function computeStrategyTrust(s: PublicStrategyItem, live: LivePerformance | nul
   return Math.max(0, Math.min(100, Math.round(score)));
 }
 
+function CompactMetric({
+  icon: Icon,
+  label,
+  value,
+  tone,
+}: {
+  icon: ComponentType<{ className?: string }>;
+  label: string;
+  value: string;
+  tone?: string;
+}) {
+  return (
+    <span
+      title={`${label}: ${value}`}
+      aria-label={`${label}: ${value}`}
+      className={cn(
+        "inline-flex min-w-[4.5rem] items-center justify-end gap-1.5 text-xs text-muted-foreground sm:min-w-0",
+        tone,
+      )}
+    >
+      <Icon className="h-3.5 w-3.5 shrink-0" />
+      <span className="font-mono font-semibold tabular-nums">{value}</span>
+    </span>
+  );
+}
+
 function BoardRow({
   item,
   rank,
   selected,
+  analysis,
   onSelect,
 }: {
   item: SignalScore;
   rank: number;
   selected: boolean;
+  analysis?: StockBoardAnalysis;
   onSelect: () => void;
 }) {
-  const bullPct = getBullPct(item);
-  const isContested = item.total_votes >= 2 && item.bull_votes > 0 && item.bear_votes > 0;
+  const price = formatPrice(analysis?.price);
+  const analystScore = formatAnalystScore(analysis?.analystScore);
 
   return (
     <button
@@ -153,36 +262,14 @@ function BoardRow({
 
       <div className="w-16 shrink-0">
         <div className="font-mono text-sm font-bold text-foreground">{item.symbol}</div>
-        <div className="text-[10px] text-muted-foreground">{formatDate(item.latest_thesis_at)}</div>
       </div>
 
-      <div className="min-w-0 flex-1">
-        <div className="mb-1 flex items-center gap-2">
-          <SignalBar score={item.signal_score} />
-          <span className="w-8 font-mono text-[10px] font-semibold tabular-nums text-muted-foreground">
-            {item.signal_score.toFixed(0)}
-          </span>
-        </div>
-        <div className="flex flex-wrap items-center gap-1.5">
-          <span className="text-[10px] text-muted-foreground">{item.signal_label}</span>
-          {item.thesis_count > 0 && (
-            <Badge variant="outline" className="h-5 rounded-md px-1.5 text-[10px]">
-              {item.thesis_count} theses
-            </Badge>
-          )}
-          {isContested && (
-            <Badge variant="outline" className="h-5 rounded-md border-amber-200 bg-amber-50 px-1.5 text-[10px] text-amber-700">
-              contested
-            </Badge>
-          )}
-        </div>
-      </div>
-
-      <div className="hidden shrink-0 items-center gap-4 text-xs text-muted-foreground sm:flex">
-        <span className="flex items-center gap-1"><Users className="h-3 w-3" />{item.watchlist_count}</span>
-        <span className="flex items-center gap-1 text-emerald-600"><TrendingUp className="h-3 w-3" />{bullPct}%</span>
-        <span className="flex items-center gap-1"><BarChart2 className="h-3 w-3" />{item.strategy_run_count}</span>
-        <span className="flex items-center gap-1"><MessageSquare className="h-3 w-3" />{item.thesis_count}</span>
+      <div className="grid min-w-0 flex-1 grid-cols-2 gap-x-4 gap-y-2 sm:flex sm:items-center sm:justify-end sm:gap-5">
+        <CompactMetric icon={DollarSign} label="Price" value={price} />
+        <CompactMetric icon={Gauge} label="Analyst score" value={analystScore} tone={scoreTone(analysis?.analystScore)} />
+        <CompactMetric icon={Users} label="Watchlist adds" value={`+${formatCompactNumber(item.watchlist_count)}`} />
+        <CompactMetric icon={BarChart2} label="Strategy runs" value={formatCompactNumber(item.strategy_run_count)} />
+        <CompactMetric icon={Scale} label="Votes" value={formatCompactNumber(item.total_votes)} />
       </div>
 
       <ArrowRight className="h-3.5 w-3.5 shrink-0 text-muted-foreground/50" />
@@ -500,22 +587,66 @@ export default function CommunityPage() {
   const [latestTheses, setLatestTheses] = useState<StockThesis[]>([]);
   const [selectedTheses, setSelectedTheses] = useState<StockThesis[]>([]);
   const [boardWindow, setBoardWindow] = useState<BoardWindow>("7d");
-  const [boardFilter, setBoardFilter] = useState<BoardFilter>("all");
   const [loadingBoard, setLoadingBoard] = useState(true);
   const [loadingStrategies, setLoadingStrategies] = useState(true);
   const [livePerfs, setLivePerfs] = useState<Record<string, LivePerformance>>({});
+  const [analysisBySymbol, setAnalysisBySymbol] = useState<Record<string, StockBoardAnalysis>>({});
   const [activeTab, setActiveTab] = useState<MobileTab>("stocks");
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
 
   useEffect(() => {
-    getCommunityBoard(30, 0, boardWindow, boardFilter)
+    getCommunityBoard(30, 0, boardWindow, "rising")
       .then((response) => {
         setItems(response.items);
         setSelectedSymbol((current) => current ?? response.items[0]?.symbol ?? null);
       })
       .catch(() => setItems([]))
       .finally(() => setLoadingBoard(false));
-  }, [boardWindow, boardFilter]);
+  }, [boardWindow]);
+
+  const boardSymbolsKey = useMemo(
+    () => items.slice(0, 20).map((item) => item.symbol).join(","),
+    [items],
+  );
+
+  useEffect(() => {
+    const symbols = boardSymbolsKey.split(",").filter(Boolean);
+    if (symbols.length === 0) return;
+
+    let cancelled = false;
+    Promise.allSettled(
+      symbols.map(async (symbol) => {
+        const overview = await getCompanyOverview(symbol);
+        const trend = await getStockTrend(symbol).catch(() => null);
+        return {
+          symbol,
+          price: trend?.latest_price ?? overview.price ?? null,
+          analystScore: calculateCommunityAnalystScore(overview, trend),
+        };
+      }),
+    ).then((results) => {
+      if (cancelled) return;
+      setAnalysisBySymbol((prev) => {
+        const next = { ...prev };
+        results.forEach((result, index) => {
+          const symbol = symbols[index];
+          if (result.status === "fulfilled") {
+            next[symbol] = {
+              price: result.value.price,
+              analystScore: result.value.analystScore,
+            };
+          } else {
+            next[symbol] = { price: prev[symbol]?.price ?? null, analystScore: prev[symbol]?.analystScore ?? null };
+          }
+        });
+        return next;
+      });
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [boardSymbolsKey]);
 
   useEffect(() => {
     getStockTheses(undefined, 8)
@@ -567,13 +698,42 @@ export default function CommunityPage() {
     const live = strategy.live ?? livePerfs[strategy.slug];
     return live?.days_tracked && live.days_tracked > 0;
   }).length;
+  const communityTabs: Array<{
+    id: MobileTab;
+    label: string;
+    detail: string;
+    value: string | number;
+    icon: ComponentType<{ className?: string }>;
+  }> = [
+    {
+      id: "stocks",
+      label: "Rising Stocks",
+      detail: "Price, analyst score, watchlists, runs, votes",
+      value: loadingBoard ? "--" : items.length,
+      icon: TrendingUp,
+    },
+    {
+      id: "strategies",
+      label: "Strategies",
+      detail: "Paper performance and trust-weighted ranking",
+      value: loadingStrategies ? "--" : sortedStrategies.length,
+      icon: Target,
+    },
+    {
+      id: "debates",
+      label: "Theses",
+      detail: "Structured stock notes with risk attached",
+      value: latestTheses.length,
+      icon: MessageSquare,
+    },
+  ];
 
   function handleCreatedThesis(thesis: StockThesis) {
     setLatestTheses((prev) => [thesis, ...prev].slice(0, 8));
     if (thesis.symbol === selectedSymbol) {
       setSelectedTheses((prev) => [thesis, ...prev].slice(0, 4));
     }
-    getCommunityBoard(30, 0, boardWindow, boardFilter)
+    getCommunityBoard(30, 0, boardWindow, "rising")
       .then((response) => setItems(response.items))
       .catch(() => {});
   }
@@ -643,29 +803,43 @@ export default function CommunityPage() {
           </div>
         </section>
 
-        <div className="grid grid-cols-3 gap-1 rounded-lg border border-border bg-muted/30 p-1 lg:hidden">
-          {(["stocks", "strategies", "debates"] as const).map((tab) => (
+        <div className="grid gap-2 rounded-lg border border-border bg-white p-2 shadow-sm md:grid-cols-3">
+          {communityTabs.map(({ id, label, detail, value, icon: Icon }) => (
             <button
-              key={tab}
+              key={id}
               type="button"
-              onClick={() => setActiveTab(tab)}
+              onClick={() => setActiveTab(id)}
               className={cn(
-                "h-9 cursor-pointer rounded-md px-3 text-sm font-medium capitalize transition-colors",
-                activeTab === tab ? "bg-white shadow-sm text-foreground" : "text-muted-foreground hover:text-foreground"
+                "flex min-h-20 cursor-pointer items-center gap-3 rounded-md border px-3 py-3 text-left transition-all hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/30",
+                activeTab === id
+                  ? "border-primary/40 bg-primary/5 text-foreground shadow-sm"
+                  : "border-transparent bg-muted/20 text-muted-foreground hover:bg-muted/30"
               )}
             >
-              {tab}
+              <span className={cn(
+                "flex h-9 w-9 shrink-0 items-center justify-center rounded-md",
+                activeTab === id ? "bg-primary text-primary-foreground" : "bg-white text-muted-foreground"
+              )}>
+                <Icon className="h-4 w-4" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="flex items-center justify-between gap-2">
+                  <span className="text-sm font-semibold">{label}</span>
+                  <span className="font-mono text-sm font-bold tabular-nums">{value}</span>
+                </span>
+                <span className="mt-1 block text-[10px] leading-4">{detail}</span>
+              </span>
             </button>
           ))}
         </div>
 
         <div className="grid gap-8 lg:grid-cols-3">
           <div className="space-y-8 lg:col-span-2">
-            <section className={cn("space-y-3", activeTab !== "stocks" && "hidden lg:block")}>
+            <section className={cn("space-y-3", activeTab !== "stocks" && "hidden")}>
               <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
                   <Flame className="h-4 w-4 text-orange-500" />
-                  <h2 className="text-base font-semibold">Most Active Stocks</h2>
+                  <h2 className="text-base font-semibold">Rising Stocks</h2>
                   {!loadingBoard && <Badge variant="outline" className="font-mono text-[10px]">{items.length}</Badge>}
                 </div>
                 <div className="flex flex-wrap gap-2">
@@ -690,27 +864,6 @@ export default function CommunityPage() {
                 </div>
               </div>
 
-              <div className="flex gap-1 overflow-x-auto pb-1">
-                {BOARD_FILTERS.map((filter) => (
-                  <button
-                    key={filter.id}
-                    type="button"
-                    onClick={() => {
-                      if (filter.id !== boardFilter) setLoadingBoard(true);
-                      setBoardFilter(filter.id);
-                    }}
-                    className={cn(
-                      "h-8 shrink-0 cursor-pointer rounded-full border px-3 text-xs font-semibold transition-colors",
-                      boardFilter === filter.id
-                        ? "border-primary bg-primary/10 text-primary"
-                        : "border-border bg-white text-muted-foreground hover:border-primary/30 hover:text-foreground"
-                    )}
-                  >
-                    {filter.label}
-                  </button>
-                ))}
-              </div>
-
               {loadingBoard ? (
                 <div className="space-y-2">
                   {Array.from({ length: 6 }).map((_, index) => <Skeleton key={index} className="h-16 w-full rounded-lg" />)}
@@ -718,7 +871,7 @@ export default function CommunityPage() {
               ) : items.length === 0 ? (
                 <div className="rounded-lg border border-dashed border-border bg-white p-8 text-center">
                   <Users className="mx-auto h-8 w-8 text-muted-foreground/40" />
-                  <p className="mt-2 text-sm text-muted-foreground">No community activity for this filter yet.</p>
+                  <p className="mt-2 text-sm text-muted-foreground">No rising stock activity for this window yet.</p>
                   <Link href={"/stocks" as Route} className="mt-2 inline-block text-xs font-medium text-primary hover:underline">
                     Browse stocks
                   </Link>
@@ -731,6 +884,7 @@ export default function CommunityPage() {
                       item={item}
                       rank={index + 1}
                       selected={selectedItem?.symbol === item.symbol}
+                      analysis={analysisBySymbol[item.symbol]}
                       onSelect={() => setSelectedSymbol(item.symbol)}
                     />
                   ))}
@@ -738,7 +892,7 @@ export default function CommunityPage() {
               )}
             </section>
 
-            <section className={cn("space-y-3", activeTab !== "strategies" && "hidden lg:block")}>
+            <section className={cn("space-y-3", activeTab !== "strategies" && "hidden")}>
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
                   <Target className="h-4 w-4 text-purple-500" />
@@ -774,7 +928,7 @@ export default function CommunityPage() {
               )}
             </section>
 
-            <section className={cn("space-y-3", activeTab !== "debates" && "hidden lg:block")}>
+            <section className={cn("space-y-3", activeTab !== "debates" && "hidden")}>
               <div className="flex items-center gap-2">
                 <MessageSquare className="h-4 w-4 text-amber-500" />
                 <h2 className="text-base font-semibold">Active Theses</h2>
