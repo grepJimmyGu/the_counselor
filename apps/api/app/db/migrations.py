@@ -705,7 +705,7 @@ def run_startup_migrations(engine: Engine) -> None:
         """) if is_sqlite else text("""
             CREATE TABLE IF NOT EXISTS user_watchlists (
                 id SERIAL PRIMARY KEY,
-                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                user_id TEXT NOT NULL,
                 symbol VARCHAR(20) NOT NULL,
                 added_at TIMESTAMPTZ DEFAULT now(),
                 UNIQUE (user_id, symbol)
@@ -735,7 +735,7 @@ def run_startup_migrations(engine: Engine) -> None:
         """) if is_sqlite else text("""
             CREATE TABLE IF NOT EXISTS user_votes (
                 id SERIAL PRIMARY KEY,
-                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                user_id TEXT NOT NULL,
                 symbol VARCHAR(20) NOT NULL,
                 vote VARCHAR(10) NOT NULL CHECK (vote IN ('bull','bear','hold')),
                 voted_at TIMESTAMPTZ DEFAULT now(),
@@ -792,7 +792,7 @@ def run_startup_migrations(engine: Engine) -> None:
         """) if is_sqlite else text("""
             CREATE TABLE IF NOT EXISTS strategy_comments (
                 id SERIAL PRIMARY KEY,
-                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                user_id TEXT NOT NULL,
                 strategy_slug VARCHAR(128) NOT NULL,
                 content TEXT NOT NULL,
                 created_at TIMESTAMPTZ DEFAULT now(),
@@ -818,7 +818,7 @@ def run_startup_migrations(engine: Engine) -> None:
         """) if is_sqlite else text("""
             CREATE TABLE IF NOT EXISTS strategy_upvotes (
                 id SERIAL PRIMARY KEY,
-                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                user_id TEXT NOT NULL,
                 strategy_slug VARCHAR(128) NOT NULL,
                 created_at TIMESTAMPTZ DEFAULT now(),
                 UNIQUE (user_id, strategy_slug)
@@ -848,7 +848,7 @@ def run_startup_migrations(engine: Engine) -> None:
         """) if is_sqlite else text("""
             CREATE TABLE IF NOT EXISTS stock_theses (
                 id SERIAL PRIMARY KEY,
-                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                user_id TEXT NOT NULL,
                 symbol VARCHAR(20) NOT NULL,
                 stance VARCHAR(10) NOT NULL CHECK (stance IN ('bull','bear','hold')),
                 timeframe VARCHAR(40) NOT NULL,
@@ -871,19 +871,7 @@ def run_startup_migrations(engine: Engine) -> None:
         except Exception:
             pass
 
-        # PRD-08d: purge bad revenue_segments rows where segment data = only fiscalYear
-        # (parser bug in first deploy — nested FMP format not handled)
-        try:
-            conn.execute(text(
-                "DELETE FROM revenue_segments WHERE data::text = '{\"fiscalYear\": null}'"
-                " OR data::text LIKE '%fiscalYear%'"
-            ) if not is_sqlite else text(
-                "DELETE FROM revenue_segments WHERE data LIKE '%fiscalYear%'"
-            ))
-        except Exception:
-            pass
-
-        # PRD-08d: revenue_segments (product + geo, 24h TTL)
+        # PRD-08d: revenue_segments (product + geo, 24h TTL) — CREATE first, then cleanup
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS revenue_segments (
                 symbol VARCHAR(20) NOT NULL,
@@ -1083,3 +1071,20 @@ def run_startup_migrations(engine: Engine) -> None:
             ))
         except Exception:
             pass
+
+    # ── Post-create cleanup (isolated; runs AFTER all CREATE TABLE statements) ──
+    # Purge bad revenue_segments rows from PRD-08d parser bug. Isolated so a
+    # missing table on fresh DB can't poison the shared transaction above.
+    try:
+        with engine.begin() as c:
+            if is_sqlite:
+                c.execute(text(
+                    "DELETE FROM revenue_segments WHERE data LIKE '%fiscalYear%'"
+                ))
+            else:
+                c.execute(text(
+                    "DELETE FROM revenue_segments WHERE data::text = '{\"fiscalYear\": null}'"
+                    " OR data::text LIKE '%fiscalYear%'"
+                ))
+    except Exception:
+        pass
