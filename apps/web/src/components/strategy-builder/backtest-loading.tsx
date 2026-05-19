@@ -1,95 +1,109 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Check, Loader2 } from "lucide-react";
+import { BookOpen, Check, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { ResearchTemplate, StrategyJson } from "@/lib/contracts";
 import { researchTemplates } from "@/lib/contracts";
 
-// ── Progress stages ───────────────────────────────────────────────────────────
+// ── Respect prefers-reduced-motion ───────────────────────────────────────────
+
+function useReducedMotion() {
+  const [reduced, setReduced] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+    setReduced(mq.matches);
+    const handler = (e: MediaQueryListEvent) => setReduced(e.matches);
+    mq.addEventListener("change", handler);
+    return () => mq.removeEventListener("change", handler);
+  }, []);
+  return reduced;
+}
+
+// ── Stages ────────────────────────────────────────────────────────────────────
 
 const STAGES = [
-  { key: "prices",    label: "Fetching prices",       detail: (s: StrategyJson) => `${s.universe.slice(0, 3).join(", ")}${s.universe.length > 3 ? ` +${s.universe.length - 3}` : ""} · ${new Date(s.start_date).getFullYear()}–${new Date(s.end_date).getFullYear()}` },
-  { key: "signal",    label: "Building signal",        detail: (_: StrategyJson) => "Ranking & scoring positions" },
-  { key: "simulate",  label: "Simulating trades",      detail: (_: StrategyJson, trades?: number) => trades ? `${trades.toLocaleString()} trades processed` : "Running trade-by-trade simulation" },
-  { key: "metrics",   label: "Calculating metrics",    detail: (_: StrategyJson) => "Sharpe, drawdown, win rate…" },
-  { key: "report",    label: "Generating report",      detail: (_: StrategyJson) => "Preparing results" },
-];
+  { key: "prices",   label: "Fetching prices",     detail: (s: StrategyJson) => `${s.universe.slice(0, 3).join(", ")}${s.universe.length > 3 ? ` +${s.universe.length - 3}` : ""} · ${new Date(s.start_date).getFullYear()}–${new Date(s.end_date).getFullYear()}` },
+  { key: "signal",   label: "Building signal",     detail: () => "Ranking & scoring positions" },
+  { key: "simulate", label: "Simulating trades",   detail: () => "Running trade-by-trade simulation" },
+  { key: "metrics",  label: "Calculating metrics", detail: () => "Sharpe, drawdown, win rate…" },
+  { key: "report",   label: "Generating report",   detail: () => "Preparing your results" },
+] as const;
 
 type StageKey = typeof STAGES[number]["key"];
 type StageStatus = "pending" | "running" | "done";
 
-// ── Context card types ────────────────────────────────────────────────────────
+// ── Context cards ─────────────────────────────────────────────────────────────
 
-interface ContextCard {
-  title: string;
-  body: string | React.ReactNode;
-}
+interface ContextCard { title: string; body: React.ReactNode }
 
 function buildContextCards(strategy: StrategyJson): ContextCard[] {
-  const template = researchTemplates.find(t =>
-    t.strategy.strategy_type === strategy.strategy_type && t.availability === "ready"
+  const template = researchTemplates.find(
+    t => t.strategy.strategy_type === strategy.strategy_type && t.availability === "ready",
   ) as ResearchTemplate | undefined;
 
   const cards: ContextCard[] = [];
 
-  // Card A — Strategy context
   if (template?.academicRef) {
     cards.push({
       title: "Why this strategy has an edge",
       body: (
-        <div className="space-y-2">
+        <div className="space-y-2.5">
           <p className="text-sm leading-relaxed text-foreground/80">
             {template.whatItCaptures ?? template.description}
           </p>
-          <p className="text-xs text-muted-foreground">
-            📑 {template.academicRef.citation}
-          </p>
-          <p className="text-xs italic text-muted-foreground">
-            &ldquo;{template.academicRef.note}&rdquo;
-          </p>
+          <div className="flex items-start gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+            <BookOpen className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <div>
+              <p className="text-xs font-semibold text-foreground/70">{template.academicRef.citation}</p>
+              <p className="mt-0.5 text-xs italic text-muted-foreground">&ldquo;{template.academicRef.note}&rdquo;</p>
+            </div>
+          </div>
         </div>
       ),
     });
   }
 
-  // Card B — Universe context
   if (strategy.universe.length > 0) {
     const tickerList = strategy.universe.slice(0, 6).join(", ");
     const rest = strategy.universe.length > 6 ? ` and ${strategy.universe.length - 6} more` : "";
+    const years = Math.round(
+      (new Date(strategy.end_date).getTime() - new Date(strategy.start_date).getTime()) / (365.25 * 24 * 3600 * 1000),
+    );
     cards.push({
       title: "Your universe at a glance",
       body: (
         <div className="space-y-2">
           <p className="text-sm text-foreground/80">
-            Testing across <strong>{strategy.universe.length}</strong> assets: {tickerList}{rest}.
+            Testing across <strong>{strategy.universe.length}</strong> {strategy.universe.length === 1 ? "asset" : "assets"}:{" "}
+            <span className="font-mono text-xs">{tickerList}{rest}</span>
           </p>
-          <p className="text-sm text-muted-foreground">
-            Period: {strategy.start_date} → {strategy.end_date} ·{" "}
-            {Math.round((new Date(strategy.end_date).getTime() - new Date(strategy.start_date).getTime()) / (365.25 * 24 * 3600 * 1000))} years of data
-          </p>
-          <p className="text-sm text-muted-foreground">
-            Cost assumption: {strategy.transaction_cost_bps + strategy.slippage_bps} bps combined per round trip
-          </p>
+          <div className="grid grid-cols-3 gap-2 rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs">
+            <div><span className="text-muted-foreground">Period</span><br /><strong>{years}Y</strong></div>
+            <div><span className="text-muted-foreground">Start</span><br /><strong className="font-mono">{strategy.start_date.slice(0, 7)}</strong></div>
+            <div><span className="text-muted-foreground">Cost</span><br /><strong>{strategy.transaction_cost_bps + strategy.slippage_bps} bps</strong></div>
+          </div>
         </div>
       ),
     });
   }
 
-  // Card C — What to look for
   cards.push({
     title: "When your results load, focus on these first",
     body: (
       <ol className="space-y-2">
         {[
-          ["Sharpe ratio", "Anything above 0.8 is worth studying further"],
-          ["Max drawdown", "This is what you'd actually have to live through"],
-          ["Excess vs benchmark", "Did the strategy beat a simple buy-and-hold?"],
-          ["Turnover", "High turnover erodes returns — check the trade log"],
-        ].map(([metric, desc]) => (
-          <li key={metric} className="flex gap-2 text-sm">
-            <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />
-            <span><strong className="text-foreground">{metric}</strong> — <span className="text-muted-foreground">{desc}</span></span>
+          { metric: "Sharpe ratio",        desc: "Anything above 0.8 is worth studying further",         color: "bg-blue-500" },
+          { metric: "Max drawdown",        desc: "This is what you'd actually have to live through",      color: "bg-rose-500" },
+          { metric: "Excess vs benchmark", desc: "Did the strategy beat a simple buy-and-hold?",          color: "bg-emerald-500" },
+          { metric: "Turnover",            desc: "High turnover erodes returns — check the trade log",    color: "bg-amber-500" },
+        ].map(({ metric, desc, color }) => (
+          <li key={metric} className="flex gap-2.5 text-sm">
+            <span className={cn("mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full", color)} />
+            <span>
+              <strong className="text-foreground">{metric}</strong>
+              <span className="text-muted-foreground"> — {desc}</span>
+            </span>
           </li>
         ))}
       </ol>
@@ -99,36 +113,29 @@ function buildContextCards(strategy: StrategyJson): ContextCard[] {
   return cards;
 }
 
-// ── Simulate stage progression ────────────────────────────────────────────────
+// ── Stage progress hook ───────────────────────────────────────────────────────
 
 function useStageProgress(isRunning: boolean): Record<StageKey, StageStatus> {
   const [statuses, setStatuses] = useState<Record<StageKey, StageStatus>>({
     prices: "running", signal: "pending", simulate: "pending", metrics: "pending", report: "pending",
   });
-  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     if (!isRunning) return;
-    // Reset
     setStatuses({ prices: "running", signal: "pending", simulate: "pending", metrics: "pending", report: "pending" });
 
-    const schedule = [
+    const schedule: [number, StageKey, StageKey][] = [
       [1800, "prices",   "signal"],
       [4000, "signal",   "simulate"],
       [7500, "simulate", "metrics"],
       [9500, "metrics",  "report"],
-    ] as [number, StageKey, StageKey][];
+    ];
 
     const timers = schedule.map(([delay, finish, next]) =>
-      setTimeout(() => setStatuses(prev => ({ ...prev, [finish]: "done", [next]: "running" })), delay)
+      setTimeout(() => setStatuses(prev => ({ ...prev, [finish]: "done", [next]: "running" })), delay),
     );
-
     return () => timers.forEach(clearTimeout);
   }, [isRunning]);
-
-  useEffect(() => {
-    return () => { if (timerRef.current) clearTimeout(timerRef.current); };
-  }, []);
 
   return statuses;
 }
@@ -141,120 +148,151 @@ interface BacktestLoadingProps {
 }
 
 export function BacktestLoading({ strategy, isRunning }: BacktestLoadingProps) {
+  const reducedMotion = useReducedMotion();
   const statuses = useStageProgress(isRunning);
   const [cardIndex, setCardIndex] = useState(0);
-  const [visible, setVisible] = useState(true);
+  const [fadeIn, setFadeIn] = useState(true);
   const cards = buildContextCards(strategy);
+  const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Rotate cards every 5 seconds with fade
   useEffect(() => {
-    if (!isRunning || cards.length <= 1) return;
-    const interval = setInterval(() => {
-      setVisible(false);
+    if (!isRunning || cards.length <= 1 || reducedMotion) return;
+    intervalRef.current = setInterval(() => {
+      setFadeIn(false);
       setTimeout(() => {
         setCardIndex(i => (i + 1) % cards.length);
-        setVisible(true);
-      }, 400);
+        setFadeIn(true);
+      }, 300);
     }, 5000);
-    return () => clearInterval(interval);
-  }, [isRunning, cards.length]);
+    return () => { if (intervalRef.current) clearInterval(intervalRef.current); };
+  }, [isRunning, cards.length, reducedMotion]);
 
   const activeCard = cards[cardIndex];
 
   return (
-    <div className="flex flex-col items-center gap-8 py-12 px-4">
+    <div className="flex flex-col items-center gap-8 px-4 py-14">
 
       {/* Progress tracker */}
       <div className="w-full max-w-3xl">
-        <div className="hidden items-center sm:flex">
+
+        {/* Desktop: horizontal flow */}
+        <div className="hidden items-start sm:flex" role="progressbar" aria-label="Backtest progress">
           {STAGES.map((stage, idx) => {
             const status = statuses[stage.key as StageKey];
             const isLast = idx === STAGES.length - 1;
+            const isDone = status === "done";
+            const isActive = status === "running";
+
             return (
-              <div key={stage.key} className="flex flex-1 items-center">
-                <div className="flex min-w-0 flex-col items-center gap-1.5">
-                  {/* Icon */}
+              <div key={stage.key} className="flex flex-1 items-start">
+                {/* Stage node */}
+                <div className="flex min-w-0 flex-col items-center gap-1.5 flex-1">
                   <div className={cn(
-                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-500",
-                    status === "done"    ? "border-primary bg-primary text-primary-foreground" :
-                    status === "running" ? "border-primary bg-primary/10 text-primary animate-pulse" :
-                                          "border-border bg-background text-muted-foreground",
+                    "flex h-9 w-9 shrink-0 items-center justify-center rounded-full border-2 transition-all",
+                    reducedMotion ? "" : "duration-500",
+                    isDone    ? "border-primary bg-primary text-primary-foreground shadow-md shadow-primary/20" :
+                    isActive  ? "border-primary bg-primary/15 text-primary" :
+                                "border-border bg-background text-muted-foreground",
                   )}>
-                    {status === "done"
-                      ? <Check className="h-4 w-4" />
-                      : status === "running"
-                      ? <Loader2 className="h-4 w-4 animate-spin" />
+                    {isDone
+                      ? <Check className="h-4 w-4" aria-hidden="true" />
+                      : isActive
+                      ? <Loader2 className={cn("h-4 w-4", !reducedMotion && "animate-spin")} aria-hidden="true" />
                       : <span className="text-xs font-bold">{idx + 1}</span>
                     }
                   </div>
-                  {/* Label */}
                   <span className={cn(
-                    "text-center text-[11px] font-medium leading-tight max-w-[80px]",
-                    status === "running" ? "text-primary" : status === "done" ? "text-foreground" : "text-muted-foreground",
+                    "text-center text-[11px] font-medium leading-tight max-w-[72px]",
+                    isActive ? "text-primary" : isDone ? "text-foreground/80" : "text-muted-foreground",
                   )}>
                     {stage.label}
                   </span>
-                  {/* Detail */}
-                  {status === "running" && (
-                    <span className="text-center text-[10px] text-muted-foreground max-w-[80px]">
+                  {isActive && (
+                    <span className="text-center text-[10px] text-muted-foreground max-w-[80px] leading-tight">
                       {stage.detail(strategy)}
                     </span>
                   )}
                 </div>
-                {/* Connector line */}
+
+                {/* Connector line with fill animation */}
                 {!isLast && (
-                  <div className={cn(
-                    "mx-1 h-0.5 flex-1 transition-all duration-700",
-                    status === "done" ? "bg-primary" : "bg-border",
-                  )} />
+                  <div className="relative mt-[18px] mx-0.5 h-0.5 flex-1 overflow-hidden rounded-full bg-border">
+                    <div className={cn(
+                      "absolute inset-y-0 left-0 rounded-full bg-primary",
+                      reducedMotion ? "" : "transition-all duration-700",
+                      isDone ? "w-full" : "w-0",
+                    )} />
+                  </div>
                 )}
               </div>
             );
           })}
         </div>
 
-        {/* Mobile: simple status line */}
-        <div className="sm:hidden text-center">
-          {Object.entries(statuses).map(([key, status]) => {
-            if (status !== "running") return null;
-            const stage = STAGES.find(s => s.key === key);
-            if (!stage) return null;
-            return (
-              <div key={key} className="flex items-center justify-center gap-2 text-sm font-medium text-primary">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                {stage.label}…
-              </div>
-            );
-          })}
+        {/* Mobile: simple active stage label */}
+        <div className="flex flex-col items-center gap-2 sm:hidden">
+          {STAGES.filter(s => statuses[s.key as StageKey] === "running").map(stage => (
+            <div key={stage.key} className="flex items-center gap-2 text-sm font-medium text-primary">
+              <Loader2 className={cn("h-4 w-4", !reducedMotion && "animate-spin")} aria-hidden="true" />
+              {stage.label}…
+            </div>
+          ))}
+          {/* Mini dot progress */}
+          <div className="flex gap-1.5 mt-1">
+            {STAGES.map((s, i) => {
+              const st = statuses[s.key as StageKey];
+              return (
+                <span key={i} className={cn(
+                  "h-1.5 rounded-full transition-all",
+                  reducedMotion ? "" : "duration-300",
+                  st === "done" ? "w-4 bg-primary" : st === "running" ? "w-3 bg-primary/60" : "w-1.5 bg-border",
+                )} />
+              );
+            })}
+          </div>
         </div>
       </div>
 
-      {/* Context card */}
+      {/* Context card — glassmorphism style */}
       {activeCard && (
         <div
           className={cn(
-            "w-full max-w-2xl rounded-2xl border border-border bg-card p-6 shadow-sm transition-opacity duration-400",
-            visible ? "opacity-100" : "opacity-0",
+            "w-full max-w-2xl rounded-2xl border border-border/80 bg-card/90 p-6 shadow-xl backdrop-blur-sm",
+            reducedMotion ? "opacity-100" : "transition-opacity duration-300",
+            reducedMotion ? "" : (fadeIn ? "opacity-100" : "opacity-0"),
           )}
+          aria-live="polite"
+          aria-atomic="true"
         >
-          <div className="mb-3 flex items-center gap-2">
-            <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-            <h4 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
+          {/* Card header */}
+          <div className="mb-4 flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-primary" aria-hidden="true" />
+            <h4 className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">
               {activeCard.title}
             </h4>
           </div>
-          {typeof activeCard.body === "string"
-            ? <p className="text-sm leading-relaxed text-foreground/80">{activeCard.body}</p>
-            : activeCard.body
-          }
-          {/* Card indicator dots */}
+
+          {activeCard.body}
+
+          {/* Dot pagination */}
           {cards.length > 1 && (
-            <div className="mt-4 flex justify-center gap-1.5">
+            <div className="mt-5 flex justify-center gap-1.5" role="tablist" aria-label="Context slides">
               {cards.map((_, i) => (
-                <span key={i} className={cn(
-                  "h-1.5 w-1.5 rounded-full transition-all",
-                  i === cardIndex ? "bg-primary" : "bg-border",
-                )} />
+                <button
+                  key={i}
+                  type="button"
+                  role="tab"
+                  aria-selected={i === cardIndex}
+                  aria-label={`Slide ${i + 1} of ${cards.length}`}
+                  onClick={() => { setCardIndex(i); setFadeIn(true); }}
+                  className={cn(
+                    "cursor-pointer rounded-full transition-all",
+                    reducedMotion ? "" : "duration-300",
+                    i === cardIndex
+                      ? "h-1.5 w-4 bg-primary"
+                      : "h-1.5 w-1.5 bg-border hover:bg-primary/50",
+                  )}
+                />
               ))}
             </div>
           )}

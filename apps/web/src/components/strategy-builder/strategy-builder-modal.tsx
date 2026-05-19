@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft, ArrowRight, Check, ChevronRight, Lock,
+  ArrowLeft, ArrowRight, BookOpen, Check, ChevronRight, Lock,
   Pencil, Play, Search, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -197,9 +197,19 @@ export interface StrategyBuilderModalProps {
   open: boolean;
   onClose: () => void;
   initialTemplate?: ResearchTemplate;
+  initialTemplateTickers?: string;
+  initialIdea?: string;
+  initialCustomTickers?: string;
 }
 
-export function StrategyBuilderModal({ open, onClose, initialTemplate }: StrategyBuilderModalProps) {
+export function StrategyBuilderModal({
+  open,
+  onClose,
+  initialTemplate,
+  initialTemplateTickers,
+  initialIdea,
+  initialCustomTickers,
+}: StrategyBuilderModalProps) {
   const router = useRouter();
 
   // ── State ──────────────────────────────────────────────────────────────────
@@ -220,24 +230,43 @@ export function StrategyBuilderModal({ open, onClose, initialTemplate }: Strateg
 
   // Reset when opened
   useEffect(() => {
-    if (open) {
+    if (!open) return;
+    const resetTimer = setTimeout(() => {
       if (initialTemplate) {
         setStep("template-brief");
         setSelectedTemplate(initialTemplate);
-        setTemplateTickers(initialTemplate.defaultTickers.join(", "));
+        setTemplateTickers(initialTemplateTickers?.trim() || initialTemplate.defaultTickers.join(", "));
+        setCustomIdeaText("");
+        setCustomCandidates([]);
+        setCustomConfig(DEFAULT_CUSTOM);
+      } else if (initialIdea?.trim()) {
+        const seededIdea = initialIdea.trim();
+        setStep("custom-2");
+        setSelectedTemplate(null);
+        setTemplateTickers("");
+        setCustomIdeaText(seededIdea);
+        setCustomCandidates(matchTemplates(seededIdea));
+        setCustomConfig({
+          ...DEFAULT_CUSTOM,
+          universe: initialCustomTickers?.trim() ? "custom" : DEFAULT_CUSTOM.universe,
+          customTickers: initialCustomTickers?.trim() ?? "",
+        });
       } else {
         setStep("launch");
         setSelectedTemplate(null);
         setTemplateTickers("");
         setCustomIdeaText("");
+        setCustomCandidates([]);
         setCustomConfig(DEFAULT_CUSTOM);
       }
       setTemplateDateRange("5Y");
       setStrategyName("");
       setCategoryFilter("All");
       setSearchQuery("");
-    }
-  }, [open, initialTemplate]);
+    }, 0);
+
+    return () => clearTimeout(resetTimer);
+  }, [open, initialTemplate, initialTemplateTickers, initialIdea, initialCustomTickers]);
 
   // Auto-focus name input when editing
   useEffect(() => {
@@ -280,7 +309,7 @@ export function StrategyBuilderModal({ open, onClose, initialTemplate }: Strateg
       "custom-3": "custom-2",
       "custom-4": "custom-3",
       "custom-5": "custom-4",
-      "preview": step === "template-universe" ? "template-universe" : "custom-5",
+      "preview": selectedTemplate ? "template-universe" : "custom-5",
     };
     // If we opened with an initialTemplate, back from brief → close
     if (step === "template-brief" && initialTemplate) { onClose(); return; }
@@ -291,6 +320,7 @@ export function StrategyBuilderModal({ open, onClose, initialTemplate }: Strateg
   function handleSelectTemplate(tmpl: ResearchTemplate) {
     setSelectedTemplate(tmpl);
     setTemplateTickers(tmpl.defaultTickers.join(", "));
+    setCustomConfig(DEFAULT_CUSTOM);
     setStep("template-brief");
   }
 
@@ -311,6 +341,7 @@ export function StrategyBuilderModal({ open, onClose, initialTemplate }: Strateg
   }
 
   function handleCustomTemplateSelect(tmpl: ResearchTemplate) {
+    setSelectedTemplate(null);
     setCustomConfig(c => ({ ...c, selectedTemplate: tmpl }));
     setStep("custom-3");
   }
@@ -319,31 +350,21 @@ export function StrategyBuilderModal({ open, onClose, initialTemplate }: Strateg
     const tmpl = customConfig.selectedTemplate;
     if (!tmpl) return;
     const name = `${tmpl.name} — Custom`;
+    setSelectedTemplate(null);
     setStrategyName(name);
     setStep("preview");
   }
 
   function handleRunBacktest() {
-    let strategyJson: StrategyJson | null = null;
-
-    if (selectedTemplate && (step === "preview" || true)) {
-      // Determine if we came from template or custom path
-      const isCustom = customConfig.selectedTemplate !== null && selectedTemplate === null;
-      if (isCustom) {
-        strategyJson = buildStrategyFromCustom({ ...customConfig }, strategyName);
-      } else if (selectedTemplate) {
-        strategyJson = buildStrategyFromTemplate(selectedTemplate, resolvedTickers(), templateDateRange, strategyName);
-      }
-    }
-
-    // Try custom path
-    if (!strategyJson && customConfig.selectedTemplate) {
-      strategyJson = buildStrategyFromCustom(customConfig, strategyName);
-    }
+    const template = selectedTemplate ?? customConfig.selectedTemplate;
+    const finalName = strategyName.trim() || template?.name || "Untitled Strategy";
+    const strategyJson = selectedTemplate
+      ? buildStrategyFromTemplate(selectedTemplate, resolvedTickers(), templateDateRange, finalName)
+      : buildStrategyFromCustom(customConfig, finalName);
 
     if (!strategyJson) return;
 
-    strategyJson.strategy_name = strategyName;
+    strategyJson.strategy_name = finalName;
     sessionStorage.setItem("pendingStrategy", JSON.stringify(strategyJson));
     onClose();
     router.push("/workspace?fromBuilder=true&autorun=true");
@@ -358,28 +379,40 @@ export function StrategyBuilderModal({ open, onClose, initialTemplate }: Strateg
 
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-background" role="dialog" aria-modal="true">
+    <div className="fixed inset-0 z-50 flex flex-col bg-background" role="dialog" aria-modal="true" aria-label="Strategy Builder">
       {/* Top bar */}
-      <div className="flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
+      <div className="relative flex h-14 shrink-0 items-center justify-between border-b border-border px-4">
         <div className="flex items-center gap-3">
           {step !== "launch" && (
             <button
               type="button"
               onClick={goBack}
-              className="cursor-pointer flex items-center gap-1.5 rounded-md px-2 py-1.5 text-sm text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+              aria-label="Go back"
+              className="cursor-pointer flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
             >
-              <ArrowLeft className="h-4 w-4" /> Back
+              <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back
             </button>
           )}
           <span className="font-heading text-base font-semibold">Strategy Builder</span>
         </div>
 
-        {/* Custom mode step dots */}
+        {/* Custom mode: labelled step progress bar */}
         {currentCustomStep > 0 && (
-          <div className="flex items-center gap-1.5">
-            {[1, 2, 3, 4, 5].map(n => (
-              <StepDot key={n} active={n === currentCustomStep} done={n < currentCustomStep} />
-            ))}
+          <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-2" aria-label={`Step ${currentCustomStep} of 5`}>
+            <span className="hidden text-xs text-muted-foreground sm:block">Step {currentCustomStep} / 5</span>
+            <div className="flex gap-1">
+              {[1, 2, 3, 4, 5].map(n => (
+                <div
+                  key={n}
+                  className={cn(
+                    "h-1.5 rounded-full transition-all duration-300",
+                    n < currentCustomStep  ? "w-5 bg-primary" :
+                    n === currentCustomStep ? "w-5 bg-primary/70" :
+                                             "w-2.5 bg-border",
+                  )}
+                />
+              ))}
+            </div>
           </div>
         )}
 
@@ -387,9 +420,9 @@ export function StrategyBuilderModal({ open, onClose, initialTemplate }: Strateg
           type="button"
           onClick={onClose}
           aria-label="Close strategy builder"
-          className="cursor-pointer rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          className="cursor-pointer rounded-lg p-2 text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
         >
-          <X className="h-5 w-5" />
+          <X className="h-5 w-5" aria-hidden="true" />
         </button>
       </div>
 
@@ -398,39 +431,53 @@ export function StrategyBuilderModal({ open, onClose, initialTemplate }: Strateg
 
         {/* ── LAUNCH ────────────────────────────────────────────────────── */}
         {step === "launch" && (
-          <div className="mx-auto flex min-h-full max-w-2xl flex-col items-center justify-center gap-8 px-6 py-16">
-            <div className="text-center">
-              <h2 className="font-heading text-3xl font-bold">Build a strategy</h2>
-              <p className="mt-2 text-muted-foreground">Start from a proven template or describe your own idea step by step.</p>
+          <div className="mx-auto flex min-h-full max-w-2xl flex-col items-center justify-center gap-10 px-6 py-16">
+            <div className="text-center space-y-2">
+              <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/8 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-primary">
+                Strategy Builder
+              </div>
+              <h2 className="font-heading text-3xl font-bold tracking-tight">Build a strategy</h2>
+              <p className="text-muted-foreground">Start from a proven template or describe your own idea step by step.</p>
             </div>
+
             <div className="grid w-full gap-4 sm:grid-cols-2">
+              {/* Template card */}
               <button
                 type="button"
                 onClick={() => setStep("template-pick")}
-                className="cursor-pointer group rounded-2xl border-2 border-border bg-card p-6 text-left transition-all duration-200 hover:border-primary hover:shadow-md"
+                className="cursor-pointer group relative overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-primary/5 via-card to-card p-6 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
-                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
+                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
+                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 transition-colors duration-200 group-hover:bg-primary/15">
                   <BookOpenIcon className="h-5 w-5 text-primary" />
                 </div>
                 <h3 className="font-heading text-lg font-semibold">Use a Template</h3>
-                <p className="mt-1 text-sm text-muted-foreground">Start from a proven quant framework with full academic context.</p>
-                <div className="mt-4 flex items-center gap-1 text-xs font-medium text-primary">
-                  Browse templates <ChevronRight className="h-3.5 w-3.5" />
+                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+                  Start from a proven quant framework with full academic context and evidence ratings.
+                </p>
+                <div className="mt-5 flex items-center gap-1.5 text-sm font-medium text-primary">
+                  Browse templates
+                  <ChevronRight className="h-4 w-4 transition-transform duration-150 group-hover:translate-x-0.5" aria-hidden="true" />
                 </div>
               </button>
 
+              {/* Custom card */}
               <button
                 type="button"
                 onClick={() => setStep("custom-1")}
-                className="cursor-pointer group rounded-2xl border-2 border-border bg-card p-6 text-left transition-all duration-200 hover:border-primary hover:shadow-md"
+                className="cursor-pointer group relative overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-muted/40 via-card to-card p-6 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
               >
-                <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-xl bg-primary/10">
-                  <PencilIcon className="h-5 w-5 text-primary" />
+                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
+                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-muted/50 transition-colors duration-200 group-hover:border-primary/20 group-hover:bg-primary/8">
+                  <PencilIcon className="h-5 w-5 text-muted-foreground transition-colors duration-200 group-hover:text-primary" />
                 </div>
                 <h3 className="font-heading text-lg font-semibold">Describe My Idea</h3>
-                <p className="mt-1 text-sm text-muted-foreground">Walk through 5 steps — we&apos;ll map your idea to the right strategy framework.</p>
-                <div className="mt-4 flex items-center gap-1 text-xs font-medium text-primary">
-                  Start building <ChevronRight className="h-3.5 w-3.5" />
+                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
+                  Walk through 5 guided steps — we&apos;ll map your idea to the right strategy type and parameters.
+                </p>
+                <div className="mt-5 flex items-center gap-1.5 text-sm font-medium text-muted-foreground group-hover:text-primary transition-colors duration-150">
+                  Start building
+                  <ChevronRight className="h-4 w-4 transition-transform duration-150 group-hover:translate-x-0.5" aria-hidden="true" />
                 </div>
               </button>
             </div>
@@ -478,23 +525,23 @@ export function StrategyBuilderModal({ open, onClose, initialTemplate }: Strateg
                   key={tmpl.id}
                   type="button"
                   onClick={() => handleSelectTemplate(tmpl)}
-                  className="cursor-pointer group rounded-xl border border-border bg-card p-4 text-left transition-all duration-200 hover:border-primary/50 hover:shadow-md"
+                  className="cursor-pointer group rounded-xl border border-border bg-card p-4 text-left transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                 >
                   <div className="flex items-start justify-between gap-2">
                     <span className={cn("rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide", CAT_COLOR[tmpl.category] ?? "border-border text-muted-foreground")}>
                       {tmpl.category}
                     </span>
                     {tmpl.evidenceTier && (
-                      <span className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground">
-                        <span className={cn("h-1.5 w-1.5 rounded-full", EVIDENCE_DOT[tmpl.evidenceTier] ?? "bg-border")} />
+                      <span className="flex items-center gap-1 text-[10px] font-semibold text-muted-foreground" title={`Evidence tier ${tmpl.evidenceTier}`}>
+                        <span className={cn("h-1.5 w-1.5 rounded-full", EVIDENCE_DOT[tmpl.evidenceTier] ?? "bg-border")} aria-hidden="true" />
                         {tmpl.evidenceTier}
                       </span>
                     )}
                   </div>
-                  <h3 className="font-heading mt-2.5 text-sm font-semibold group-hover:text-primary transition-colors">{tmpl.name}</h3>
+                  <h3 className="font-heading mt-2.5 text-sm font-semibold transition-colors duration-150 group-hover:text-primary">{tmpl.name}</h3>
                   <p className="mt-1 text-xs leading-relaxed text-muted-foreground line-clamp-2">{tmpl.description}</p>
-                  <div className="mt-3 flex items-center gap-1 text-xs font-medium text-primary opacity-0 transition-opacity group-hover:opacity-100">
-                    View strategy brief <ArrowRight className="h-3 w-3" />
+                  <div className="mt-3 flex items-center gap-1 text-xs font-medium text-primary opacity-0 transition-all duration-150 group-hover:opacity-100 group-hover:translate-x-0.5">
+                    View strategy brief <ArrowRight className="h-3 w-3" aria-hidden="true" />
                   </div>
                 </button>
               ))}
@@ -537,32 +584,42 @@ export function StrategyBuilderModal({ open, onClose, initialTemplate }: Strateg
           <div className="mx-auto max-w-xl px-6 py-12">
             <h2 className="font-heading text-2xl font-bold">What are you trading?</h2>
             <p className="mt-1 text-muted-foreground text-sm">Skip to use S&P 500 stocks by default — you can always change this later.</p>
-            <div className="mt-6 grid gap-3">
+            <div className="mt-6 grid gap-2.5">
               {[
-                { id: "sp500",      label: "S&P 500 Stocks",    desc: "500 large-cap US companies" },
-                { id: "nasdaq100",  label: "Nasdaq 100",         desc: "Top 100 tech-heavy US stocks" },
-                { id: "russell1000",label: "Russell 1000",       desc: "1000 large & mid-cap US stocks" },
-                { id: "commodities",label: "Commodities",        desc: "Gold, oil, agricultural ETF proxies" },
-                { id: "custom",     label: "Specific tickers…",  desc: "Enter your own list" },
-              ].map(opt => (
+                { id: "sp500",       label: "S&P 500 Stocks",   desc: "500 large-cap US companies" },
+                { id: "nasdaq100",   label: "Nasdaq 100",        desc: "Top 100 tech-heavy US stocks" },
+                { id: "russell1000", label: "Russell 1000",      desc: "1000 large & mid-cap US stocks" },
+                { id: "commodities", label: "Commodities",       desc: "Gold, oil, agricultural ETF proxies" },
+                { id: "custom",      label: "Specific tickers…", desc: "Enter your own list" },
+              ].map(opt => {
+                const selected = customConfig.universe === opt.id;
+                return (
                 <button
                   key={opt.id}
                   type="button"
                   onClick={() => setCustomConfig(c => ({ ...c, universe: opt.id }))}
+                  aria-pressed={selected}
                   className={cn(
-                    "cursor-pointer flex items-center justify-between rounded-xl border p-4 text-left transition-all",
-                    customConfig.universe === opt.id
-                      ? "border-primary bg-primary/5 ring-1 ring-primary"
-                      : "border-border hover:border-primary/40",
+                    "cursor-pointer flex items-center justify-between rounded-xl border p-4 text-left transition-all duration-150",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                    selected
+                      ? "border-primary bg-primary/8 ring-1 ring-primary shadow-sm"
+                      : "border-border hover:border-primary/40 hover:bg-muted/30",
                   )}
                 >
                   <div>
-                    <div className="font-medium">{opt.label}</div>
+                    <div className={cn("font-medium transition-colors duration-150", selected ? "text-primary" : "")}>{opt.label}</div>
                     <div className="text-xs text-muted-foreground">{opt.desc}</div>
                   </div>
-                  {customConfig.universe === opt.id && <Check className="h-4 w-4 text-primary" />}
+                  <div className={cn(
+                    "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-150",
+                    selected ? "border-primary bg-primary text-primary-foreground" : "border-border",
+                  )}>
+                    {selected && <Check className="h-3 w-3" aria-hidden="true" />}
+                  </div>
                 </button>
-              ))}
+                );
+              })}
             </div>
             {customConfig.universe === "custom" && (
               <div className="mt-4 space-y-1">
@@ -594,7 +651,7 @@ export function StrategyBuilderModal({ open, onClose, initialTemplate }: Strateg
             <textarea
               value={customIdeaText}
               onChange={e => setCustomIdeaText(e.target.value)}
-              placeholder={'e.g. "I want to buy stocks that have been rising for the past year and sell the losers"'}
+              placeholder="e.g. I want to buy stocks rising for the past year and rotate out of losers"
               rows={4}
               className="mt-5 w-full rounded-xl border border-border bg-background px-4 py-3 text-sm leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary resize-none"
             />
@@ -705,26 +762,31 @@ export function StrategyBuilderModal({ open, onClose, initialTemplate }: Strateg
             <h2 className="font-heading text-2xl font-bold">How long will you hold each position?</h2>
             <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
               {([
-                { label: "Daily",    value: "daily"    as RebalanceFrequency, desc: "Rebalance every day" },
-                { label: "Weekly",   value: "weekly"   as RebalanceFrequency, desc: "Rebalance each week" },
-                { label: "Monthly",  value: "monthly"  as RebalanceFrequency, desc: "Rebalance each month" },
-                { label: "Quarterly",value: "quarterly"as RebalanceFrequency, desc: "Rebalance each quarter" },
-              ]).map(opt => (
+                { label: "Daily",     value: "daily"     as RebalanceFrequency, desc: "Every day" },
+                { label: "Weekly",    value: "weekly"    as RebalanceFrequency, desc: "Each week" },
+                { label: "Monthly",   value: "monthly"   as RebalanceFrequency, desc: "Each month" },
+                { label: "Quarterly", value: "quarterly" as RebalanceFrequency, desc: "Each quarter" },
+              ]).map(opt => {
+                const selected = customConfig.holdPeriod === opt.value;
+                return (
                 <button
                   key={opt.value}
                   type="button"
                   onClick={() => setCustomConfig(c => ({ ...c, holdPeriod: opt.value }))}
+                  aria-pressed={selected}
                   className={cn(
-                    "cursor-pointer rounded-xl border p-4 text-center transition-all",
-                    customConfig.holdPeriod === opt.value
-                      ? "border-primary bg-primary/5 ring-1 ring-primary"
-                      : "border-border hover:border-primary/40",
+                    "cursor-pointer rounded-xl border p-4 text-center transition-all duration-150",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                    selected
+                      ? "border-primary bg-primary/8 ring-1 ring-primary shadow-sm"
+                      : "border-border hover:border-primary/40 hover:bg-muted/20",
                   )}
                 >
-                  <div className="font-semibold">{opt.label}</div>
+                  <div className={cn("font-semibold transition-colors duration-150", selected ? "text-primary" : "")}>{opt.label}</div>
                   <div className="mt-1 text-xs text-muted-foreground">{opt.desc}</div>
                 </button>
-              ))}
+                );
+              })}
             </div>
             <div className="mt-6">
               <NumberInput
@@ -748,21 +810,26 @@ export function StrategyBuilderModal({ open, onClose, initialTemplate }: Strateg
             <h2 className="font-heading text-2xl font-bold">Time period &amp; starting capital</h2>
             <p className="mt-1 text-sm text-muted-foreground">How far back should the backtest go?</p>
             <div className="mt-5 flex gap-3">
-              {(["3Y", "5Y", "10Y"] as const).map(range => (
+              {(["3Y", "5Y", "10Y"] as const).map(range => {
+                const selected = customConfig.dateRange === range;
+                return (
                 <button
                   key={range}
                   type="button"
                   onClick={() => setCustomConfig(c => ({ ...c, dateRange: range }))}
+                  aria-pressed={selected}
                   className={cn(
-                    "cursor-pointer flex-1 rounded-xl border py-3 text-center font-semibold transition-all",
-                    customConfig.dateRange === range
-                      ? "border-primary bg-primary/5 ring-1 ring-primary text-primary"
-                      : "border-border hover:border-primary/40",
+                    "cursor-pointer flex-1 rounded-xl border py-3 text-center font-semibold transition-all duration-150",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                    selected
+                      ? "border-primary bg-primary/8 ring-1 ring-primary text-primary shadow-sm"
+                      : "border-border hover:border-primary/40 hover:bg-muted/20",
                   )}
                 >
                   {range}
                 </button>
-              ))}
+                );
+              })}
             </div>
             <div className="mt-6 grid gap-4 sm:grid-cols-2">
               <NumberInput
@@ -872,21 +939,26 @@ function UniverseStep({
       <div className="space-y-2">
         <label className="text-xs font-medium text-muted-foreground">How far back should we test?</label>
         <div className="flex gap-3">
-          {(["3Y", "5Y", "10Y"] as const).map(r => (
+          {(["3Y", "5Y", "10Y"] as const).map(r => {
+            const sel = dateRange === r;
+            return (
             <button
               key={r}
               type="button"
               onClick={() => onDateRangeChange(r)}
+              aria-pressed={sel}
               className={cn(
-                "cursor-pointer flex-1 rounded-xl border py-2.5 text-center font-semibold transition-all text-sm",
-                dateRange === r
-                  ? "border-primary bg-primary/5 ring-1 ring-primary text-primary"
-                  : "border-border hover:border-primary/40",
+                "cursor-pointer flex-1 rounded-xl border py-2.5 text-center text-sm font-semibold transition-all duration-150",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                sel
+                  ? "border-primary bg-primary/8 ring-1 ring-primary text-primary shadow-sm"
+                  : "border-border hover:border-primary/40 hover:bg-muted/20",
               )}
             >
               {r}
             </button>
-          ))}
+            );
+          })}
         </div>
       </div>
 
@@ -981,29 +1053,33 @@ function PreviewStep({
       </div>
 
       <div className="mt-6 flex gap-3">
-        <Button variant="outline" onClick={onEdit} className="gap-2">
-          <ArrowLeft className="h-4 w-4" /> Edit
+        <Button variant="outline" onClick={onEdit} className="gap-2 focus-visible:ring-2 focus-visible:ring-primary">
+          <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Edit
         </Button>
-        <Button onClick={onRunBacktest} size="lg" className="flex-1 gap-2">
-          <Play className="h-4 w-4" /> Run Backtest
+        <Button onClick={onRunBacktest} size="lg" className="flex-1 gap-2 focus-visible:ring-2 focus-visible:ring-primary">
+          <Play className="h-4 w-4" aria-hidden="true" /> Run Backtest
         </Button>
       </div>
     </div>
   );
 }
 
-// ── Inline icon stubs (avoids extra imports) ──────────────────────────────────
+// ── Inline icon stubs ─────────────────────────────────────────────────────────
+
 function BookOpenIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" /><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z" />
+      <path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z" />
     </svg>
   );
 }
+
 function PencilIcon({ className }: { className?: string }) {
   return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round">
-      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" /><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
     </svg>
   );
 }

@@ -392,24 +392,36 @@ export function ResearchWorkspace() {
         {/* ── Results — top section ────────────────────────────────────── */}
         {backtestResult && !isRunning && (
           <>
-            {/* Metric cards */}
+            {/* Metric cards — semantic left-border accent */}
             <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
               {[
-                { label: "Total Return",     value: formatPercent(backtestResult.metrics.total_return),             raw: backtestResult.metrics.total_return,             type: "pnl" as const },
-                { label: "Ann. Return",      value: formatPercent(backtestResult.metrics.annualized_return),        raw: backtestResult.metrics.annualized_return,        type: "pnl" as const },
-                { label: "Sharpe",           value: backtestResult.metrics.sharpe_ratio.toFixed(2),                 raw: backtestResult.metrics.sharpe_ratio,             type: "ratio" as const },
-                { label: "Max Drawdown",     value: formatPercent(backtestResult.metrics.max_drawdown),             raw: backtestResult.metrics.max_drawdown,             type: "loss" as const },
-                { label: "Win Rate",         value: formatPercent(backtestResult.metrics.win_rate),                 raw: backtestResult.metrics.win_rate,                 type: "pct" as const },
-                { label: "vs Benchmark",     value: formatPercent(backtestResult.metrics.excess_return_vs_benchmark), raw: backtestResult.metrics.excess_return_vs_benchmark, type: "pnl" as const },
+                { label: "Total Return",  value: formatPercent(backtestResult.metrics.total_return),                   raw: backtestResult.metrics.total_return,                   type: "pnl"   as const },
+                { label: "Ann. Return",   value: formatPercent(backtestResult.metrics.annualized_return),               raw: backtestResult.metrics.annualized_return,               type: "pnl"   as const },
+                { label: "Sharpe",        value: backtestResult.metrics.sharpe_ratio.toFixed(2),                        raw: backtestResult.metrics.sharpe_ratio,                    type: "ratio" as const },
+                { label: "Max Drawdown",  value: formatPercent(backtestResult.metrics.max_drawdown),                    raw: backtestResult.metrics.max_drawdown,                    type: "loss"  as const },
+                { label: "Win Rate",      value: formatPercent(backtestResult.metrics.win_rate),                        raw: backtestResult.metrics.win_rate,                        type: "pct"   as const },
+                { label: "vs Benchmark",  value: formatPercent(backtestResult.metrics.excess_return_vs_benchmark),      raw: backtestResult.metrics.excess_return_vs_benchmark,      type: "pnl"   as const },
               ].map(({ label, value, raw, type }) => {
                 const isLoss = type === "loss";
-                const isPos = raw > 0; const isNeg = raw < 0;
-                const valueColor = isLoss ? "text-[var(--loss)]" : isPos ? "text-[var(--profit)]" : isNeg ? "text-[var(--loss)]" : "text-foreground";
-                const borderColor = isLoss ? "border-[var(--loss)]/20" : isPos ? "border-[var(--profit)]/20" : isNeg ? "border-[var(--loss)]/20" : "border-border";
+                const isPos = raw > 0;
+                const isNeg = raw < 0;
+                const valueColor = isLoss
+                  ? "text-[var(--loss)]"
+                  : isPos ? "text-[var(--profit)]"
+                  : isNeg ? "text-[var(--loss)]"
+                  : "text-foreground";
+                const accentBorder = isLoss
+                  ? "border-l-rose-500/60"
+                  : isPos ? "border-l-emerald-500/60"
+                  : isNeg ? "border-l-rose-500/60"
+                  : "border-l-border";
                 return (
-                  <div key={label} className={cn("rounded-xl border bg-card px-4 py-3", borderColor)}>
-                    <div className="text-xs text-muted-foreground">{label}</div>
-                    <div className={cn("mt-1.5 font-mono text-xl font-bold", valueColor)}>{value}</div>
+                  <div key={label} className={cn(
+                    "rounded-xl border border-border bg-card px-4 py-3 border-l-4 transition-shadow duration-150 hover:shadow-sm",
+                    accentBorder,
+                  )}>
+                    <div className="text-xs font-medium text-muted-foreground">{label}</div>
+                    <div className={cn("mt-1.5 font-mono text-xl font-bold tracking-tight", valueColor)}>{value}</div>
                   </div>
                 );
               })}
@@ -454,14 +466,17 @@ export function ResearchWorkspace() {
                   </TableHeader>
                   <TableBody>
                     {backtestResult.trade_log.map((trade, idx) => (
-                      <TableRow key={`${trade.symbol}-${trade.entry_date}-${idx}`}>
-                        <TableCell className="font-mono text-xs">{trade.symbol}</TableCell>
-                        <TableCell className="text-xs">{trade.entry_date}</TableCell>
-                        <TableCell className="text-xs">{trade.exit_date}</TableCell>
-                        <TableCell className={cn("text-right text-xs font-mono", trade.return_pct >= 0 ? "text-[var(--profit)]" : "text-[var(--loss)]")}>
+                      <TableRow
+                        key={`${trade.symbol}-${trade.entry_date}-${idx}`}
+                        className="cursor-default transition-colors duration-100 hover:bg-muted/40"
+                      >
+                        <TableCell className="font-mono text-xs font-semibold">{trade.symbol}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{trade.entry_date}</TableCell>
+                        <TableCell className="text-xs text-muted-foreground">{trade.exit_date}</TableCell>
+                        <TableCell className={cn("text-right text-xs font-mono font-semibold", trade.return_pct >= 0 ? "text-[var(--profit)]" : "text-[var(--loss)]")}>
                           {formatPercent(trade.return_pct)}
                         </TableCell>
-                        <TableCell className="text-right text-xs">{trade.holding_period_days}</TableCell>
+                        <TableCell className="text-right text-xs text-muted-foreground">{trade.holding_period_days}d</TableCell>
                       </TableRow>
                     ))}
                   </TableBody>
