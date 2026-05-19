@@ -15,6 +15,7 @@ export function UpvoteButton({ slug }: UpvoteButtonProps) {
   const [count, setCount] = useState(0);
   const [upvoted, setUpvoted] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     getUpvotes(slug, session?.user?.id)
@@ -25,11 +26,14 @@ export function UpvoteButton({ slug }: UpvoteButtonProps) {
   const handle = async () => {
     if (!session?.user) { signIn("google"); return; }
     setLoading(true);
+    setError(false);
     try {
       const r = await toggleUpvote(slug);
       setCount(r.upvote_count);
       setUpvoted(r.user_upvoted);
-    } catch {/* silent */}
+    } catch {
+      setError(true);
+    }
     finally { setLoading(false); }
   };
 
@@ -39,15 +43,17 @@ export function UpvoteButton({ slug }: UpvoteButtonProps) {
       disabled={loading}
       className={cn(
         "flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-all",
-        upvoted
+        error
+          ? "border-red-200 bg-red-50 text-red-600"
+          : upvoted
           ? "border-primary bg-primary/10 text-primary"
           : "border-border bg-white text-muted-foreground hover:border-primary/40 hover:text-primary"
       )}
-      title={session?.user ? (upvoted ? "Remove upvote" : "Upvote this strategy") : "Sign in to upvote"}
+      title={error ? "Unable to update upvote. Try again." : session?.user ? (upvoted ? "Remove upvote" : "Upvote this strategy") : "Sign in to upvote"}
     >
       <ThumbsUp className="h-3.5 w-3.5" />
       {count > 0 && <span>{count}</span>}
-      <span>{upvoted ? "Upvoted" : "Upvote"}</span>
+      <span>{error ? "Retry" : upvoted ? "Upvoted" : "Upvote"}</span>
     </button>
   );
 }

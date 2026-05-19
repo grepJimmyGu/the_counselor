@@ -109,13 +109,11 @@ export function NavHeader() {
   const [mobileOpen, setMobileOpen] = useState(false);
 
   const NAV_LINKS = [
-    { href: "/",                  label: t.navHome,       match: (p: string) => p === "/" },
-    { href: "/stocks",            label: "Market",        match: (p: string) => p.startsWith("/stocks") },
-    { href: "/commodities/GOLD",  label: "Commodities",   match: (p: string) => p.startsWith("/commodities") },
-    { href: "/sentiment",         label: "Sentiment",     match: (p: string) => p.startsWith("/sentiment") },
-    { href: "/workspace",         label: t.navWorkspace,  match: (p: string) => p.startsWith("/workspace") },
-    { href: "/community",         label: "Community",     match: (p: string) => p.startsWith("/community") },
-    { href: "/templates",         label: t.navTemplates,  match: (p: string) => p.startsWith("/templates") },
+    { href: "/",           label: t.navHome,          match: (p: string) => p === "/" },
+    { href: "/stocks",     label: "Market Pulse",     match: (p: string) => p.startsWith("/stocks") || p.startsWith("/commodities") },
+    { href: "/sentiment",  label: "Sentiment",        match: (p: string) => p.startsWith("/sentiment") },
+    { href: "/community",  label: "Community",        match: (p: string) => p.startsWith("/community") },
+    { href: "/templates",  label: "Strategy Builder", match: (p: string) => p.startsWith("/templates") || p.startsWith("/workspace") },
   ] as const;
 
   return (

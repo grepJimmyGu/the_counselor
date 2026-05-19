@@ -16,6 +16,7 @@ export function VoteBar({ symbol, compact = false }: VoteBarProps) {
   const { data: session } = useSession();
   const [summary, setSummary] = useState<VoteSummary | null>(null);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     getVotes(symbol, session?.user?.id)
@@ -26,13 +27,16 @@ export function VoteBar({ symbol, compact = false }: VoteBarProps) {
   const handleVote = async (vote: "bull" | "bear" | "hold") => {
     if (!session?.user) { signIn("google"); return; }
     setLoading(true);
+    setError(null);
     try {
       const isSame = summary?.user_vote === vote;
       const updated = isSame
         ? await removeVote(symbol)
         : await castVote(symbol, vote);
       setSummary(updated as VoteSummary);
-    } catch {/* silent */}
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to save vote.");
+    }
     finally { setLoading(false); }
   };
 
@@ -116,6 +120,12 @@ export function VoteBar({ symbol, compact = false }: VoteBarProps) {
           );
         })}
       </div>
+
+      {error && (
+        <p className="text-center text-[10px] text-red-600" role="status">
+          {error}
+        </p>
+      )}
 
       {/* Bar */}
       {total > 0 && (

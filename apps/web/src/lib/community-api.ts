@@ -21,7 +21,7 @@ import type {
 
 // ── Read (public, direct FastAPI calls) ──────────────────────────────────────
 
-const API = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
+const API = process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8001";
 
 async function get<T>(path: string): Promise<T> {
   const res = await fetch(`${API}${path}`, { cache: "no-store" });

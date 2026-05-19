@@ -4,7 +4,6 @@ import { useEffect, useRef, useState } from "react";
 import { useSession, signIn } from "next-auth/react";
 import { MessageSquare, Send, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { getComments, addComment, deleteComment } from "@/lib/community-api";
 import type { CommentResponse } from "@/lib/contracts";
 
@@ -27,6 +26,7 @@ export function CommentsSection({ slug }: CommentsSectionProps) {
   const [comments, setComments] = useState<CommentResponse[]>([]);
   const [content, setContent] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
@@ -37,11 +37,14 @@ export function CommentsSection({ slug }: CommentsSectionProps) {
     e.preventDefault();
     if (!content.trim() || submitting) return;
     setSubmitting(true);
+    setError(null);
     try {
       const comment = await addComment(slug, content.trim());
       setComments((prev) => [comment, ...prev]);
       setContent("");
-    } catch {/* silent */}
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to post comment.");
+    }
     finally { setSubmitting(false); }
   };
 
@@ -49,7 +52,9 @@ export function CommentsSection({ slug }: CommentsSectionProps) {
     try {
       await deleteComment(id);
       setComments((prev) => prev.filter((c) => c.id !== id));
-    } catch {/* silent */}
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Unable to delete comment.");
+    }
   };
 
   return (
@@ -87,6 +92,12 @@ export function CommentsSection({ slug }: CommentsSectionProps) {
           </button>{" "}
           to join the discussion
         </div>
+      )}
+
+      {error && (
+        <p className="text-xs text-red-600" role="status">
+          {error}
+        </p>
       )}
 
       {/* Comments list */}

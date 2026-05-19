@@ -18,6 +18,7 @@ export function WatchlistButton({ symbol, size = "sm", className }: WatchlistBut
   const [inWatchlist, setInWatchlist] = useState(false);
   const [loading, setLoading] = useState(false);
   const [checked, setChecked] = useState(false);
+  const [error, setError] = useState(false);
 
   useEffect(() => {
     if (!session?.user) return;
@@ -43,6 +44,7 @@ export function WatchlistButton({ symbol, size = "sm", className }: WatchlistBut
 
   const toggle = async () => {
     setLoading(true);
+    setError(false);
     try {
       if (inWatchlist) {
         await removeFromWatchlist(symbol);
@@ -52,7 +54,7 @@ export function WatchlistButton({ symbol, size = "sm", className }: WatchlistBut
         setInWatchlist(true);
       }
     } catch {
-      /* silent */
+      setError(true);
     } finally {
       setLoading(false);
     }
@@ -65,12 +67,12 @@ export function WatchlistButton({ symbol, size = "sm", className }: WatchlistBut
       className={cn("gap-1.5", className)}
       onClick={toggle}
       disabled={loading || !checked}
-      title={inWatchlist ? "Remove from watchlist" : "Add to watchlist"}
+      title={error ? "Unable to update watchlist. Try again." : inWatchlist ? "Remove from watchlist" : "Add to watchlist"}
     >
       {inWatchlist
         ? <BookmarkCheck className="h-3.5 w-3.5" />
         : <Bookmark className="h-3.5 w-3.5" />}
-      {inWatchlist ? "Watching" : "Watchlist"}
+      {error ? "Try again" : inWatchlist ? "Watching" : "Watchlist"}
     </Button>
   );
 }

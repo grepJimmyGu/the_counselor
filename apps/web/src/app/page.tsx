@@ -7,9 +7,8 @@ import {
   Bot,
   FileSearch,
   Newspaper,
-  Search,
-  ShieldCheck,
   TrendingUp,
+  Users,
   Zap,
 } from "lucide-react";
 import type { Route } from "next";
@@ -20,30 +19,30 @@ import { StrategyTeaser } from "@/components/home/strategy-teaser";
 import { CapabilityGlossary } from "@/components/home/capability-glossary";
 import { researchTemplates } from "@/lib/contracts";
 
-// ── Three research pillars ────────────────────────────────────────────────────
+// ── Three main pillars ────────────────────────────────────────────────────────
 
 const PILLARS = [
   {
-    icon: Search,
-    label: "Market Pulse & Stock Analysis",
+    icon: BarChart2,
+    label: "Market Pulse",
     color: "text-blue-500",
     bg: "bg-blue-50 border-blue-200",
     description:
-      "Track sector capital flow using Chaikin Money Flow, monitor index performance, and drill into any stock for a 3-question evaluation: Health, Valuation, and Trend.",
-    cta: "Market Pulse",
+      "Track sector capital flow via Chaikin Money Flow, monitor index performance, and drill into any stock, ETF, or commodity with Health · Valuation · Trend scores.",
+    cta: "Open Market Pulse",
     href: "/stocks",
-    features: ["Sector capital flow (CMF)", "Health · Valuation · Trend scores", "Business model + market position"],
+    features: ["Sector capital flow (CMF-20)", "Health · Valuation · Trend scores", "ETF sector rotation view", "Commodities & macro signals"],
   },
   {
-    icon: Newspaper,
-    label: "News & Sentiment",
+    icon: Users,
+    label: "Community",
     color: "text-purple-500",
     bg: "bg-purple-50 border-purple-200",
     description:
-      "AI-powered news catalyst analysis with 7 pre-built research toolkits. Identify stocks with meaningful catalysts, rising attention, or headline risks before they move.",
-    cta: "View Sentiment Hub",
-    href: "/sentiment",
-    features: ["Catalyst type & materiality", "9-score signal framework", "7 pre-built toolkits"],
+      "Discover strategies from other researchers, fork what fits your thesis, and share your backtests. Community leaderboards rank by risk-adjusted returns.",
+    cta: "View Community",
+    href: "/community",
+    features: ["Strategy sharing & forking", "Performance leaderboards", "Discussion & commentary", "Follow top researchers"],
   },
   {
     icon: Bot,
@@ -51,10 +50,10 @@ const PILLARS = [
     color: "text-primary",
     bg: "bg-primary/5 border-primary/20",
     description:
-      "Describe a trading idea in plain language. The AI parser converts it to a validated backtest, then an independent reviewer pushes back on overfit risk.",
-    cta: "Open Workspace",
-    href: "/workspace",
-    features: ["Natural language → strategy JSON", "Deterministic backtester", "AI explainer + sandbox review"],
+      "Choose from 11 pre-built quant templates or describe a trading idea in plain language. The AI parser converts it to a validated backtest — no coding required.",
+    cta: "Open Strategy Builder",
+    href: "/templates",
+    features: ["11 quant strategy templates", "Natural language → strategy JSON", "Deterministic backtester", "Evidence-tier classification"],
   },
 ];
 
@@ -62,28 +61,28 @@ const PILLARS = [
 
 const HOW_IT_WORKS = [
   {
-    icon: Search,
-    step: "01",
-    title: "Screen & Discover",
-    desc: "Track sector capital flow, monitor index performance, and evaluate any stock across Health, Valuation, and Trend — plus commodities with physical market signals.",
-  },
-  {
     icon: BarChart2,
-    step: "02",
-    title: "Analyze the Fundamentals",
-    desc: "Drill into any ticker for financial health scores — revenue growth, margins, cash flow, balance sheet strength, and valuation risk.",
+    step: "01",
+    title: "Screen with Market Pulse",
+    desc: "Track sector capital flow, evaluate any stock across Health, Valuation, and Trend, and spot macro shifts with ETF and commodity signals.",
   },
   {
     icon: Newspaper,
-    step: "03",
+    step: "02",
     title: "Read the News Signals",
     desc: "AI extracts catalyst type, sentiment trend, and signal quality from recent news. See what's driving attention and whether it's material.",
   },
   {
+    icon: Users,
+    step: "03",
+    title: "Discover & Fork Strategies",
+    desc: "Browse community strategies, fork ones that match your thesis, and see what's working for other researchers in real backtests.",
+  },
+  {
     icon: Bot,
     step: "04",
-    title: "Build & Stress-Test a Strategy",
-    desc: "Describe a rules-based strategy in plain English. Run a deterministic backtest, then apply parameter sensitivity and sub-period stress tests.",
+    title: "Build & Stress-Test",
+    desc: "Choose a quant template or describe a trading idea in plain English. Run a deterministic backtest, then review metrics and equity curve.",
   },
 ];
 
@@ -107,14 +106,13 @@ export default function HomePage() {
             </div>
             <h1 className="font-heading mt-4 text-4xl font-bold leading-tight tracking-tight lg:text-5xl">
               Market Pulse.{" "}
-              <span className="text-primary">Read the Signals.</span>
+              <span className="text-primary">Community.</span>
               <br />
-              Build Strategies.
+              Strategy Builder.
             </h1>
             <p className="mt-5 text-lg leading-relaxed text-muted-foreground">
-              Three research lenses in one platform — fundamental analysis, news &amp; sentiment signals,
-              and rules-based strategy backtesting. No live trading, no AI recommendations.
-              Just data-driven research tools.
+              One platform for market research, collaborative strategy discovery, and rules-based
+              backtesting. No live trading, no AI recommendations — just data-driven tools.
             </p>
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
               <Button asChild size="lg" className="rounded-xl px-6">
@@ -123,13 +121,13 @@ export default function HomePage() {
                 </Link>
               </Button>
               <Button asChild variant="outline" size="lg" className="rounded-xl px-6">
-                <Link href={"/sentiment" as Route}>
-                  <Newspaper className="mr-2 h-4 w-4" />
-                  News & Sentiment
+                <Link href={"/community" as Route}>
+                  <Users className="mr-2 h-4 w-4" />
+                  Community
                 </Link>
               </Button>
               <Button asChild variant="outline" size="lg" className="rounded-xl px-6">
-                <Link href={"/workspace" as Route}>
+                <Link href={"/templates" as Route}>
                   Strategy Builder
                 </Link>
               </Button>
@@ -156,8 +154,8 @@ export default function HomePage() {
         {/* ── Three Research Pillars ────────────────────────────────────── */}
         <section className="space-y-6">
           <div className="text-center">
-            <h2 className="font-heading text-2xl font-bold">Three Research Lenses</h2>
-            <p className="mt-2 text-muted-foreground">Each lens answers a different question before you invest</p>
+            <h2 className="font-heading text-2xl font-bold">Three Ways to Research</h2>
+            <p className="mt-2 text-muted-foreground">Each pillar answers a different question before you invest</p>
           </div>
           <div className="grid gap-5 lg:grid-cols-3">
             {PILLARS.map(({ icon: Icon, label, color, bg, description, cta, href, features }) => (
@@ -266,7 +264,7 @@ export default function HomePage() {
           <div className="mx-auto max-w-2xl text-center">
             <h2 className="font-heading text-2xl font-bold">Ready to start researching?</h2>
             <p className="mt-3 text-muted-foreground">
-              Screen for opportunities, analyze the fundamentals, read the news signals, then backtest a strategy.
+              Screen the market, discover community strategies, then build and backtest your own.
             </p>
             <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
               <Button asChild size="lg" className="rounded-xl px-8">
@@ -275,9 +273,15 @@ export default function HomePage() {
                 </Link>
               </Button>
               <Button asChild variant="outline" size="lg" className="rounded-xl px-6">
-                <Link href={"/sentiment" as Route}>
+                <Link href={"/community" as Route}>
+                  <Users className="mr-2 h-4 w-4" />
+                  Community
+                </Link>
+              </Button>
+              <Button asChild variant="outline" size="lg" className="rounded-xl px-6">
+                <Link href={"/templates" as Route}>
                   <Zap className="mr-2 h-4 w-4" />
-                  Sentiment Hub
+                  Strategy Builder
                 </Link>
               </Button>
             </div>
