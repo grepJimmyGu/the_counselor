@@ -2,9 +2,9 @@
 
 export const dynamic = "force-dynamic";
 
-import { useState } from "react";
+import { Suspense, useState, useEffect } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { signIn } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,8 +13,12 @@ import type { Route } from "next";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
-export default function SignupPage() {
+function SignupForm() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const intent = searchParams.get("intent");        // "trial"
+  const trialTier = searchParams.get("tier") as "strategist" | "quant" | null;
+  const trialCycle = searchParams.get("cycle") as "monthly" | "annual" | null;
 
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -52,7 +56,21 @@ export default function SignupPage() {
       }
 
       // Sign in via credentials immediately after successful signup
-      await signIn("credentials", { email, password, redirect: false });
+      const signInResult = await signIn("credentials", { email, password, redirect: false });
+      const backendToken = (signInResult as any)?.backendToken as string | undefined;
+
+      // If coming from a trial intent, auto-start the trial
+      if (intent === "trial" && trialTier && backendToken) {
+        try {
+          await fetch(`${API_BASE}/api/billing/trial/start`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${backendToken}` },
+            body: JSON.stringify({ tier: trialTier }),
+          });
+          router.push("/workspace?welcome=1" as Route);
+          return;
+        } catch { /* fall through to account */ }
+      }
       router.push("/account" as Route);
     } catch {
       setError("Could not connect to the server.");
@@ -159,6 +177,12 @@ export default function SignupPage() {
           Continue with Google
         </Button>
 
+        {intent === "trial" && trialTier && (
+          <p className="rounded-lg border border-primary/30 bg-primary/5 px-3 py-2 text-center text-xs text-primary">
+            After signup, your 14-day <span className="capitalize font-semibold">{trialTier}</span> trial starts automatically. No card required.
+          </p>
+        )}
+
         <p className="text-center text-xs text-muted-foreground">
           By signing up you agree to our{" "}
           <Link href={"/" as Route} className="underline">Terms</Link> and{" "}
@@ -166,6 +190,14 @@ export default function SignupPage() {
         </p>
       </div>
     </main>
+  );
+}
+
+export default function SignupPage() {
+  return (
+    <Suspense fallback={<div className="flex min-h-screen items-center justify-center"><Loader2 className="h-6 w-6 animate-spin text-muted-foreground" /></div>}>
+      <SignupForm />
+    </Suspense>
   );
 }
 

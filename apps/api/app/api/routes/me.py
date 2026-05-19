@@ -18,6 +18,7 @@ from app.schemas.identity import (
 )
 from app.services.auth_service import validate_handle
 from app.services.entitlements import get_entitlements, get_or_create_current_usage
+from app.services import stripe_service
 
 router = APIRouter(prefix="/api/me", tags=["me"])
 
@@ -90,5 +91,12 @@ def patch_me(
         current_user.avatar_url = body.avatar_url
 
     db.commit()
+
+    # Sync email change to Stripe (fire-and-forget; don't block the response)
+    if body.display_name is not None and current_user.plan and current_user.plan.stripe_customer_id:
+        stripe_service.update_customer_email(
+            current_user.plan.stripe_customer_id, current_user.email
+        )
+
     db.refresh(current_user)
     return UserPublic.model_validate(current_user)

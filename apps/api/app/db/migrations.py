@@ -992,3 +992,23 @@ def run_startup_migrations(engine: Engine) -> None:
                 "INSERT INTO plans (user_id, tier, status, updated_at)"
                 " VALUES (:uid, 'scout', 'active', CURRENT_TIMESTAMP)"
             ), {"uid": legacy_id})
+
+        # ── Stage 2: Billing + Trials ─────────────────────────────────────────
+        # stripe_events table for webhook idempotency (handled by Base.metadata.create_all
+        # via StripeEvent model — this block is a safety net for production upgrades)
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS stripe_events (
+                id VARCHAR(64) PRIMARY KEY,
+                type VARCHAR(64) NOT NULL,
+                received_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                processed_at TIMESTAMP,
+                payload TEXT NOT NULL,
+                error TEXT
+            )
+        """))
+        try:
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_stripe_events_type ON stripe_events (type)"
+            ))
+        except Exception:
+            pass

@@ -8,7 +8,8 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Loader2 } from "lucide-react";
+import { ExternalLink, Loader2 } from "lucide-react";
+import { createPortalSession } from "@/lib/api";
 import type { UserMe, Entitlements } from "@/lib/contracts";
 import type { Route } from "next";
 
@@ -168,11 +169,84 @@ export default function AccountPage() {
           {tier === "scout" && (
             <p className="text-xs text-muted-foreground">
               Upgrade to Strategist for unlimited backtests, 25-symbol universes, and commodity signals.{" "}
-              <span className="text-primary">Billing coming soon.</span>
+              <a href="/pricing" className="text-primary hover:underline">See plans →</a>
             </p>
           )}
         </section>
       )}
+
+      {/* Billing management */}
+      {me && (
+        <BillingSection me={me} backendToken={backendToken} />
+      )}
     </main>
+  );
+}
+
+function BillingSection({ me, backendToken }: { me: UserMe; backendToken?: string }) {
+  const [loading, setLoading] = useState(false);
+  const { plan } = me;
+
+  async function handlePortal() {
+    if (!backendToken) return;
+    setLoading(true);
+    try {
+      const { url } = await createPortalSession(backendToken);
+      window.open(url, "_blank", "noopener");
+    } catch { /* no-op */ } finally {
+      setLoading(false);
+    }
+  }
+
+  const trialDays = plan.trial_end
+    ? Math.max(0, Math.ceil((new Date(plan.trial_end).getTime() - Date.now()) / (1000 * 60 * 60 * 24)))
+    : null;
+
+  return (
+    <section className="space-y-4 rounded-xl border border-border bg-card p-6">
+      <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">Billing</h2>
+      <div className="space-y-2 text-sm">
+        <div className="flex items-center justify-between">
+          <span className="text-muted-foreground">Status</span>
+          <span className="font-medium capitalize">{plan.status}</span>
+        </div>
+        {plan.billing_cycle && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Billing cycle</span>
+            <span className="font-medium capitalize">{plan.billing_cycle}</span>
+          </div>
+        )}
+        {trialDays !== null && plan.status === "trialing" && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Trial ends</span>
+            <span className={`font-medium ${trialDays <= 3 ? "text-rose-600" : "text-amber-600"}`}>
+              {trialDays} day{trialDays !== 1 ? "s" : ""} remaining
+            </span>
+          </div>
+        )}
+        {plan.current_period_end && plan.status === "active" && (
+          <div className="flex items-center justify-between">
+            <span className="text-muted-foreground">Next billing date</span>
+            <span className="font-medium">{new Date(plan.current_period_end).toLocaleDateString()}</span>
+          </div>
+        )}
+      </div>
+      {plan.status === "trialing" ? (
+        <div className="flex gap-2">
+          <Button size="sm" asChild>
+            <a href="/pricing">Add a card to keep access</a>
+          </Button>
+        </div>
+      ) : plan.tier === "scout" || !plan.billing_cycle ? (
+        <Button size="sm" variant="outline" asChild>
+          <a href="/pricing">Upgrade plan</a>
+        </Button>
+      ) : (
+        <Button size="sm" variant="outline" onClick={handlePortal} disabled={loading} className="gap-1.5">
+          {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ExternalLink className="h-3.5 w-3.5" />}
+          Manage billing
+        </Button>
+      )}
+    </section>
   );
 }

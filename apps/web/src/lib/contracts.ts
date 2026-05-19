@@ -50,6 +50,21 @@ export interface Entitlements {
   community_badge: "verified" | "creator" | null;
 }
 
+// ── Billing (Stage 2) ─────────────────────────────────────────────────────────
+
+export interface PricingTierOption {
+  tier: "strategist" | "quant";
+  billing_cycle: "monthly" | "annual";
+  price_id: string;
+  amount_cents: number;
+  display_price: string;
+}
+
+export interface PricingPage {
+  options: PricingTierOption[];
+  trial_days: number;
+}
+
 // ── Strategy types ────────────────────────────────────────────────────────────
 
 export type StrategyType =

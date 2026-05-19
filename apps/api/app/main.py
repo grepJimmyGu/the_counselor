@@ -20,6 +20,8 @@ from app.api.routes.admin import router as admin_router
 from app.api.routes.commodities import router as commodities_router
 from app.api.routes.auth import router as auth_router
 from app.api.routes.me import router as me_router
+from app.api.routes.billing import router as billing_router
+from app.api.routes.stripe_webhook import router as stripe_webhook_router
 from app.api.routes.community import router as community_router
 from app.api.routes.sentiment import router as sentiment_router
 from app.api.routes.strategy_storage import router as strategy_storage_router
@@ -27,7 +29,7 @@ from app.api.routes.strategy import router as strategy_router
 from app.core.config import get_settings
 from app.db.migrations import run_startup_migrations
 from app.db.session import Base, engine
-from app.models import BacktestRecord, DataFetchLog, PriceBar, SymbolCache, User, Plan, MonthlyUsage  # noqa: F401
+from app.models import BacktestRecord, DataFetchLog, PriceBar, SymbolCache, User, Plan, MonthlyUsage, StripeEvent  # noqa: F401
 
 
 async def _warmup_market_etfs() -> None:
@@ -253,6 +255,10 @@ def _start_scheduler() -> None:
 
         scheduler = BackgroundScheduler()
         scheduler.add_job(_cleanup_old_usage, "cron", hour=4, minute=0)
+        # Stage 2: billing jobs
+        from app.jobs.billing_jobs import expire_trials_job, dunning_expiry_job
+        scheduler.add_job(expire_trials_job, "cron", minute=15)
+        scheduler.add_job(dunning_expiry_job, "cron", minute=30)
         scheduler.start()
     except Exception as exc:
         logger.warning("APScheduler failed to start: %s", exc)
@@ -299,6 +305,8 @@ app.include_router(uiux_router)
 app.include_router(strategy_storage_router)
 app.include_router(auth_router)
 app.include_router(me_router)
+app.include_router(billing_router)
+app.include_router(stripe_webhook_router)
 app.include_router(community_router)
 app.include_router(sentiment_router)
 

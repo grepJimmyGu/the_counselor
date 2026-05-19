@@ -340,3 +340,38 @@ export async function runSentimentReview(
     body: JSON.stringify({ symbol, sentiment_summary: sentimentSummary }),
   });
 }
+
+// ── Billing (Stage 2) ─────────────────────────────────────────────────────────
+
+export async function getPricing(): Promise<import("@/lib/contracts").PricingPage> {
+  return fetchApi("/api/billing/pricing");
+}
+
+export async function startTrial(
+  tier: "strategist" | "quant",
+  backendToken: string,
+): Promise<{ trial_end: string; tier: string }> {
+  return fetchApi("/api/billing/trial/start", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${backendToken}` },
+    body: JSON.stringify({ tier }),
+  });
+}
+
+export async function createCheckoutSession(
+  params: { tier: "strategist" | "quant"; billing_cycle: "monthly" | "annual"; return_url: string },
+  backendToken: string,
+): Promise<{ url: string }> {
+  return fetchApi("/api/billing/checkout/session", {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${backendToken}` },
+    body: JSON.stringify(params),
+  });
+}
+
+export async function createPortalSession(backendToken: string): Promise<{ url: string }> {
+  return fetchApi("/api/billing/portal", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${backendToken}` },
+  });
+}

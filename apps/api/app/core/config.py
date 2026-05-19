@@ -21,6 +21,15 @@ class Settings(BaseSettings):
     nextauth_secret: str = ""   # signs session JWTs; must match NEXTAUTH_SECRET in Next.js
     google_client_id: str = ""
     google_client_secret: str = ""
+    # Stage 2 — Stripe
+    stripe_secret_key: str = ""
+    stripe_publishable_key: str = ""
+    stripe_webhook_secret: str = ""
+    stripe_price_strategist_monthly: str = ""
+    stripe_price_strategist_annual: str = ""
+    stripe_price_quant_monthly: str = ""
+    stripe_price_quant_annual: str = ""
+    frontend_url: str = "http://localhost:3000"  # used for portal/checkout return URLs
     llm_provider: str = "disabled"
     llm_api_key: str = ""
     llm_base_url: str = "https://api.openai.com/v1"
