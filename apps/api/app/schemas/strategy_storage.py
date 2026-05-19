@@ -58,4 +58,7 @@ class PublicStrategyItem(BaseModel):
     name: str
     saved_at: datetime
     upvote_count: int = 0
+    trust_score: int = 50
+    verification_status: str = "Backtested"
+    follower_count: int = 0
     live: Optional[LivePerformanceResponse] = None

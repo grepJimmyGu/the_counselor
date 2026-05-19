@@ -12,6 +12,8 @@ import type {
   CommentResponse,
   CommentsListResponse,
   SignalScore,
+  StockThesis,
+  StockThesisListResponse,
   UpvoteResponse,
   VoteSummary,
   WatchlistResponse,
@@ -30,8 +32,15 @@ async function get<T>(path: string): Promise<T> {
 export const getSignalScore = (symbol: string) =>
   get<SignalScore>(`/api/community/signal/${symbol}`);
 
-export const getCommunityBoard = (limit = 20, offset = 0) =>
-  get<CommunityBoardResponse>(`/api/community/board?limit=${limit}&offset=${offset}`);
+export const getCommunityBoard = (
+  limit = 20,
+  offset = 0,
+  window: "today" | "7d" | "30d" | "all" = "7d",
+  filter: "all" | "bullish" | "bearish" | "controversial" | "rising" = "all",
+) =>
+  get<CommunityBoardResponse>(
+    `/api/community/board?limit=${limit}&offset=${offset}&window=${window}&filter=${filter}`,
+  );
 
 export const getVotes = (symbol: string, userId?: string) =>
   get<VoteSummary>(
@@ -45,6 +54,11 @@ export const getUpvotes = (slug: string, userId?: string) =>
 
 export const getComments = (slug: string) =>
   get<CommentsListResponse>(`/api/community/comments/${slug}`);
+
+export const getStockTheses = (symbol?: string, limit = 12) =>
+  get<StockThesisListResponse>(
+    `/api/community/theses?limit=${limit}${symbol ? `&symbol=${encodeURIComponent(symbol)}` : ""}`,
+  );
 
 // ── Write (auth-required, via Next.js BFF) ───────────────────────────────────
 
@@ -89,3 +103,12 @@ export const deleteComment = (commentId: number) =>
 
 export const toggleUpvote = (slug: string) =>
   bff<UpvoteResponse>(`/api/community/upvotes/${slug}`);
+
+export const addStockThesis = (body: {
+  symbol: string;
+  stance: "bull" | "bear" | "hold";
+  timeframe: string;
+  thesis: string;
+  risks: string;
+  evidence_url?: string | null;
+}) => bff<StockThesis>("/api/community/theses", "POST", body);

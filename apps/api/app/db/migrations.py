@@ -676,6 +676,46 @@ def run_startup_migrations(engine: Engine) -> None:
         except Exception:
             pass
 
+        # Community v2: structured stock theses
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS stock_theses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id VARCHAR(100) NOT NULL,
+                symbol VARCHAR(20) NOT NULL,
+                stance VARCHAR(10) NOT NULL,
+                timeframe VARCHAR(40) NOT NULL,
+                thesis TEXT NOT NULL,
+                risks TEXT NOT NULL,
+                evidence_url TEXT,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """) if is_sqlite else text("""
+            CREATE TABLE IF NOT EXISTS stock_theses (
+                id SERIAL PRIMARY KEY,
+                user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+                symbol VARCHAR(20) NOT NULL,
+                stance VARCHAR(10) NOT NULL CHECK (stance IN ('bull','bear','hold')),
+                timeframe VARCHAR(40) NOT NULL,
+                thesis TEXT NOT NULL,
+                risks TEXT NOT NULL,
+                evidence_url TEXT,
+                created_at TIMESTAMPTZ DEFAULT now(),
+                updated_at TIMESTAMPTZ DEFAULT now()
+            )
+        """))
+        try:
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_stock_theses_symbol"
+                " ON stock_theses (symbol, created_at DESC)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_stock_theses_user"
+                " ON stock_theses (user_id)"
+            ))
+        except Exception:
+            pass
+
         # PRD-08d: purge bad revenue_segments rows where segment data = only fiscalYear
         # (parser bug in first deploy — nested FMP format not handled)
         try:

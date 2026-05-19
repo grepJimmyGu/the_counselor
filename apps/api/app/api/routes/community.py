@@ -9,7 +9,7 @@ Read endpoints (signal scores, public community board) are open.
 """
 
 import math
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query
@@ -99,6 +99,8 @@ def watchlist_status(user_id: str, symbol: str, db: Session = Depends(get_db)) -
 # ── PRD-13: Votes ─────────────────────────────────────────────────────────────
 
 VoteType = Literal["bull", "bear", "hold"]
+BoardWindow = Literal["today", "7d", "30d", "all"]
+BoardFilter = Literal["all", "bullish", "bearish", "controversial", "rising"]
 
 
 class VoteRequest(BaseModel):
@@ -186,6 +188,8 @@ class SignalScore(BaseModel):
     hold_votes: int
     total_votes: int
     strategy_run_count: int
+    thesis_count: int = 0
+    latest_thesis_at: Optional[datetime] = None
     signal_score: float
     signal_label: str
     computed_at: Optional[datetime]
@@ -206,6 +210,12 @@ class CommunityBoardResponse(BaseModel):
 
 @router.get("/signal/{symbol}", response_model=SignalScore)
 def get_signal_score(symbol: str, db: Session = Depends(get_db)) -> SignalScore:
+    # Return a live aggregate so thesis count and discussion recency are included
+    # even before the cached score row is refreshed.
+    computed = _compute_signal(symbol.upper(), db, since=None)
+    if computed.total_votes or computed.watchlist_count or computed.strategy_run_count or computed.thesis_count:
+        return computed
+
     row = db.execute(
         text("SELECT * FROM community_signal_scores WHERE symbol = :sym"),
         {"sym": symbol.upper()},
@@ -219,26 +229,195 @@ def get_signal_score(symbol: str, db: Session = Depends(get_db)) -> SignalScore:
 def get_community_board(
     limit: int = Query(default=20, le=50),
     offset: int = Query(default=0, ge=0),
+    window: BoardWindow = Query(default="7d"),
+    filter: BoardFilter = Query(default="all"),
     db: Session = Depends(get_db),
 ) -> CommunityBoardResponse:
-    """Most active stocks ranked by community signal score."""
-    rows = db.execute(
-        text(
-            "SELECT * FROM community_signal_scores"
-            " WHERE signal_score > 0"
-            " ORDER BY signal_score DESC"
-            " LIMIT :limit OFFSET :offset"
+    """Most active stocks ranked by watchlists, votes, theses, and strategy runs."""
+    since = _window_start(window)
+    candidates = _community_symbol_candidates(db, since)
+    items = [
+        score for sym in candidates
+        if (score := _compute_signal(sym, db, since=since)).signal_score > 0
+    ]
+    items = [item for item in items if _matches_board_filter(item, filter)]
+    items.sort(
+        key=lambda item: (
+            item.signal_score,
+            item.thesis_count,
+            item.total_votes,
+            item.watchlist_count,
+            item.strategy_run_count,
         ),
-        {"limit": limit, "offset": offset},
-    ).fetchall()
-    total_row = db.execute(
-        text("SELECT COUNT(*) FROM community_signal_scores WHERE signal_score > 0")
-    ).fetchone()
-    total = total_row[0] if total_row else 0
+        reverse=True,
+    )
+    total = len(items)
     return CommunityBoardResponse(
-        items=[_row_to_signal(r) for r in rows],
+        items=items[offset:offset + limit],
         total=total,
     )
+
+
+def _window_start(window: BoardWindow) -> Optional[datetime]:
+    now = datetime.utcnow()
+    if window == "today":
+        return now.replace(hour=0, minute=0, second=0, microsecond=0)
+    if window == "7d":
+        return now - timedelta(days=7)
+    if window == "30d":
+        return now - timedelta(days=30)
+    return None
+
+
+def _community_symbol_candidates(db: Session, since: Optional[datetime]) -> list[str]:
+    params = {"since": since} if since else {}
+    date_filters = {
+        "watchlist": " WHERE added_at >= :since" if since else "",
+        "votes": " WHERE updated_at >= :since" if since else "",
+        "theses": " WHERE created_at >= :since" if since else "",
+        "backtests": " WHERE created_at >= :since" if since else "",
+    }
+
+    symbols: set[str] = set()
+    for sql in (
+        f"SELECT DISTINCT symbol FROM user_watchlists{date_filters['watchlist']}",
+        f"SELECT DISTINCT symbol FROM user_votes{date_filters['votes']}",
+        f"SELECT DISTINCT symbol FROM stock_theses{date_filters['theses']}",
+        "SELECT DISTINCT symbol FROM community_signal_scores",
+    ):
+        try:
+            rows = db.execute(text(sql), params).fetchall()
+            symbols.update(str(r._mapping["symbol"]).upper() for r in rows if r._mapping["symbol"])
+        except Exception:
+            continue
+
+    # Public backtests store universe symbols inside result_payload. Extracting
+    # precisely in portable SQL is awkward, so candidate discovery keeps this
+    # supplemental and relies on saved signal rows/theses/watchlists for coverage.
+    try:
+        rows = db.execute(
+            text(f"SELECT CAST(result_payload AS TEXT) AS payload FROM backtests{date_filters['backtests']}"),
+            params,
+        ).fetchall()
+        for row in rows:
+            payload = str(row._mapping["payload"] or "")
+            for token in payload.replace('"', " ").replace(",", " ").split():
+                if token.isupper() and 1 <= len(token) <= 6 and token.isalnum():
+                    symbols.add(token)
+    except Exception:
+        pass
+
+    return sorted(symbols)
+
+
+def _compute_signal(symbol: str, db: Session, since: Optional[datetime]) -> SignalScore:
+    sym = symbol.upper()
+
+    def _count(sql: str, params: dict) -> int:
+        try:
+            row = db.execute(text(sql), params).fetchone()
+            return int(row[0] or 0) if row else 0
+        except Exception:
+            return 0
+
+    date_clause_watch = " AND added_at >= :since" if since else ""
+    date_clause_votes = " AND updated_at >= :since" if since else ""
+    date_clause_runs = " AND created_at >= :since" if since else ""
+    date_clause_theses = " AND created_at >= :since" if since else ""
+    params = {"sym": sym, "pat": f"%{sym}%", "since": since}
+
+    wl = _count(
+        f"SELECT COUNT(*) FROM user_watchlists WHERE symbol = :sym{date_clause_watch}",
+        params,
+    )
+
+    vote_rows = []
+    try:
+        vote_rows = db.execute(
+            text(
+                "SELECT vote, COUNT(*) as cnt FROM user_votes"
+                f" WHERE symbol = :sym{date_clause_votes} GROUP BY vote"
+            ),
+            params,
+        ).fetchall()
+    except Exception:
+        vote_rows = []
+    votes = {r._mapping["vote"]: r._mapping["cnt"] for r in vote_rows}
+    bull = votes.get("bull", 0)
+    bear = votes.get("bear", 0)
+    hold = votes.get("hold", 0)
+    total_votes = bull + bear + hold
+
+    runs = _count(
+        "SELECT COUNT(*) FROM backtests WHERE CAST(result_payload AS TEXT) LIKE :pat"
+        f"{date_clause_runs}",
+        params,
+    )
+    theses = _count(
+        f"SELECT COUNT(*) FROM stock_theses WHERE symbol = :sym{date_clause_theses}",
+        params,
+    )
+
+    latest_thesis_at = None
+    try:
+        row = db.execute(
+            text(
+                "SELECT MAX(created_at) AS latest FROM stock_theses"
+                f" WHERE symbol = :sym{date_clause_theses}"
+            ),
+            params,
+        ).fetchone()
+        latest_thesis_at = row._mapping["latest"] if row else None
+    except Exception:
+        latest_thesis_at = None
+
+    raw = (wl * 1.5) + (bull - bear * 0.8) + (runs * 2.0) + (theses * 1.2)
+    score = round(min(100.0, max(0.0, 50.0 + 18.0 * math.tanh(raw / 12.0))), 2)
+
+    if total_votes >= 3 and bull > 0 and bear > 0 and min(bull, bear) / total_votes >= 0.25:
+        label = "Contested Attention"
+    elif score >= 70:
+        label = "Strong Community Interest"
+    elif score >= 60:
+        label = "Rising Attention"
+    elif score >= 50:
+        label = "Moderate Interest"
+    elif score >= 40:
+        label = "Low Activity"
+    else:
+        label = "No Activity"
+
+    return SignalScore(
+        symbol=sym,
+        watchlist_count=wl,
+        bull_votes=bull,
+        bear_votes=bear,
+        hold_votes=hold,
+        total_votes=total_votes,
+        strategy_run_count=runs,
+        thesis_count=theses,
+        latest_thesis_at=latest_thesis_at,
+        signal_score=score if raw > 0 or total_votes > 0 else 0.0,
+        signal_label=label,
+        computed_at=datetime.utcnow(),
+    )
+
+
+def _matches_board_filter(item: SignalScore, filter_name: BoardFilter) -> bool:
+    if filter_name == "bullish":
+        return item.bull_votes > item.bear_votes and item.bull_votes > 0
+    if filter_name == "bearish":
+        return item.bear_votes > item.bull_votes and item.bear_votes > 0
+    if filter_name == "controversial":
+        return (
+            item.total_votes >= 2
+            and item.bull_votes > 0
+            and item.bear_votes > 0
+            and min(item.bull_votes, item.bear_votes) / item.total_votes >= 0.25
+        )
+    if filter_name == "rising":
+        return item.signal_score >= 60 or item.thesis_count > 0
+    return True
 
 
 def _row_to_signal(row: object) -> SignalScore:
@@ -251,6 +430,8 @@ def _row_to_signal(row: object) -> SignalScore:
         hold_votes=r["hold_votes"] or 0,
         total_votes=r["total_votes"] or 0,
         strategy_run_count=r["strategy_run_count"] or 0,
+        thesis_count=r.get("thesis_count", 0) or 0,
+        latest_thesis_at=r.get("latest_thesis_at"),
         signal_score=float(r["signal_score"] or 0),
         signal_label=r["signal_label"] or "Neutral",
         computed_at=r.get("computed_at"),
@@ -260,7 +441,8 @@ def _row_to_signal(row: object) -> SignalScore:
 def _empty_signal(symbol: str) -> SignalScore:
     return SignalScore(
         symbol=symbol, watchlist_count=0, bull_votes=0, bear_votes=0,
-        hold_votes=0, total_votes=0, strategy_run_count=0,
+        hold_votes=0, total_votes=0, strategy_run_count=0, thesis_count=0,
+        latest_thesis_at=None,
         signal_score=0.0, signal_label="No Activity", computed_at=None,
     )
 
@@ -287,11 +469,19 @@ def _refresh_signal_score(symbol: str, db: Session) -> None:
     total_votes = bull + bear + hold
 
     runs = db.execute(
-        text("SELECT COUNT(*) FROM backtests WHERE symbols LIKE :pat"),
+        text("SELECT COUNT(*) FROM backtests WHERE CAST(result_payload AS TEXT) LIKE :pat"),
         {"pat": f"%{symbol}%"},
     ).fetchone()[0] or 0
 
-    raw = (wl * 1.5) + ((bull - bear * 0.8)) + (runs * 2.0)
+    try:
+        theses = db.execute(
+            text("SELECT COUNT(*) FROM stock_theses WHERE symbol = :sym"),
+            {"sym": symbol},
+        ).fetchone()[0] or 0
+    except Exception:
+        theses = 0
+
+    raw = (wl * 1.5) + ((bull - bear * 0.8)) + (runs * 2.0) + (theses * 1.2)
     # Soft normalise with sigmoid-like scaling: score in [0, 100]
     score = round(min(100.0, max(0.0, 50.0 + 10.0 * math.tanh(raw / 10.0))), 2)
 
@@ -324,6 +514,136 @@ def _refresh_signal_score(symbol: str, db: Session) -> None:
         },
     )
     db.commit()
+
+
+# ── Community v2: Structured stock theses ───────────────────────────────────
+
+class StockThesisRequest(BaseModel):
+    symbol: str = Field(..., min_length=1, max_length=20)
+    stance: VoteType
+    timeframe: str = Field(..., min_length=2, max_length=40)
+    thesis: str = Field(..., min_length=20, max_length=1600)
+    risks: str = Field(..., min_length=10, max_length=1200)
+    evidence_url: Optional[str] = Field(default=None, max_length=500)
+
+
+class StockThesisResponse(BaseModel):
+    id: int
+    user_id: str
+    symbol: str
+    stance: VoteType
+    timeframe: str
+    thesis: str
+    risks: str
+    evidence_url: Optional[str] = None
+    created_at: datetime
+    display_name: Optional[str] = None
+    avatar_url: Optional[str] = None
+
+
+class StockThesisListResponse(BaseModel):
+    theses: list[StockThesisResponse]
+    total: int
+    disclaimer: str = (
+        "Community theses are user-submitted research notes. They are not financial advice "
+        "or recommendations to buy or sell securities."
+    )
+
+
+@router.get("/theses", response_model=StockThesisListResponse)
+def list_stock_theses(
+    symbol: Optional[str] = Query(default=None),
+    stance: Optional[VoteType] = Query(default=None),
+    limit: int = Query(default=12, le=50),
+    db: Session = Depends(get_db),
+) -> StockThesisListResponse:
+    where = []
+    params: dict = {"limit": limit}
+    if symbol:
+        where.append("t.symbol = :symbol")
+        params["symbol"] = symbol.upper()
+    if stance:
+        where.append("t.stance = :stance")
+        params["stance"] = stance
+
+    join_expr = (
+        "LEFT JOIN users u ON CAST(u.id AS TEXT) = t.user_id"
+        if _is_sqlite(db)
+        else "LEFT JOIN users u ON u.id::text = t.user_id"
+    )
+    where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+    rows = db.execute(
+        text(
+            "SELECT t.id, t.user_id, t.symbol, t.stance, t.timeframe,"
+            " t.thesis, t.risks, t.evidence_url, t.created_at,"
+            " u.display_name, u.avatar_url"
+            f" FROM stock_theses t {join_expr} {where_sql}"
+            " ORDER BY t.created_at DESC LIMIT :limit"
+        ),
+        params,
+    ).fetchall()
+    return StockThesisListResponse(
+        theses=[_row_to_stock_thesis(r) for r in rows],
+        total=len(rows),
+    )
+
+
+@router.post("/theses", response_model=StockThesisResponse,
+             dependencies=[Depends(verify_internal_key)])
+def add_stock_thesis(
+    user_id: str,
+    body: StockThesisRequest,
+    db: Session = Depends(get_db),
+) -> StockThesisResponse:
+    sym = body.symbol.upper().strip()
+    db.execute(
+        text(
+            "INSERT INTO stock_theses"
+            " (user_id, symbol, stance, timeframe, thesis, risks, evidence_url)"
+            " VALUES (:uid, :sym, :stance, :timeframe, :thesis, :risks, :evidence_url)"
+        ),
+        {
+            "uid": user_id,
+            "sym": sym,
+            "stance": body.stance,
+            "timeframe": body.timeframe.strip(),
+            "thesis": body.thesis.strip(),
+            "risks": body.risks.strip(),
+            "evidence_url": body.evidence_url.strip() if body.evidence_url else None,
+        },
+    )
+    db.commit()
+    _refresh_signal_score(sym, db)
+
+    row = db.execute(
+        text(
+            "SELECT t.id, t.user_id, t.symbol, t.stance, t.timeframe,"
+            " t.thesis, t.risks, t.evidence_url, t.created_at,"
+            " u.display_name, u.avatar_url"
+            " FROM stock_theses t LEFT JOIN users u ON CAST(u.id AS TEXT) = t.user_id"
+            " WHERE t.user_id = :uid AND t.symbol = :sym"
+            " ORDER BY t.created_at DESC LIMIT 1"
+        ),
+        {"uid": user_id, "sym": sym},
+    ).fetchone()
+    return _row_to_stock_thesis(row)
+
+
+@router.delete("/theses/{thesis_id}", dependencies=[Depends(verify_internal_key)])
+def delete_stock_thesis(thesis_id: int, user_id: str, db: Session = Depends(get_db)) -> dict:
+    row = db.execute(
+        text("SELECT user_id, symbol FROM stock_theses WHERE id = :id"),
+        {"id": thesis_id},
+    ).fetchone()
+    if not row:
+        raise HTTPException(status_code=404, detail="Thesis not found.")
+    if row._mapping["user_id"] != user_id:
+        raise HTTPException(status_code=403, detail="Cannot delete another user's thesis.")
+    sym = row._mapping["symbol"]
+    db.execute(text("DELETE FROM stock_theses WHERE id = :id"), {"id": thesis_id})
+    db.commit()
+    _refresh_signal_score(sym, db)
+    return {"id": thesis_id, "action": "deleted"}
 
 
 # ── PRD-14: Strategy Comments + Upvotes ──────────────────────────────────────
@@ -489,6 +809,23 @@ def _row_to_comment(row: object) -> CommentResponse:
         user_id=str(r["user_id"]),
         strategy_slug=r["strategy_slug"],
         content=r["content"],
+        created_at=r["created_at"],
+        display_name=r.get("display_name"),
+        avatar_url=r.get("avatar_url"),
+    )
+
+
+def _row_to_stock_thesis(row: object) -> StockThesisResponse:
+    r = row._mapping  # type: ignore[attr-defined]
+    return StockThesisResponse(
+        id=r["id"],
+        user_id=str(r["user_id"]),
+        symbol=r["symbol"],
+        stance=r["stance"],
+        timeframe=r["timeframe"],
+        thesis=r["thesis"],
+        risks=r["risks"],
+        evidence_url=r.get("evidence_url"),
         created_at=r["created_at"],
         display_name=r.get("display_name"),
         avatar_url=r.get("avatar_url"),

@@ -95,11 +95,12 @@ def list_public_strategies(
     Public saved strategies. Live performance is returned only if already cached —
     it is never computed here (that would time out). Computation is triggered
     lazily via GET /api/strategies/{slug}/live-performance when a strategy is visited.
-    Sorted by cached return (best first), then by upvotes, then newest.
+    Sorted by a lightweight trust score, not raw return alone.
     """
     rows = db.execute(
         text(
             "SELECT b.slug, b.name, b.saved_at,"
+            " b.result_payload,"
             " COALESCE(u.upvotes, 0) AS upvote_count"
             " FROM backtests b"
             " LEFT JOIN ("
@@ -140,21 +141,63 @@ def list_public_strategies(
         except Exception as exc:
             logger.warning("Cached perf lookup failed for %s: %s", slug, exc)
 
+        payload = rm["result_payload"] or {}
+        trust_score = _strategy_trust_score(live_perf, rm["upvote_count"] or 0, payload)
+        verification_status = _strategy_verification_status(live_perf)
         items.append(PublicStrategyItem(
             slug=slug,
             name=rm["name"],
             saved_at=saved_at,
             upvote_count=rm["upvote_count"] or 0,
+            trust_score=trust_score,
+            verification_status=verification_status,
+            follower_count=0,
             live=live_perf,
         ))
 
-    # Sort: strategies with known positive returns first, then by upvotes, then newest
+    # Sort: verified/trusted strategies first, then by community support.
     def sort_key(item: PublicStrategyItem) -> tuple:
-        ret = item.live.total_return if item.live and item.live.total_return is not None else -999.0
-        return (ret, item.upvote_count)
+        return (item.trust_score, item.upvote_count, item.saved_at)
 
     items.sort(key=sort_key, reverse=True)
     return items
+
+
+def _strategy_trust_score(
+    live_perf: LivePerformanceResponse | None,
+    upvote_count: int,
+    payload: dict,
+) -> int:
+    score = 45.0
+    metrics = payload.get("metrics", {}) if isinstance(payload, dict) else {}
+    max_drawdown = metrics.get("max_drawdown")
+    if max_drawdown is not None:
+        try:
+            score -= min(18.0, abs(float(max_drawdown)) * 45.0)
+        except (TypeError, ValueError):
+            pass
+
+    score += min(16.0, upvote_count * 2.0)
+
+    if live_perf:
+        if live_perf.days_tracked:
+            score += min(18.0, live_perf.days_tracked * 1.5)
+        if live_perf.total_return is not None:
+            score += max(-12.0, min(12.0, live_perf.total_return * 100.0))
+        if live_perf.error:
+            score -= 4.0
+    else:
+        score += 6.0  # saved public strategies are at least backtested artifacts
+
+    return int(max(0, min(100, round(score))))
+
+
+def _strategy_verification_status(live_perf: LivePerformanceResponse | None) -> str:
+    if live_perf and live_perf.days_tracked > 0 and not live_perf.error:
+        return "Live paper tracking"
+    if live_perf and live_perf.error and "Published today" in live_perf.error:
+        return "Tracking starts next session"
+    return "Backtested"
 
 
 @router.get("/{slug}/live-performance", response_model=LivePerformanceResponse)
