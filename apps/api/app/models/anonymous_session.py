@@ -32,10 +32,14 @@ class AnonymousSession(Base):
     ip_first_seen: Mapped[str] = mapped_column(String(64), nullable=False)
     ip_last_seen: Mapped[str] = mapped_column(String(64), nullable=False)
     user_agent: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    locale: Mapped[str] = mapped_column(String(8), default="en", nullable=False)
+    locale: Mapped[str] = mapped_column(
+        String(8), default="en", server_default="en", nullable=False
+    )
 
     # 0 or 1 — the anonymous one-shot cap.
-    runs_used: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    runs_used: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
 
     # Most recent backtest result (links to backtests.id; intentionally not a FK
     # because the backtest may be deleted while the session row persists for analytics).

@@ -31,7 +31,10 @@ class SavedStrategy(Base):
     user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(120), nullable=False)
     strategy_json: Mapped[dict] = mapped_column(JSON, nullable=False)
-    is_public: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    # server_default makes raw SQL inserts work (Python default=False is ORM-only).
+    is_public: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
 
     # Optional FK to the most recent backtest run for this strategy.
     # String(64) matches BacktestRecord.id.
