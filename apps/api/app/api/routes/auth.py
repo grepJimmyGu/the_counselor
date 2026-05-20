@@ -3,10 +3,11 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.anonymous_session import AnonymousSession
 from app.models.user import User, Plan
 from app.schemas.identity import (
     LoginRequest,
@@ -16,6 +17,8 @@ from app.schemas.identity import (
     TokenResponse,
     UserPublic,
 )
+from app.services.anonymous_service import COOKIE_NAME as ANON_COOKIE_NAME
+from app.services.anonymous_service import merge_anonymous_into_user
 from app.services.auth_service import (
     create_session_token,
     hash_password,
@@ -77,10 +80,34 @@ def _create_user_with_plan(
     return user
 
 
+def _try_merge_anonymous_session(
+    db: Session,
+    user_id: str,
+    anon_session_id: Optional[str],
+) -> None:
+    """Stage 1a: if this signup came from an anonymous browser, attach the
+    one-shot backtest to the new user and mark the session converted.
+    Idempotent and silent on failure (signup must not fail because of merge issues)."""
+    if not anon_session_id:
+        return
+    session = db.get(AnonymousSession, anon_session_id)
+    if session is None:
+        return
+    try:
+        merge_anonymous_into_user(db, session, user_id)
+    except Exception:
+        # Never block signup on merge failure.
+        db.rollback()
+
+
 # ── Password signup / login ───────────────────────────────────────────────────
 
 @router.post("/password/signup", status_code=201)
-def password_signup(body: SignupRequest, db: Session = Depends(get_db)) -> TokenResponse:
+def password_signup(
+    body: SignupRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> TokenResponse:
     existing = _get_user_by_email(db, body.email)
     if existing:
         raise HTTPException(status_code=409, detail="An account with this email already exists.")
@@ -92,6 +119,8 @@ def password_signup(body: SignupRequest, db: Session = Depends(get_db)) -> Token
         display_name=body.display_name,
         locale=body.locale,
     )
+    # Stage 1a: attach any anonymous one-shot backtest to this new account.
+    _try_merge_anonymous_session(db, user.id, request.cookies.get(ANON_COOKIE_NAME))
     return _make_token_response(user)
 
 
@@ -113,7 +142,9 @@ def password_login(body: LoginRequest, db: Session = Depends(get_db)) -> TokenRe
 
 @router.post("/oauth/google/callback")
 def google_oauth_callback(
-    body: OAuthGoogleRequest, db: Session = Depends(get_db)
+    body: OAuthGoogleRequest,
+    request: Request,
+    db: Session = Depends(get_db),
 ) -> dict:
     try:
         payload = verify_google_id_token(body.id_token)
@@ -168,6 +199,11 @@ def google_oauth_callback(
         user.last_login_at = datetime.utcnow()
         db.commit()
 
+    # Stage 1a: merge anonymous backtest on NEW Google signups only.
+    # Returning users already have their account; nothing to merge.
+    if is_new:
+        _try_merge_anonymous_session(db, user.id, request.cookies.get(ANON_COOKIE_NAME))
+
     token = create_session_token(user.id, user.plan.tier)
     pub = UserPublic(
         id=user.id,
@@ -191,6 +227,9 @@ class _SyncUserRequest(BaseModel):
     avatar_url: Optional[str] = None
     provider: str = "google"
     provider_user_id: str
+    # Stage 1a: NextAuth forwards the livermore_anon_id cookie value so we
+    # can merge any pre-signup anonymous backtest into the new user.
+    anonymous_session_id: Optional[str] = None
 
 
 class _UserResponse(BaseModel):
@@ -223,6 +262,7 @@ def sync_user(body: _SyncUserRequest, db: Session = Depends(get_db)) -> _UserRes
     if user is None:
         user = _get_user_by_email(db, body.email)
 
+    is_new_user = user is None
     if user:
         user.display_name = body.display_name or user.display_name
         user.avatar_url = body.avatar_url or user.avatar_url
@@ -241,6 +281,10 @@ def sync_user(body: _SyncUserRequest, db: Session = Depends(get_db)) -> _UserRes
             oauth_subject=body.provider_user_id,
             email_verified_at=now,
         )
+
+    # Stage 1a: merge anonymous backtest on NEW signups only.
+    if is_new_user:
+        _try_merge_anonymous_session(db, user.id, body.anonymous_session_id)
 
     return _UserResponse(
         id=user.id,

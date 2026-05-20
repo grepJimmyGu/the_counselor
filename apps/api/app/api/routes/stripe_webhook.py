@@ -12,6 +12,7 @@ from app.core.config import get_settings
 from app.db.session import get_db
 from app.models.stripe_event import StripeEvent
 from app.services import billing_state
+from app.services.anonymous_service import get_anonymous_session_by_user_id
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,7 @@ async def stripe_webhook(
 def _dispatch(db: Session, event_type: str, obj: dict) -> None:
     if event_type == "customer.subscription.created":
         billing_state.apply_subscription_created(db, obj)
+        _log_attribution_on_conversion(db, obj)
     elif event_type == "customer.subscription.updated":
         billing_state.apply_subscription_updated(db, obj)
     elif event_type == "customer.subscription.deleted":
@@ -91,3 +93,27 @@ def _dispatch(db: Session, event_type: str, obj: dict) -> None:
         billing_state.apply_checkout_session_completed(db, obj)
     elif event_type not in _HANDLED_EVENTS:
         logger.debug("Unhandled Stripe event type: %s", event_type)
+
+
+def _log_attribution_on_conversion(db: Session, subscription_obj: dict) -> None:
+    """Stage 1a: when an anonymous-attributed signup converts to paid, emit a
+    structured log line so Stage 5 (Creator Program) can replay attributions
+    without needing the attribution_visits table to exist today.
+
+    The data is fully preserved in anonymous_sessions.via_handle +
+    converted_to_user_id; this log is the trigger event."""
+    metadata = subscription_obj.get("metadata") or {}
+    user_id = metadata.get("user_id")
+    if not user_id:
+        return
+    session = get_anonymous_session_by_user_id(db, user_id)
+    if session is None or not session.via_handle:
+        return
+    logger.info(
+        "attribution.signup_converted_to_paid user_id=%s via_handle=%s "
+        "anon_session_id=%s subscription_id=%s",
+        user_id,
+        session.via_handle,
+        session.id,
+        subscription_obj.get("id"),
+    )
