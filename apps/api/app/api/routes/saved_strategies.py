@@ -10,7 +10,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -74,12 +74,13 @@ def get_saved_strategy(
     return SavedStrategyResponse.model_validate(row)
 
 
-@router.delete("/{strategy_id}", status_code=204)
+@router.delete("/{strategy_id}", status_code=204, response_class=Response)
 def delete_saved_strategy(
     strategy_id: str,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> None:
+) -> Response:
     deleted = saved_strategy_service.delete_strategy(db, current_user.id, strategy_id)
     if not deleted:
         raise HTTPException(status_code=404, detail="Strategy not found.")
+    return Response(status_code=204)
