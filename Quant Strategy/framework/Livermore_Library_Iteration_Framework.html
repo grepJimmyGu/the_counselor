@@ -1,0 +1,515 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Livermore Library Iteration Framework</title>
+<style>
+  :root {
+    --bg: #0a0f1f;
+    --panel: #131a30;
+    --panel-2: #1a2240;
+    --panel-3: #20284a;
+    --ink: #e8ecf7;
+    --ink-dim: #aab2cc;
+    --accent: #6ea8ff;
+    --accent-2: #8ef0c2;
+    --accent-3: #c9a3ff;
+    --warn: #ffd166;
+    --danger: #ff7676;
+    --border: #2a3357;
+    --code-bg: #0f1530;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: linear-gradient(180deg, #0a0f1f 0%, #0b1228 100%);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, sans-serif;
+    line-height: 1.6;
+    font-size: 16px;
+  }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 28px 22px 96px; }
+  header.hero {
+    background: radial-gradient(1200px 400px at 20% -10%, rgba(110,168,255,0.25), transparent 60%),
+                radial-gradient(800px 300px at 90% 10%, rgba(142,240,194,0.18), transparent 60%),
+                var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 18px;
+    padding: 32px 28px;
+    margin-bottom: 22px;
+  }
+  header .eyebrow { color: var(--accent); font-size: 12px; letter-spacing: 2px; text-transform: uppercase; }
+  header h1 { margin: 6px 0 8px; font-size: 28px; line-height: 1.2; }
+  header .subtitle { color: var(--ink-dim); max-width: 940px; }
+  .meta-pills { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .pill { background: var(--panel-2); border: 1px solid var(--border); padding: 6px 12px; border-radius: 999px; font-size: 13px; color: var(--ink-dim); }
+  .pill strong { color: var(--ink); }
+
+  nav.toc {
+    position: sticky; top: 12px;
+    background: rgba(19,26,48,0.92);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 12px 16px;
+    margin-bottom: 22px;
+    z-index: 10;
+    backdrop-filter: blur(10px);
+  }
+  nav.toc ol { margin: 0; padding-left: 18px; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 4px 24px; }
+  nav.toc li { font-size: 14px; }
+  nav.toc a { color: var(--ink-dim); text-decoration: none; }
+  nav.toc a:hover { color: var(--accent); }
+  nav.toc .toc-title { color: var(--ink); font-weight: 600; margin-bottom: 6px; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; }
+
+  section.card {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    padding: 24px 26px;
+    margin-bottom: 18px;
+  }
+  section.card h2 { margin-top: 0; font-size: 22px; border-bottom: 1px dashed var(--border); padding-bottom: 10px; }
+  section.card h3 { margin-top: 22px; font-size: 17px; color: var(--accent-2); }
+  section.card h4 { margin: 14px 0 6px; color: var(--ink); }
+  p, li { color: var(--ink); }
+  .dim { color: var(--ink-dim); }
+  .small { font-size: 13px; }
+  a { color: var(--accent); } a:hover { color: var(--accent-2); }
+
+  .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
+  @media (max-width: 820px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; } nav.toc ol { grid-template-columns: 1fr; } }
+
+  .tile { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+  .tile h4 { margin: 0 0 4px; font-size: 14px; }
+  .tile p { margin: 0; color: var(--ink-dim); font-size: 13px; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin-top: 10px; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--accent); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+  tr:hover td { background: rgba(110,168,255,0.04); }
+
+  code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; background: var(--code-bg); border-radius: 8px; }
+  code { padding: 2px 6px; font-size: 12.5px; color: var(--accent-2); }
+  pre { padding: 12px 14px; overflow: auto; border: 1px solid var(--border); font-size: 12.5px; line-height: 1.55; }
+  pre code { background: transparent; padding: 0; color: var(--ink); }
+
+  .callout {
+    border-left: 3px solid var(--accent);
+    background: rgba(110,168,255,0.06);
+    padding: 10px 14px;
+    border-radius: 0 10px 10px 0;
+    margin: 12px 0;
+  }
+  .callout.warn { border-left-color: var(--warn); background: rgba(255,209,102,0.06); }
+  .callout.danger { border-left-color: var(--danger); background: rgba(255,118,118,0.06); }
+  .callout.good { border-left-color: var(--accent-2); background: rgba(142,240,194,0.06); }
+
+  /* Four-step ribbon */
+  .ribbon { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 16px 0 6px; }
+  .ribbon .step { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px; position: relative; }
+  .ribbon .step .num { font-size: 28px; font-weight: 700; color: var(--accent); line-height: 1; }
+  .ribbon .step .label { font-size: 11px; color: var(--ink-dim); letter-spacing: 1px; text-transform: uppercase; margin-top: 2px; }
+  .ribbon .step h4 { margin: 8px 0 4px; color: var(--ink); font-size: 15px; }
+  .ribbon .step p { margin: 0; color: var(--ink-dim); font-size: 12.5px; }
+  .ribbon .step::after { content: "→"; position: absolute; right: -16px; top: 50%; transform: translateY(-50%); color: var(--accent); font-size: 18px; }
+  .ribbon .step:last-child::after { display: none; }
+  @media (max-width: 820px) { .ribbon { grid-template-columns: 1fr; } .ribbon .step::after { display: none; } }
+
+  /* Lifecycle flow */
+  .lifecycle { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; margin: 12px 0; }
+  .lifecycle .stage { padding: 10px 12px; border-radius: 10px; text-align: center; border: 1px solid var(--border); background: var(--panel-2); }
+  .lifecycle .stage strong { display: block; font-size: 13px; }
+  .lifecycle .stage span { color: var(--ink-dim); font-size: 12px; }
+  .lifecycle .stage.s1 { border-left: 4px solid var(--accent-3); }
+  .lifecycle .stage.s2 { border-left: 4px solid var(--accent-2); }
+  .lifecycle .stage.s3 { border-left: 4px solid var(--accent); }
+  .lifecycle .stage.s4 { border-left: 4px solid var(--ink-dim); opacity: 0.85; }
+
+  .step-card { background: var(--panel-2); border: 1px solid var(--border); border-radius: 14px; padding: 18px 20px; margin-bottom: 14px; }
+  .step-card .crumb { display: inline-block; padding: 3px 10px; background: rgba(110,168,255,0.15); color: var(--accent); border-radius: 999px; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
+  .step-card h3 { margin-top: 8px; }
+  .step-card .dod { background: rgba(142,240,194,0.07); border-left: 3px solid var(--accent-2); padding: 8px 12px; border-radius: 0 8px 8px 0; margin: 10px 0; font-size: 13.5px; }
+
+  .gate-row { display: grid; grid-template-columns: 140px 1fr; gap: 12px; padding: 10px 0; border-bottom: 1px dotted var(--border); font-size: 14px; }
+  .gate-row .k { color: var(--accent); font-weight: 600; }
+
+  footer { margin-top: 26px; color: var(--ink-dim); font-size: 13px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">Livermore AI &middot; Library Iteration Framework</div>
+  <h1>A Repeatable Framework for Refreshing the Livermore Strategy Template Library</h1>
+  <p class="subtitle">
+    A quarterly cycle, scheduled-task-driven at the data-collection edges, human-reviewed at the decision points.
+    Four steps &mdash; <strong>Collect &middot; KB &middot; Propose &middot; Refresh</strong> &mdash; each with a single-file artifact, a definition of done, and a clear handoff.
+    Backed by a markdown knowledge base that's the source of truth, mirrored into a Postgres index that Livermore queries at runtime.
+  </p>
+  <div class="meta-pills">
+    <span class="pill">Cadence: <strong>Quarterly</strong></span>
+    <span class="pill">Storage: <strong>Markdown + Postgres mirror</strong></span>
+    <span class="pill">Automation: <strong>Scheduled tasks + manual gate</strong></span>
+    <span class="pill">Effort per cycle: <strong>~2 working days</strong></span>
+    <span class="pill">Library cap: <strong>25 templates</strong></span>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="toc-title">Contents</div>
+  <ol>
+    <li><a href="#north-star">1. North star &amp; principles</a></li>
+    <li><a href="#cycle">2. The 4-step cycle</a></li>
+    <li><a href="#step1">3. Step 1 &mdash; Collect telemetry</a></li>
+    <li><a href="#step2">4. Step 2 &mdash; KB scan</a></li>
+    <li><a href="#step3">5. Step 3 &mdash; Propose 2&ndash;3 templates</a></li>
+    <li><a href="#step4">6. Step 4 &mdash; Implement &amp; refresh</a></li>
+    <li><a href="#folder">7. Folder structure</a></li>
+    <li><a href="#schema">8. Data model (markdown + SQL)</a></li>
+    <li><a href="#scheduled">9. Scheduled tasks</a></li>
+    <li><a href="#lifecycle">10. Template lifecycle</a></li>
+    <li><a href="#gates">11. Governance gates</a></li>
+    <li><a href="#start">12. Getting started checklist</a></li>
+  </ol>
+</nav>
+
+<section class="card" id="north-star">
+  <h2>1. North star &amp; principles</h2>
+  <p>The Livermore template library is a curated product, not an open marketplace. It exists to give users a small set of <em>defensible, well-evidenced</em> strategy starting points. The job of this framework is to make sure the library stays relevant over time without bloating or chasing fashion.</p>
+  <div class="grid-3">
+    <div class="tile"><h4>Defensible by default</h4><p>Every production template has at least one Tier-A or Tier-B source. Tier-C is candidate-only, behind a Pro flag.</p></div>
+    <div class="tile"><h4>Small &amp; opinionated</h4><p>Hard cap of 25 templates in the gallery. Every new template forces a review of what to retire.</p></div>
+    <div class="tile"><h4>Markdown source-of-truth</h4><p>You can read, diff, and rewrite the library with plain text tools. The DB is a mirror, not the truth.</p></div>
+    <div class="tile"><h4>Automation at the edges</h4><p>Scheduled tasks do the boring work (telemetry pulls, raw web research). Humans do the strategic synthesis.</p></div>
+    <div class="tile"><h4>Cycle over cadence</h4><p>If a cycle slips past 100 days, close it as-is and start the next. Better rhythm than perfect output.</p></div>
+    <div class="tile"><h4>Evidence over excitement</h4><p>New papers must replicate or extend existing evidence. One-off backtest blog posts are research input, not promotion grounds.</p></div>
+  </div>
+</section>
+
+<section class="card" id="cycle">
+  <h2>2. The 4-step cycle</h2>
+  <p class="dim small">Each step produces exactly one markdown artifact in the cycle folder. Each step has a one-sentence definition of done.</p>
+
+  <div class="ribbon">
+    <div class="step"><div class="num">1</div><div class="label">Week 1</div><h4>Collect telemetry</h4><p>Pull Livermore usage &amp; feedback for the last 90 days; score each template keep / iterate / deprecate.</p></div>
+    <div class="step"><div class="num">2</div><div class="label">Week 1&ndash;2</div><h4>KB scan</h4><p>Refresh the knowledge base with new books, papers, practitioner research; write a 1-paragraph regime note.</p></div>
+    <div class="step"><div class="num">3</div><div class="label">Week 2</div><h4>Propose 2&ndash;3</h4><p>Score candidates on Demand / Evidence / Fit / Capacity / Diff (1&ndash;5 each). Top 2&ndash;3 advance.</p></div>
+    <div class="step"><div class="num">4</div><div class="label">Week 3&ndash;4</div><h4>Implement &amp; refresh</h4><p>Write coding-agent prompts, promote/demote templates, sync to the DB, close the cycle.</p></div>
+  </div>
+
+  <h3>Artifacts produced per cycle</h3>
+  <table>
+    <thead><tr><th>Step</th><th>File</th><th>Purpose</th><th>Definition of done</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td><code>01-collect-telemetry.md</code></td><td>Snapshot how the library is being used</td><td>Scorecard filled for every production template</td></tr>
+      <tr><td>2</td><td><code>02-research-scan.md</code></td><td>Refresh KB; form regime view</td><td>At least 1 new KB entry; regime paragraph written</td></tr>
+      <tr><td>3</td><td><code>03-template-proposals.md</code></td><td>Decide what to add</td><td>2&ndash;3 candidate spec files exist in <code>templates/candidate/</code></td></tr>
+      <tr><td>4</td><td><code>04-implementation-plan.md</code></td><td>Decide what to ship and retire</td><td>Coding-agent prompts written; <code>git mv</code> operations committed; DB sync run</td></tr>
+      <tr><td>End</td><td><code>cycle-summary.md</code></td><td>Wrap and hand off to next cycle</td><td>Headline + bullets; next cycle on calendar</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="card" id="step1">
+  <div class="step-card">
+    <div class="crumb">Step 1</div>
+    <h3>Collect Livermore telemetry</h3>
+    <div class="dod"><strong>Done when:</strong> every template in <code>mvp/</code> and <code>production/</code> has a verdict of <em>keep / iterate / deprecate</em>, with usage and feedback numbers cited.</div>
+    <h4>What we measure</h4>
+    <table>
+      <thead><tr><th>Signal</th><th>Why it matters</th><th>Source</th></tr></thead>
+      <tbody>
+        <tr><td>Backtests per template (90d)</td><td>Raw demand. Cold templates need a reason to stay.</td><td><code>template_usage_events</code> where event_type = <code>backtest_run</code></td></tr>
+        <tr><td>Unique users per template (90d)</td><td>Detects single-power-user noise.</td><td>Same, group by user_id</td></tr>
+        <tr><td>Save rate</td><td>Did the user think the result was worth keeping?</td><td><code>strategy_saved</code> events</td></tr>
+        <tr><td>Fork rate</td><td>Was the template a good starting point for derivative work?</td><td><code>strategy_forked</code> events</td></tr>
+        <tr><td>Sandbox thumbs-down %</td><td>Did the skeptical reviewer find something concerning?</td><td><code>sandbox_thumbs_down</code> events</td></tr>
+        <tr><td>Explainer thumbs-down %</td><td>Was the explanation clear?</td><td><code>explainer_thumbs_down</code> events</td></tr>
+        <tr><td>Free-text feedback</td><td>Concrete language for next cycle's research.</td><td>In-app feedback widget</td></tr>
+      </tbody>
+    </table>
+    <h4>Verdict rules</h4>
+    <table>
+      <thead><tr><th>Verdict</th><th>Trigger</th></tr></thead>
+      <tbody>
+        <tr><td><strong>keep</strong></td><td>backtests_90d &ge; p50 AND thumbs_down_rate &lt; 15%</td></tr>
+        <tr><td><strong>iterate</strong></td><td>moderate usage + high thumbs-down, OR low usage but introduced in last 1&ndash;2 cycles (still proving itself)</td></tr>
+        <tr><td><strong>deprecate</strong></td><td>backtests_90d &lt; 5 AND template &gt; 2 cycles old AND no recent positive feedback</td></tr>
+      </tbody>
+    </table>
+    <div class="callout">If you don't yet have <code>template_usage_events</code> wired up in Livermore, treat your first cycle as &quot;wire and observe&quot; &mdash; ship the events first; the scorecard becomes meaningful in the second cycle.</div>
+  </div>
+</section>
+
+<section class="card" id="step2">
+  <div class="step-card">
+    <div class="crumb">Step 2</div>
+    <h3>Knowledge-base scan &amp; market regime view</h3>
+    <div class="dod"><strong>Done when:</strong> at least one new KB entry under <code>knowledge-base/</code> AND a 1-paragraph regime note in <code>02-research-scan.md</code>.</div>
+    <h4>Three parallel searches</h4>
+    <ol>
+      <li><strong>Academic</strong> &mdash; SSRN, arXiv-q-fin, NBER, Journal of Finance / RFS / JFE since the last cycle's end.</li>
+      <li><strong>Practitioner</strong> &mdash; AQR Insights, Robeco Insights, Two Sigma, GMO, Bridgewater letters from the last 90 days.</li>
+      <li><strong>Replication</strong> &mdash; replication or out-of-sample updates that challenge existing Tier-A evidence.</li>
+    </ol>
+    <h4>For each notable source</h4>
+    <ol>
+      <li><code>cp knowledge-base/_kb-entry-template.md knowledge-base/&lt;type&gt;/&lt;slug&gt;.md</code></li>
+      <li>Fill in the YAML front-matter (source_type, authors, year, tags, evidence_tier, strategies_referenced, dates).</li>
+      <li>Fill in the body: TL;DR, Source Summary, Strategies Extracted, Quotes &amp; Numbers, Cross-References.</li>
+      <li>If this source supersedes an older one, set <code>superseded_by</code> in the older file.</li>
+    </ol>
+    <h4>Regime note &mdash; 1 paragraph</h4>
+    <p class="small dim">What regime are we in? What flipped recently? Which existing templates are likely hot vs cold in the next 90 days? This is the bridge to Step 3.</p>
+  </div>
+</section>
+
+<section class="card" id="step3">
+  <div class="step-card">
+    <div class="crumb">Step 3</div>
+    <h3>Propose 2&ndash;3 new templates</h3>
+    <div class="dod"><strong>Done when:</strong> 2&ndash;3 candidate spec files exist in <code>templates/candidate/</code> using the <code>_template-spec.md</code> schema, with their rationale in <code>03-template-proposals.md</code>.</div>
+    <h4>The proposal funnel</h4>
+    <p>Brainstorm wide &mdash; usually 6&ndash;12 candidate ideas from Steps 1+2. Score each on a 1&ndash;5 rubric across five dimensions:</p>
+    <table>
+      <thead><tr><th>Dimension</th><th>Question</th><th>Score 5 means</th></tr></thead>
+      <tbody>
+        <tr><td>Demand</td><td>Did Step 1 telemetry/feedback indicate users wanted this?</td><td>Multiple explicit asks in feedback</td></tr>
+        <tr><td>Evidence</td><td>Is supporting research Tier A/B (not C)?</td><td>Tier A with replication</td></tr>
+        <tr><td>Fit</td><td>Does Livermore's current engine support this without major rework?</td><td>Pure additive schema change</td></tr>
+        <tr><td>Capacity</td><td>Does it work at retail/prosumer scale?</td><td>Works at $10k&ndash;$5M with no special data</td></tr>
+        <tr><td>Diff</td><td>Does Livermore already cover this with another template?</td><td>Fills a real gap, no overlap</td></tr>
+      </tbody>
+    </table>
+    <p>Top 2&ndash;3 by total score advance. Anything with <code>Evidence &le; 2</code> is auto-deferred.</p>
+    <h4>Candidate file is born</h4>
+    <p>For each chosen candidate, copy <code>templates/_template-spec.md</code> to <code>templates/candidate/&lt;slug&gt;.md</code> and fill the front-matter (slug, name, status: candidate, evidence_tier, capacity_tag, edge_type, horizon, asset_class, source_ids).</p>
+  </div>
+</section>
+
+<section class="card" id="step4">
+  <div class="step-card">
+    <div class="crumb">Step 4</div>
+    <h3>Implement &amp; refresh</h3>
+    <div class="dod"><strong>Done when:</strong> new templates have coding-agent prompts written; promoted/deprecated templates have moved between lifecycle folders; the DB sync has been run; <code>cycle-summary.md</code> is filled.</div>
+    <h4>Three parallel tracks</h4>
+    <div class="grid-3">
+      <div class="tile"><h4>New templates</h4><p>Write coding-agent prompts (one per template) following the v2 doc pattern: file paths, additive schema, engine branch, tests, acceptance.</p></div>
+      <div class="tile"><h4>Promotions</h4><p><code>git mv</code> from <code>candidate/</code> &rarr; <code>mvp/</code> &rarr; <code>production/</code>. Update front-matter + Promotion Log.</p></div>
+      <div class="tile"><h4>Deprecations</h4><p><code>git mv</code> to <code>deprecated/</code>. Set <code>deprecation_reason</code> and <code>superseded_by</code>. Open a Livermore ticket to hide the gallery card.</p></div>
+    </div>
+    <h4>Sync to Livermore</h4>
+<pre><code># From repo root, after all `mv` commits
+python apps/api/app/scripts/sync_knowledge_sources.py --plan    # dry run
+python apps/api/app/scripts/sync_knowledge_sources.py --apply
+
+python apps/api/app/scripts/sync_template_lifecycle.py --plan   # dry run
+python apps/api/app/scripts/sync_template_lifecycle.py --apply</code></pre>
+    <h4>Close the cycle</h4>
+    <p>Headline + 3 bullets in <code>cycle-summary.md</code>. Schedule the next kickoff (~80 days out). Move on.</p>
+  </div>
+</section>
+
+<section class="card" id="folder">
+  <h2>7. Folder structure</h2>
+  <p class="dim small">Everything lives under <code>/Users/jimmygu/the_counselor/Quant Strategy/</code>. Markdown is the source of truth; the DB mirrors it.</p>
+<pre><code>Quant Strategy/
+├── README.md
+├── framework/
+│   ├── Livermore_Library_Iteration_Framework.html   ← this doc
+│   ├── quarterly-runbook.md
+│   └── sql-schema.sql
+├── knowledge-base/
+│   ├── README.md
+│   ├── _kb-entry-template.md
+│   ├── books/
+│   │   └── stefanini-investment-strategies-2006.md
+│   ├── papers/
+│   ├── market-research/
+│   └── strategies/
+├── cycles/
+│   ├── _template/                  ← copy this each new cycle
+│   ├── _telemetry-snapshots/       ← scheduled task drops CSVs here
+│   └── Q2-2026/                    ← active cycle (seeded from prior work)
+├── templates/
+│   ├── README.md
+│   ├── _template-spec.md
+│   ├── candidate/   mvp/   production/   deprecated/
+└── Quant Strategy building/
+    ├── Quant_Strategy_Framework.html
+    └── Livermore_Strategy_Library_v2.html
+</code></pre>
+  <p class="small">A template's <em>folder</em> is the source of truth for its lifecycle stage. The <code>status:</code> field in its front-matter must match the folder; the sync script enforces this.</p>
+</section>
+
+<section class="card" id="schema">
+  <h2>8. Data model &mdash; markdown + SQL mirror</h2>
+
+  <h3>8.1 KB entry front-matter</h3>
+<pre><code>---
+source_type: book | paper | market-research | strategy
+title: "Investment Strategies of Hedge Funds"
+authors: ["Filippo Stefanini"]
+year: 2006
+url: "..."
+file_path: "Quant Strategy building/L-G-0000568029-0002381765.pdf"
+
+tags: [book, hedge-funds, taxonomy, tier-a]
+evidence_tier: A
+asset_classes: [equity, futures, fixed-income, multi-asset]
+strategies_referenced: [cross-sectional-momentum, pairs-trading, sector-rotation]
+
+added_at: 2026-05-18
+last_reviewed_at: 2026-05-18
+reviewed_by: cycle-Q2-2026
+superseded_by: ""
+status: active
+---</code></pre>
+
+  <h3>8.2 Template spec front-matter</h3>
+<pre><code>---
+slug: cross-sectional-momentum
+name: "Cross-Sectional Momentum (12-1)"
+livermore_strategy_type: cross_sectional_momentum
+status: candidate | mvp | production | deprecated
+introduced_in_cycle: Q2-2026
+evidence_tier: A
+capacity_tag: prosumer
+
+edge_type: technical
+horizon: position
+asset_class: equity
+universe_shape: full-universe
+directionality: long-only
+
+source_ids: ["papers/jegadeesh-titman-1993.md"]
+reference_sharpe_range: "0.4–0.8 long-only"
+reference_drawdown_range: "20–35% in momentum crashes"
+sample_window: "1976–1996 original; replicated through 2024"
+
+last_reviewed_at: 2026-05-18
+deprecation_reason: ""
+superseded_by: ""
+---</code></pre>
+
+  <h3>8.3 SQL mirror &mdash; tables</h3>
+  <p class="small">Full DDL in <code>framework/sql-schema.sql</code>. Two tables + one events table + two views.</p>
+  <table>
+    <thead><tr><th>Object</th><th>Purpose</th></tr></thead>
+    <tbody>
+      <tr><td><code>knowledge_sources</code></td><td>One row per KB markdown file. Keyed by md_path, hashed for incremental sync.</td></tr>
+      <tr><td><code>strategy_template_lifecycle</code></td><td>One row per template (any lifecycle stage). Carries telemetry snapshots and provenance.</td></tr>
+      <tr><td><code>template_usage_events</code></td><td>Append-only log of user actions per template. Driver for the 90-day rollups.</td></tr>
+      <tr><td><code>v_template_gallery</code></td><td>Production-visible templates joined with their sources. Backs the in-app gallery.</td></tr>
+      <tr><td><code>v_cold_templates</code></td><td>Production templates with &lt; 5 backtests in 90d. Driver for Step 1 deprecation candidates.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>8.4 Sync scripts</h3>
+  <p>Three Python scripts under <code>apps/api/app/scripts/</code> &mdash; to be implemented next cycle:</p>
+  <table>
+    <thead><tr><th>Script</th><th>Walks</th><th>Upserts into</th></tr></thead>
+    <tbody>
+      <tr><td><code>sync_knowledge_sources.py</code></td><td>knowledge-base/**/*.md</td><td>knowledge_sources</td></tr>
+      <tr><td><code>sync_template_lifecycle.py</code></td><td>templates/&lt;status&gt;/*.md</td><td>strategy_template_lifecycle</td></tr>
+      <tr><td><code>refresh_template_telemetry.py</code></td><td>(reads) template_usage_events</td><td>strategy_template_lifecycle.{backtests_90d, save_count_90d, ...}</td></tr>
+    </tbody>
+  </table>
+  <div class="callout">Each script supports <code>--plan</code> (print intended changes) and <code>--apply</code>. Sync is idempotent; safe to re-run.</div>
+</section>
+
+<section class="card" id="scheduled">
+  <h2>9. Scheduled tasks (Cowork)</h2>
+  <p class="dim small">Two tasks set up once. Both are non-destructive &mdash; they only write to the cycle folders and never modify <code>templates/</code> directly.</p>
+
+  <h3>Task 1 &mdash; <code>livermore-telemetry-monthly</code></h3>
+  <p><strong>Frequency:</strong> 1st of every month, 09:00 local. <strong>Cron:</strong> <code>0 9 1 * *</code>.</p>
+  <p><strong>What it does</strong>: runs the SQL queries against Livermore's DB, writes a CSV to <code>/Quant Strategy/cycles/_telemetry-snapshots/&lt;yyyymm&gt;.csv</code>, and raises a small flag file if any production template has <code>backtests_90d &lt; 5</code> or <code>thumbs_down_rate &gt; 25%</code>.</p>
+
+  <h3>Task 2 &mdash; <code>livermore-quarterly-kickoff</code></h3>
+  <p><strong>Frequency:</strong> first Monday of Jan / Apr / Jul / Oct, 09:00 local.</p>
+  <p><strong>What it does</strong>: clones <code>cycles/_template/</code> to <code>cycles/&lt;next-cycle-id&gt;/</code>, pre-fills the scorecard in <code>01-collect-telemetry.md</code> from the latest telemetry snapshot, runs a web search for top quant equity research in the last 90 days and dumps raw results to <code>_research-raw.md</code>, and pings the owner.</p>
+
+  <p>Full prompts for both tasks are at the bottom of <code>framework/quarterly-runbook.md</code>.</p>
+</section>
+
+<section class="card" id="lifecycle">
+  <h2>10. Template lifecycle</h2>
+  <p class="dim small">A template lives in exactly one of four folders at any time. Moving folders is the only way to change its stage.</p>
+
+  <div class="lifecycle">
+    <div class="stage s1"><strong>candidate/</strong><span>proposed, not yet implemented in Livermore</span></div>
+    <div class="stage s2"><strong>mvp/</strong><span>implemented behind a feature flag or Pro tier</span></div>
+    <div class="stage s3"><strong>production/</strong><span>generally available in the gallery</span></div>
+    <div class="stage s4"><strong>deprecated/</strong><span>retired; file kept for audit</span></div>
+  </div>
+
+  <h3>Promotion criteria</h3>
+  <table>
+    <thead><tr><th>From &rarr; To</th><th>Criteria</th></tr></thead>
+    <tbody>
+      <tr><td>candidate &rarr; mvp</td><td>Coding-agent prompts shipped; backtest engine branch and tests merged green; default params smoke-tested.</td></tr>
+      <tr><td>mvp &rarr; production</td><td>Live for at least 1 full cycle; thumbs-down rate &lt; 20%; at least 25 backtests run by &ge; 5 distinct users; no critical bug reports.</td></tr>
+      <tr><td>any &rarr; deprecated</td><td>Verdict <em>deprecate</em> from Step 1 for two consecutive cycles, OR Tier-A evidence is overturned, OR a clear superseding template is in production.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Deprecation hygiene</h3>
+  <ul>
+    <li>Set <code>deprecation_reason</code> (1&ndash;2 sentences).</li>
+    <li>Set <code>superseded_by</code> (the slug of the replacement, if one exists).</li>
+    <li>Open a Livermore ticket to hide the gallery card and surface an in-app notice to users with saved strategies of this type.</li>
+    <li>Do NOT delete the file. Audit trail matters.</li>
+  </ul>
+</section>
+
+<section class="card" id="gates">
+  <h2>11. Governance gates</h2>
+  <p class="dim small">Never skip these. They're the difference between a curated library and a graveyard of backtest noise.</p>
+
+  <div class="gate-row"><div class="k">Schema gate</div><div>Any new template must be expressible inside the current <code>StrategyJSON</code> schema, or the schema change has to be a separate, additive-only PR merged first (see the Strategy Library v2 doc Prompt 1).</div></div>
+  <div class="gate-row"><div class="k">Evidence gate</div><div>Tier-C templates ship behind a Pro flag with a visible "evidence: mixed" badge. Never in the Starter gallery. Tier-B requires at least one practitioner replication or a defensible engineering reason.</div></div>
+  <div class="gate-row"><div class="k">Capacity gate</div><div>Institutional-only strategies (heavy shorting, intraday-only, big-data-only) ship locked behind "requires data plan upgrade" with explanation. They never block on price; they block on data.</div></div>
+  <div class="gate-row"><div class="k">Cost gate</div><div>High-turnover templates default to <code>slippage_bps &ge; 10</code>. The UI warns if the user edits below this for those template types.</div></div>
+  <div class="gate-row"><div class="k">Bloat gate</div><div>Hard cap of 25 templates in the public gallery. New = retire one. No exceptions; if you can't pick something to retire, the new template isn't worth adding.</div></div>
+  <div class="gate-row"><div class="k">Stale-review gate</div><div>Any template not reviewed in 4 cycles auto-flags. The next cycle's Step 1 must address it.</div></div>
+</section>
+
+<section class="card" id="start">
+  <h2>12. Getting started checklist</h2>
+  <p>One-time setup before the first scheduled-task cycle runs.</p>
+  <ol>
+    <li>Run the SQL in <code>framework/sql-schema.sql</code> against your Livermore database to create the two new tables, the events table, and the two views.</li>
+    <li>Add lightweight event-logging to the existing Livermore routes:
+      <ul>
+        <li><code>POST /api/backtest</code> &rarr; insert a <code>backtest_run</code> event keyed by <code>template_slug</code>.</li>
+        <li><code>POST /api/strategies</code> (save) &rarr; <code>strategy_saved</code> event.</li>
+        <li>Sandbox / explainer thumbs &rarr; <code>sandbox_thumbs_down</code> / <code>explainer_thumbs_down</code>.</li>
+      </ul>
+    </li>
+    <li>Implement the three sync scripts in <code>apps/api/app/scripts/</code> (see &sect;8.4). Each is a small Python script that walks a directory, parses YAML front-matter, and upserts rows.</li>
+    <li>Create the two Cowork scheduled tasks (&sect;9). Test by running them manually first.</li>
+    <li>Run cycle Q2-2026 (already seeded in <code>cycles/Q2-2026/</code>) end-to-end to validate the framework before depending on scheduled tasks for cycle Q3-2026.</li>
+    <li>Add a 90-day calendar invite for the next cycle's kickoff.</li>
+  </ol>
+
+  <div class="callout good">
+    <strong>You're now set up for a self-sustaining library.</strong> The framework's promise is modest: a small, defensible, evidence-grounded set of strategy templates that gets better every quarter and never bloats. Stick to the gates, trust the cadence.
+  </div>
+</section>
+
+<footer>
+  <p>Companion files:
+    <a href="../README.md">../README.md</a> &middot;
+    <a href="quarterly-runbook.md">quarterly-runbook.md</a> &middot;
+    <a href="sql-schema.sql">sql-schema.sql</a>
+  </p>
+</footer>
+
+</div>
+</body>
+</html>

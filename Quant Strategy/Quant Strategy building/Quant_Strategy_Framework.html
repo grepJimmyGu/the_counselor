@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Quant Strategy Framework &mdash; from Stefanini's Investment Strategies of Hedge Funds</title>
+<style>
+  :root {
+    --bg: #0b1020; --panel: #131a30; --panel-2: #1a2240;
+    --ink: #e8ecf7; --ink-dim: #aab2cc;
+    --accent: #6ea8ff; --accent-2: #8ef0c2;
+    --warn: #ffd166; --danger: #ff7676;
+    --border: #2a3357; --code-bg: #0f1530;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: linear-gradient(180deg, #0a0f1f 0%, #0b1228 100%); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.6; font-size: 16px; }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 32px 24px 96px; }
+  header.hero { background: radial-gradient(1200px 400px at 20% -10%, rgba(110,168,255,0.25), transparent 60%), radial-gradient(800px 300px at 90% 10%, rgba(142,240,194,0.18), transparent 60%), var(--panel); border: 1px solid var(--border); border-radius: 18px; padding: 36px 32px; margin-bottom: 28px; }
+  header .eyebrow { color: var(--accent); font-size: 12px; letter-spacing: 2px; text-transform: uppercase; }
+  header h1 { margin: 6px 0 6px; font-size: 30px; line-height: 1.15; }
+  header .subtitle { color: var(--ink-dim); max-width: 880px; }
+  .meta-pills { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 18px; }
+  .pill { background: var(--panel-2); border: 1px solid var(--border); padding: 6px 12px; border-radius: 999px; font-size: 13px; color: var(--ink-dim); }
+  .pill strong { color: var(--ink); }
+  nav.toc { position: sticky; top: 12px; background: var(--panel); border: 1px solid var(--border); border-radius: 14px; padding: 14px 18px; margin-bottom: 24px; z-index: 10; backdrop-filter: blur(8px); }
+  nav.toc ol { margin: 0; padding-left: 18px; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 4px 24px; }
+  nav.toc li { font-size: 14px; }
+  nav.toc a { color: var(--ink-dim); text-decoration: none; }
+  nav.toc a:hover { color: var(--accent); }
+  nav.toc .toc-title { color: var(--ink); font-weight: 600; margin-bottom: 6px; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; }
+  section.card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 28px 28px; margin-bottom: 22px; }
+  section.card h2 { margin-top: 0; font-size: 22px; border-bottom: 1px dashed var(--border); padding-bottom: 10px; }
+  section.card h3 { margin-top: 26px; font-size: 17px; color: var(--accent-2); }
+  section.card h4 { margin-bottom: 6px; color: var(--ink); }
+  .dim { color: var(--ink-dim); } .small { font-size: 13px; }
+  .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 16px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
+  @media (max-width: 820px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; } nav.toc ol { grid-template-columns: 1fr; } }
+  .tile { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 16px; }
+  .tile h4 { margin: 0 0 6px; font-size: 15px; }
+  .tile p { margin: 0; color: var(--ink-dim); font-size: 14px; }
+  table { width: 100%; border-collapse: collapse; font-size: 14px; margin-top: 12px; }
+  th, td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--accent); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: 1px; }
+  code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; background: var(--code-bg); border-radius: 8px; }
+  code { padding: 2px 6px; font-size: 13px; color: var(--accent-2); }
+  pre { padding: 14px 16px; overflow: auto; border: 1px solid var(--border); font-size: 13px; line-height: 1.55; }
+  pre code { background: transparent; padding: 0; color: var(--ink); }
+  .callout { border-left: 3px solid var(--accent); background: rgba(110,168,255,0.06); padding: 12px 14px; border-radius: 0 10px 10px 0; margin: 14px 0; }
+  .callout.warn { border-left-color: var(--warn); background: rgba(255,209,102,0.06); }
+  .layer-row { display: grid; grid-template-columns: 80px 1fr; gap: 16px; padding: 14px; border-radius: 12px; border: 1px solid var(--border); background: var(--panel-2); margin-bottom: 10px; }
+  .layer-num { font-size: 28px; font-weight: 700; color: var(--accent); }
+  .layer-row h4 { margin: 0 0 4px; }
+  .layer-row p { margin: 0 0 6px; color: var(--ink-dim); font-size: 14px; }
+  .layer-row .ex { font-size: 13px; color: var(--ink); }
+  .tier-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  @media (max-width: 820px) { .tier-grid { grid-template-columns: 1fr; } }
+  .tier { border: 1px solid var(--border); border-radius: 14px; padding: 18px; background: var(--panel-2); }
+  .tier h3 { margin: 0 0 4px; color: var(--ink); }
+  .tier .who { color: var(--ink-dim); font-size: 13px; margin-bottom: 10px; }
+  .tier ul { padding-left: 18px; margin: 0; }
+  .tier li { font-size: 14px; margin-bottom: 4px; }
+  .tier.starter { border-top: 3px solid var(--accent-2); }
+  .tier.builder { border-top: 3px solid var(--accent); }
+  .tier.pro { border-top: 3px solid var(--warn); }
+  .qna { display: grid; grid-template-columns: 220px 1fr; gap: 14px; padding: 12px 0; border-bottom: 1px dashed var(--border); }
+  .qna .q { color: var(--accent); font-weight: 600; }
+  .flow { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; align-items: stretch; margin: 12px 0 18px; }
+  .flow .step { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 10px 8px; text-align: center; font-size: 12px; position: relative; }
+  .flow .step strong { display: block; color: var(--accent); font-size: 11px; letter-spacing: 1px; text-transform: uppercase; margin-bottom: 4px; }
+  @media (max-width: 820px) { .flow { grid-template-columns: repeat(2, 1fr); } }
+  footer { margin-top: 36px; color: var(--ink-dim); font-size: 13px; text-align: center; }
+  a { color: var(--accent); } a:hover { color: var(--accent-2); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">Strategy Framework &middot; Source Book Synthesis</div>
+  <h1>A Quant Strategy Framework for a No-Code Strategy Builder</h1>
+  <p class="subtitle">Distilled from <em>Investment Strategies of Hedge Funds</em> by Filippo Stefanini (Wiley Finance, 2006). Stefanini surveys every major hedge fund strategy using a single repeating template &mdash; we lift that template, generalize it into a builder-friendly framework, and turn it into a product specification for a fintech tool that lets retail, prosumer, and professional users construct and backtest their own strategies.</p>
+  <div class="meta-pills">
+    <span class="pill">Source: <strong>Stefanini (2006)</strong></span>
+    <span class="pill">Strategies covered: <strong>15+</strong></span>
+    <span class="pill">Backtest depth: <strong>Core essentials</strong></span>
+    <span class="pill">Target users: <strong>Tiered (retail &rarr; pro)</strong></span>
+    <span class="pill">Output: <strong>HTML framework + tech spec</strong></span>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="toc-title">Contents</div>
+  <ol>
+    <li><a href="#book">1. The Book in Two Minutes</a></li>
+    <li><a href="#answers">2. Your Choices &amp; What They Mean</a></li>
+    <li><a href="#core-insight">3. The Core Insight</a></li>
+    <li><a href="#framework">4. The 8-Layer Strategy Framework</a></li>
+    <li><a href="#taxonomy">5. Strategy Library &amp; Taxonomy</a></li>
+    <li><a href="#backtest">6. Backtesting &mdash; Core Essentials</a></li>
+    <li><a href="#tiers">7. Tiered UX (Starter / Builder / Pro)</a></li>
+    <li><a href="#spec">8. Fintech Tool &mdash; Technical Spec</a></li>
+    <li><a href="#datamodel">9. Data Model &amp; Schemas</a></li>
+    <li><a href="#roadmap">10. Build Roadmap (MVP &rarr; v2)</a></li>
+  </ol>
+</nav>
+
+<section class="card" id="book">
+  <h2>1. The Book in Two Minutes</h2>
+  <p>Stefanini was deputy CIO of an Italian fund-of-funds firm; his book is a practitioner's tour of the strategies hedge funds actually run. It is not a recipe book &mdash; the author explicitly says "<em>strategy is easy, execution is hard</em>" &mdash; but it is the cleanest taxonomy you will find. Every chapter follows the same eight-part skeleton, and that skeleton is exactly what a strategy builder needs as input fields.</p>
+
+  <h3>Stefanini's per-chapter skeleton</h3>
+  <div class="grid-4">
+    <div class="tile"><h4>History</h4><p>How the strategy emerged and what it was originally designed to exploit.</p></div>
+    <div class="tile"><h4>Theory</h4><p>The economic or structural inefficiency being captured.</p></div>
+    <div class="tile"><h4>Securities &amp; Market Size</h4><p>Instruments used; depth and capacity of the market.</p></div>
+    <div class="tile"><h4>Hedging &amp; Derivatives</h4><p>How directional risk is neutralized.</p></div>
+    <div class="tile"><h4>Trading Examples</h4><p>Concrete past trades with P&amp;L mechanics.</p></div>
+    <div class="tile"><h4>Liquidity</h4><p>Lockups, holding period, slippage profile.</p></div>
+    <div class="tile"><h4>Leverage</h4><p>Typical gross/net leverage used.</p></div>
+    <div class="tile"><h4>Risks &amp; Risk Management</h4><p>Failure modes, hedges, exposure caps.</p></div>
+  </div>
+
+  <h3>Chapters at a glance</h3>
+  <table>
+    <thead><tr><th>Ch</th><th>Strategy</th><th>What it captures</th></tr></thead>
+    <tbody>
+      <tr><td>2</td><td>Arbitrage (ADR, on/off-the-run)</td><td>Price differences for identical or near-identical claims.</td></tr>
+      <tr><td>3</td><td>Short Selling</td><td>Overvaluation, fraud, deteriorating fundamentals.</td></tr>
+      <tr><td>4</td><td>Long/Short Equity</td><td>Stock selection skill; pairs, sectoral, market-neutral variants.</td></tr>
+      <tr><td>5</td><td>Merger Arbitrage</td><td>Deal-spread premium for closing-risk.</td></tr>
+      <tr><td>6</td><td>Convertible Bond Arbitrage</td><td>Mispriced optionality, volatility, credit, gamma.</td></tr>
+      <tr><td>7</td><td>Fixed Income Arbitrage</td><td>Yield-curve, swap-spread, credit, carry, basis trades.</td></tr>
+      <tr><td>10</td><td>Distressed Securities</td><td>Recovery value vs. market price during stress/bankruptcy.</td></tr>
+      <tr><td>11</td><td>Event-Driven / Special Situations</td><td>Spin-offs, activism, restructurings.</td></tr>
+      <tr><td>13</td><td>Managed Futures (CTA)</td><td>Trend-following on futures; price predictability.</td></tr>
+      <tr><td>14</td><td>Global Macro</td><td>Top-down rates / FX / commodity / equity index views.</td></tr>
+      <tr><td>15</td><td>Other</td><td>Statistical arb, index arb, volatility, PIPEs, real estate, energy.</td></tr>
+      <tr><td>16</td><td>Performance Analysis</td><td>Indices, benchmarking, VaR, statistical analysis.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout"><strong>Why this matters for your product:</strong> Stefanini's recurring skeleton tells you what fields your strategy-builder form needs. Each of the 8 sections becomes a configuration layer. Each chapter becomes a starter template.</div>
+</section>
+
+<section class="card" id="answers">
+  <h2>2. Your Choices &amp; What They Mean for the Build</h2>
+  <div class="qna"><div class="q">Book source</div><div>You provided the PDF directly (Stefanini, 2006). All strategy material below is sourced from this book's table of contents and Chapter 1.</div></div>
+  <div class="qna"><div class="q">Output format</div><div>A single self-contained HTML document containing (a) the strategy framework, (b) the tech spec for the fintech tool, and (c) the answers to the clarifying questions.</div></div>
+  <div class="qna"><div class="q">End user</div><div><strong>Tiered experience.</strong> One product with three progressive complexity layers: <em>Starter</em>, <em>Builder</em>, <em>Pro</em>. The framework must be expressible at three levels of abstraction over the same underlying engine.</div></div>
+  <div class="qna"><div class="q">Backtest depth</div><div><strong>Core essentials:</strong> total return, CAGR, Sharpe, max drawdown, win rate, exposure, turnover.</div></div>
+</section>
+
+<section class="card" id="core-insight">
+  <h2>3. The Core Insight: Every Strategy Is a Stack of Decisions</h2>
+  <p>Read Stefanini end-to-end and one pattern dominates: <strong>a hedge fund strategy is not an "idea", it is a sequence of seven or eight decisions stacked on top of each other.</strong> Long/short equity and merger arbitrage look unrelated until you notice both answer the same questions &mdash; what universe? what edge? how to enter? how to hedge? how to size? when to exit? what blows it up? how to verify?</p>
+  <p>A good no-code builder is therefore not a blank canvas. It is a structured form whose fields are exactly those decisions, plus a templates layer (one template per chapter of the book) and a backtest engine that runs the resulting configuration over historical data.</p>
+  <div class="callout warn"><strong>Design corollary.</strong> If your UI lets a user skip any of the eight layers, the resulting strategy will leak somewhere &mdash; usually as unmodeled risk or unrealistic fills. The builder should require all eight, even if defaults are sensible.</div>
+</section>
+
+<section class="card" id="framework">
+  <h2>4. The 8-Layer Strategy Framework</h2>
+  <p class="dim">This is the universal template. Every strategy in the book &mdash; and every strategy a user will build &mdash; can be expressed by filling in these eight layers.</p>
+
+  <div class="flow">
+    <div class="step"><strong>1</strong>Universe</div>
+    <div class="step"><strong>2</strong>Thesis</div>
+    <div class="step"><strong>3</strong>Signal</div>
+    <div class="step"><strong>4</strong>Execution</div>
+    <div class="step"><strong>5</strong>Risk</div>
+    <div class="step"><strong>6</strong>Liquidity</div>
+    <div class="step"><strong>7</strong>Backtest</div>
+  </div>
+  <div class="flow" style="grid-template-columns: 1fr; margin-top:-6px;">
+    <div class="step"><strong>8</strong>Review &amp; Iterate &mdash; the loop back into Layer 2</div>
+  </div>
+
+  <div class="layer-row"><div class="layer-num">1</div><div>
+    <h4>Universe Layer &mdash; <span class="dim">"What can I trade?"</span></h4>
+    <p>Defines the investable set: asset class, geography, market cap, liquidity floor, sector, instrument type.</p>
+    <div class="ex"><strong>Book mappings:</strong> Long/short equity &rarr; US large-caps; Merger arb &rarr; announced deals; Managed futures &rarr; liquid global futures.</div>
+  </div></div>
+
+  <div class="layer-row"><div class="layer-num">2</div><div>
+    <h4>Thesis Layer &mdash; <span class="dim">"What inefficiency am I capturing?"</span></h4>
+    <p>The economic story. Mispricing? Risk premium? Behavioral bias? Structural flow? Without an articulated thesis, a strategy is data-mined.</p>
+    <div class="ex"><strong>Book mappings:</strong> Convertible arb &rarr; embedded option underpriced; Distressed &rarr; recovery &gt; market price; Trend-following &rarr; serial correlation in prices.</div>
+  </div></div>
+
+  <div class="layer-row"><div class="layer-num">3</div><div>
+    <h4>Signal Layer &mdash; <span class="dim">"How do I know when to act?"</span></h4>
+    <p>The rule that translates data into a decision. Specifies entry, exit, and rebalancing.</p>
+    <div class="ex"><strong>Examples:</strong> 12-1 momentum percentile; pair z-score &gt; 2; deal spread &gt; 3%; implied vs realized vol gap.</div>
+  </div></div>
+
+  <div class="layer-row"><div class="layer-num">4</div><div>
+    <h4>Execution Layer &mdash; <span class="dim">"How do I express the trade?"</span></h4>
+    <p>Long-only, long/short, paired, hedged with derivatives, leveraged. Position sizing (equal-weight, risk-parity, signal-weighted). Order type and slippage assumption.</p>
+  </div></div>
+
+  <div class="layer-row"><div class="layer-num">5</div><div>
+    <h4>Risk Layer &mdash; <span class="dim">"What kills this strategy?"</span></h4>
+    <p>Per-name caps, sector caps, gross/net leverage limits, stop-loss, factor exposure limits.</p>
+    <div class="ex"><strong>Failure modes:</strong> deal break (merger arb), short squeeze, liquidity gap (distressed), credit spread blowout (convert arb), regime shift (trend).</div>
+  </div></div>
+
+  <div class="layer-row"><div class="layer-num">6</div><div>
+    <h4>Liquidity Layer &mdash; <span class="dim">"How fast can I get in and out?"</span></h4>
+    <p>Holding period, capacity, transaction cost model. Stefanini's "capacity" discussion is why the largest hedge funds are smaller than the largest mutual funds.</p>
+  </div></div>
+
+  <div class="layer-row"><div class="layer-num">7</div><div>
+    <h4>Backtest Layer &mdash; <span class="dim">"Has this ever worked?"</span></h4>
+    <p>Historical simulation. Core metrics only at MVP. Run on in-sample, always present out-of-sample alongside in v2.</p>
+  </div></div>
+
+  <div class="layer-row"><div class="layer-num">8</div><div>
+    <h4>Review &amp; Iterate Layer &mdash; <span class="dim">"What broke, and why?"</span></h4>
+    <p>Attribution by signal, by name, by regime. The loop that turns a backtest into a discipline.</p>
+  </div></div>
+</section>
+
+<section class="card" id="taxonomy">
+  <h2>5. Strategy Library &amp; Taxonomy</h2>
+  <p class="dim">Each entry below is a template the builder ships with. Click any strategy in the v2 doc for full 8-layer decomposition.</p>
+
+  <h3>Cross-cutting taxonomy</h3>
+  <table>
+    <thead><tr><th>Axis</th><th>Buckets</th><th>Used to filter templates</th></tr></thead>
+    <tbody>
+      <tr><td>Asset class</td><td>Equity / Fixed Income / Futures / Options / FX / Multi-asset</td><td>Yes</td></tr>
+      <tr><td>Directionality</td><td>Long-only / Long-short / Market-neutral / Pair</td><td>Yes</td></tr>
+      <tr><td>Time horizon</td><td>Intraday / Days / Weeks / Months / Quarters</td><td>Yes</td></tr>
+      <tr><td>Approach</td><td>Systematic / Discretionary / Hybrid</td><td>Yes</td></tr>
+      <tr><td>Capacity</td><td>Retail-scale / Prosumer / Institutional</td><td>Yes (used to warn users)</td></tr>
+      <tr><td>Tier required</td><td>Starter / Builder / Pro</td><td>Yes (gates the UI)</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Templates shipped with v2 (see <code>Livermore_Strategy_Library_v2.html</code> for full specs)</h3>
+  <ul>
+    <li><strong>Existing (6):</strong> moving_average_filter, moving_average_crossover, momentum_rotation, rsi_mean_reversion, breakout, static_allocation</li>
+    <li><strong>MVP new (8 price-only):</strong> cross_sectional_momentum, time_series_momentum, short_term_reversal, pairs_trading, sector_rotation, dual_momentum, low_volatility, bollinger_mean_reversion (+ vol_target overlay)</li>
+    <li><strong>v2 (5 fundamental/event):</strong> value_composite, quality_piotroski, buyback_yield, pead_drift, earnings_revision</li>
+    <li><strong>v3 (3 sentiment/composite):</strong> news_sentiment_momentum, insider_buying, multi_factor_composite</li>
+  </ul>
+</section>
+
+<section class="card" id="backtest">
+  <h2>6. Backtesting &mdash; Core Essentials</h2>
+  <table>
+    <thead><tr><th>Metric</th><th>Formula / Definition</th><th>Why it matters</th></tr></thead>
+    <tbody>
+      <tr><td>Total Return</td><td>(end equity / start equity) &minus; 1</td><td>Headline P&amp;L.</td></tr>
+      <tr><td>CAGR</td><td>(1 + total return)^(1/years) &minus; 1</td><td>Time-normalized return.</td></tr>
+      <tr><td>Volatility</td><td>stdev(daily returns) &times; &radic;252</td><td>Risk dimension.</td></tr>
+      <tr><td>Sharpe Ratio</td><td>(CAGR &minus; rf) / volatility</td><td>Risk-adjusted return; Stefanini's primary yardstick.</td></tr>
+      <tr><td>Max Drawdown</td><td>max peak-to-trough decline</td><td>What a user actually has to live through.</td></tr>
+      <tr><td>Win Rate</td><td>winning trades / total trades</td><td>Behavioral comfort.</td></tr>
+      <tr><td>Exposure &amp; Turnover</td><td>avg gross &amp; net; annualized turnover</td><td>Sanity-checks capacity and TC realism.</td></tr>
+    </tbody>
+  </table>
+
+  <h3>Assumptions baked into the MVP engine</h3>
+  <div class="grid-2">
+    <div class="tile"><h4>Slippage</h4><p>Fixed bps per trade, user-editable. Defaults: 5 bps equities, 1 bps futures, 25 bps small-caps.</p></div>
+    <div class="tile"><h4>Commissions</h4><p>Flat per-share or per-trade, user-editable.</p></div>
+    <div class="tile"><h4>Borrow cost</h4><p>Annualized rate applied to short notional. Default 50 bps for liquid names.</p></div>
+    <div class="tile"><h4>Funding cost</h4><p>Cash rate on uninvested capital.</p></div>
+    <div class="tile"><h4>Fills</h4><p>Next-bar open; market-on-close for daily strategies.</p></div>
+    <div class="tile"><h4>Universe rebuild</h4><p>Point-in-time membership when survivorship-bias-free data is available.</p></div>
+  </div>
+
+  <div class="callout warn">Walk-forward, true OOS, Monte Carlo, regime conditioning, lookahead detection are <em>roadmap v2</em>. Pro tier surfaces them as locked-with-tooltip items.</div>
+</section>
+
+<section class="card" id="tiers">
+  <h2>7. Tiered UX: One Product, Three Experiences</h2>
+  <p class="dim">Same engine and data model underneath. Tiers gate which layers are user-exposed versus auto-filled with sane defaults.</p>
+
+  <div class="tier-grid">
+    <div class="tier starter"><h3>Starter</h3><div class="who">Retail. Comfortable with stocks; not with code or quant jargon.</div>
+      <ul>
+        <li>Pick a template (e.g. "Trend-Following Stocks").</li>
+        <li>Drag sliders for 3&ndash;5 parameters.</li>
+        <li>Plain-English risk controls.</li>
+        <li>One-click backtest, 5 core metrics, equity curve.</li>
+        <li>Plain-English summary.</li>
+      </ul>
+    </div>
+    <div class="tier builder"><h3>Builder</h3><div class="who">Prosumer. Knows Sharpe and drawdown; doesn't want to code.</div>
+      <ul>
+        <li>All Starter features.</li>
+        <li>Per-layer editing of all 8 framework layers.</li>
+        <li>Block-based signal composer.</li>
+        <li>Custom universes.</li>
+        <li>Vol-target, risk-parity sizing.</li>
+        <li>Full metric panel; save, fork, share.</li>
+      </ul>
+    </div>
+    <div class="tier pro"><h3>Pro</h3><div class="who">Quant pro. Wants Python/DSL and API access.</div>
+      <ul>
+        <li>Strategy DSL (YAML) + Python SDK.</li>
+        <li>Raw data tables, intraday bars.</li>
+        <li>Walk-forward, OOS, Monte Carlo (v2).</li>
+        <li>Factor-attribution &amp; regime analysis.</li>
+        <li>REST/Webhook API.</li>
+        <li>Custom slippage and TC models.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section class="card" id="spec">
+  <h2>8. Fintech Tool &mdash; Technical Specification</h2>
+
+  <h3>8.1 Product summary</h3>
+  <p>A web application that lets users construct quantitative investment strategies via a tiered no-code/low-code interface, backtest them on historical market data, and review results. Strategies are first-class documents: versioned, forkable, shareable, exportable.</p>
+
+  <h3>8.2 High-level architecture</h3>
+<pre><code>┌─────────────────────────────────────────────────────────────────┐
+│  Web Client (React + TS)                                        │
+│  Templates / Builder / Backtest / Review                         │
+└─────────────────────────────────────────────────────────────────┘
+       │
+┌─────────────────────────────────────────────────────────────────┐
+│  API Gateway (REST + WS)                                        │
+└─────────────────────────────────────────────────────────────────┘
+   │           │              │                │
+Strategy   Backtest      Market Data        Auth/Billing
+Service    Engine        Service
+              │
+       Postgres + Object Store + Redis
+              │
+       Data Vendors (EOD, refdata, corp actions)</code></pre>
+
+  <h3>8.3 Component responsibilities</h3>
+  <table>
+    <thead><tr><th>Component</th><th>Responsibility</th><th>Stack</th></tr></thead>
+    <tbody>
+      <tr><td>Web client</td><td>Tiered builder, template gallery, results viewer</td><td>React + TypeScript</td></tr>
+      <tr><td>Strategy service</td><td>Persist strategies as JSON; versions, forks, sharing</td><td>FastAPI, Postgres</td></tr>
+      <tr><td>Backtest engine</td><td>Run strategy doc against historical data</td><td>Python + Pandas + Numba</td></tr>
+      <tr><td>Market data service</td><td>Bars, corporate actions, fundamentals, point-in-time membership</td><td>Postgres + Parquet on S3</td></tr>
+      <tr><td>Auth / billing</td><td>Tier gating, quota, payment</td><td>Auth0 or Clerk; Stripe</td></tr>
+    </tbody>
+  </table>
+
+  <h3>8.4 Anti-patterns to prevent (lessons from Stefanini)</h3>
+  <div class="callout warn">"Strategy is easy, execution is hard." The product should actively guard against the most common ways users mislead themselves.</div>
+  <ul>
+    <li><strong>Survivorship bias.</strong> Refuse to backtest equity strategies against current-membership universes; require point-in-time.</li>
+    <li><strong>Lookahead bias.</strong> Force signals to use data with a configurable lag.</li>
+    <li><strong>Overfitting.</strong> Soft-warn when a strategy has many parameters per year of data.</li>
+    <li><strong>Capacity ignorance.</strong> Show estimated max AUM at which slippage erodes &ge;50% of edge.</li>
+    <li><strong>Currency bias.</strong> Force a base currency.</li>
+    <li><strong>Cherry-pick.</strong> Default backtest window is full available history.</li>
+  </ul>
+</section>
+
+<section class="card" id="datamodel">
+  <h2>9. Data Model &amp; Schemas</h2>
+
+  <h3>Strategy document (illustrative)</h3>
+<pre><code>{
+  "id": "strat_01HZX...",
+  "name": "Sector Pairs Mean Reversion",
+  "tier_origin": "builder",
+  "version": 7,
+  "universe": { "asset_class": "equity", "selector": { "index": "SP500" }},
+  "thesis": "Sector-paired large caps mean-revert in spread within 4 weeks.",
+  "signal": { "type": "composite", "logic": "AND", "blocks": [ ... ] },
+  "execution": { "sizing": "dollar_neutral_pair", "rebalance": "daily" },
+  "risk": { "max_pairs": 20, "max_gross_exposure": 2.0 },
+  "liquidity": { "max_holding_days": 30 },
+  "backtest_config": { "start": "2014-01-01", "end": "2024-12-31", "slippage_bps": 5 }
+}</code></pre>
+
+  <h3>Backtest result document (illustrative)</h3>
+<pre><code>{
+  "strategy_id": "strat_01HZX...",
+  "metrics": {
+    "total_return": 1.84, "cagr": 0.094, "volatility": 0.082,
+    "sharpe": 1.14, "max_drawdown": -0.137, "win_rate": 0.58,
+    "avg_gross_exposure": 1.62, "annual_turnover": 6.4
+  },
+  "equity_curve": [...], "drawdown_curve": [...], "trades": [...],
+  "warnings": ["Survivorship-bias-free universe used.", "Signal lag of 1 bar applied."]
+}</code></pre>
+</section>
+
+<section class="card" id="roadmap">
+  <h2>10. Build Roadmap</h2>
+
+  <h3>MVP (0 &rarr; 3 months)</h3>
+  <table>
+    <tbody>
+      <tr><td>M1</td><td>Data foundation — EOD US equity bars + point-in-time membership</td></tr>
+      <tr><td>M2</td><td>Engine v0 — daily-bar backtester, 7 core metrics</td></tr>
+      <tr><td>M3</td><td>Strategy doc + storage — JSON schema, versioning</td></tr>
+      <tr><td>M4</td><td>Starter UI — template gallery with 5 templates</td></tr>
+      <tr><td>M5</td><td>Builder UI — per-layer editing, signal composer</td></tr>
+      <tr><td>M6</td><td>Tier gating + billing</td></tr>
+    </tbody>
+  </table>
+
+  <h3>v1.1 (3 &rarr; 6 months)</h3>
+  <ul>
+    <li>Pro tier: DSL, Python sandbox, REST/CLI.</li>
+    <li>Futures dataset; multi-asset templates.</li>
+    <li>Better TC model: per-symbol historical spreads.</li>
+    <li>Strategy sharing, forking, leaderboards.</li>
+  </ul>
+
+  <h3>v2 (6 &rarr; 12 months)</h3>
+  <ul>
+    <li>Bias-aware testing: walk-forward, OOS, Monte Carlo.</li>
+    <li>Factor attribution + risk decomposition.</li>
+    <li>Paper-trading via broker APIs.</li>
+    <li>Options templates.</li>
+  </ul>
+</section>
+
+<footer>
+  <p>Built from Stefanini, <em>Investment Strategies of Hedge Funds</em> (Wiley Finance, 2006).</p>
+</footer>
+
+</div>
+</body>
+</html>

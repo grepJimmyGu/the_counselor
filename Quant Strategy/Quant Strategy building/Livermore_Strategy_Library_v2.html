@@ -1,0 +1,636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Livermore Strategy Library v2 &mdash; Stock Quant Templates &amp; Integration Plan</title>
+<style>
+  :root {
+    --bg: #0a0f1f; --panel: #131a30; --panel-2: #1a2240; --panel-3: #20284a;
+    --ink: #e8ecf7; --ink-dim: #aab2cc;
+    --accent: #6ea8ff; --accent-2: #8ef0c2; --accent-3: #c9a3ff;
+    --warn: #ffd166; --danger: #ff7676;
+    --border: #2a3357; --code-bg: #0f1530;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body { background: linear-gradient(180deg, #0a0f1f 0%, #0b1228 100%); color: var(--ink); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.6; font-size: 16px; }
+  .wrap { max-width: 1200px; margin: 0 auto; padding: 28px 22px 96px; }
+  header.hero { background: radial-gradient(1200px 400px at 20% -10%, rgba(110,168,255,0.25), transparent 60%), radial-gradient(800px 300px at 90% 10%, rgba(142,240,194,0.18), transparent 60%), var(--panel); border: 1px solid var(--border); border-radius: 18px; padding: 32px 28px; margin-bottom: 24px; }
+  header .eyebrow { color: var(--accent); font-size: 12px; letter-spacing: 2px; text-transform: uppercase; }
+  header h1 { margin: 6px 0 6px; font-size: 28px; line-height: 1.2; }
+  header .subtitle { color: var(--ink-dim); max-width: 920px; }
+  .meta-pills { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .pill { background: var(--panel-2); border: 1px solid var(--border); padding: 6px 12px; border-radius: 999px; font-size: 13px; color: var(--ink-dim); }
+  .pill strong { color: var(--ink); }
+  nav.toc { position: sticky; top: 12px; background: rgba(19,26,48,0.92); border: 1px solid var(--border); border-radius: 14px; padding: 12px 16px; margin-bottom: 22px; z-index: 10; backdrop-filter: blur(10px); }
+  nav.toc ol { margin: 0; padding-left: 18px; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 4px 24px; }
+  nav.toc li { font-size: 14px; }
+  nav.toc a { color: var(--ink-dim); text-decoration: none; }
+  nav.toc a:hover { color: var(--accent); }
+  nav.toc .toc-title { color: var(--ink); font-weight: 600; margin-bottom: 6px; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; }
+  section.card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 24px 26px; margin-bottom: 20px; }
+  section.card h2 { margin-top: 0; font-size: 22px; border-bottom: 1px dashed var(--border); padding-bottom: 10px; }
+  section.card h3 { margin-top: 22px; font-size: 17px; color: var(--accent-2); }
+  section.card h4 { margin-bottom: 6px; color: var(--ink); }
+  .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
+  @media (max-width: 820px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; } nav.toc ol { grid-template-columns: 1fr; } }
+  .tile { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+  .tile h4 { margin: 0 0 4px; font-size: 14px; }
+  .tile p { margin: 0; color: var(--ink-dim); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 10px; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--accent); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+  code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; background: var(--code-bg); border-radius: 8px; }
+  code { padding: 2px 6px; font-size: 12.5px; color: var(--accent-2); }
+  pre { padding: 12px 14px; overflow: auto; border: 1px solid var(--border); font-size: 12.5px; line-height: 1.55; }
+  pre code { background: transparent; padding: 0; color: var(--ink); }
+  .callout { border-left: 3px solid var(--accent); background: rgba(110,168,255,0.06); padding: 10px 14px; border-radius: 0 10px 10px 0; margin: 12px 0; }
+  .callout.warn { border-left-color: var(--warn); background: rgba(255,209,102,0.06); }
+  .callout.good { border-left-color: var(--accent-2); background: rgba(142,240,194,0.06); }
+  .qna { display: grid; grid-template-columns: 220px 1fr; gap: 14px; padding: 10px 0; border-bottom: 1px dashed var(--border); }
+  .qna .q { color: var(--accent); font-weight: 600; }
+  @media (max-width: 700px) { .qna { grid-template-columns: 1fr; } }
+  .strategy-card { border: 1px solid var(--border); border-radius: 14px; background: var(--panel-2); margin-bottom: 14px; overflow: hidden; }
+  .strategy-card.existing { border-left: 4px solid var(--accent-3); }
+  .strategy-card.new-mvp { border-left: 4px solid var(--accent-2); }
+  .strategy-card.new-v2 { border-left: 4px solid var(--accent); }
+  .strategy-card.new-v3 { border-left: 4px solid var(--warn); }
+  .strategy-card.future { border-left: 4px solid var(--ink-dim); opacity: 0.85; }
+  .strategy-card summary { list-style: none; padding: 14px 18px; cursor: pointer; outline: none; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+  .strategy-card summary::-webkit-details-marker { display: none; }
+  .strategy-card summary .title { font-weight: 600; font-size: 15px; }
+  .strategy-card summary::after { content: "+"; color: var(--accent); font-size: 22px; margin-left: auto; flex-shrink: 0; }
+  .strategy-card[open] summary::after { content: "−"; }
+  .strategy-card .body { padding: 0 18px 18px; }
+  .tag { font-size: 11px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel-3); color: var(--ink-dim); white-space: nowrap; }
+  .tag.h { color: var(--accent); border-color: rgba(110,168,255,0.4); background: rgba(110,168,255,0.10); }
+  .tag.f { color: var(--accent-2); border-color: rgba(142,240,194,0.4); background: rgba(142,240,194,0.10); }
+  .tag.e { color: var(--accent-3); border-color: rgba(201,163,255,0.4); background: rgba(201,163,255,0.10); }
+  .tag.w { color: var(--warn); border-color: rgba(255,209,102,0.4); background: rgba(255,209,102,0.10); }
+  .spec-row { display: grid; grid-template-columns: 160px 1fr; gap: 10px; padding: 6px 0; border-bottom: 1px dotted var(--border); font-size: 14px; }
+  .spec-row .k { color: var(--accent); font-weight: 600; }
+  @media (max-width: 700px) { .spec-row { grid-template-columns: 1fr; } }
+  .prompt-block { background: var(--panel-3); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; margin-bottom: 14px; }
+  .prompt-block .head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; gap: 10px; }
+  .prompt-block .head .name { color: var(--accent-2); font-weight: 600; font-size: 14px; }
+  .prompt-block .head .order { color: var(--ink-dim); font-size: 12px; }
+  .prompt-block pre { margin: 0; max-height: 380px; }
+  .dim { color: var(--ink-dim); } .small { font-size: 13px; }
+  a { color: var(--accent); } a:hover { color: var(--accent-2); }
+  footer { margin-top: 26px; color: var(--ink-dim); font-size: 13px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">Livermore AI &middot; Strategy Library v2</div>
+  <h1>Stock Quant Trading Strategy Library &amp; Livermore Integration Plan</h1>
+  <p class="subtitle">A focused upgrade for <strong>Livermore AI</strong>: we narrow scope to stocks and stock ETFs, expand the strategy library beyond Stefanini's 2006 taxonomy to today's top-evidence quant equity strategies, and produce per-template specs that fit your existing Pydantic <code>StrategyJSON</code> schema plus ready-to-paste prompts for your coding agent.</p>
+  <div class="meta-pills">
+    <span class="pill">Existing strategies: <strong>6</strong></span>
+    <span class="pill">New templates: <strong>15</strong> (MVP, v2, v3)</span>
+    <span class="pill">Universe: <strong>Single &amp; cross-sectional + SPDR sectors</strong></span>
+    <span class="pill">Horizon: <strong>Mixed (intraday &rarr; multi-quarter)</strong></span>
+    <span class="pill">Sources: <strong>Academic + practitioner + ML, robustness-tagged</strong></span>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="toc-title">Contents</div>
+  <ol>
+    <li><a href="#decisions">1. Your decisions &amp; framing</a></li>
+    <li><a href="#audit">2. Livermore audit</a></li>
+    <li><a href="#taxonomy">3. Updated strategy taxonomy</a></li>
+    <li><a href="#schema-gaps">4. Schema gaps &amp; engine extensions</a></li>
+    <li><a href="#library-existing">5. Library: existing strategies</a></li>
+    <li><a href="#library-mvp">6. Library: MVP new templates</a></li>
+    <li><a href="#library-v2">7. Library: v2 templates (fundamental + event)</a></li>
+    <li><a href="#library-v3">8. Library: v3 templates (sentiment + ML)</a></li>
+    <li><a href="#library-future">9. Library: future templates (intraday)</a></li>
+    <li><a href="#roadmap">10. Phased integration roadmap</a></li>
+    <li><a href="#prompts">11. Coding-agent prompts (ready to paste)</a></li>
+    <li><a href="#qa-checklist">12. QA checklist before merge</a></li>
+    <li><a href="#sources">13. Sources</a></li>
+  </ol>
+</nav>
+
+<section class="card" id="decisions">
+  <h2>1. Your decisions &amp; framing</h2>
+  <div class="qna"><div class="q">Scope</div><div>Stock quant trading only. ETF strategies in scope when ETF is an equity proxy (SPDR sectors, factor ETFs).</div></div>
+  <div class="qna"><div class="q">Time horizon</div><div>Mix of all. Each template tagged. Intraday deferred behind data-plan upgrade.</div></div>
+  <div class="qna"><div class="q">Universe</div><div>Full universe + sector ETFs. Engine generalizes momentum_rotation into a reusable cross-sectional helper.</div></div>
+  <div class="qna"><div class="q">Source ranking</div><div>All sources, ranked by robustness. Each template ships with evidence tier (A/B/C) and capacity tag (retail/prosumer/institutional).</div></div>
+  <div class="qna"><div class="q">Deliverable</div><div>Specs + prompts. Prompts in &sect;11 designed for fresh agent sessions.</div></div>
+</section>
+
+<section class="card" id="audit">
+  <h2>2. Livermore audit &mdash; what exists today</h2>
+  <div class="grid-2">
+    <div class="tile"><h4>Engine capability</h4><p>Daily-bar long-only backtester. Single-asset signal path and cross-sectional ranking path (momentum_rotation) both work today.</p></div>
+    <div class="tile"><h4>Schema (StrategyJSON)</h4><p>Enum-locked <code>strategy_type</code> with 6 values, generic <code>rules</code> array, <code>position_sizing</code> (equal/fixed), <code>risk_management</code>, <code>cash_management</code>.</p></div>
+    <div class="tile"><h4>Services available</h4><p><code>market_data</code>, <code>sentiment_service</code>, <code>fundamental_service</code>, <code>screener_service</code>, <code>sec_edgar_client</code>, <code>robustness_service</code>. Big unlock: non-price strategies achievable without new vendor contracts.</p></div>
+    <div class="tile"><h4>Constraints</h4><p>Long-only. No shorts. No options. No intraday data. <code>universe</code> is a list, not a dynamic screen.</p></div>
+  </div>
+  <div class="callout good">Most MVP templates fit current schema with additive changes. v2 (fundamental, event) requires wiring existing services into engine. v3 (sentiment, ML) needs a <code>SignalProvider</code> abstraction.</div>
+</section>
+
+<section class="card" id="taxonomy">
+  <h2>3. Updated strategy taxonomy</h2>
+  <table>
+    <thead><tr><th>Axis</th><th>Buckets</th></tr></thead>
+    <tbody>
+      <tr><td>Edge type</td><td>Technical / Fundamental / Event-driven / Sentiment / Composite (ML)</td></tr>
+      <tr><td>Horizon</td><td>Intraday / Swing / Position / Multi-quarter</td></tr>
+      <tr><td>Universe</td><td>Single name / Pair / Small basket / Sector ETFs / Full equity universe</td></tr>
+      <tr><td>Directionality</td><td>Long-only / Long-cash / Long-short (future) / Pair-neutral (future)</td></tr>
+      <tr><td>Evidence tier</td><td>A (decades of replicated evidence) / B (strong but recent or capacity-limited) / C (active research, mixed)</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="card" id="schema-gaps">
+  <h2>4. Schema gaps &amp; engine extensions</h2>
+  <h3>4.1 New <code>strategy_type</code> literals (additive)</h3>
+<pre><code>StrategyType = Literal[
+  # existing 6
+  "moving_average_filter", "moving_average_crossover", "momentum_rotation",
+  "rsi_mean_reversion", "breakout", "static_allocation",
+  # MVP additions (price-only)
+  "cross_sectional_momentum", "time_series_momentum", "short_term_reversal",
+  "pairs_trading", "sector_rotation", "dual_momentum", "low_volatility",
+  "bollinger_mean_reversion",
+  # v2 additions (fundamental + event)
+  "value_composite", "quality_piotroski", "buyback_yield",
+  "pead_drift", "earnings_revision",
+  # v3 additions (sentiment + composite)
+  "news_sentiment_momentum", "insider_buying", "multi_factor_composite",
+]</code></pre>
+
+  <h3>4.2 New <code>StrategyRule</code> Optional fields</h3>
+<pre><code>signal_source: Optional[Literal[...]] = None
+rank_direction: Optional[Literal["top","bottom"]] = None
+zscore_entry / zscore_exit / zscore_stop: Optional[float] = None
+pair_symbol: Optional[str] = None
+hedge_ratio: Optional[float] = None
+target_vol_annual: Optional[float] = None
+formation_period_days / skip_period_days: Optional[int] = None
+num_std / top_pct: Optional[float] = None
+factor_weights: Optional[dict[str, float]] = None</code></pre>
+
+  <h3>4.3 New PositionSizing methods</h3>
+<pre><code>method: Literal["equal_weight","fixed_weight","vol_target","signal_weighted"]
+target_vol_annual: Optional[float] = None
+signal_power: Optional[float] = None</code></pre>
+
+  <h3>4.4 SignalProvider abstraction (v2 foundation)</h3>
+<pre><code>class SignalProvider(Protocol):
+  async def get_signal_frame(
+      self, db: Session, symbol: str, start: date, end: date,
+      signal_name: str, lookback_days: int = 0,
+  ) -> pd.Series: ...
+
+# Concrete providers wrap existing services:
+class FundamentalSignalProvider(SignalProvider): ...
+class SentimentSignalProvider(SignalProvider): ...
+class EventSignalProvider(SignalProvider): ...
+class InsiderSignalProvider(SignalProvider): ...</code></pre>
+
+  <div class="callout"><strong>Why this matters.</strong> Without point-in-time alignment, fundamental strategies look great in backtest but cheat by using restated financials. The <code>SignalProvider</code> contract makes "as-of" the default.</div>
+</section>
+
+<section class="card" id="library-existing">
+  <h2>5. Library: existing strategies (recap)</h2>
+  <details class="strategy-card existing"><summary><div><div class="title">Moving-Average Filter</div></div></summary><div class="body"><p class="small">Hold when price &gt; N-day MA, else cash. Classic trend filter.</p></div></details>
+  <details class="strategy-card existing"><summary><div><div class="title">Moving-Average Crossover</div></div></summary><div class="body"><p class="small">Long when fast MA &gt; slow MA, else cash. Standard SMA(50)/SMA(200) baseline.</p></div></details>
+  <details class="strategy-card existing"><summary><div><div class="title">Momentum Rotation</div></div></summary><div class="body"><p class="small">Rank a small universe by total return; rebalance into top-N.</p></div></details>
+  <details class="strategy-card existing"><summary><div><div class="title">RSI Mean-Reversion</div></div></summary><div class="body"><p class="small">Buy when RSI &lt; entry; exit when RSI &gt; exit.</p></div></details>
+  <details class="strategy-card existing"><summary><div><div class="title">Breakout (Donchian)</div></div></summary><div class="body"><p class="small">Long on N-day high breakout; exit on M-day low.</p></div></details>
+  <details class="strategy-card existing"><summary><div><div class="title">Static Allocation</div></div></summary><div class="body"><p class="small">Fixed weights, periodic rebalance. Useful as benchmark.</p></div></details>
+</section>
+
+<section class="card" id="library-mvp">
+  <h2>6. Library: MVP new templates (price-only)</h2>
+
+  <details class="strategy-card new-mvp" open>
+    <summary><div><div class="title">1. Cross-Sectional Momentum (12-1)</div></div></summary>
+    <div class="body">
+      <div class="spec-row"><div class="k">Thesis</div><div>Stocks with highest 12-month returns (skipping last month) continue to outperform. Jegadeesh-Titman 1993; replicated thousands of times.</div></div>
+      <div class="spec-row"><div class="k">Signal</div><div>Rank by return from t-252d to t-21d. Long top decile. Equal-weight.</div></div>
+      <div class="spec-row"><div class="k">Parameters</div><div><code>formation_period_days=252, skip_period_days=21, top_n=10</code></div></div>
+      <div class="spec-row"><div class="k">Expected metrics</div><div>Sharpe 0.4&ndash;0.8 long-only. DD 30%+ during momentum crashes.</div></div>
+    </div>
+  </details>
+
+  <details class="strategy-card new-mvp">
+    <summary><div><div class="title">2. Time-Series Momentum (Trend)</div></div></summary>
+    <div class="body">
+      <div class="spec-row"><div class="k">Thesis</div><div>Asset's own past 12m return predicts next 1m return. Moskowitz-Ooi-Pedersen 2012.</div></div>
+      <div class="spec-row"><div class="k">Signal</div><div>Long when trailing 12-month return &gt; 0, else cash. Optional vol-target.</div></div>
+    </div>
+  </details>
+
+  <details class="strategy-card new-mvp">
+    <summary><div><div class="title">3. Short-Term Reversal (1-Week)</div></div></summary>
+    <div class="body">
+      <div class="spec-row"><div class="k">Thesis</div><div>One-week winners underperform losers next week (Lehmann 1990). 2025: strongest in high-MAX stocks.</div></div>
+      <div class="spec-row"><div class="k">Caveat</div><div>High turnover &mdash; require slippage_bps &ge; 10.</div></div>
+    </div>
+  </details>
+
+  <details class="strategy-card new-mvp">
+    <summary><div><div class="title">4. Pairs Trading (Z-Score)</div></div></summary>
+    <div class="body">
+      <div class="spec-row"><div class="k">Thesis</div><div>Cointegrated stocks revert to long-run spread. 2024-25 research confirms but pair half-life ~ 1&ndash;2 years.</div></div>
+      <div class="spec-row"><div class="k">Long-only constraint</div><div>Hold long leg-a only when spread says leg-a is cheap; exit to cash otherwise. True pair-neutral is future.</div></div>
+    </div>
+  </details>
+
+  <details class="strategy-card new-mvp">
+    <summary><div><div class="title">5. Sector Rotation (SPDR ETFs)</div></div></summary>
+    <div class="body">
+      <div class="spec-row"><div class="k">Thesis</div><div>Cross-sectional momentum on 11 SPDR sector ETFs (XLK, XLF, XLE, XLV, XLY, XLP, XLU, XLI, XLB, XLRE, XLC).</div></div>
+      <div class="spec-row"><div class="k">Why ship separately</div><div>High-signal, low-noise version of cross-sectional momentum. Recommended <strong>default prosumer template</strong>.</div></div>
+    </div>
+  </details>
+
+  <details class="strategy-card new-mvp">
+    <summary><div><div class="title">6. Dual Momentum (Antonacci)</div></div></summary>
+    <div class="body">
+      <div class="spec-row"><div class="k">Signal</div><div>Pick top by 12-month return; if positive hold, else go to safe asset (bonds/cash).</div></div>
+    </div>
+  </details>
+
+  <details class="strategy-card new-mvp">
+    <summary><div><div class="title">7. Low Volatility (Min-Vol Tilt)</div></div></summary>
+    <div class="body">
+      <div class="spec-row"><div class="k">Thesis</div><div>Low-vol stocks have higher risk-adjusted returns (Frazzini-Pedersen BAB, Soebhag-Baltussen-van Vliet 2025).</div></div>
+      <div class="spec-row"><div class="k">Signal</div><div>Long bottom decile of trailing 252-day volatility.</div></div>
+    </div>
+  </details>
+
+  <details class="strategy-card new-mvp">
+    <summary><div><div class="title">8. Bollinger Band Mean Reversion</div></div></summary>
+    <div class="body">
+      <div class="spec-row"><div class="k">Signal</div><div>Buy when close &lt; (MA &minus; k&middot;&sigma;), exit when close &gt; MA.</div></div>
+    </div>
+  </details>
+
+  <details class="strategy-card new-mvp">
+    <summary><div><div class="title">9. Volatility-Target Overlay</div></div></summary>
+    <div class="body">
+      <div class="spec-row"><div class="k">Type</div><div>Sizing overlay, applicable to any template. Scales position to hit target annualized vol.</div></div>
+    </div>
+  </details>
+</section>
+
+<section class="card" id="library-v2">
+  <h2>7. Library: v2 templates (fundamental + event)</h2>
+
+  <details class="strategy-card new-v2">
+    <summary><div><div class="title">10. Value Composite (FCF yield + P/B + EV/EBITDA)</div></div></summary>
+    <div class="body">
+      <div class="spec-row"><div class="k">Signal</div><div>Z-score each metric; average; long top-decile composite.</div></div>
+      <div class="spec-row"><div class="k">Why composite</div><div>Robeco/AQR: multi-metric value beats single-metric by reducing model risk.</div></div>
+    </div>
+  </details>
+
+  <details class="strategy-card new-v2">
+    <summary><div><div class="title">11. Quality (Piotroski F-Score)</div></div></summary>
+    <div class="body">
+      <div class="spec-row"><div class="k">Signal</div><div>9 binary financial signals; long F-Score &ge; 8. Pair with value pre-filter (P/B &lt; median).</div></div>
+      <div class="spec-row"><div class="k">Evidence</div><div>Original 1976-96: +7.5% annual outperformance. 20-yr OOS: ~11% / yr.</div></div>
+    </div>
+  </details>
+
+  <details class="strategy-card new-v2">
+    <summary><div><div class="title">12. Buyback Yield</div></div></summary>
+    <div class="body">
+      <div class="spec-row"><div class="k">Signal</div><div>Long top-decile of net buyback yield (TTM). Pair with value gate.</div></div>
+      <div class="spec-row"><div class="k">Evidence</div><div>Cheap buybacks: 15.3% / yr vs expensive: 5.1% / yr (S&amp;P Global).</div></div>
+    </div>
+  </details>
+
+  <details class="strategy-card new-v2">
+    <summary><div><div class="title">13. PEAD (Post-Earnings Drift)</div></div></summary>
+    <div class="body">
+      <div class="spec-row"><div class="k">Signal</div><div>After earnings, compute SUE; long top-decile for 60 trading days.</div></div>
+      <div class="spec-row"><div class="k">Evidence</div><div>Garfinkel-Hribar-Hsiao 2024: 5.1% 3-mo risk-adjusted (~20% annualized).</div></div>
+    </div>
+  </details>
+
+  <details class="strategy-card new-v2">
+    <summary><div><div class="title">14. Earnings Estimate Revisions</div></div></summary>
+    <div class="body">
+      <div class="spec-row"><div class="k">Signal</div><div>Long largest positive 90-day change in consensus next-FY EPS. Monthly rebalance.</div></div>
+    </div>
+  </details>
+</section>
+
+<section class="card" id="library-v3">
+  <h2>8. Library: v3 templates (sentiment + composite ML)</h2>
+
+  <details class="strategy-card new-v3">
+    <summary><div><div class="title">15. News Sentiment Momentum</div></div></summary>
+    <div class="body">
+      <div class="spec-row"><div class="k">Signal</div><div>30-day rolling sentiment; long top decile.</div></div>
+      <div class="spec-row"><div class="k">Caveat</div><div>Mixed evidence; recommend co-signal (technical or fundamental).</div></div>
+    </div>
+  </details>
+
+  <details class="strategy-card new-v3">
+    <summary><div><div class="title">16. Insider Buying Signal</div></div></summary>
+    <div class="body">
+      <div class="spec-row"><div class="k">Signal</div><div>Cluster Form-4 buys in trailing 30 days. Reuse <code>sec_edgar_client</code>.</div></div>
+    </div>
+  </details>
+
+  <details class="strategy-card new-v3">
+    <summary><div><div class="title">17. Multi-Factor Composite (Value + Mom + Quality + Low-Vol)</div></div></summary>
+    <div class="body">
+      <div class="spec-row"><div class="k">Why flagship</div><div>Most defensible long-only equity quant strategy in academia and practice. Pro template.</div></div>
+    </div>
+  </details>
+</section>
+
+<section class="card" id="library-future">
+  <h2>9. Library: future templates</h2>
+  <details class="strategy-card future"><summary><div><div class="title">Opening Range Breakout (Intraday)</div></div></summary><div class="body"><p class="small">First 15-30 min defines range; long on close above range high + above VWAP + RVOL &gt; 1.5. Needs minute bars.</p></div></details>
+  <details class="strategy-card future"><summary><div><div class="title">VWAP Trend Following (Intraday)</div></div></summary><div class="body"><p class="small">Long when price &gt; daily VWAP; exit on cross-below.</p></div></details>
+  <details class="strategy-card future"><summary><div><div class="title">Gradient Boosted Returns Model</div></div></summary><div class="body"><p class="small">XGBoost on technical + fundamental features. Tier C evidence.</p></div></details>
+  <details class="strategy-card future"><summary><div><div class="title">Long/Short Equity (true short-side)</div></div></summary><div class="body"><p class="small">Requires negative-weight handling, borrow cost.</p></div></details>
+</section>
+
+<section class="card" id="roadmap">
+  <h2>10. Phased integration roadmap</h2>
+
+  <h3>Phase A &mdash; MVP unlock (1&ndash;2 weeks)</h3>
+  <ol>
+    <li>Schema extension (new literals + Optional fields).</li>
+    <li>Engine: cross-sectional ranking abstraction.</li>
+    <li>Ship price-only MVP templates.</li>
+    <li>Strategy parser keyword patterns.</li>
+    <li>Frontend template gallery cards.</li>
+  </ol>
+
+  <h3>Phase B &mdash; SignalProvider (2&ndash;4 weeks)</h3>
+  <ol>
+    <li>Introduce <code>SignalProvider</code> protocol.</li>
+    <li>Point-in-time signal frames.</li>
+    <li>Ship fundamental + event templates.</li>
+  </ol>
+
+  <h3>Phase C &mdash; Sentiment &amp; composites (4&ndash;6 weeks)</h3>
+  <ol>
+    <li>Wire <code>sentiment_service</code> and <code>sec_edgar_client</code> as providers.</li>
+    <li>Ship sentiment + insider + multi-factor composite.</li>
+    <li>Factor decomposition tab in results UI.</li>
+  </ol>
+
+  <h3>Phase D &mdash; Engine upgrades (8+ weeks)</h3>
+  <ol>
+    <li>Long/short support (negative weights, borrow cost).</li>
+    <li>Intraday data integration.</li>
+  </ol>
+</section>
+
+<section class="card" id="prompts">
+  <h2>11. Coding-agent prompts (ready to paste)</h2>
+  <p class="dim small">Each prompt is self-contained and sized for a single fresh agent session. Use in order.</p>
+
+  <div class="prompt-block">
+    <div class="head"><div class="name">Prompt 1 &mdash; Extend StrategyJSON schema</div><div class="order">Phase A &middot; ~30 min</div></div>
+<pre><code>Working in Livermore AI / StrategyLab AI repo. Files:
+- apps/api/app/schemas/strategy.py
+- apps/api/app/services/strategy_validator.py
+- apps/api/tests/
+
+Goal: extend schema additively so new templates fit without breaking existing backtests.
+
+Tasks:
+1. Expand StrategyType Literal to include 8 new MVP types.
+2. Add Optional fields to StrategyRule (signal_source, rank_direction, zscore_*, pair_symbol, etc.).
+3. Extend PositionSizing.method with "vol_target" and "signal_weighted".
+4. Update validator to warn (not error) on new type without rules.
+
+Acceptance: existing pytest suite passes; new test_schema_extensions.py validates each new type.
+
+Do NOT add backtester behavior in this PR. Schema only.</code></pre>
+  </div>
+
+  <div class="prompt-block">
+    <div class="head"><div class="name">Prompt 2 &mdash; Generalize cross-sectional ranking in engine</div><div class="order">Phase A &middot; ~1&ndash;2 hours</div></div>
+<pre><code>BacktestEngine in apps/api/app/services/backtester/engine.py already has one cross-sectional
+path (momentum_rotation). Generalize into a reusable helper.
+
+Tasks:
+1. Add _generate_cross_sectional_weights(close_matrix, score_matrix, rebalance_mask,
+   top_n, top_pct, rank_direction) helper.
+2. Refactor momentum_rotation to use it.
+3. Add branches for: cross_sectional_momentum, time_series_momentum, short_term_reversal,
+   sector_rotation, dual_momentum, low_volatility, bollinger_mean_reversion, pairs_trading.
+4. Update _compute_lookback per new strategy type.
+
+Add test_engine_cross_sectional.py: per new type, synthetic 3-symbol 2-year backtest,
+assert valid BacktestResult, exposure <= 1, non-empty trade_log.</code></pre>
+  </div>
+
+  <div class="prompt-block">
+    <div class="head"><div class="name">Prompt 3 &mdash; Vol-target position sizing overlay</div><div class="order">Phase A &middot; ~1 hour</div></div>
+<pre><code>Implement PositionSizing.method = "vol_target".
+
+After per-strategy logic produces raw weights, if method == "vol_target":
+- Compute trailing 21-day realized vol of portfolio returns
+- scale = target_vol / realized_vol, capped at 1.0
+- Apply row-wise
+
+Add test_vol_target.py verifying realized vol within +/-30% of target on high-vol synthetic.</code></pre>
+  </div>
+
+  <div class="prompt-block">
+    <div class="head"><div class="name">Prompt 4 &mdash; SignalProvider abstraction</div><div class="order">Phase B &middot; ~2&ndash;3 hours</div></div>
+<pre><code>Create apps/api/app/services/backtester/signal_provider.py with:
+
+class SignalProvider(Protocol):
+    async def get_signal_frame(self, db, symbol, start, end) -> pd.Series: ...
+
+Concrete:
+- FundamentalSignalProvider(signal) wraps fundamental_service
+- SentimentSignalProvider wraps sentiment_service
+- EarningsEventSignalProvider returns SUE on earnings dates
+- InsiderSignalProvider wraps sec_edgar_client
+
+CRITICAL: must use disclosure_date or report_date+45d lag to avoid lookahead.
+Add registry get_signal_provider(name). Tests in test_signal_providers.py.
+
+Do NOT plug into engine yet.</code></pre>
+  </div>
+
+  <div class="prompt-block">
+    <div class="head"><div class="name">Prompt 5 &mdash; Wire fundamental templates</div><div class="order">Phase B &middot; ~2&ndash;3 hours</div></div>
+<pre><code>Prerequisites: Prompts 1, 2, 4 merged.
+
+Ship "value_composite", "quality_piotroski", "buyback_yield".
+
+For each: build score_matrix via SignalProvider, delegate to _generate_cross_sectional_weights.
+
+value_composite: 3 providers (fcf_yield, book_to_market, ebitda_ev), z-score, average.
+quality_piotroski: f_score >= 8.
+buyback_yield: top decile.
+
+Lookahead protection: fundamental signals MUST use disclosure_date.
+Test with mocked fundamental_service.</code></pre>
+  </div>
+
+  <div class="prompt-block">
+    <div class="head"><div class="name">Prompt 6 &mdash; PEAD &amp; earnings revisions</div><div class="order">Phase B &middot; ~2&ndash;3 hours</div></div>
+<pre><code>Add "pead_drift" and "earnings_revision".
+
+pead_drift: EarningsEventSignalProvider; hold top-decile SUE for holding_window_days (default 60).
+Add holding_window_days to StrategyRule.
+
+earnings_revision: FundamentalSignalProvider("estimate_revision_3m"), monthly, top decile.
+
+PEAD warning: flag microcap universe (avg cap < $300M).</code></pre>
+  </div>
+
+  <div class="prompt-block">
+    <div class="head"><div class="name">Prompt 7 &mdash; Sentiment &amp; insider templates</div><div class="order">Phase C &middot; ~2&ndash;3 hours</div></div>
+<pre><code>Add "news_sentiment_momentum" and "insider_buying".
+
+Surface warning in BacktestResult: sentiment-only alpha has mixed 2024-25 evidence.
+
+Add UI template cards (Builder tier, Tier-B evidence, Prosumer capacity).</code></pre>
+  </div>
+
+  <div class="prompt-block">
+    <div class="head"><div class="name">Prompt 8 &mdash; Multi-factor composite (flagship Pro template)</div><div class="order">Phase C &middot; ~2&ndash;3 hours</div></div>
+<pre><code>Add "multi_factor_composite". Rule shape:
+
+{ "rules": [{
+    "factor_weights": {
+      "value_composite": 0.25, "momentum_12_1": 0.25,
+      "quality_f_score": 0.25, "low_volatility": 0.25
+    },
+    "top_pct": 0.1
+}]}
+
+Engine: build score_matrix per factor, z-score, combine, delegate to helper.
+
+Optional: factor attribution view in results UI.</code></pre>
+  </div>
+
+  <div class="prompt-block">
+    <div class="head"><div class="name">Prompt 9 &mdash; Strategy parser update</div><div class="order">Phase A finishing &middot; ~1&ndash;2 hours</div></div>
+<pre><code>Extend strategy_parser.py with keyword patterns for each new template:
+- "low vol" -> low_volatility
+- "sector rotation" -> sector_rotation
+- "trend follow" -> time_series_momentum
+- "12 month momentum" -> cross_sectional_momentum
+- "piotroski" | "f-score" -> quality_piotroski
+- "buyback yield" -> buyback_yield
+- "pead" | "earnings drift" -> pead_drift
+- "news sentiment" -> news_sentiment_momentum
+- "insider" -> insider_buying
+- "multi factor" -> multi_factor_composite
+
+Default param inference from template specs. Update LLM prompt template.
+Tests in test_strategy_parser.py.</code></pre>
+  </div>
+
+  <div class="prompt-block">
+    <div class="head"><div class="name">Prompt 10 &mdash; Frontend template gallery</div><div class="order">Phase A finishing &middot; ~3&ndash;4 hours</div></div>
+<pre><code>In apps/web, add Template Gallery view.
+
+Each card: name, plain-English description, evidence tier badge (A/B/C),
+capacity badge (Retail/Prosumer/Institutional), horizon badge,
+"Try template" button that pre-fills chat builder.
+
+Add Phase A cards: cross-sectional momentum, time-series momentum,
+short-term reversal, pairs trading, sector rotation, dual momentum,
+low volatility, Bollinger MR.
+
+Each: "What it captures", "Default settings", "Caveats".
+Future templates show "Coming soon" overlay.</code></pre>
+  </div>
+
+  <div class="prompt-block">
+    <div class="head"><div class="name">Prompt 11 &mdash; Update Livermore documentation</div><div class="order">After each phase &middot; ~30 min</div></div>
+<pre><code>For each merged phase, append docs section:
+1. New strategy_type entries with description and example JSON.
+2. Engine architecture notes (cross-sectional helper, SignalProvider).
+3. Update agent-system/PRODUCT_PLAN.md status for relevant PRDs.
+
+Do not write speculative docs; only document merged behavior.</code></pre>
+  </div>
+</section>
+
+<section class="card" id="qa-checklist">
+  <h2>12. QA checklist before each merge</h2>
+  <table>
+    <thead><tr><th>Check</th><th>Why it matters</th><th>How</th></tr></thead>
+    <tbody>
+      <tr><td>Survivorship bias</td><td>Current-membership universe overstates returns 1&ndash;3% / yr.</td><td>SignalProvider must use point-in-time disclosure_date.</td></tr>
+      <tr><td>Lookahead bias</td><td>Restated financials cheat.</td><td>Use as-of disclosure_date or report_date + lag.</td></tr>
+      <tr><td>Realistic costs</td><td>High-turnover strategies fail after costs.</td><td>Default slippage 10 bps; warn if user reduces.</td></tr>
+      <tr><td>Capacity</td><td>Stat-arb / reversal degrade at scale.</td><td>Show "estimated max AUM" for high-turnover templates.</td></tr>
+      <tr><td>Evidence</td><td>Don't overstate Sharpe from cherry-picked windows.</td><td>Show literature-derived "typical Sharpe range".</td></tr>
+    </tbody>
+  </table>
+</section>
+
+<section class="card" id="sources">
+  <h2>13. Sources</h2>
+
+  <h3>Factor &amp; cross-sectional</h3>
+  <ul>
+    <li><a href="https://quantpedia.com/strategy-tags/factor-investing/">Quantpedia &mdash; Factor Investing tag</a></li>
+    <li><a href="https://www.aqr.com/Insights/Research/Working-Paper/Factor-Momentum-Everywhere">AQR &mdash; Factor Momentum Everywhere</a></li>
+    <li><a href="https://funds.aqr.com/Insights/Strategies/Quality-Factor">AQR Funds &mdash; Quality Factor</a></li>
+    <li><a href="https://www.robeco.com/files/docm/docu-20250624-seizing-quant-and-fundamental-alpha-in-developed-equity-markets-hksg.pdf">Robeco &mdash; Seizing quant alpha (June 2025)</a></li>
+    <li><a href="https://www.tandfonline.com/doi/full/10.1080/14697688.2025.2517270">Betting Against (Bad) Beta &mdash; 2025</a></li>
+  </ul>
+
+  <h3>Momentum &amp; reversal</h3>
+  <ul>
+    <li><a href="https://quantpedia.com/strategies/time-series-momentum-effect">Quantpedia &mdash; Time-Series Momentum</a></li>
+    <li><a href="https://quantpedia.com/strategies/short-term-reversal-in-stocks">Quantpedia &mdash; Short-Term Reversal in Stocks</a></li>
+    <li><a href="https://www.sciencedirect.com/science/article/abs/pii/S0927539825000301">Maxing Out Short-Term Reversals (2025)</a></li>
+  </ul>
+
+  <h3>Fundamental &amp; event</h3>
+  <ul>
+    <li><a href="https://www.quantifiedstrategies.com/piotroski-f-score-strategy/">QuantifiedStrategies &mdash; Piotroski F-Score Backtest</a></li>
+    <li><a href="https://www.spglobal.com/spdji/en/documents/research/research-sp-examining-share-repurchases-and-the-sp-buyback-indices.pdf">S&amp;P Global &mdash; Examining Share Repurchases</a></li>
+    <li><a href="https://anderson-review.ucla.edu/is-post-earnings-announcement-drift-a-thing-again/">UCLA Anderson &mdash; PEAD revisited</a></li>
+    <li><a href="https://www.millstreetresearch.com/do-analyst-estimate-revisions-still-help-forecast-relative-stock-returns/">Mill Street Research &mdash; Analyst Estimate Revisions</a></li>
+  </ul>
+
+  <h3>Sentiment, ML, &amp; alt-data</h3>
+  <ul>
+    <li><a href="https://arxiv.org/html/2507.09739v1">LLM Sentiment Trading on S&amp;P 500 (2025)</a></li>
+    <li><a href="https://arxiv.org/html/2601.19504">Hybrid AI Trading w/ FinBERT (2026)</a></li>
+    <li><a href="https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3159577">Gu-Kelly-Xiu &mdash; Empirical Asset Pricing via ML</a></li>
+  </ul>
+
+  <h3>Sector rotation, pairs, intraday</h3>
+  <ul>
+    <li><a href="https://quantpedia.com/strategies/sector-momentum-rotational-system">Quantpedia &mdash; Sector Momentum Rotational System</a></li>
+    <li><a href="https://link.springer.com/article/10.1057/s41260-025-00416-0">Cointegration-Based Pairs Trading with ETFs (2025)</a></li>
+    <li><a href="https://highstrike.com/opening-range/">Trading the Opening Range (2025)</a></li>
+  </ul>
+
+  <h3>Source book</h3>
+  <ul>
+    <li>Stefanini, F. (2006). <em>Investment Strategies of Hedge Funds.</em> Wiley Finance.</li>
+  </ul>
+</section>
+
+<footer><p>Built for Livermore AI / StrategyLab AI &middot; Strategy Library v2 &middot; Mixed-horizon stock quant.</p></footer>
+
+</div>
+</body>
+</html>
