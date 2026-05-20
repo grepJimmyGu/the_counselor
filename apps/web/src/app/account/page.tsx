@@ -149,16 +149,17 @@ export default function AccountPage() {
           <div className="grid gap-3 sm:grid-cols-2">
             {[
               {
-                label: "Backtests this month",
-                value: ents.backtest_runs_remaining === null
-                  ? `${me.usage.backtest_runs} run${me.usage.backtest_runs !== 1 ? "s" : ""} (unlimited)`
-                  : `${me.usage.backtest_runs} / ${(me.usage.backtest_runs + (ents.backtest_runs_remaining ?? 0))}`,
+                label: "Custom backtests this week",
+                value: ents.custom_backtest_runs_remaining === null
+                  ? "Unlimited"
+                  : `${ents.custom_backtest_runs_remaining} of 5 remaining · resets Monday`,
               },
-              { label: "Universe size max", value: `${ents.universe_size_max} symbols` },
-              { label: "History window",    value: `${ents.history_window_years} years` },
-              { label: "Asset classes",     value: ents.asset_classes.join(", ") },
-              { label: "Commodity signals", value: ents.commodity_framework ? "Included" : "Upgrade to unlock" },
-              { label: "API access",        value: ents.api_access ? "Enabled" : "Quant only" },
+              { label: "Template runs",        value: ents.template_runs_unlimited ? "Unlimited (all tiers)" : "Capped" },
+              { label: "Custom universe size", value: `${ents.universe_size_max_custom} symbols` },
+              { label: "Custom history window", value: `${ents.history_window_years_custom} years` },
+              { label: "Asset classes",        value: ents.asset_classes.join(", ") },
+              { label: "Commodity signals",    value: ents.commodity_framework ? "Included" : "Upgrade to unlock" },
+              { label: "Saved strategies",     value: `${ents.saved_strategies_max === 10_000 ? "Unlimited" : `Up to ${ents.saved_strategies_max}`}${ents.saved_strategies_always_public ? " (all public)" : ""}` },
             ].map(({ label, value }) => (
               <div key={label} className="rounded-lg border border-border bg-background px-4 py-3">
                 <div className="text-xs text-muted-foreground">{label}</div>

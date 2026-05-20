@@ -375,3 +375,61 @@ export async function createPortalSession(backendToken: string): Promise<{ url: 
     headers: { Authorization: `Bearer ${backendToken}` },
   });
 }
+
+// ── Anonymous one-shot (Stage 1a) ─────────────────────────────────────────────
+
+export async function getAnonymousEntitlements(): Promise<
+  import("@/lib/contracts").AnonymousEntitlements
+> {
+  return fetchApi("/api/anonymous/entitlements", { credentials: "include" });
+}
+
+export async function anonymousBacktestRun(
+  payload: {
+    template_id: string;
+    strategy_json: unknown;
+    via_handle?: string;
+  },
+): Promise<import("@/lib/contracts").BacktestResult> {
+  return fetchApi("/api/anonymous/backtest/run", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    credentials: "include", // sets/reads livermore_anon_id cookie
+  });
+}
+
+// ── Saved strategies (Stage 1a) ───────────────────────────────────────────────
+
+export async function listSavedStrategies(
+  backendToken: string,
+): Promise<import("@/lib/contracts").UserSavedStrategy[]> {
+  return fetchApi("/api/saved-strategies", {
+    headers: { Authorization: `Bearer ${backendToken}` },
+  });
+}
+
+export async function createSavedStrategy(
+  payload: {
+    title: string;
+    strategy_json: unknown;
+    is_public?: boolean;
+    backtest_record_id?: string;
+  },
+  backendToken: string,
+): Promise<import("@/lib/contracts").UserSavedStrategy> {
+  return fetchApi("/api/saved-strategies", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${backendToken}` },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteSavedStrategy(
+  strategyId: string,
+  backendToken: string,
+): Promise<void> {
+  await fetchApi(`/api/saved-strategies/${strategyId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${backendToken}` },
+  });
+}

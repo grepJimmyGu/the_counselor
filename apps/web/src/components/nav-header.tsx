@@ -7,6 +7,7 @@ import { useSession, signIn, signOut } from "next-auth/react";
 import type { Route } from "next";
 import { LogIn, LogOut, User, Menu, X } from "lucide-react";
 import { LanguageSwitcher } from "@/components/language-switcher";
+import { QuotaBadge } from "@/components/QuotaBadge";
 import { useLocale } from "@/lib/locale-context";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -139,6 +140,7 @@ export function NavHeader() {
               ))}
             </nav>
             <div className="flex items-center gap-2">
+              <QuotaBadge />
               <LanguageSwitcher />
               <UserMenu />
             </div>

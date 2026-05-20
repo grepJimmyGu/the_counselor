@@ -20,7 +20,10 @@ from app.models.user import User
 from app.services import saved_strategy_service
 from app.services.saved_strategy_service import SaveStrategyRequest
 
-router = APIRouter(prefix="/api/strategies", tags=["saved_strategies"])
+# NOTE: mounted at /api/saved-strategies (not /api/strategies) to avoid colliding
+# with the legacy PRD-02 strategy_storage.py routes which still serve the slug-based
+# Workspace flow. Stage 4 will reconcile the two surfaces.
+router = APIRouter(prefix="/api/saved-strategies", tags=["saved_strategies"])
 
 
 class SavedStrategyResponse(BaseModel):

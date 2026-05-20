@@ -36,18 +36,80 @@ export interface UserMe extends UserPublic {
 
 export interface Entitlements {
   tier: Tier;
+  // Stage 1a changes:
+  //   backtest_runs_remaining → custom_backtest_runs_remaining (weekly, custom only)
+  //   added week_start so the UI can render "resets Monday"
+  //   added template_runs_unlimited (templates exempt from custom caps)
+  //   universe_size_max → universe_size_max_custom
+  //   history_window_years → history_window_years_custom
+  //   added saved_strategies_always_public (Scout-only force-public)
+  //   removed api_access (deferred indefinitely)
   status: PlanStatus;
-  backtest_runs_remaining: number | null;
-  universe_size_max: number;
-  history_window_years: number;
+  custom_backtest_runs_remaining: number | null;
+  week_start: string; // ISO date of the current week's Monday (UTC)
+  template_runs_unlimited: boolean;
+  universe_size_max_custom: number;
+  history_window_years_custom: number;
   asset_classes: ("equities" | "commodities" | "a_shares")[];
   robustness_tests: string[];
   market_pulse_ticker_scope: "top_250" | "all_us" | "all_us_plus_alerts";
   business_model_section: "full" | "full_plus_supply_chain";
   commodity_framework: boolean;
   saved_strategies_max: number;
-  api_access: boolean;
+  saved_strategies_always_public: boolean;
   community_badge: "verified" | "creator" | null;
+}
+
+export interface AnonymousEntitlements {
+  runs_remaining: number; // 0 or 1
+  asset_classes: ["equities"];
+  market_pulse_ticker_scope: "top_250";
+  cta: "signup_to_continue" | "signup_to_save";
+}
+
+// 402 Upgrade-Required envelope (Stage 1a foundation; Stage 3 adds more codes)
+export type EntitlementErrorCode =
+  | "saved_strategies_quota_reached"
+  | "anonymous_runs_exhausted"
+  | "anonymous_universe_too_large"
+  | "anonymous_chat_locked"
+  | "anonymous_asset_class_locked"
+  // Stage 3 codes (declared now for type stability)
+  | "runs_exhausted"
+  | "universe_too_large"
+  | "history_too_long"
+  | "robustness_test_locked"
+  | "market_pulse_ticker_out_of_scope";
+
+export interface EntitlementErrorDetail {
+  code: EntitlementErrorCode;
+  current_tier: Tier | null;
+  required_tier: "strategist" | "quant" | null;
+  current_value: string | null;
+  limit_value: string | null;
+  upgrade_url: string;
+  cta_text: string;
+  detail: string;
+  is_anonymous: boolean;
+  cta_action: "signup" | "trial" | "checkout" | "upgrade";
+}
+
+export interface EntitlementErrorResponse {
+  error: "upgrade_required";
+  entitlement: EntitlementErrorDetail;
+}
+
+// Stage 1a — new SavedStrategy table (Path A). Distinct from the legacy
+// PRD-02 SavedStrategy below (which is a BacktestRecord with slug != null).
+export interface UserSavedStrategy {
+  id: string;
+  user_id: string;
+  title: string;
+  strategy_json: unknown;
+  is_public: boolean;
+  backtest_record_id: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 // ── Billing (Stage 2) ─────────────────────────────────────────────────────────
