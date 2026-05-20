@@ -11,20 +11,23 @@ from __future__ import annotations
 
 from datetime import date
 
-from sqlalchemy import String, Date, Integer, ForeignKey, Index
+from sqlalchemy import String, Date, Integer, Index
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.session import Base
 
 
 class WeeklyUsage(Base):
-    """One row per (user_id, week_start). week_start = Monday UTC."""
+    """One row per (user_id, week_start). week_start = Monday UTC.
+
+    Note: user_id is intentionally NOT a FOREIGN KEY. Production users.id may
+    have been created as UUID (PR #5 before we reverted the model), and
+    Postgres rejects FK constraints between mismatched types (VARCHAR(36) → UUID).
+    Matches the community-tables pattern; app-layer enforces user identity."""
 
     __tablename__ = "weekly_usage"
 
-    user_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("users.id", ondelete="CASCADE"), primary_key=True
-    )
+    user_id: Mapped[str] = mapped_column(String(36), primary_key=True)
     week_start: Mapped[date] = mapped_column(Date, primary_key=True)
 
     # Total runs (custom + template) — useful for reporting; not gated on.

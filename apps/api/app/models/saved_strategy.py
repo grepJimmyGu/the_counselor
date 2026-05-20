@@ -19,12 +19,16 @@ from app.db.session import Base
 
 
 class SavedStrategy(Base):
+    """Note: user_id is intentionally NOT a FOREIGN KEY. Production users.id may
+    have been created as UUID (PR #5 before we reverted the model), and Postgres
+    rejects FK constraints between mismatched types. Matches the community-tables
+    pattern; app-layer enforces user identity. The backtest_record_id FK is safe
+    because backtests.id has always been VARCHAR(64)."""
+
     __tablename__ = "saved_strategies"
 
     id: Mapped[str] = mapped_column(String(36), primary_key=True)
-    user_id: Mapped[str] = mapped_column(
-        String(36), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
-    )
+    user_id: Mapped[str] = mapped_column(String(36), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(120), nullable=False)
     strategy_json: Mapped[dict] = mapped_column(JSON, nullable=False)
     is_public: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)

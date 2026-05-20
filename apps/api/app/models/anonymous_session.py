@@ -9,13 +9,18 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import String, DateTime, Integer, ForeignKey
+from sqlalchemy import String, DateTime, Integer
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.session import Base
 
 
 class AnonymousSession(Base):
+    """Note: converted_to_user_id is intentionally NOT a FOREIGN KEY. Production
+    users.id may have been created as UUID (PR #5 before we reverted the model),
+    and Postgres rejects FK constraints between mismatched types. Matches the
+    community-tables pattern; app-layer enforces user identity."""
+
     __tablename__ = "anonymous_sessions"
 
     # UUID stored in the livermore_anon_id cookie.
@@ -49,7 +54,7 @@ class AnonymousSession(Base):
 
     # Set when the anonymous user converts.
     converted_to_user_id: Mapped[Optional[str]] = mapped_column(
-        String(36), ForeignKey("users.id"), nullable=True, index=True
+        String(36), nullable=True, index=True
     )
     converted_at: Mapped[Optional[datetime]] = mapped_column(
         DateTime(timezone=True), nullable=True
