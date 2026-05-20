@@ -11,9 +11,10 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { TickerSearch } from "@/components/workspace/ticker-search";
 import { UniverseInput } from "@/components/universe-input";
-import { researchTemplates, type ResearchTemplate } from "@/lib/contracts";
+import { researchTemplates, type ResearchTemplate, type StrategyJson } from "@/lib/contracts";
 import { cn } from "@/lib/utils";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
+import { BuilderChatDrawer } from "@/components/strategy-builder/builder-chat-drawer";
 
 // ── Badge style maps ─────────────────────────────────────────────────────────
 
@@ -150,13 +151,20 @@ function CaveatSection({ caveats }: { caveats: string[] }) {
 function TemplateCard({
   template,
   onOpen,
+  onPreviewStrategy,
 }: {
   template: ResearchTemplate;
   onOpen: (template: ResearchTemplate, tickers: string[]) => void;
+  onPreviewStrategy: (strategyJson: StrategyJson) => void;
 }) {
   const [tickers, setTickers] = useState<string[]>(template.defaultTickers);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const canAct = template.availability !== "unavailable" && tickers.length > 0;
+  const contextStrategy: StrategyJson = {
+    ...template.strategy,
+    strategy_name: template.name,
+    universe: tickers.length ? tickers : template.defaultTickers,
+  };
 
   return (
     <div className={cn(
@@ -275,10 +283,21 @@ function TemplateCard({
 
       {/* CTA */}
       {template.availability !== "unavailable" && !template.comingSoon && (
-        <div className="mt-auto">
+        <div className="mt-auto grid gap-2">
           <Button size="sm" disabled={!canAct} onClick={() => onOpen(template, tickers)} className="w-full text-sm font-semibold">
             Build with this template <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
           </Button>
+          <BuilderChatDrawer
+            context={{
+              source_page: "templates",
+              selected_template_id: template.id,
+              current_strategy_json: contextStrategy,
+            }}
+            onPreviewStrategy={onPreviewStrategy}
+            triggerLabel="Chat with template"
+            triggerSize="sm"
+            triggerClassName="w-full"
+          />
         </div>
       )}
     </div>
@@ -292,10 +311,19 @@ export default function TemplatesPage() {
   const [builderOpen, setBuilderOpen] = useState(false);
   const [builderTemplate, setBuilderTemplate] = useState<ResearchTemplate | undefined>(undefined);
   const [builderTickers, setBuilderTickers] = useState("");
+  const [builderDraft, setBuilderDraft] = useState<StrategyJson | undefined>(undefined);
 
   function handleOpenBuilder(template: ResearchTemplate, tickers: string[]) {
+    setBuilderDraft(undefined);
     setBuilderTemplate(template);
     setBuilderTickers(tickers.join(", "));
+    setBuilderOpen(true);
+  }
+
+  function openDraftStrategy(strategyJson: StrategyJson) {
+    setBuilderTemplate(undefined);
+    setBuilderTickers("");
+    setBuilderDraft(strategyJson);
     setBuilderOpen(true);
   }
 
@@ -316,7 +344,8 @@ export default function TemplatesPage() {
     <main className="min-h-screen bg-background">
       <StrategyBuilderModal
         open={builderOpen}
-        onClose={() => { setBuilderOpen(false); setBuilderTemplate(undefined); setBuilderTickers(""); }}
+        onClose={() => { setBuilderOpen(false); setBuilderTemplate(undefined); setBuilderTickers(""); setBuilderDraft(undefined); }}
+        initialStrategyJson={builderDraft}
         initialTemplate={builderTemplate}
         initialTemplateTickers={builderTickers}
       />
@@ -337,6 +366,11 @@ export default function TemplatesPage() {
               settings so you can calibrate expectations before running a backtest.
             </p>
           </div>
+          <BuilderChatDrawer
+            context={{ source_page: "templates" }}
+            onPreviewStrategy={openDraftStrategy}
+            triggerLabel="Start Builder Chat"
+          />
 
           {/* Evidence legend strip */}
           <div className="flex flex-wrap items-center gap-4 rounded-xl border border-border bg-muted/20 px-4 py-3">
@@ -395,7 +429,7 @@ export default function TemplatesPage() {
             <p className="text-sm text-muted-foreground py-4">No templates in this category.</p>
           ) : (
             <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              {visible.map(t => <TemplateCard key={t.id} template={t} onOpen={handleOpenBuilder} />)}
+              {visible.map(t => <TemplateCard key={t.id} template={t} onOpen={handleOpenBuilder} onPreviewStrategy={openDraftStrategy} />)}
             </div>
           )}
         </section>
@@ -410,7 +444,7 @@ export default function TemplatesPage() {
               </p>
             </div>
             <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
-              {comingSoon.map(t => <TemplateCard key={t.id} template={t} onOpen={handleOpenBuilder} />)}
+              {comingSoon.map(t => <TemplateCard key={t.id} template={t} onOpen={handleOpenBuilder} onPreviewStrategy={openDraftStrategy} />)}
             </div>
           </section>
         )}
@@ -423,7 +457,7 @@ export default function TemplatesPage() {
               <p className="text-xs text-muted-foreground mt-0.5">Shown for research planning.</p>
             </div>
             <div className="grid gap-5 sm:grid-cols-2">
-              {legacyUnavailable.map(t => <TemplateCard key={t.id} template={t} onOpen={handleOpenBuilder} />)}
+              {legacyUnavailable.map(t => <TemplateCard key={t.id} template={t} onOpen={handleOpenBuilder} onPreviewStrategy={openDraftStrategy} />)}
             </div>
           </section>
         )}

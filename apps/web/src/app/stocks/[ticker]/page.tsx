@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { AlertTriangle, ChevronRight } from "lucide-react";
 import { getCompanyOverview } from "@/lib/api";
-import type { CompanyOverviewResponse } from "@/lib/contracts";
+import type { CompanyOverviewResponse, StrategyJson } from "@/lib/contracts";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,7 @@ import { EvaluationDashboard } from "./_evaluation-dashboard";
 import { WatchlistButton } from "@/components/community/watchlist-button";
 import { VoteBar } from "@/components/community/vote-bar";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
+import { BuilderChatDrawer } from "@/components/strategy-builder/builder-chat-drawer";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -44,6 +45,7 @@ function CompanyPageInner() {
   const [error, setError] = useState<string | null>(null);
   const [builderOpen, setBuilderOpen] = useState(false);
   const [builderIdea, setBuilderIdea] = useState<string | undefined>(undefined);
+  const [builderDraft, setBuilderDraft] = useState<StrategyJson | undefined>(undefined);
 
   useEffect(() => {
     if (!ticker) return;
@@ -113,11 +115,18 @@ function CompanyPageInner() {
   const bm = data.business_map;
   const mp = data.market_position;
 
+  function openDraftStrategy(strategyJson: StrategyJson) {
+    setBuilderIdea(undefined);
+    setBuilderDraft(strategyJson);
+    setBuilderOpen(true);
+  }
+
   return (
     <main className="min-h-screen bg-background">
       <StrategyBuilderModal
         open={builderOpen}
-        onClose={() => { setBuilderOpen(false); setBuilderIdea(undefined); }}
+        onClose={() => { setBuilderOpen(false); setBuilderIdea(undefined); setBuilderDraft(undefined); }}
+        initialStrategyJson={builderDraft}
         initialIdea={builderIdea}
         initialCustomTickers={data.symbol}
       />
@@ -151,11 +160,17 @@ function CompanyPageInner() {
               size="sm"
               onClick={() => {
                 setBuilderIdea(`Backtest a strategy on ${data.symbol}`);
+                setBuilderDraft(undefined);
                 setBuilderOpen(true);
               }}
             >
               Run Backtest on {data.symbol}
             </Button>
+            <BuilderChatDrawer
+              context={{ source_page: "stock_detail", current_ticker: data.symbol }}
+              onPreviewStrategy={openDraftStrategy}
+              triggerLabel="Chat Strategy"
+            />
             <WatchlistButton symbol={data.symbol} />
           </div>
         </div>

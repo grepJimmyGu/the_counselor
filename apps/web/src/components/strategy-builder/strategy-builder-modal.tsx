@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
-  ArrowLeft, ArrowRight, BookOpen, Check, ChevronRight, Lock,
+  ArrowLeft, ArrowRight, Check, ChevronRight, Lock,
   Pencil, Play, Search, X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -95,6 +95,15 @@ function dateRangeToStartDate(range: "3Y" | "5Y" | "10Y"): string {
     .toISOString().split("T")[0];
 }
 
+function inferDateRangeFromStrategy(strategy: StrategyJson): "3Y" | "5Y" | "10Y" {
+  const start = new Date(strategy.start_date);
+  const end = new Date(strategy.end_date);
+  const years = (end.getTime() - start.getTime()) / (365.25 * 24 * 60 * 60 * 1000);
+  if (years <= 4) return "3Y";
+  if (years >= 8) return "10Y";
+  return "5Y";
+}
+
 const today = new Date().toISOString().split("T")[0];
 
 // ── Build final StrategyJson ──────────────────────────────────────────────────
@@ -162,15 +171,6 @@ const EVIDENCE_DOT: Record<string, string> = { A: "bg-emerald-500", B: "bg-amber
 
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function StepDot({ active, done }: { active: boolean; done: boolean }) {
-  return (
-    <span className={cn(
-      "flex h-2 w-2 rounded-full transition-all duration-300",
-      done ? "bg-primary" : active ? "bg-primary scale-125" : "bg-border",
-    )} />
-  );
-}
-
 function NumberInput({ label, value, onChange, min, max, step = 1, suffix = "" }: {
   label: string; value: number; onChange: (v: number) => void;
   min: number; max: number; step?: number; suffix?: string;
@@ -196,6 +196,7 @@ function NumberInput({ label, value, onChange, min, max, step = 1, suffix = "" }
 export interface StrategyBuilderModalProps {
   open: boolean;
   onClose: () => void;
+  initialStrategyJson?: StrategyJson;
   initialTemplate?: ResearchTemplate;
   initialTemplateTickers?: string;
   initialIdea?: string;
@@ -205,6 +206,7 @@ export interface StrategyBuilderModalProps {
 export function StrategyBuilderModal({
   open,
   onClose,
+  initialStrategyJson,
   initialTemplate,
   initialTemplateTickers,
   initialIdea,
@@ -222,6 +224,7 @@ export function StrategyBuilderModal({
   const [customIdeaText, setCustomIdeaText] = useState("");
   const [customCandidates, setCustomCandidates] = useState<ResearchTemplate[]>([]);
   const [customConfig, setCustomConfig] = useState<CustomConfig>(DEFAULT_CUSTOM);
+  const [draftStrategyJson, setDraftStrategyJson] = useState<StrategyJson | null>(null);
   const [strategyName, setStrategyName] = useState("");
   const [editingName, setEditingName] = useState(false);
   const [categoryFilter, setCategoryFilter] = useState<string>("All");
@@ -232,13 +235,45 @@ export function StrategyBuilderModal({
   useEffect(() => {
     if (!open) return;
     const resetTimer = setTimeout(() => {
-      if (initialTemplate) {
+      if (initialStrategyJson) {
+        const matchingTemplate =
+          researchTemplates.find(
+            t => t.strategy.strategy_type === initialStrategyJson.strategy_type && t.availability === "ready",
+          ) ?? null;
+        const inferredRange = inferDateRangeFromStrategy(initialStrategyJson);
+        const maxPositions = initialStrategyJson.position_sizing.max_positions;
+        setStep("preview");
+        setSelectedTemplate(null);
+        setTemplateTickers(initialStrategyJson.universe.join(", "));
+        setTemplateDateRange(inferredRange);
+        setCustomIdeaText("");
+        setCustomCandidates([]);
+        setCustomConfig({
+          ...DEFAULT_CUSTOM,
+          universe: "custom",
+          customTickers: initialStrategyJson.universe.join(", "),
+          selectedTemplate: matchingTemplate,
+          maxPositionPct: maxPositions ? Math.max(1, Math.round(100 / maxPositions)) : DEFAULT_CUSTOM.maxPositionPct,
+          stopLossEnabled: Boolean(initialStrategyJson.risk_management.stop_loss_pct),
+          stopLossPct: initialStrategyJson.risk_management.stop_loss_pct
+            ? Math.round(initialStrategyJson.risk_management.stop_loss_pct * 100)
+            : DEFAULT_CUSTOM.stopLossPct,
+          holdPeriod: initialStrategyJson.rebalance_frequency,
+          dateRange: inferredRange,
+          capital: initialStrategyJson.initial_capital,
+          costBps: initialStrategyJson.transaction_cost_bps,
+        });
+        setDraftStrategyJson(initialStrategyJson);
+        setStrategyName(initialStrategyJson.strategy_name);
+      } else if (initialTemplate) {
         setStep("template-brief");
         setSelectedTemplate(initialTemplate);
         setTemplateTickers(initialTemplateTickers?.trim() || initialTemplate.defaultTickers.join(", "));
         setCustomIdeaText("");
         setCustomCandidates([]);
         setCustomConfig(DEFAULT_CUSTOM);
+        setDraftStrategyJson(null);
+        setStrategyName("");
       } else if (initialIdea?.trim()) {
         const seededIdea = initialIdea.trim();
         setStep("custom-2");
@@ -251,6 +286,8 @@ export function StrategyBuilderModal({
           universe: initialCustomTickers?.trim() ? "custom" : DEFAULT_CUSTOM.universe,
           customTickers: initialCustomTickers?.trim() ?? "",
         });
+        setDraftStrategyJson(null);
+        setStrategyName("");
       } else {
         setStep("launch");
         setSelectedTemplate(null);
@@ -258,15 +295,16 @@ export function StrategyBuilderModal({
         setCustomIdeaText("");
         setCustomCandidates([]);
         setCustomConfig(DEFAULT_CUSTOM);
+        setDraftStrategyJson(null);
+        setStrategyName("");
       }
-      setTemplateDateRange("5Y");
-      setStrategyName("");
+      if (!initialStrategyJson) setTemplateDateRange("5Y");
       setCategoryFilter("All");
       setSearchQuery("");
     }, 0);
 
     return () => clearTimeout(resetTimer);
-  }, [open, initialTemplate, initialTemplateTickers, initialIdea, initialCustomTickers]);
+  }, [open, initialStrategyJson, initialTemplate, initialTemplateTickers, initialIdea, initialCustomTickers]);
 
   // Auto-focus name input when editing
   useEffect(() => {
@@ -321,6 +359,7 @@ export function StrategyBuilderModal({
     setSelectedTemplate(tmpl);
     setTemplateTickers(tmpl.defaultTickers.join(", "));
     setCustomConfig(DEFAULT_CUSTOM);
+    setDraftStrategyJson(null);
     setStep("template-brief");
   }
 
@@ -330,6 +369,7 @@ export function StrategyBuilderModal({
 
   function handleUniverseContinue() {
     const name = autoName(selectedTemplate!, templateTickers);
+    setDraftStrategyJson(null);
     setStrategyName(name);
     setStep("preview");
   }
@@ -342,6 +382,7 @@ export function StrategyBuilderModal({
 
   function handleCustomTemplateSelect(tmpl: ResearchTemplate) {
     setSelectedTemplate(null);
+    setDraftStrategyJson(null);
     setCustomConfig(c => ({ ...c, selectedTemplate: tmpl }));
     setStep("custom-3");
   }
@@ -351,6 +392,7 @@ export function StrategyBuilderModal({
     if (!tmpl) return;
     const name = `${tmpl.name} — Custom`;
     setSelectedTemplate(null);
+    setDraftStrategyJson(null);
     setStrategyName(name);
     setStep("preview");
   }
@@ -358,9 +400,11 @@ export function StrategyBuilderModal({
   function handleRunBacktest() {
     const template = selectedTemplate ?? customConfig.selectedTemplate;
     const finalName = strategyName.trim() || template?.name || "Untitled Strategy";
-    const strategyJson = selectedTemplate
-      ? buildStrategyFromTemplate(selectedTemplate, resolvedTickers(), templateDateRange, finalName)
-      : buildStrategyFromCustom(customConfig, finalName);
+    const strategyJson = draftStrategyJson
+      ? { ...draftStrategyJson, strategy_name: finalName }
+      : selectedTemplate
+        ? buildStrategyFromTemplate(selectedTemplate, resolvedTickers(), templateDateRange, finalName)
+        : buildStrategyFromCustom(customConfig, finalName);
 
     if (!strategyJson) return;
 
@@ -863,16 +907,18 @@ export function StrategyBuilderModal({
             onEditName={() => setEditingName(true)}
             onBlurName={() => setEditingName(false)}
             selectedTemplate={selectedTemplate ?? customConfig.selectedTemplate}
-            tickers={selectedTemplate ? resolvedTickers() : (
+            tickers={draftStrategyJson ? draftStrategyJson.universe : selectedTemplate ? resolvedTickers() : (
               customConfig.universe === "custom"
                 ? customConfig.customTickers.split(",").map(s => s.trim()).filter(Boolean)
                 : UNIVERSE_DEFAULTS[customConfig.universe] ?? []
             )}
-            dateRange={selectedTemplate ? templateDateRange : customConfig.dateRange}
-            capital={selectedTemplate ? 100000 : customConfig.capital}
-            costBps={selectedTemplate ? 10 : customConfig.costBps}
-            rebalance={selectedTemplate ? selectedTemplate.strategy.rebalance_frequency : customConfig.holdPeriod}
-            maxPositionPct={selectedTemplate
+            dateRange={draftStrategyJson ? inferDateRangeFromStrategy(draftStrategyJson) : selectedTemplate ? templateDateRange : customConfig.dateRange}
+            capital={draftStrategyJson ? draftStrategyJson.initial_capital : selectedTemplate ? 100000 : customConfig.capital}
+            costBps={draftStrategyJson ? draftStrategyJson.transaction_cost_bps : selectedTemplate ? 10 : customConfig.costBps}
+            rebalance={draftStrategyJson ? draftStrategyJson.rebalance_frequency : selectedTemplate ? selectedTemplate.strategy.rebalance_frequency : customConfig.holdPeriod}
+            maxPositionPct={draftStrategyJson
+              ? (draftStrategyJson.position_sizing.max_positions ? Math.round(100 / draftStrategyJson.position_sizing.max_positions) : customConfig.maxPositionPct)
+              : selectedTemplate
               ? (selectedTemplate.strategy.position_sizing.max_positions ? Math.round(100 / selectedTemplate.strategy.position_sizing.max_positions) : 5)
               : customConfig.maxPositionPct}
             onEdit={goBack}

@@ -18,8 +18,9 @@ import { MarketSnapshot } from "@/components/home/market-snapshot";
 import { AssetSearch } from "@/components/home/asset-search";
 import { StrategyTeaser } from "@/components/home/strategy-teaser";
 import { CapabilityGlossary } from "@/components/home/capability-glossary";
-import { researchTemplates, type ResearchTemplate } from "@/lib/contracts";
+import { researchTemplates, type ResearchTemplate, type StrategyJson } from "@/lib/contracts";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
+import { BuilderChatDrawer } from "@/components/strategy-builder/builder-chat-drawer";
 
 // ── Three main pillars ────────────────────────────────────────────────────────
 
@@ -94,6 +95,7 @@ export default function HomePage() {
   const [builderOpen, setBuilderOpen] = useState(false);
   const [builderTemplate, setBuilderTemplate] = useState<ResearchTemplate | undefined>(undefined);
   const [builderIdea, setBuilderIdea] = useState<string | undefined>(undefined);
+  const [builderDraft, setBuilderDraft] = useState<StrategyJson | undefined>(undefined);
 
   const featuredTemplates = researchTemplates
     .filter((t) => t.availability !== "unavailable")
@@ -101,13 +103,22 @@ export default function HomePage() {
 
   function openBuilder(idea?: string) {
     setBuilderTemplate(undefined);
+    setBuilderDraft(undefined);
     setBuilderIdea(idea);
     setBuilderOpen(true);
   }
 
   function openTemplate(template: ResearchTemplate) {
     setBuilderIdea(undefined);
+    setBuilderDraft(undefined);
     setBuilderTemplate(template);
+    setBuilderOpen(true);
+  }
+
+  function openDraftStrategy(strategyJson: StrategyJson) {
+    setBuilderIdea(undefined);
+    setBuilderTemplate(undefined);
+    setBuilderDraft(strategyJson);
     setBuilderOpen(true);
   }
 
@@ -115,7 +126,8 @@ export default function HomePage() {
     <main className="min-h-screen bg-background">
       <StrategyBuilderModal
         open={builderOpen}
-        onClose={() => { setBuilderOpen(false); setBuilderTemplate(undefined); setBuilderIdea(undefined); }}
+        onClose={() => { setBuilderOpen(false); setBuilderTemplate(undefined); setBuilderIdea(undefined); setBuilderDraft(undefined); }}
+        initialStrategyJson={builderDraft}
         initialTemplate={builderTemplate}
         initialIdea={builderIdea}
       />
@@ -153,6 +165,13 @@ export default function HomePage() {
               <Button variant="outline" size="lg" className="rounded-xl px-6" onClick={() => openBuilder()}>
                 Strategy Builder
               </Button>
+              <BuilderChatDrawer
+                context={{ source_page: "home" }}
+                onPreviewStrategy={openDraftStrategy}
+                triggerLabel="Chat Builder"
+                triggerSize="lg"
+                triggerClassName="rounded-xl px-6"
+              />
             </div>
             <div className="mt-8 flex flex-wrap justify-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
               {[
@@ -199,9 +218,17 @@ export default function HomePage() {
                   ))}
                 </ul>
                 {label === "Strategy Builder" ? (
-                  <Button variant="outline" size="sm" className="mt-5" onClick={() => openBuilder()}>
-                    {cta} <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-                  </Button>
+                  <div className="mt-5 grid gap-2">
+                    <Button variant="outline" size="sm" onClick={() => openBuilder()}>
+                      {cta} <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                    </Button>
+                    <BuilderChatDrawer
+                      context={{ source_page: "home" }}
+                      onPreviewStrategy={openDraftStrategy}
+                      triggerLabel="Draft with chat"
+                      triggerSize="sm"
+                    />
+                  </div>
                 ) : (
                   <Button asChild variant="outline" size="sm" className="mt-5">
                     <Link href={href as Route}>
@@ -311,6 +338,13 @@ export default function HomePage() {
                 <Zap className="mr-2 h-4 w-4" />
                 Strategy Builder
               </Button>
+              <BuilderChatDrawer
+                context={{ source_page: "home" }}
+                onPreviewStrategy={openDraftStrategy}
+                triggerLabel="Chat Builder"
+                triggerSize="lg"
+                triggerClassName="rounded-xl px-6"
+              />
             </div>
           </div>
         </section>

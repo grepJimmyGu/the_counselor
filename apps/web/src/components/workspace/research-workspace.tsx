@@ -39,6 +39,7 @@ import { DrawdownChart, EquityCurveChart } from "@/components/workspace/charts";
 import { MonthlyHeatmap } from "@/components/workspace/monthly-heatmap";
 import { BacktestLoading } from "@/components/strategy-builder/backtest-loading";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
+import { BuilderChatDrawer } from "@/components/strategy-builder/builder-chat-drawer";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -106,6 +107,7 @@ export function ResearchWorkspace() {
   const [robustnessJob, setRobustnessJob] = useState<RobustnessJobResponse | null>(null);
   const [isRunningRobustness, setIsRunningRobustness] = useState(false);
   const [builderOpen, setBuilderOpen] = useState(false);
+  const [builderDraft, setBuilderDraft] = useState<StrategyJson | undefined>(undefined);
   const [tradeLogExpanded, setTradeLogExpanded] = useState(false);
 
   const activeTemplate: ResearchTemplate | undefined = strategy
@@ -311,7 +313,8 @@ export function ResearchWorkspace() {
     <main className="min-h-screen bg-background">
       <StrategyBuilderModal
         open={builderOpen}
-        onClose={() => setBuilderOpen(false)}
+        onClose={() => { setBuilderOpen(false); setBuilderDraft(undefined); }}
+        initialStrategyJson={builderDraft}
         initialTemplate={activeTemplate}
       />
 
@@ -341,11 +344,28 @@ export function ResearchWorkspace() {
                 </p>
               </>
             ) : (
-              <h1 className="font-heading text-xl font-bold tracking-tight">Workspace</h1>
+              <h1 className="font-heading text-xl font-bold tracking-tight">Strategy Results</h1>
             )}
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <Button variant="outline" size="sm" onClick={() => setBuilderOpen(true)} className="gap-1.5">
+            <BuilderChatDrawer
+              context={{
+                source_page: "workspace",
+                current_strategy_json: strategy,
+                current_backtest_result: backtestResult,
+              }}
+              onPreviewStrategy={(strategyJson) => {
+                setBuilderDraft(strategyJson);
+                setBuilderOpen(true);
+              }}
+              triggerLabel={backtestResult ? "Chat Result" : "Builder Chat"}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => { setBuilderDraft(strategy ?? undefined); setBuilderOpen(true); }}
+              className="gap-1.5"
+            >
               <Settings2 className="h-4 w-4" />
               {strategy ? "Modify Strategy" : "Build Strategy"}
             </Button>
