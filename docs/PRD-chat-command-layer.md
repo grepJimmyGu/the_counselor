@@ -5,7 +5,7 @@ Date: 2026-05-20
 
 ## Summary
 
-Livermore chat should become a typed command layer for product workflows, starting with Strategy Builder only. V1 helps signed-in users turn plain-language strategy ideas into structured paper strategies, review them in the existing builder preview, run a backtest only after explicit confirmation, and understand the result afterward.
+Livermore chat should become a typed command layer for product workflows, starting with Strategy Builder only. V1 helps guests and signed-in users turn plain-language strategy ideas into structured paper strategies, review them in the existing builder preview, run a backtest only after explicit confirmation, and understand the result afterward.
 
 The long-term command layer can expand into research, community, and account workflows, but V1 deliberately avoids community mutations, financial advice, trade execution, auto-copying, and unconfirmed publishing.
 
@@ -45,7 +45,7 @@ All chat copy must frame outputs as research tooling:
 
 ## Success Metrics
 
-- Signed-in users who open Builder Chat.
+- Guest and signed-in users who open Builder Chat.
 - Prompt-to-preview conversion rate.
 - Preview-to-backtest conversion rate.
 - Unsupported prompt rate.
@@ -54,7 +54,8 @@ All chat copy must frame outputs as research tooling:
 
 ## Assumptions
 
-- Builder Chat is signed-in only.
+- Builder Chat drafting and preview are available without sign-up.
+- Saving, publishing, community actions, and account history can require sign-in later.
 - The existing `/workspace` route remains the technical results route.
 - Product copy may call `/workspace` "Strategy Results" or "Research Report".
 - V1 uses the existing strategy parser API before introducing a generalized backend agent router.

@@ -16,11 +16,11 @@ import type { Route } from "next";
 import { Button } from "@/components/ui/button";
 import { MarketSnapshot } from "@/components/home/market-snapshot";
 import { AssetSearch } from "@/components/home/asset-search";
+import { ChatBuilderSection } from "@/components/home/chat-builder-section";
 import { StrategyTeaser } from "@/components/home/strategy-teaser";
 import { CapabilityGlossary } from "@/components/home/capability-glossary";
 import { researchTemplates, type ResearchTemplate, type StrategyJson } from "@/lib/contracts";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
-import { BuilderChatDrawer } from "@/components/strategy-builder/builder-chat-drawer";
 
 // ── Three main pillars ────────────────────────────────────────────────────────
 
@@ -165,13 +165,6 @@ export default function HomePage() {
               <Button variant="outline" size="lg" className="rounded-xl px-6" onClick={() => openBuilder()}>
                 Strategy Builder
               </Button>
-              <BuilderChatDrawer
-                context={{ source_page: "home" }}
-                onPreviewStrategy={openDraftStrategy}
-                triggerLabel="Chat Builder"
-                triggerSize="lg"
-                triggerClassName="rounded-xl px-6"
-              />
             </div>
             <div className="mt-8 flex flex-wrap justify-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
               {[
@@ -189,6 +182,8 @@ export default function HomePage() {
           </div>
         </div>
       </section>
+
+      <ChatBuilderSection onOpenWizard={() => openBuilder()} onPreviewStrategy={openDraftStrategy} />
 
       <div className="mx-auto max-w-[1200px] space-y-12 px-6 py-10">
 
@@ -218,17 +213,9 @@ export default function HomePage() {
                   ))}
                 </ul>
                 {label === "Strategy Builder" ? (
-                  <div className="mt-5 grid gap-2">
-                    <Button variant="outline" size="sm" onClick={() => openBuilder()}>
-                      {cta} <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-                    </Button>
-                    <BuilderChatDrawer
-                      context={{ source_page: "home" }}
-                      onPreviewStrategy={openDraftStrategy}
-                      triggerLabel="Draft with chat"
-                      triggerSize="sm"
-                    />
-                  </div>
+                  <Button variant="outline" size="sm" className="mt-5" onClick={() => openBuilder()}>
+                    {cta} <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
+                  </Button>
                 ) : (
                   <Button asChild variant="outline" size="sm" className="mt-5">
                     <Link href={href as Route}>
@@ -334,17 +321,10 @@ export default function HomePage() {
                   Community
                 </Link>
               </Button>
-              <Button variant="outline" size="lg" className="rounded-xl px-6" onClick={() => setBuilderOpen(true)}>
+              <Button variant="outline" size="lg" className="rounded-xl px-6" onClick={() => openBuilder()}>
                 <Zap className="mr-2 h-4 w-4" />
                 Strategy Builder
               </Button>
-              <BuilderChatDrawer
-                context={{ source_page: "home" }}
-                onPreviewStrategy={openDraftStrategy}
-                triggerLabel="Chat Builder"
-                triggerSize="lg"
-                triggerClassName="rounded-xl px-6"
-              />
             </div>
           </div>
         </section>

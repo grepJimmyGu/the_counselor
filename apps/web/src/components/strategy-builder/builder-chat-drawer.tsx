@@ -1,9 +1,6 @@
 "use client";
 
 import { FormEvent, useMemo, useState } from "react";
-import type { Route } from "next";
-import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
 import {
   AlertTriangle,
   ArrowRight,
@@ -209,8 +206,6 @@ export function BuilderChatDrawer({
   triggerClassName,
   triggerSize = "sm",
 }: BuilderChatDrawerProps) {
-  const router = useRouter();
-  const { data: session, status } = useSession();
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
@@ -232,16 +227,7 @@ export function BuilderChatDrawer({
     return "e.g. Test a monthly momentum strategy on AAPL, MSFT, and NVDA";
   }, [activeTemplate, context.current_ticker]);
 
-  function requireSignedInAndOpen() {
-    if (status === "loading") return;
-    if (!session?.user) {
-      const callbackUrl =
-        typeof window === "undefined"
-          ? "/"
-          : `${window.location.pathname}${window.location.search}`;
-      router.push(`/login?callbackUrl=${encodeURIComponent(callbackUrl)}` as Route);
-      return;
-    }
+  function openDrawer() {
     setMessages((prev) =>
       prev.length === 1 && prev[0]?.id === "initial"
         ? [{ ...prev[0], content: initialAssistantText(context) }]
@@ -367,15 +353,10 @@ export function BuilderChatDrawer({
         type="button"
         variant="outline"
         size={triggerSize}
-        onClick={requireSignedInAndOpen}
+        onClick={openDrawer}
         className={cn("gap-1.5", triggerClassName)}
-        disabled={status === "loading"}
       >
-        {status === "loading" ? (
-          <Loader2 className="h-4 w-4 animate-spin" />
-        ) : (
-          <MessageSquareText className="h-4 w-4" />
-        )}
+        <MessageSquareText className="h-4 w-4" />
         {triggerLabel}
       </Button>
 
@@ -410,7 +391,7 @@ export function BuilderChatDrawer({
 
             <div className="border-b border-border bg-muted/20 px-4 py-3">
               <div className="flex flex-wrap items-center gap-1.5">
-                <Badge variant="outline" className="text-[10px]">Signed-in V1</Badge>
+                <Badge variant="outline" className="text-[10px]">Guest access</Badge>
                 {context.current_ticker && <Badge variant="outline" className="font-mono text-[10px]">{context.current_ticker}</Badge>}
                 {activeTemplate && <Badge variant="outline" className="text-[10px]">{activeTemplate.name}</Badge>}
               </div>
