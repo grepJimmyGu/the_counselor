@@ -31,13 +31,21 @@ class WeeklyUsage(Base):
     week_start: Mapped[date] = mapped_column(Date, primary_key=True)
 
     # Total runs (custom + template) — useful for reporting; not gated on.
-    backtest_runs: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # server_default="0" makes the DDL emit `DEFAULT 0`, so raw SQL inserts
+    # don't hit NotNullViolation. Without it, only ORM inserts respect default=0.
+    backtest_runs: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
 
     # Only this counter is gated on. Templates are unlimited regardless of tier.
-    custom_backtest_runs: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    custom_backtest_runs: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
 
     # Reported separately so analytics can split template vs custom adoption.
-    template_backtest_runs: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    template_backtest_runs: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
 
     __table_args__ = (
         Index("ix_weekly_usage_week", "week_start"),
