@@ -2,6 +2,15 @@
 
 A running log of bugs encountered, root causes, and confirmed fixes. Add new entries at the top.
 
+> **Backend agents:** the TL;DR of this doc is duplicated in
+> [`apps/api/CLAUDE.md`](../apps/api/CLAUDE.md) so it's loaded automatically
+> when editing backend files. The full post-mortems stay here.
+>
+> **Automated guards:** every trap in §"High-frequency traps" of `CLAUDE.md`
+> has a corresponding test in `apps/api/tests/test_postgres_migrations.py`
+> or `apps/api/tests/test_app_invariants.py`. If you trip an assertion in
+> CI, the test name tells you which entry to read.
+
 ---
 
 ## Format
