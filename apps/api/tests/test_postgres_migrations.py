@@ -215,12 +215,15 @@ def test_stage_1a_tables_accept_non_uuid_user_id():
             text("INSERT INTO weekly_usage (user_id, week_start) VALUES (:uid, :ws)"),
             {"uid": google_numeric, "ws": week_start},
         )
-        # strategy_json is JSONB in Postgres — pass a JSON string with an
-        # explicit ::jsonb cast so psycopg doesn't have to guess the type.
+        # Provide all NOT NULL columns explicitly. SQLAlchemy Python-side
+        # defaults (default=...) don't apply to raw SQL inserts — only
+        # server_default does. created_at/updated_at use NOW() inline.
+        # strategy_json is JSONB — explicit ::jsonb cast.
         c.execute(
             text(
-                "INSERT INTO saved_strategies (id, user_id, title, strategy_json) "
-                "VALUES (:id, :uid, :title, CAST(:json AS jsonb))"
+                "INSERT INTO saved_strategies "
+                "(id, user_id, title, strategy_json, is_public, created_at, updated_at) "
+                "VALUES (:id, :uid, :title, CAST(:json AS jsonb), false, NOW(), NOW())"
             ),
             {
                 "id": str(uuid.uuid4()),
