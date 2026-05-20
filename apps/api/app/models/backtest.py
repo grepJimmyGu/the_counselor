@@ -19,7 +19,13 @@ class BacktestRecord(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
-    # Strategy storage (PRD-02)
+    # Owner — added at the DB level by startup migrations during Stage 1.
+    # Nullable because anonymous one-shot runs (Stage 1a) create rows before
+    # any user exists; merge_anonymous_into_user sets this on signup.
+    user_id: Mapped[Optional[str]] = mapped_column(String(36), nullable=True, index=True)
+
+    # Strategy storage (PRD-02) — superseded by SavedStrategy model in Stage 1a.
+    # Kept on the row for legacy reads; new saves write to saved_strategies.
     slug: Mapped[Optional[str]] = mapped_column(String(128), nullable=True, index=True)
     name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     is_public: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)

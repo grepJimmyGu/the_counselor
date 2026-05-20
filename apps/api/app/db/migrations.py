@@ -1072,6 +1072,116 @@ def run_startup_migrations(engine: Engine) -> None:
         except Exception:
             pass
 
+        # ── Stage 1a: Simplifications + Anonymous ─────────────────────────────
+        # All three tables are also defined as SQLAlchemy models and created by
+        # Base.metadata.create_all. The explicit DDL below is a safety net for
+        # production upgrades where create_all has already run once. All use
+        # CREATE TABLE IF NOT EXISTS — safe in shared conn (never raises in Postgres).
+
+        # weekly_usage — Scout 5-runs-per-week meter
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS weekly_usage (
+                user_id VARCHAR(36) NOT NULL,
+                week_start DATE NOT NULL,
+                backtest_runs INTEGER NOT NULL DEFAULT 0,
+                custom_backtest_runs INTEGER NOT NULL DEFAULT 0,
+                template_backtest_runs INTEGER NOT NULL DEFAULT 0,
+                PRIMARY KEY (user_id, week_start)
+            )
+        """))
+        try:
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_weekly_usage_week ON weekly_usage (week_start)"
+            ))
+        except Exception:
+            pass
+
+        # anonymous_sessions — one-shot taste + attribution preservation
+        if is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS anonymous_sessions (
+                    id VARCHAR(36) PRIMARY KEY,
+                    fingerprint_hash VARCHAR(64),
+                    ip_first_seen VARCHAR(64) NOT NULL,
+                    ip_last_seen VARCHAR(64) NOT NULL,
+                    user_agent VARCHAR(500),
+                    locale VARCHAR(8) NOT NULL DEFAULT 'en',
+                    runs_used INTEGER NOT NULL DEFAULT 0,
+                    last_backtest_id VARCHAR(64),
+                    via_handle VARCHAR(32),
+                    landed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    last_seen_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    converted_to_user_id VARCHAR(36),
+                    converted_at TIMESTAMP
+                )
+            """))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS anonymous_sessions (
+                    id VARCHAR(36) PRIMARY KEY,
+                    fingerprint_hash VARCHAR(64),
+                    ip_first_seen VARCHAR(64) NOT NULL,
+                    ip_last_seen VARCHAR(64) NOT NULL,
+                    user_agent VARCHAR(500),
+                    locale VARCHAR(8) NOT NULL DEFAULT 'en',
+                    runs_used INTEGER NOT NULL DEFAULT 0,
+                    last_backtest_id VARCHAR(64),
+                    via_handle VARCHAR(32),
+                    landed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    last_seen_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    converted_to_user_id VARCHAR(36),
+                    converted_at TIMESTAMPTZ
+                )
+            """))
+        for stmt in (
+            "CREATE INDEX IF NOT EXISTS ix_anonymous_sessions_fingerprint ON anonymous_sessions (fingerprint_hash)",
+            "CREATE INDEX IF NOT EXISTS ix_anonymous_sessions_via_handle ON anonymous_sessions (via_handle)",
+            "CREATE INDEX IF NOT EXISTS ix_anonymous_sessions_converted_to ON anonymous_sessions (converted_to_user_id)",
+        ):
+            try:
+                conn.execute(text(stmt))
+            except Exception:
+                pass
+
+        # saved_strategies — Path A: canonical user-owned strategy definition
+        # (replaces the PRD-02 mechanism of storing saved strategies as `backtests`
+        # rows with slug != null). Legacy backtests.slug != null rows are NOT
+        # backfilled in this migration — the historical strategy_json cannot be
+        # reconstructed from result_payload. Users with legacy saves will need to
+        # re-save from the workspace.
+        if is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS saved_strategies (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    title VARCHAR(120) NOT NULL,
+                    strategy_json TEXT NOT NULL,
+                    is_public BOOLEAN NOT NULL DEFAULT 0,
+                    backtest_record_id VARCHAR(64),
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS saved_strategies (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    title VARCHAR(120) NOT NULL,
+                    strategy_json JSONB NOT NULL,
+                    is_public BOOLEAN NOT NULL DEFAULT FALSE,
+                    backtest_record_id VARCHAR(64),
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+            """))
+        try:
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_saved_strategies_user ON saved_strategies (user_id)"
+            ))
+        except Exception:
+            pass
+
     # ── Post-create cleanup (isolated; runs AFTER all CREATE TABLE statements) ──
     # Purge bad revenue_segments rows from PRD-08d parser bug. Isolated so a
     # missing table on fresh DB can't poison the shared transaction above.
