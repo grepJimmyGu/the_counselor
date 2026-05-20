@@ -17,7 +17,11 @@ from app.schemas.identity import (
     UserPublic,
 )
 from app.services.auth_service import validate_handle
-from app.services.entitlements import get_entitlements, get_or_create_current_usage
+from app.services.entitlements import (
+    get_entitlements,
+    get_or_create_current_usage,
+    get_or_create_current_weekly_usage,
+)
 from app.services import stripe_service
 
 router = APIRouter(prefix="/api/me", tags=["me"])
@@ -58,8 +62,10 @@ def get_my_entitlements(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> Entitlements:
-    usage = get_or_create_current_usage(db, current_user.id)
-    return get_entitlements(current_user, usage)
+    # Stage 1a: gating reads from weekly_usage (5 custom runs/week for Scout).
+    # monthly_usage is still populated for legacy Stage 2 reports but not consulted here.
+    weekly = get_or_create_current_weekly_usage(db, current_user.id)
+    return get_entitlements(current_user, weekly)
 
 
 @router.patch("", response_model=UserPublic)

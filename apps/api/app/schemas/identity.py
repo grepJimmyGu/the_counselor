@@ -43,20 +43,41 @@ class UserMe(UserPublic):
 
 
 class Entitlements(BaseModel):
-    """Single source of truth for capability caps. Returned by GET /api/me/entitlements."""
+    """Single source of truth for capability caps. Returned by GET /api/me/entitlements.
+
+    Stage 1a changes:
+      - backtest_runs_remaining → custom_backtest_runs_remaining (weekly, custom only)
+      - week_start added so frontend can render "resets Monday"
+      - template_runs_unlimited added (templates exempt from custom caps)
+      - universe_size_max → universe_size_max_custom (templates exempt)
+      - history_window_years → history_window_years_custom (templates exempt)
+      - saved_strategies_always_public added (Scout-only force-public behavior)
+      - api_access removed (API access deferred indefinitely)
+    """
     tier: Literal["scout", "strategist", "quant"]
     status: Literal["active", "trialing", "past_due", "canceled"]
-    backtest_runs_remaining: Optional[int]  # None = unlimited
-    universe_size_max: int
-    history_window_years: int
+    custom_backtest_runs_remaining: Optional[int]  # None = unlimited
+    week_start: str  # ISO date of the current week's Monday (UTC)
+    template_runs_unlimited: bool
+    universe_size_max_custom: int
+    history_window_years_custom: int
     asset_classes: list[str]
     robustness_tests: list[str]
     market_pulse_ticker_scope: Literal["top_250", "all_us", "all_us_plus_alerts"]
     business_model_section: Literal["full", "full_plus_supply_chain"]
     commodity_framework: bool
     saved_strategies_max: int
-    api_access: bool
+    saved_strategies_always_public: bool
     community_badge: Optional[Literal["verified", "creator"]] = None
+
+
+class AnonymousEntitlements(BaseModel):
+    """Capability snapshot for an unauthenticated viewer.
+    Returned by GET /api/anonymous/entitlements."""
+    runs_remaining: int  # 0 or 1
+    asset_classes: list[str]
+    market_pulse_ticker_scope: Literal["top_250"]
+    cta: Literal["signup_to_continue", "signup_to_save"]
 
 
 class TokenResponse(BaseModel):
