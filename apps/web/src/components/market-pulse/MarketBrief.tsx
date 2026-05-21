@@ -3,7 +3,7 @@
 import Link from "next/link";
 import type { Route } from "next";
 import { cn } from "@/lib/utils";
-import type { IndexCard, MarketPulseResponse } from "@/lib/contracts";
+import type { MarketPulseResponse } from "@/lib/contracts";
 import { buildNarrative, type PillStat } from "@/lib/market-pulse-narrative";
 import { fmtPct } from "@/lib/market-pulse-format";
 
@@ -29,22 +29,31 @@ import { fmtPct } from "@/lib/market-pulse-format";
  * fallback remains for LLM-unconfigured environments.
  */
 
-// Map our ETF-proxy symbols to the index names retail readers know.
-// Phase 1 backend work may switch to real-index quotes (DJI, NDX, SPX, RUT)
-// once we verify FMP coverage; the labels here stay the same.
-const INDEX_DISPLAY: Record<string, string> = {
-  SPY: "S&P 500",
-  QQQ: "Nasdaq",
-  DIA: "Dow",
-  IWM: "Russell 2000",
-};
+// Per Jimmy's 2026-05-21 feedback: the inline ticker should show the
+// ACTUAL index numbers (Dow Jones, Nasdaq Composite, S&P 500, Russell
+// 2000 point values) rather than the ETF proxy share prices that
+// `data.indices` returns today (SPY ~$740, QQQ ~$485, etc.).
+//
+// Phase 0a uses HARDCODED MOCK values matching realistic late-2026
+// levels so the ticker visual is reviewable. Phase 1 wires a backend
+// indices endpoint that fetches DJI / IXIC / SPX / RUT directly from
+// FMP (or AV) and lets us drop this constant.
+interface MockIndex {
+  label: string;
+  value: number;
+  perf: number;
+  symbol: string; // ETF proxy used for the click-through link
+}
+
+const MOCK_INDICES: MockIndex[] = [
+  { label: "Dow Jones", value: 38234.16, perf: -0.0042, symbol: "DIA" },
+  { label: "Nasdaq Composite", value: 17623.45, perf: 0.0118, symbol: "QQQ" },
+  { label: "S&P 500", value: 5310.12, perf: 0.0028, symbol: "SPY" },
+  { label: "Russell 2000", value: 2089.12, perf: -0.0031, symbol: "IWM" },
+];
 
 export function MarketBrief({ data }: { data: MarketPulseResponse }) {
   const narrative = buildNarrative(data);
-
-  // Pick up to 4 indices to display; preserve backend order so Dow comes
-  // first if the response has DIA. Fall back to whatever's in the array.
-  const tickerCells = data.indices.slice(0, 4);
 
   return (
     <section
@@ -56,14 +65,20 @@ export function MarketBrief({ data }: { data: MarketPulseResponse }) {
         Market Brief
       </h2>
 
-      {/* Inline index ticker — absorbed from the removed IndicesHero section */}
-      {tickerCells.length > 0 && (
-        <div className="mb-5 grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {tickerCells.map((c) => (
-            <IndexTickerCell key={c.symbol} card={c} />
+      {/* Inline index ticker — actual index point values
+          (Phase 0a mock; Phase 1 wires real backend) */}
+      <div className="mb-5">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {MOCK_INDICES.map((idx) => (
+            <IndexTickerCell key={idx.symbol} idx={idx} />
           ))}
         </div>
-      )}
+        <div className="mt-1.5">
+          <span className="rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-900">
+            Preview · mock index values
+          </span>
+        </div>
+      </div>
 
       <div className="space-y-2">
         {narrative.headline.map((sentence, i) => (
@@ -90,20 +105,25 @@ export function MarketBrief({ data }: { data: MarketPulseResponse }) {
   );
 }
 
-function IndexTickerCell({ card }: { card: IndexCard }) {
-  const isUp = (card.perf_1d ?? 0) >= 0;
-  const displayName = INDEX_DISPLAY[card.symbol.toUpperCase()] ?? card.name;
+function IndexTickerCell({ idx }: { idx: MockIndex }) {
+  const isUp = idx.perf >= 0;
+  // Format index point values without decimals (38,234 not 38,234.16) for
+  // readability — these are quoted as whole-number indices in the press.
+  const valueStr = idx.value.toLocaleString("en-US", {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 0,
+  });
   return (
     <Link
-      href={`/stocks/${card.symbol}` as Route}
+      href={`/stocks/${idx.symbol}` as Route}
       className="block rounded-lg border border-border/60 bg-white/60 px-3 py-2 transition-colors hover:bg-white"
     >
       <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-        {displayName}
+        {idx.label}
       </div>
       <div className="mt-0.5 flex items-baseline justify-between gap-2">
         <span className="font-mono text-sm font-semibold tabular-nums">
-          {card.price != null ? card.price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : "—"}
+          {valueStr}
         </span>
         <span
           className={cn(
@@ -111,7 +131,7 @@ function IndexTickerCell({ card }: { card: IndexCard }) {
             isUp ? "text-emerald-600" : "text-red-500",
           )}
         >
-          {fmtPct(card.perf_1d)}
+          {fmtPct(idx.perf)}
         </span>
       </div>
     </Link>
