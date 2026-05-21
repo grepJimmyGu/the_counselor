@@ -1,7 +1,5 @@
 "use client";
 
-import Link from "next/link";
-import type { Route } from "next";
 import {
   Tooltip,
   TooltipContent,
@@ -25,15 +23,26 @@ import { fmtPct, interpretCmf } from "@/lib/market-pulse-format";
  *   5. volume_ratio chip (only when elevated, e.g. >1.15×)
  *
  * Tile background color-interpolated by perf_1d (diverging emerald↔red,
- * clamped at ±1.5%). Click → /stocks/{symbol}. Hover (desktop) →
- * tooltip with the same 5 metrics + interpretation chip; tooltip is
- * now mostly redundant with the visible numbers but kept for the
- * `interpretCmf` label and screen-reader users.
+ * clamped at ±1.5%). **Click → expands inline below the heatmap** with
+ * a sector ETF vs S&P 500 comparison chart (2026-05-21 change — was
+ * navigation to /stocks/{symbol}). The expanded chart itself contains
+ * a link to the sector detail page.
+ *
+ * Tile is a `<button>` rather than a `<Link>` so the click stays in
+ * page. `activeSymbol` highlights the open tile with a ring.
  */
 
 const CLAMP = 0.015; // ±1.5% — matches the "tuning knob" decision in the plan.
 
-export function SectorHeatmap({ sectors }: { sectors: SectorCard[] }) {
+export function SectorHeatmap({
+  sectors,
+  activeSymbol,
+  onTileClick,
+}: {
+  sectors: SectorCard[];
+  activeSymbol?: string | null;
+  onTileClick?: (symbol: string) => void;
+}) {
   if (!sectors?.length) return null;
 
   return (
@@ -46,14 +55,27 @@ export function SectorHeatmap({ sectors }: { sectors: SectorCard[] }) {
         aria-label="Sector performance heatmap"
       >
         {sectors.map((s) => (
-          <SectorTile key={s.symbol} sector={s} />
+          <SectorTile
+            key={s.symbol}
+            sector={s}
+            isActive={activeSymbol === s.symbol}
+            onClick={onTileClick}
+          />
         ))}
       </div>
     </TooltipProvider>
   );
 }
 
-function SectorTile({ sector }: { sector: SectorCard }) {
+function SectorTile({
+  sector,
+  isActive,
+  onClick,
+}: {
+  sector: SectorCard;
+  isActive?: boolean;
+  onClick?: (symbol: string) => void;
+}) {
   const perf = sector.perf_1d;
   const { backgroundColor, textColor, mutedTextColor } = tileColors(perf);
   const cmfRead = interpretCmf(sector.cmf_20);
@@ -74,11 +96,16 @@ function SectorTile({ sector }: { sector: SectorCard }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Link
-          href={`/stocks/${sector.symbol}` as Route}
+        <button
+          type="button"
           role="listitem"
           aria-label={ariaLabel}
-          className="block min-h-[104px] rounded-lg p-3 transition-transform hover:scale-[1.02] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          aria-pressed={isActive}
+          onClick={() => onClick?.(sector.symbol)}
+          className={cn(
+            "block w-full text-left min-h-[104px] rounded-lg p-3 transition-transform hover:scale-[1.02] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary",
+            isActive && "ring-2 ring-offset-2 ring-primary",
+          )}
           style={{ backgroundColor, color: textColor }}
         >
           {/* Row 1 — name + symbol */}
@@ -130,7 +157,7 @@ function SectorTile({ sector }: { sector: SectorCard }) {
               </span>
             )}
           </div>
-        </Link>
+        </button>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-[240px]">
         <div className="space-y-1 text-xs">
