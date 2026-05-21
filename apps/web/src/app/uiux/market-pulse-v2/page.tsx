@@ -30,8 +30,9 @@ import { useLiveQuotes } from "@/lib/useLiveQuotes";
 import { buildNarrative } from "@/lib/market-pulse-narrative";
 
 import { MarketBrief } from "@/components/market-pulse/MarketBrief";
-import { SectorRotation } from "@/components/market-pulse/SectorRotation";
 import { MacroPanels } from "@/components/market-pulse/MacroPanels";
+import { SectorRotation } from "@/components/market-pulse/SectorRotation";
+import { HistoryRhymes } from "@/components/market-pulse/HistoryRhymes";
 import { TopMovers, type MoverItem } from "@/components/market-pulse/TopMovers";
 import { StickySubNav } from "@/components/market-pulse/StickySubNav";
 import {
@@ -189,11 +190,21 @@ export default function MarketPulseV2Preview() {
           </div>
         )}
 
-        {/* Section 1 — Brief (now includes the inline 4-cell index ticker
+        {/* Section 1 — Market Brief (includes the inline 4-cell index ticker
             absorbed from the removed IndicesHero section) */}
         {loading ? <BriefSkeleton /> : data && <MarketBrief data={applyLiveToData(data, withLive)} />}
 
-        {/* Section 3 — Sector rotation */}
+        {/* Section 2 — Macro Pulse themed panels (replaced
+            single-row MacroStrip per 2026-05-21 feedback) */}
+        {loading ? (
+          <MacroStripSkeleton />
+        ) : (
+          data && (
+            <MacroPanels macro={data.macro.map(withLive) as MacroCard[]} />
+          )
+        )}
+
+        {/* Section 3 — Sector rotation (heatmap default, table on toggle) */}
         {loading ? (
           <SectorHeatmapSkeleton />
         ) : (
@@ -205,15 +216,9 @@ export default function MarketPulseV2Preview() {
           )
         )}
 
-        {/* Section 2 (was 4) — Macro Pulse themed panels (replaced
-            single-row MacroStrip per 2026-05-21 feedback) */}
-        {loading ? (
-          <MacroStripSkeleton />
-        ) : (
-          data && (
-            <MacroPanels macro={data.macro.map(withLive) as MacroCard[]} />
-          )
-        )}
+        {/* Section 4 — History Rhymes (Phase 0a stub with mock data;
+            real backend ships in Phase 1) */}
+        <HistoryRhymes />
 
         {/* Section 5 — Top Movers */}
         {loading ? <TopMoversSkeleton rows={8} /> : <TopMovers items={moverItems} />}
