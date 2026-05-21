@@ -112,6 +112,50 @@ export interface UserSavedStrategy {
   updated_at: string;
 }
 
+// Stage 4a — published strategies (snapshot of a saved strategy, public).
+export interface PublishedAuthor {
+  id: string;
+  handle: string | null;
+  display_name: string | null;
+  badge: "verified" | "creator" | null;
+}
+
+export interface PublishedStrategySummary {
+  id: string;
+  slug: string;
+  title: string;
+  description: string | null;
+  strategy_type: string;
+  universe: string[];
+  benchmark: string;
+  metrics: {
+    total_return?: number | null;
+    annualized_return?: number | null;
+    sharpe_ratio?: number | null;
+    max_drawdown?: number | null;
+    win_rate?: number | null;
+    number_of_trades?: number | null;
+    buy_and_hold_return?: number | null;
+  };
+  follow_count: number;
+  like_count: number;
+  comment_count: number;
+  view_count: number;
+  created_at: string;
+  author: PublishedAuthor;
+}
+
+export interface PublishedStrategyDetail extends PublishedStrategySummary {
+  strategy_json: Record<string, unknown>;
+  equity_curve: Array<{ date: string | null; equity: number | null; benchmark: number | null }>;
+}
+
+export interface PublishedStrategyFeed {
+  items: PublishedStrategySummary[];
+  page: number;
+  page_size: number;
+}
+
 // ── Billing (Stage 2) ─────────────────────────────────────────────────────────
 
 export interface PricingTierOption {

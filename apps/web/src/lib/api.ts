@@ -480,3 +480,61 @@ export async function deleteSavedStrategy(
     headers: { Authorization: `Bearer ${backendToken}` },
   });
 }
+
+// ── Community publish (Stage 4a) ──────────────────────────────────────────────
+
+export async function publishStrategy(
+  payload: {
+    title: string;
+    description?: string;
+    strategy_json: unknown;
+    backtest_record_id?: string;
+    equity_curve_snapshot?: Array<{ date: string | null; equity: number | null; benchmark: number | null }>;
+  },
+  backendToken: string,
+): Promise<import("@/lib/contracts").PublishedStrategyDetail> {
+  return fetchApi("/api/community/strategies", {
+    method: "POST",
+    headers: { Authorization: `Bearer ${backendToken}` },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function listPublishedStrategies(
+  params: {
+    sort?: "trending" | "newest" | "top_returns" | "top_sharpe";
+    strategy_type?: string;
+    ticker?: string;
+    handle?: string;
+    page?: number;
+    page_size?: number;
+  } = {},
+): Promise<import("@/lib/contracts").PublishedStrategyFeed> {
+  const qs = new URLSearchParams();
+  if (params.sort) qs.set("sort", params.sort);
+  if (params.strategy_type) qs.set("strategy_type", params.strategy_type);
+  if (params.ticker) qs.set("ticker", params.ticker);
+  if (params.handle) qs.set("handle", params.handle);
+  if (params.page) qs.set("page", String(params.page));
+  if (params.page_size) qs.set("page_size", String(params.page_size));
+  const path = qs.toString()
+    ? `/api/community/strategies?${qs.toString()}`
+    : "/api/community/strategies";
+  return fetchApi(path);
+}
+
+export async function getPublishedStrategy(
+  slug: string,
+): Promise<import("@/lib/contracts").PublishedStrategyDetail> {
+  return fetchApi(`/api/community/strategies/${slug}`);
+}
+
+export async function trackAttributionVisit(
+  payload: { url: string; via: string },
+): Promise<{ tracked: boolean }> {
+  return fetchApi("/api/community/attribution/track", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    credentials: "include", // sets/reads livermore_vsid cookie
+  });
+}
