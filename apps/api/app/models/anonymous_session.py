@@ -41,6 +41,12 @@ class AnonymousSession(Base):
         Integer, default=0, server_default="0", nullable=False
     )
 
+    # Stage 7 — Phase 1 anonymous chat quota. Caps at 5 per AnonymousSession
+    # (lifetime, not daily) per build_specs/07_chat_v2_research_partner.md §2.
+    chat_turns_used: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
+    )
+
     # Most recent backtest result (links to backtests.id; intentionally not a FK
     # because the backtest may be deleted while the session row persists for analytics).
     last_backtest_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)
