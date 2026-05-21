@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
+import { useLiveQuotes } from "@/lib/useLiveQuotes";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getMarketPulse, searchSymbols } from "@/lib/api";
 import type {
@@ -412,6 +413,30 @@ export function MarketPulsePage() {
 
   useEffect(() => { load(market); }, [market, load]);
 
+  // Live-quote enrichment — overrides card.price + card.perf_1d when FMP has
+  // fresh data for the symbol. Falls through to the existing backend-cached
+  // values (sparkline + as_of + sector data stay unchanged). Macro chips with
+  // synthetic symbols like "10Y" simply won't get an override and continue
+  // showing the backend's snapshot — safe by design.
+  const liveSymbols = useMemo(() => {
+    if (!data) return [];
+    return Array.from(new Set([
+      ...data.indices.map(c => c.symbol),
+      ...data.macro.map(c => c.symbol),
+      ...data.top_assets.map(c => c.symbol),
+      ...data.featured_etfs.map(c => c.symbol),
+    ]));
+  }, [data]);
+  const { quotes: liveQuotes } = useLiveQuotes(liveSymbols);
+
+  // card.perf_1d is decimal (0.0028 = 0.28%); LiveQuote.change_percent is
+  // percentage points (0.28 = 0.28%) per FMP — divide by 100 to match.
+  function withLive<T extends { symbol: string; price: number | null; perf_1d: number | null }>(c: T): T {
+    const lq = liveQuotes[c.symbol.toUpperCase()];
+    if (!lq) return c;
+    return { ...c, price: lq.price, perf_1d: lq.change_percent / 100 };
+  }
+
   const handleMarketToggle = (m: "US" | "CN") => {
     setMarket(m);
     setData(null);
@@ -471,7 +496,7 @@ export function MarketPulsePage() {
           <div className="grid gap-3 grid-cols-2 sm:grid-cols-4">
             {loading
               ? Array(4).fill(0).map((_, i) => <IndexCardSkeleton key={i} />)
-              : (data?.indices ?? []).map(c => <IndexCardUI key={c.symbol} card={c} />)
+              : (data?.indices ?? []).map(c => <IndexCardUI key={c.symbol} card={withLive(c)} />)
             }
           </div>
         </section>
@@ -522,7 +547,7 @@ export function MarketPulsePage() {
             <div className="grid gap-2 grid-cols-2">
               {loading
                 ? Array(6).fill(0).map((_, i) => <Skeleton key={i} className="h-14 rounded-lg" />)
-                : (data?.macro ?? []).map(m => <MacroChipUI key={m.symbol} card={m} />)
+                : (data?.macro ?? []).map(m => <MacroChipUI key={m.symbol} card={withLive(m)} />)
               }
             </div>
           </section>
@@ -561,7 +586,7 @@ export function MarketPulsePage() {
                 ? Array(5).fill(0).map((_, i) => <Skeleton key={i} className="h-14 rounded-lg" />)
                 : (data?.top_assets ?? []).length > 0
                 ? (data!.top_assets).map(a => (
-                    <AssetCardUI key={a.symbol} card={a} href={`/stocks/${a.symbol}`} />
+                    <AssetCardUI key={a.symbol} card={withLive(a)} href={`/stocks/${a.symbol}`} />
                   ))
                 : (
                   <div className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground">
@@ -582,7 +607,7 @@ export function MarketPulsePage() {
               {loading
                 ? Array(5).fill(0).map((_, i) => <Skeleton key={i} className="h-14 rounded-lg" />)
                 : (data?.featured_etfs ?? []).map(a => (
-                    <AssetCardUI key={a.symbol} card={a} href={`/stocks/${a.symbol}`} />
+                    <AssetCardUI key={a.symbol} card={withLive(a)} href={`/stocks/${a.symbol}`} />
                   ))
               }
             </TabsContent>
