@@ -92,9 +92,9 @@ def test_strategist_caps(make_user, db: Session) -> None:
     assert ents.saved_strategies_max == 25
     assert ents.saved_strategies_always_public is False
     assert ents.commodity_framework is True
-    assert "param_sensitivity" in ents.robustness_tests
-    assert "benchmark" in ents.robustness_tests
-    assert "sub_period" not in ents.robustness_tests  # quant-only
+    assert "parameter_sensitivity" in ents.robustness_tests
+    assert "benchmark_comparison" in ents.robustness_tests
+    assert "subperiod" not in ents.robustness_tests  # quant-only
 
 
 def test_no_api_access_field(make_user, db: Session) -> None:

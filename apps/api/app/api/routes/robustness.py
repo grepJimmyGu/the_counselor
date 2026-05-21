@@ -7,6 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.api.deps_entitlement import require_entitlement
 from app.db.session import SessionLocal, get_db
 from app.models.robustness_job import RobustnessJob
 from app.schemas.robustness import (
@@ -15,6 +16,7 @@ from app.schemas.robustness import (
     RobustnessRunRequest,
 )
 from app.schemas.strategy import StrategyJSON
+from app.services.entitlements import increment_custom_backtest
 from app.services.robustness_service import robustness_service
 
 router = APIRouter(prefix="/api/robustness", tags=["robustness"])
@@ -106,8 +108,14 @@ def _summarise(results: RobustnessResults, baseline_sharpe: float) -> str:
 async def run_robustness(
     payload: RobustnessRunRequest,
     background_tasks: BackgroundTasks,
+    auth: tuple = Depends(require_entitlement(
+        needs_run_quota=True,
+        robustness_tests_field="tests_to_run",
+        template_id_field=None,  # robustness has no template concept
+    )),
     db: Session = Depends(get_db),
 ) -> RobustnessJobResponse:
+    user, ent = auth
     job_id = str(uuid4())
     now = datetime.utcnow()
     job = RobustnessJob(
@@ -119,8 +127,13 @@ async def run_robustness(
         parameter_grid=payload.parameter_grid,
         created_at=now,
     )
+    if hasattr(job, "user_id"):  # column was added by Stage 1 migrations
+        job.user_id = user.id
     db.add(job)
     db.commit()
+
+    # Stage 3: one robustness suite counts as one custom backtest against the weekly cap.
+    increment_custom_backtest(db, user.id)
 
     background_tasks.add_task(_execute_job, job_id, payload)
 

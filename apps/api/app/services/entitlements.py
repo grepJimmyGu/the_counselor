@@ -50,7 +50,8 @@ TIER_CAPS: dict[str, dict] = {
         "universe_size_max_custom": 25,
         "history_window_years_custom": 10,
         "asset_classes": ["equities", "commodities"],
-        "robustness_tests": ["param_sensitivity", "benchmark"],
+        # Names must match RobustnessRunRequest.tests_to_run Literal (schemas/robustness.py)
+        "robustness_tests": ["parameter_sensitivity", "benchmark_comparison"],
         "market_pulse_ticker_scope": "all_us",
         "business_model_section": "full",
         "commodity_framework": True,
@@ -64,8 +65,10 @@ TIER_CAPS: dict[str, dict] = {
         "universe_size_max_custom": 100,
         "history_window_years_custom": 20,
         "asset_classes": ["equities", "commodities", "a_shares"],
+        # Names must match RobustnessRunRequest.tests_to_run Literal (schemas/robustness.py)
         "robustness_tests": [
-            "param_sensitivity", "sub_period", "transaction_cost", "benchmark", "peer_ticker",
+            "parameter_sensitivity", "subperiod", "transaction_cost",
+            "benchmark_comparison", "peer_ticker",
         ],
         "market_pulse_ticker_scope": "all_us_plus_alerts",
         "business_model_section": "full_plus_supply_chain",
