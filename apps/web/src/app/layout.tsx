@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 import { SessionProvider } from "next-auth/react";
 import { LocaleProvider } from "@/lib/locale-context";
+import { Suspense } from "react";
+import { AnalyticsProvider } from "@/components/AnalyticsProvider";
 import { NavHeader } from "@/components/nav-header";
 import { TrialBanner } from "@/components/TrialBanner";
 import { UpgradeModal } from "@/components/UpgradeModal";
@@ -71,6 +73,12 @@ export default function RootLayout({
           <div id="main-content">{children}</div>
           {/* Stage 3: mounted once; subscribes to 402 events from fetchApi */}
           <UpgradeModal />
+          {/* Stage 6a: subscribes to session + pathname; fires identify/page_view.
+              Wrapped in Suspense because AnalyticsProvider uses useSearchParams
+              and would otherwise bail Next.js prerender (KNOWN_ISSUES rule #7-ish). */}
+          <Suspense fallback={null}>
+            <AnalyticsProvider />
+          </Suspense>
         </LocaleProvider>
         </SessionProvider>
       </body>

@@ -20,4 +20,6 @@ apscheduler==3.10.4
 email-validator==2.2.0
 google-auth>=2.29.0
 stripe==11.4.1
-
+# Stage 6a — analytics + transactional email. Both safe no-op until env vars set.
+posthog>=3.0.0
+resend>=2.0.0

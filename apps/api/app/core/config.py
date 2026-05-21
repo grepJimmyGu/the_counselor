@@ -33,6 +33,15 @@ class Settings(BaseSettings):
     # 402s but allow the request). Flip to True in production after observing
     # shadow-mode telemetry for ~24h. Stage 6 will replace this with a PostHog flag.
     gating_enabled: bool = False
+    # Stage 6a — analytics + email. All empty defaults so the no-op wrappers
+    # silently skip when keys aren't configured (local dev, CI, pre-launch).
+    posthog_api_key: str = ""
+    posthog_host: str = "https://us.posthog.com"
+    resend_api_key: str = ""
+    resend_webhook_secret: str = ""
+    resend_from_transactional: str = "team@livermorealpha.com"
+    resend_from_marketing: str = "growth@livermorealpha.com"
+    email_unsub_signing_key: str = ""  # 32-byte hex; HMAC-signs unsub tokens
     frontend_url: str = "http://localhost:3000"  # used for portal/checkout return URLs
     llm_provider: str = "disabled"
     llm_api_key: str = ""
