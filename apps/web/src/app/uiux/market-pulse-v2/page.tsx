@@ -31,7 +31,7 @@ import { buildNarrative } from "@/lib/market-pulse-narrative";
 
 import { MarketBrief } from "@/components/market-pulse/MarketBrief";
 import { SectorRotation } from "@/components/market-pulse/SectorRotation";
-import { MacroStrip } from "@/components/market-pulse/MacroStrip";
+import { MacroPanels } from "@/components/market-pulse/MacroPanels";
 import { TopMovers, type MoverItem } from "@/components/market-pulse/TopMovers";
 import { StickySubNav } from "@/components/market-pulse/StickySubNav";
 import {
@@ -205,12 +205,13 @@ export default function MarketPulseV2Preview() {
           )
         )}
 
-        {/* Section 4 — Macro */}
+        {/* Section 2 (was 4) — Macro Pulse themed panels (replaced
+            single-row MacroStrip per 2026-05-21 feedback) */}
         {loading ? (
           <MacroStripSkeleton />
         ) : (
           data && (
-            <MacroStrip macro={data.macro.map(withLive) as MacroCard[]} />
+            <MacroPanels macro={data.macro.map(withLive) as MacroCard[]} />
           )
         )}
 
