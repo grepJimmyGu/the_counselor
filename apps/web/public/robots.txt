@@ -1,0 +1,21 @@
+# Livermore — robots.txt
+# Public surfaces: home, marketing, community feed, template gallery, /s/[slug] shares.
+# Private surfaces: workspace, account, admin, creator dashboards.
+
+User-agent: *
+Allow: /
+
+# Auth + private user surfaces
+Disallow: /workspace
+Disallow: /account
+Disallow: /api/
+
+# Admin
+Disallow: /admin
+Disallow: /admin/
+
+# Creator dashboards (Stage 5b)
+Disallow: /creators/dashboard
+Disallow: /creators/apply
+
+Sitemap: https://livermorealpha.com/sitemap.xml
