@@ -25,37 +25,9 @@ export function BriefSkeleton() {
   );
 }
 
-export function IndicesHeroSkeleton() {
-  return (
-    <div className="grid gap-3 lg:grid-cols-3">
-      <div className="rounded-xl border border-border bg-white p-4 lg:col-span-2">
-        <Skeleton className="h-4 w-24 mb-2" />
-        <Skeleton className="h-10 w-32 mb-3" />
-        <Skeleton className="h-[200px] w-full" />
-      </div>
-      <div className="flex flex-col gap-2">
-        <IndexRowSkeleton />
-        <IndexRowSkeleton />
-        <IndexRowSkeleton />
-      </div>
-    </div>
-  );
-}
-
-function IndexRowSkeleton() {
-  return (
-    <div className="flex items-center justify-between rounded-xl border border-border bg-white p-3.5">
-      <div className="space-y-1">
-        <Skeleton className="h-3 w-12" />
-        <Skeleton className="h-3 w-20" />
-      </div>
-      <div className="text-right space-y-1">
-        <Skeleton className="h-4 w-16 ml-auto" />
-        <Skeleton className="h-3 w-12 ml-auto" />
-      </div>
-    </div>
-  );
-}
+// IndicesHeroSkeleton removed 2026-05-21 — the IndicesHero section was
+// folded into MarketBrief as an inline 4-cell ticker. Its skeleton is
+// part of BriefSkeleton if/when that needs to mirror the new layout.
 
 export function SectorHeatmapSkeleton() {
   return (
