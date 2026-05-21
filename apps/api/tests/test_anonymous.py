@@ -231,9 +231,45 @@ def test_anonymous_custom_template_id_blocked_only_after_first_run(db: Session) 
     assert exc.value.detail["entitlement"]["cta_action"] == "signup"
 
 
-def test_anonymous_custom_with_multi_ticker_still_hits_universe_gate(db: Session) -> None:
-    """Even on the first run, the universe-size cap (≤1 ticker) still
-    applies. Custom strategies don't get a free pass past that gate."""
+def test_anonymous_first_run_multi_ticker_universe_passes_gate(db: Session) -> None:
+    """Regression for the May 22 'first run always passes' policy: a 5-ticker
+    custom strategy on a fresh session must NOT be blocked by a universe-size
+    gate (the gate was removed). We can't actually run the engine without
+    Alpha Vantage data, but we can prove the request passes through the
+    gating block by pre-populating runs_used=1 → expect runs_exhausted
+    (not universe_too_large) on the SECOND attempt with the same body."""
+    import asyncio
+    import pytest as _pt
+    from fastapi import HTTPException
+    from app.api.routes.anonymous import (
+        anonymous_backtest_run,
+        AnonymousBacktestRunRequest,
+    )
+
+    # Already-exhausted session; we're testing which code fires.
+    req, resp = _stub_request(), _stub_response()
+    session = get_or_create_anonymous_session(req, resp, db)
+    increment_anonymous_run(db, session, backtest_id="bt-prior")
+
+    req2 = _stub_request(cookies={COOKIE_NAME: session.id})
+    resp2 = _stub_response()
+
+    payload = AnonymousBacktestRunRequest(
+        template_id="custom",
+        strategy_json=_stub_strategy(universe=["AAPL", "MSFT", "GOOGL", "AMZN", "META"]),
+    )
+
+    with _pt.raises(HTTPException) as exc:
+        asyncio.run(anonymous_backtest_run(
+            payload=payload, request=req2, response=resp2, db=db,
+        ))
+    # Multi-ticker no longer blocks; only runs_exhausted fires after first run.
+    assert exc.value.detail["entitlement"]["code"] == "anonymous_runs_exhausted"
+
+
+def test_anonymous_first_run_a_share_ticker_passes_gate(db: Session) -> None:
+    """Same as above but with an A-share suffix. The asset-class gate was
+    removed; the engine handles missing data cleanly downstream."""
     import asyncio
     import pytest as _pt
     from fastapi import HTTPException
@@ -243,14 +279,20 @@ def test_anonymous_custom_with_multi_ticker_still_hits_universe_gate(db: Session
     )
 
     req, resp = _stub_request(), _stub_response()
+    session = get_or_create_anonymous_session(req, resp, db)
+    increment_anonymous_run(db, session, backtest_id="bt-prior")
+
+    req2 = _stub_request(cookies={COOKIE_NAME: session.id})
+    resp2 = _stub_response()
+
     payload = AnonymousBacktestRunRequest(
         template_id="custom",
-        strategy_json=_stub_strategy(universe=["AAPL", "MSFT"]),
+        strategy_json=_stub_strategy(universe=["600519.SHH"]),
     )
 
     with _pt.raises(HTTPException) as exc:
         asyncio.run(anonymous_backtest_run(
-            payload=payload, request=req, response=resp, db=db,
+            payload=payload, request=req2, response=resp2, db=db,
         ))
-    assert exc.value.status_code == 402
-    assert exc.value.detail["entitlement"]["code"] == "anonymous_universe_too_large"
+    # A-share ticker no longer blocks; only runs_exhausted fires.
+    assert exc.value.detail["entitlement"]["code"] == "anonymous_runs_exhausted"

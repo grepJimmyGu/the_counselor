@@ -89,30 +89,17 @@ async def anonymous_backtest_run(
         record_anonymous_referrer(db, session, payload.via_handle)
 
     # Anonymous cap: 1 fresh backtest per session (template OR custom).
+    # This is the ONLY gate. Removed 2026-05-22:
+    #   - anonymous_universe_too_large (single-ticker cap) — too restrictive
+    #     for the chat builder which often returns multi-ticker strategies
+    #   - anonymous_asset_class_locked (.SHH/.SHZ block) — A-share data
+    #     simply isn't cached for anonymous, so the engine returns a clean
+    #     error instead of a 402; either way the user understands
+    # Cost note: a 5-ticker backtest hits Alpha Vantage ~5x more on first
+    # fetch but each session is still capped at 1 run. Universe is bounded
+    # by the chat builder's own output (~10 tickers max).
     if session.runs_used >= 1:
         raise upgrade_error("anonymous_runs_exhausted", is_anonymous=True)
-
-    # Universe gate: anonymous one-shot is single-ticker only.
-    universe = list(payload.strategy_json.universe or [])
-    if len(universe) > 1:
-        raise upgrade_error(
-            "anonymous_universe_too_large",
-            is_anonymous=True,
-            current_value=str(len(universe)),
-            limit_value="1",
-        )
-
-    # Asset-class gate: equities only. Block known A-share suffixes and any
-    # universe that looks like commodities. The full asset-class taxonomy
-    # ships in Stage 3; this is a minimum safety net.
-    for sym in universe:
-        if sym.upper().endswith((".SHH", ".SHZ")):
-            raise upgrade_error(
-                "anonymous_asset_class_locked",
-                is_anonymous=True,
-                current_value=sym,
-                limit_value="equities",
-            )
 
     # Run the backtest. Engine persists a BacktestRecord with user_id=NULL;
     # merge_anonymous_into_user will set user_id on signup.

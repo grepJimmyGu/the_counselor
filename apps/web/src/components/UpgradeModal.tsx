@@ -61,18 +61,6 @@ const COPY: Record<EntitlementErrorCode, ModalCopy> = {
     primaryCta: "Continue with Google",
     secondaryCta: "Use a template instead",
   },
-  anonymous_universe_too_large: {
-    title: "Sign up to backtest a larger universe",
-    body: "Anonymous one-shot backtests are limited to a single ticker. Scout (free) lets you build 5-ticker custom strategies.",
-    primaryCta: "Continue with Google",
-    secondaryCta: "Back",
-  },
-  anonymous_asset_class_locked: {
-    title: "Sign up to unlock more asset classes",
-    body: "Anonymous viewers can run equity-only templates. Strategist unlocks commodities; Quant adds A-shares.",
-    primaryCta: "Continue with Google",
-    secondaryCta: "Back",
-  },
 };
 
 
