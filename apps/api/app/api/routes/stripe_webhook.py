@@ -88,6 +88,7 @@ def _dispatch(db: Session, event_type: str, obj: dict) -> None:
         billing_state.apply_subscription_deleted(db, obj)
     elif event_type == "invoice.payment_succeeded":
         billing_state.apply_invoice_payment_succeeded(db, obj)
+        _record_stripe_invoice(db, obj)
     elif event_type == "invoice.payment_failed":
         billing_state.apply_invoice_payment_failed(db, obj)
     elif event_type == "checkout.session.completed":
@@ -118,6 +119,66 @@ def _log_attribution_on_conversion(db: Session, subscription_obj: dict) -> None:
         session.id,
         subscription_obj.get("id"),
     )
+
+
+def _record_stripe_invoice(db: Session, invoice_obj: dict) -> None:
+    """Stage 5a: persist paid invoice rows for revshare calc.
+
+    Resolves the Stripe customer → plans.stripe_customer_id → user_id.
+    Idempotent (PK = Stripe invoice id; INSERT errors are silently
+    rolled back). Silent on failure — webhook must still ack."""
+    from datetime import datetime as _dt
+    from sqlalchemy import select
+    from sqlalchemy.exc import IntegrityError
+    from app.models.stripe_invoice import StripeInvoice
+    from app.models.user import Plan
+
+    try:
+        invoice_id = invoice_obj.get("id")
+        if not invoice_id:
+            return
+
+        # Already recorded → skip (webhook replay).
+        if db.get(StripeInvoice, invoice_id) is not None:
+            return
+
+        # Resolve customer → user_id via plans.stripe_customer_id.
+        customer_id = invoice_obj.get("customer")
+        if not customer_id:
+            return
+        plan = db.scalar(select(Plan).where(Plan.stripe_customer_id == customer_id))
+        if plan is None:
+            logger.warning(
+                "stripe_invoice: no plan for stripe_customer_id=%s (invoice=%s)",
+                customer_id, invoice_id,
+            )
+            return
+
+        # Lines for period_start/end (Stripe gives this per invoice line; use first).
+        lines = invoice_obj.get("lines", {}).get("data") or []
+        first_line = lines[0] if lines else {}
+        period = first_line.get("period") or {}
+
+        invoice = StripeInvoice(
+            id=invoice_id,
+            customer_user_id=plan.user_id,
+            subscription_id=invoice_obj.get("subscription") or "",
+            amount_paid_cents=int(invoice_obj.get("amount_paid", 0)),
+            currency=(invoice_obj.get("currency") or "USD").upper(),
+            status=invoice_obj.get("status") or "paid",  # "paid" usually
+            paid_at=_dt.utcfromtimestamp(invoice_obj.get("status_transitions", {}).get("paid_at")
+                                         or invoice_obj.get("created", 0)),
+            period_start=_dt.utcfromtimestamp(period.get("start") or invoice_obj.get("period_start") or 0),
+            period_end=_dt.utcfromtimestamp(period.get("end") or invoice_obj.get("period_end") or 0),
+            raw=dict(invoice_obj),
+        )
+        db.add(invoice)
+        db.commit()
+    except IntegrityError:
+        db.rollback()  # race: another webhook delivered the same invoice
+    except Exception as exc:
+        logger.warning("record_stripe_invoice failed: %s", exc)
+        db.rollback()
 
 
 def _mark_attribution_paid(db: Session, subscription_obj: dict) -> None:
