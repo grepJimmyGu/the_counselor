@@ -5,6 +5,7 @@ import { LocaleProvider } from "@/lib/locale-context";
 import { Suspense } from "react";
 import { AnalyticsProvider } from "@/components/AnalyticsProvider";
 import { NavHeader } from "@/components/nav-header";
+import { LiveTickerBar } from "@/components/LiveTickerBar";
 import { TrialBanner } from "@/components/TrialBanner";
 import { UpgradeModal } from "@/components/UpgradeModal";
 
@@ -69,6 +70,7 @@ export default function RootLayout({
             Skip to main content
           </a>
           <NavHeader />
+          <LiveTickerBar />
           <TrialBanner />
           <div id="main-content">{children}</div>
           {/* Stage 3: mounted once; subscribes to 402 events from fetchApi */}

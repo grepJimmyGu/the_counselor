@@ -27,6 +27,7 @@ from app.api.routes.sentiment import router as sentiment_router
 from app.api.routes.strategy_storage import router as strategy_storage_router
 from app.api.routes.strategy import router as strategy_router
 from app.api.routes.anonymous import router as anonymous_router
+from app.api.routes.live_quotes import router as live_quotes_router
 from app.api.routes.community_publish import (
     attribution_router,
     router as community_publish_router,
@@ -331,6 +332,7 @@ app.include_router(stripe_webhook_router)
 app.include_router(community_router)
 app.include_router(sentiment_router)
 app.include_router(anonymous_router)  # Stage 1a
+app.include_router(live_quotes_router)  # 2026-05-21 — live quote cache
 app.include_router(saved_strategies_router)  # Stage 1a
 app.include_router(community_publish_router)  # Stage 4a
 app.include_router(attribution_router)  # Stage 4a
