@@ -121,6 +121,17 @@ def _track_signup_completed(user: User, provider: str) -> None:
     except Exception:
         pass
 
+    # Stage 6a — DEFERRED_TRIGGER: ZH email templates are not localized yet.
+    # When the first ZH user signs up, log so we can prioritize translating
+    # the welcome email (and future templates) (see docs/DEFERRED.md).
+    if (user.locale or "en") == "zh":
+        import logging as _logging
+        _logging.getLogger("livermore.deferred").info(
+            "DEFERRED_TRIGGER: zh_email_templates — user_id=%s signed up with "
+            "locale=zh; welcome email currently EN-only (see docs/DEFERRED.md)",
+            user.id,
+        )
+
 
 def _try_send_welcome_email(db: Session, user: User) -> None:
     """Stage 6a: fire-and-forget welcome email. Safe no-op when Resend

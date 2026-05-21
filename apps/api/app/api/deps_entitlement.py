@@ -223,6 +223,16 @@ def _violation(
     except Exception:
         pass
 
+    # Stage 6a — DEFERRED_TRIGGER tripwire for the soft_upsell email (Stage 6b).
+    # When a Scout (not anonymous) hits a paywall, we log it. Once we wire the
+    # email send + dedupe table, this becomes the firing point.
+    if ent.tier == "scout" and not is_anonymous:
+        _log.info(
+            "DEFERRED_TRIGGER: soft_upsell_candidate — user_id=%s code=%s "
+            "(see docs/DEFERRED.md for the email template + dedupe wiring)",
+            user.id, code,
+        )
+
     if settings.gating_enabled:
         raise upgrade_error(
             code,

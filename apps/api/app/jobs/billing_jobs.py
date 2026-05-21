@@ -16,16 +16,18 @@ logger = logging.getLogger(__name__)
 
 def expire_trials_job() -> None:
     """Trials that ended without a card added revert to Scout."""
+    from datetime import timedelta
     from app.db.session import SessionLocal
     from app.models.user import Plan
 
     db = SessionLocal()
     try:
+        now = datetime.utcnow()
         rows = (
             db.query(Plan)
             .filter(
                 Plan.status == "trialing",
-                Plan.trial_end < datetime.utcnow(),
+                Plan.trial_end < now,
                 Plan.stripe_subscription_id.is_(None),
             )
             .all()
@@ -37,6 +39,40 @@ def expire_trials_job() -> None:
         db.commit()
         if rows:
             logger.info("expire_trials_job: reverted %d expired trial(s) to Scout", len(rows))
+
+        # Stage 6a — DEFERRED_TRIGGER tripwires for the Stage 6b lifecycle emails.
+        # Trial-day-7 nudge candidates: trial expires in ~7 days, no card yet.
+        day_7_candidates = (
+            db.query(Plan)
+            .filter(
+                Plan.status == "trialing",
+                Plan.stripe_subscription_id.is_(None),
+                Plan.trial_end.between(now + timedelta(days=6), now + timedelta(days=7, hours=1)),
+            )
+            .count()
+        )
+        if day_7_candidates > 0:
+            logger.info(
+                "DEFERRED_TRIGGER: trial_day_7_email — %d trialist(s) would receive "
+                "the day-7 nudge if Stage 6b were wired (see docs/DEFERRED.md)",
+                day_7_candidates,
+            )
+        # Trial-day-13 last-call candidates: trial expires in <24h, no card.
+        day_13_candidates = (
+            db.query(Plan)
+            .filter(
+                Plan.status == "trialing",
+                Plan.stripe_subscription_id.is_(None),
+                Plan.trial_end.between(now, now + timedelta(hours=24)),
+            )
+            .count()
+        )
+        if day_13_candidates > 0:
+            logger.info(
+                "DEFERRED_TRIGGER: trial_day_13_email — %d trialist(s) within 24h "
+                "of expiry would receive the last-call nudge (see docs/DEFERRED.md)",
+                day_13_candidates,
+            )
     except Exception as exc:
         logger.error("expire_trials_job failed: %s", exc)
         db.rollback()
