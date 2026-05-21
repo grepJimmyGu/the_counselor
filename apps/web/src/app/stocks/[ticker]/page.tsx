@@ -4,8 +4,9 @@ import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams, useSearchParams, useRouter } from "next/navigation";
 import { AlertTriangle, ChevronRight } from "lucide-react";
-import { getCompanyOverview } from "@/lib/api";
-import type { CompanyOverviewResponse } from "@/lib/contracts";
+import { getCompanyOverview, UpgradeRequiredError } from "@/lib/api";
+import type { CompanyOverviewResponse, EntitlementErrorDetail } from "@/lib/contracts";
+import { SoftPaywall } from "@/components/SoftPaywall";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -42,6 +43,7 @@ function CompanyPageInner() {
   const [data, setData] = useState<CompanyOverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [gateDetail, setGateDetail] = useState<EntitlementErrorDetail | null>(null);
   const [builderOpen, setBuilderOpen] = useState(false);
   const [builderIdea, setBuilderIdea] = useState<string | undefined>(undefined);
 
@@ -51,9 +53,17 @@ function CompanyPageInner() {
     const loadTimer = setTimeout(() => {
       setLoading(true);
       setError(null);
+      setGateDetail(null);
       getCompanyOverview(ticker.toUpperCase())
         .then((overview) => { if (!cancelled) setData(overview); })
-        .catch((e) => { if (!cancelled) setError(e.message || "Failed to load company data"); })
+        .catch((e) => {
+          if (cancelled) return;
+          if (e instanceof UpgradeRequiredError) {
+            setGateDetail(e.entitlement);
+          } else {
+            setError(e.message || "Failed to load company data");
+          }
+        })
         .finally(() => { if (!cancelled) setLoading(false); });
     }, 0);
     return () => {
@@ -77,6 +87,16 @@ function CompanyPageInner() {
             <Skeleton className="h-24 w-full" />
             <Skeleton className="h-64 w-full" />
           </div>
+        </div>
+      </main>
+    );
+  }
+
+  if (gateDetail) {
+    return (
+      <main className="min-h-screen bg-background">
+        <div className="mx-auto max-w-[1200px] px-4 py-12">
+          <SoftPaywall detail={gateDetail} />
         </div>
       </main>
     );

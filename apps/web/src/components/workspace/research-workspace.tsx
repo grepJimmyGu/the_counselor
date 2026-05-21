@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import {
   AlertTriangle, ArrowRight, Bot, Loader2, Play,
   LineChart, Settings2,
@@ -85,6 +86,11 @@ export function ResearchWorkspace() {
   const { t } = useLocale();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const { data: session } = useSession();
+  // Stage 3: forward the backend session token so /api/backtest/run can resolve
+  // the user (otherwise it returns 401). Anonymous users go through the separate
+  // /api/anonymous/backtest/run path, not this component.
+  const backendToken = (session as unknown as { backendToken?: string } | null)?.backendToken;
 
   const [strategy, setStrategy] = useState<StrategyJson | null>(null);
   const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
@@ -180,7 +186,7 @@ export function ResearchWorkspace() {
     setExplanation(null);
     setSandboxReview(null);
     try {
-      const result = await runBacktest(strat);
+      const result = await runBacktest(strat, { backendToken });
       setBacktestResult(result);
       const [explainerPayload, reviewerPayload] = await Promise.all([
         explainStrategy(strat, result, "en"),
@@ -221,6 +227,7 @@ export function ResearchWorkspace() {
         strategy,
         ["parameter_sensitivity", "subperiod", "transaction_cost", "benchmark_comparison", ...(peers.length ? ["peer_ticker"] : [])],
         peers,
+        { backendToken },
       );
       setRobustnessJob(job);
       const poll = setInterval(async () => {

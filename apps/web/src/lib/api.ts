@@ -3,6 +3,7 @@ import type {
   CompanyProfile,
   DataQualityReport,
   DataStatusResponse,
+  EntitlementErrorResponse,
   ExplanationResponse,
   FundamentalSummary,
   KeyMetrics,
@@ -17,9 +18,24 @@ import type {
   SymbolSearchItem,
   WarmupResponse,
 } from "@/lib/contracts";
+import { dispatchUpgrade } from "@/lib/upgrade-modal-event-bus";
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8001";
+
+/**
+ * Custom Error thrown on 402 responses. Carries the parsed envelope so callers
+ * can react (e.g. show an inline SoftPaywall instead of the global modal).
+ * The global modal is ALSO dispatched automatically — callers don't have to
+ * do anything to get it.
+ */
+export class UpgradeRequiredError extends Error {
+  readonly status = 402;
+  constructor(public readonly entitlement: EntitlementErrorResponse["entitlement"]) {
+    super(entitlement.detail);
+    this.name = "UpgradeRequiredError";
+  }
+}
 
 async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
@@ -32,6 +48,19 @@ async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
+    // 402 Upgrade Required — parse the envelope and trigger the global modal.
+    if (response.status === 402) {
+      try {
+        const payload = (await response.json()) as EntitlementErrorResponse;
+        if (payload?.error === "upgrade_required" && payload?.entitlement) {
+          dispatchUpgrade(payload.entitlement);
+          throw new UpgradeRequiredError(payload.entitlement);
+        }
+      } catch (err) {
+        if (err instanceof UpgradeRequiredError) throw err;
+        // fall through to generic error
+      }
+    }
     let message = `Request failed with status ${response.status}`;
     try {
       const payload = (await response.json()) as { detail?: string };
@@ -77,10 +106,22 @@ export async function parseStrategyMarkdown(
   });
 }
 
-export async function runBacktest(strategyJson: StrategyJson) {
+export async function runBacktest(
+  strategyJson: StrategyJson,
+  opts: { backendToken?: string; templateId?: string } = {},
+) {
+  const headers: Record<string, string> = {};
+  if (opts.backendToken) {
+    headers["Authorization"] = `Bearer ${opts.backendToken}`;
+  }
   return fetchApi<BacktestResult>("/api/backtest/run", {
     method: "POST",
-    body: JSON.stringify({ strategy_json: strategyJson }),
+    headers,
+    body: JSON.stringify({
+      strategy_json: strategyJson,
+      // Stage 3: when set, templates bypass the custom-strategy caps.
+      ...(opts.templateId ? { template_id: opts.templateId } : {}),
+    }),
   });
 }
 
@@ -146,9 +187,15 @@ export async function runRobustness(
   strategyJson: StrategyJson,
   testsToRun: string[],
   peerTickers: string[] = [],
+  opts: { backendToken?: string } = {},
 ): Promise<RobustnessJobResponse> {
+  const headers: Record<string, string> = {};
+  if (opts.backendToken) {
+    headers["Authorization"] = `Bearer ${opts.backendToken}`;
+  }
   return fetchApi<RobustnessJobResponse>("/api/robustness/run", {
     method: "POST",
+    headers,
     body: JSON.stringify({
       strategy_json: strategyJson,
       tests_to_run: testsToRun,

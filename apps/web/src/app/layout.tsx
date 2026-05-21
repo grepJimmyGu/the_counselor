@@ -4,6 +4,7 @@ import { SessionProvider } from "next-auth/react";
 import { LocaleProvider } from "@/lib/locale-context";
 import { NavHeader } from "@/components/nav-header";
 import { TrialBanner } from "@/components/TrialBanner";
+import { UpgradeModal } from "@/components/UpgradeModal";
 
 export const metadata: Metadata = {
   title: "Livermore Alpha",
@@ -35,6 +36,8 @@ export default function RootLayout({
           <NavHeader />
           <TrialBanner />
           <div id="main-content">{children}</div>
+          {/* Stage 3: mounted once; subscribes to 402 events from fetchApi */}
+          <UpgradeModal />
         </LocaleProvider>
         </SessionProvider>
       </body>
