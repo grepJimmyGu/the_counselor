@@ -278,7 +278,7 @@ This caused exactly one moment of confusion: switching to `main` showed Stage 1a
 
 The implicit lesson: **agents working in parallel on long-running branches need clear ownership.** The codex branch never picked up Stage 1a; if/when it gets merged, it'll need a rebase or merge first.
 
-### Episode 18 — Where we are at the end of May 20
+### Episode 18 — Midday May 20 checkpoint
 
 - **Stages 1, 1a, 2 shipped.** Production stable.
 - **Stage 3 planned and scoped down** to the high-leverage gates.
@@ -287,9 +287,88 @@ The implicit lesson: **agents working in parallel on long-running branches need 
 - **Tests: 349 SQLite + 7 Postgres + 2 app-invariant = 358** all green.
 - **One open follow-up:** 26 pre-existing frontend lint errors waiting for cleanup.
 
+### Episode 19 — Stage 3 in one afternoon (May 20, evening)
+
+The original Stage 3 spec was 600 lines: API access namespace, asset-class gating, supply-chain deep-dive, commodity framework, 50-page top-250 list, ZH localization for upgrade modal copy. Cut it down to the revenue-blocking core in a 90-minute conversation:
+
+- **Cut entirely:** API access (no one asked), asset-class gating (defer), commodity framework gating (defer), supply-chain (defer), ZH copy (defer), refresh script (static file v1).
+- **Kept:** runs quota, custom-strategy universe + history, robustness suite test names, Market Pulse S&P 500 scope.
+- **Cleaner mental model:** use the full S&P 500 (~500 tickers) instead of "top 250 by market cap" so the gate doesn't drift.
+
+The build went in six phases — `require_entitlement` dep + `GATING_ENABLED` flag + S&P 500 list, then per-route wiring, then 24 backend tests, then the frontend `UpgradeModal` + `SoftPaywall` + 402 interceptor. Six commits. All green per phase.
+
+**Key save:** the `runBacktest()` frontend call didn't pass an auth token. Adding gating broke production for everyone who'd hit the workspace. Caught in design review before any code shipped to prod; fixed alongside the modal wire in Phase 6.
+
+**Quote, accidentally produced:** *"Just because a feature is in a PRD doesn't mean it's required."*
+
+### Episode 20 — Stage 4a: the viral loop primitive (May 20, late evening)
+
+The community pillar was "thin." Stage 4 spec promised feeds, comments, follows, likes, moderation, OG image generation, profile pages. Same cut pattern: keep only the *primitive that creates the viral loop.*
+
+What shipped:
+- `published_strategies` table — frozen snapshot semantics (editing the saved version doesn't leak)
+- `attribution_visits` table — every `/s/<slug>?via=<handle>` click recorded; HMAC-cookie joins it to the eventual signup; Stripe webhook stamps `converted_to_paid_at`
+- `/s/[slug]` public page — anonymous-viewable, persistent signup CTA preserving the referrer handle
+- Scout *auto-publish* — every Scout save also creates a published row (no privacy option at Scout tier, per Stage 1a's `saved_strategies_always_public`)
+- `ShareButton`, `VerifiedBadge`, `PublishModal`
+
+**The naming collision moment:** the existing community route was `community.py` (signals/votes from PRD-12/13/14). We mounted the new CRUD at `/api/community/strategies/*` and the saved-strategy CRUD at `/api/saved-strategies/*` to avoid the legacy `/api/strategies/{slug}` path.
+
+**Content angle:** *"The viral loop in 23 tests."* The tests document every conversion path: track-visit → signup converts → Stripe paid converts → first-touch wins → self-attribution rejected → annual prepay ($228 → $22.80 revshare).
+
+### Episode 21 — Stage 4b in 90 minutes, Stage 5a in 2 hours (May 20, night)
+
+- **4b:** Discovery feed on `/community` (so published strategies are reachable without a direct URL) + "Clone to workspace" button on `/s/[slug]`. Two surfaces. Both shipped in one commit.
+- **5a:** `stripe_invoices` ledger + `Plan.comped` + `creators` / `creator_applications` / `creator_payouts` + the **revshare math itself.** 10% of first-year MRR; excludes refunded; caps at 365 days; self-attribution belt-and-suspenders. 8 unit tests.
+
+The SEO half of Stage 5 got cut hardest: 50 landing pages reduced to *3 sample pages* (NVDA 200-day MA, AAPL RSI, Mag-7 momentum) because the other 47 are editorial work, not code. Pages prerender as static HTML via Next 15 `generateStaticParams`. JSON-LD blocks (`FAQPage`, `HowTo`, `BreadcrumbList`). Static OG image deferred to dynamic in 5b.
+
+**Honest disclosure inside the spec:** the `seo-templates.ts` registry now sits next to a comment saying "never fabricate returns; reference real data only." That rule's important for SEO credibility AND for Google E-E-A-T scoring.
+
+### Episode 22 — Stage 6a + the forget-proofing layer (May 20, very late)
+
+Stage 6 is two subsystems (PostHog + Resend) that mostly need traffic to matter. The "what if I forget" question came up before we started building.
+
+The answer that landed: **`docs/DEFERRED.md`** as a canonical list of cuts, with each entry carrying a *concrete trigger condition*. Plus **three tripwire log lines** that emit `DEFERRED_TRIGGER: <name> — <why>` when the corresponding condition fires.
+
+Run `railway logs --service api | grep DEFERRED_TRIGGER` to surface the catch-up backlog. The day the first trial expires without a card, you see `DEFERRED_TRIGGER: trial_day_7_email`. The day the first ZH user signs up: `DEFERRED_TRIGGER: zh_email_templates`. The doc tells you what's still owed and roughly how long.
+
+The technical pattern is **safe no-op** — both PostHog and Resend wrappers silently skip when API keys aren't set. The day env vars land in Railway / Vercel, events start flowing and emails start sending. Zero code change required.
+
+**Content angle:** *"How to build for 10x traffic when you have 0x traffic."* Most of Stage 6's value is in the rails — `track()` calls everywhere, `send_email()` calls on signup — that activate the moment you have users to act on. The forget-proofing layer means you don't have to remember to wake them up.
+
+### Episode 23 — Where we actually are at the end of May 20
+
+- **Stages 1, 1a, 2, 3, 4a, 4b, 5a, 6a all shipped.**
+- **`main` at `ce5492d`.** 28 commits since this morning.
+- **Tests:** 411 backend + 7 Postgres + 2 app-invariant = **420** all green.
+- **Frontend:** clean build, `/sitemap.xml` + `/s/[slug]` + `/templates/[slug]` (3 SSG pages) live.
+- **Production:** Railway healthy, Vercel healthy, gating in shadow mode by default.
+- **Stage 5b + Stage 6b:** roughly 50 hours of content authoring + admin UI + cron jobs, all gated on traffic events. Tracked in `docs/DEFERRED.md`.
+
+The infrastructure side of the GTM roadmap is complete. Everything from here is content (SEO pages, additional emails), admin tooling that's only useful with creators applying, or A/B tests that need ≥1500 Scout signups to power.
+
 ---
 
 ## Recurring journeys (themes)
+
+### "Scope-cut every stage"
+The single most important pattern of May 20. Every stage spec, as written, was 400-600 lines. Every stage shipped at roughly 30-40% of the original scope, with the cuts explicit in the commit messages and in `docs/DEFERRED.md`. The cuts followed a consistent rubric:
+
+| Cut | Reason |
+|---|---|
+| API access (Stage 3) | Zero requests, dilutes Quant value prop |
+| ZH copy (every stage) | Defer until first ZH user shows up |
+| Comments / follows / likes / moderation (Stage 4) | Need users to moderate |
+| 47 SEO landing pages (Stage 5) | Editorial work, not code |
+| Comparison pages (Stage 5) | Legal review needed |
+| Creator dashboard + admin (Stage 5) | Zero creators yet |
+| 7 of 8 email templates (Stage 6) | Need trialists / cohorts to email |
+| 15 of 25 analytics events (Stage 6) | One-line additions; do when funnels show gaps |
+| Resend webhook (Stage 6) | No sends → no webhook events |
+| H1 A/B test running (Stage 6) | Need ≥1500 Scouts |
+
+The framework: ship the *primitive that unblocks revenue or growth*, defer the *polish that needs traffic to validate*.
 
 ### "Postgres ≠ SQLite"
 Most of the production-only bugs trace to this. Counter-strategies:
@@ -332,6 +411,11 @@ Three patterns established in this project:
 - *"Templates exempt from custom caps."* — the central Stage 1a invariant
 - *"The frontend would silently report success."* — the day TypeScript types didn't catch a backend schema change
 - *"App-layer enforces user identity."* — the post-mortem reasoning for dropping FK constraints
+- *"Code ships today; the day env vars are set, events start flowing."* — the safe no-op pattern that defined Stage 6a
+- *"Build the rails; light them up later."* — the same pattern, summarized
+- *"How to build for 10× traffic when you have 0× traffic."* — possible video title for the deferred-trigger pattern
+- *"Every stage shipped at 30-40% of its original spec."* — the scope-cut discipline that made the day possible
+- *"What if I forget?"* — the user's question that triggered the entire `DEFERRED.md` + tripwire log lines layer
 
 ---
 
@@ -357,6 +441,12 @@ Three patterns established in this project:
 
 10. **Tracking is part of building.** This journal is the meta-version of that lesson. The git log is technical history. The decisions and dead-ends are *product* history. Keep both.
 
+11. **Defer-with-triggers beats defer-with-prayer.** Every cut item in `docs/DEFERRED.md` carries a *concrete trigger condition* — usually a one-line DB query or a grep against Railway logs. Without that, "we'll do it later" reliably becomes "we forgot." The cost: ~5 minutes per deferred item to write the trigger spec. The value: zero forgotten work + a clear mental model for what's actually in the backlog vs. what's just pre-launch infrastructure waiting to wake up.
+
+12. **Safe no-op is a deployment pattern, not just a code pattern.** The PostHog + Resend wrappers in Stage 6a let us ship instrumentation that's *production-correct from day one* but does nothing until env vars activate it. This means: no second deploy when the API key arrives, no risk of accidentally sending email or polluting analytics during local dev, no special "test mode" config. Just one path through the code that does the right thing in every environment.
+
+13. **Scope-cut every stage, every time.** The original Stage 3 was 600 lines. Stage 4 was 587. Stage 5 was 564. Stage 6 was 482. Every stage shipped at 30-40% of the original scope. The cuts followed a consistent rubric: ship the primitive that unblocks revenue or growth; defer everything that needs real traffic to validate. The cut decisions themselves are captured in commit messages and `docs/DEFERRED.md` — so the cuts are recoverable, not invisible.
+
 ---
 
 ## Quantitative timeline
@@ -366,27 +456,34 @@ Three patterns established in this project:
 | First commit | 2026-04-30 |
 | Most recent | 2026-05-20 |
 | Active days | 17 |
-| Total commits on `main` | 201 |
+| Total commits on `main` | ~230 |
+| Commits on May 20 alone | 28 |
 | Branches at peak | 35 |
 | Branches now | 1 (`main`) |
-| Backend tests | 349 SQLite + 7 Postgres + 2 invariant = **358** |
-| Frontend pages | 18 |
+| Backend tests | **411 SQLite + 7 Postgres + 2 invariant = 420** |
+| Test count growth on May 20 | 319 → 420 (+101) |
+| Frontend pages | 21 (including `/s/[slug]`, 3× `/templates/[slug]`, `/account/email`) |
+| API routes | 93 |
 | Strategy templates | 22 |
-| Failed production deploys (one bad day, 2026-05-19/20) | 6 |
-| Stages shipped | 1, 1a, 2 |
-| Stages remaining | 3, 4, 5, 6 |
+| SEO landing pages live | 3 of 50 planned |
+| Failed production deploys (one bad day, 2026-05-19/20) | 8 |
+| Stages shipped | **1, 1a, 2, 3, 4a, 4b, 5a, 6a** |
+| Stages remaining | 5b, 6b (both traffic-gated) |
+| Deferred items in `DEFERRED.md` | ~30 across all stages |
+| Tripwire log lines for forgotten work | 3 (`trial_day_7_email`, `soft_upsell_candidate`, `zh_email_templates`) |
 | Open follow-up tasks | 1 (frontend lint cleanup) |
 
 ---
 
 ## Open chapters (still to be written)
 
-- **Stage 3 — endpoint gating + upgrade UX.** Will the Scout 5-runs-per-week cap actually convert? Untested hypothesis until users hit it.
-- **Stage 4 — community + sharing.** Public strategy feed, upvotes, comments. The infrastructure exists in `community.py`; needs UX wrapping.
-- **Stage 5 — SEO + Creator Program.** The `via_handle` field already preserves referrer attribution through the anonymous → paid funnel. Now we need the actual creator payouts.
-- **Stage 6 — Analytics + lifecycle.** PostHog. Email lifecycle. A/B testing the upgrade modal copy.
-- **The first paying customer.** Hasn't happened yet at the time of writing. When it does, every Stage 1-2 design assumption gets tested for real.
+- **The first paying customer.** Still pending. When it lands, every Stage 1-2-3 design assumption gets tested for real. The H1 A/B test goes live once cumulative Scout signups cross ~1,500.
+- **Stage 5b — the SEO catch-up sprint.** 47 more landing pages, comparison pages, OG image generation, creator UI. Triggered by the first 1K of organic traffic OR the first creator applying.
+- **Stage 6b — lifecycle email + dashboards.** 7 more email templates, Resend webhook, PostHog funnels. Triggered by first trial expiry, first 100 sent emails, first ZH user.
+- **The DEFERRED.md test.** Does the trigger-based forget-proofing actually work? We won't know until we've grepped `DEFERRED_TRIGGER` and found something we'd forgotten about.
+- **First real traffic.** Every infrastructure assumption in Stages 3-6 was designed for traffic we don't have yet. Some will hold. Some will break in interesting ways.
+- **The creator-driven flywheel.** Stage 4a built the watermarked share URL + attribution pipeline. Stage 5a built the payout math. The question whether ten paid creators can sustainably drive 100 paid signups/quarter is unanswered until we have ten paid creators.
 
 ---
 
-*Last updated: 2026-05-20. Author: Jimmy + Claude (co-pilot). This is a working journal — edit, expand, and turn pieces of it into content as the journey continues.*
+*Last updated: 2026-05-20 (end of day). Author: Jimmy + Claude (co-pilot). This is a working journal — edit, expand, and turn pieces of it into content as the journey continues. Today added Episodes 19-23 covering Stages 3, 4a/b, 5a, 6a + the DEFERRED.md pattern.*
