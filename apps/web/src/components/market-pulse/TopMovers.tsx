@@ -86,22 +86,26 @@ export function TopMovers({ items }: { items: MoverItem[] }) {
         />
       </div>
 
-      <div className="rounded-xl border border-border bg-white divide-y divide-border/60">
-        {filtered.length === 0 ? (
-          <div className="px-3 py-6 text-center text-xs text-muted-foreground">
-            No matches.
-          </div>
-        ) : (
-          filtered.map(({ card, category, href }) => (
+      {filtered.length === 0 ? (
+        <div className="rounded-xl border border-border bg-white px-3 py-6 text-center text-xs text-muted-foreground">
+          No matches.
+        </div>
+      ) : (
+        // 2-row × N-col grid (per 2026-05-21 redo). Take the top 10 cards
+        // (5 per row × 2 rows) so the visual fits 2 rows on desktop without
+        // wrapping. Mobile: 2 cols × 5 rows keeps the same cards reachable
+        // without horizontal scroll.
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
+          {filtered.slice(0, 10).map(({ card, category, href }) => (
             <MoverRow
               key={`${category}-${card.symbol}`}
               card={card}
               category={category as MoverRowProps["category"]}
               href={href}
             />
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
     </section>
   );
 }

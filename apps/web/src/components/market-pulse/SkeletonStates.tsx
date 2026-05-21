@@ -52,23 +52,28 @@ export function MacroStripSkeleton() {
   );
 }
 
-export function MoverRowSkeleton() {
+export function MoverCardSkeleton() {
   return (
-    <div className="flex items-center gap-3 px-3 py-2.5 rounded-lg">
-      <Skeleton className="h-5 w-14" />
-      <Skeleton className="h-5 flex-1" />
-      <Skeleton className="h-5 w-16" />
-      <Skeleton className="h-5 w-12" />
+    <div className="rounded-xl border border-border bg-white p-3 space-y-2">
+      <div className="flex items-start justify-between gap-2">
+        <div className="space-y-1">
+          <Skeleton className="h-4 w-14" />
+          <Skeleton className="h-3 w-20" />
+        </div>
+        <Skeleton className="h-4 w-12" />
+      </div>
       <Skeleton className="h-5 w-20" />
+      <Skeleton className="h-2 w-full" />
     </div>
   );
 }
 
-export function TopMoversSkeleton({ rows = 8 }: { rows?: number }) {
+export function TopMoversSkeleton({ rows = 10 }: { rows?: number }) {
+  // 2 rows × ~5 cols grid (cards, not rows) per the 2026-05-21 redo.
   return (
-    <div className="space-y-1 rounded-xl border border-border bg-white p-2">
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
       {Array.from({ length: rows }).map((_, i) => (
-        <MoverRowSkeleton key={i} />
+        <MoverCardSkeleton key={i} />
       ))}
     </div>
   );
