@@ -41,6 +41,13 @@ _LEGACY_ANON_ID = "legacy-anon-0000"
 
 _log = logging.getLogger("livermore.gating")
 
+# Floating-point history math jitter — a "5-year" backtest from 2021-05-20
+# to 2026-05-21 is 1827 / 365.25 = 5.0027 years and would otherwise trip a
+# strict `> 5` check. Display rounds to "5.0 yr" so users see a modal that
+# looks wrong. One-week tolerance absorbs leap-year + one-day-over jitter;
+# 5.5y still blocks (5.5 > 5 + 0.019).
+_HISTORY_TOLERANCE_YEARS = 7 / 365.25
+
 
 def require_entitlement(
     *,
@@ -117,7 +124,7 @@ def require_entitlement(
             requested_years = _compute_history_years(
                 body[history_field], body.get("end_date"),
             )
-            if requested_years is not None and requested_years > ent.history_window_years_custom:
+            if requested_years is not None and requested_years > ent.history_window_years_custom + _HISTORY_TOLERANCE_YEARS:
                 _violation(
                     "history_too_long", ent, user,
                     current_value=f"{requested_years:.1f} yr",

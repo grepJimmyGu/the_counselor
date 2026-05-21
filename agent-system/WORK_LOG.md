@@ -9,61 +9,121 @@
 
 ## Current Session
 
-**Status:** PRD-11 COMPLETE — Phase 3 community layer in progress  
-**Active branch:** main  
-**Last stable tag:** `prd-11-complete`  
-**Tests:** 106 backend passing · frontend build clean  
-**Deployed:** Railway + Vercel — all of Phase 1, 2, and PRD-11 live
+**Status:** Stages 1, 1a, 2, 3, 4a, 4b, 5a, 6a shipped + 3-bug-chain debugged on 2026-05-21 + gate hardening landed
+**Active branch:** main (HEAD: post-merge of `fix/gate-hardening-and-saga`)
+**Last stable tag:** `prd-14-complete` (2026-05-12) — no `stage-*` tags exist; stages shipped untagged
+**Tests:** **~426 backend** (was 420; +3 history boundary, +2 runs boundary, +1 Postgres invariant) · frontend build clean
+**Deployed:** Railway + Vercel both healthy
+- `GATING_ENABLED=true` (enforcement — confirmed intentional via `railway variables` on 2026-05-21)
+- `POSTHOG_API_KEY` not set → analytics queue silently
+- `RESEND_API_KEY` not set → emails log `email_noop`
 
-**Next action:**
+**Untracked:** `WeChat/`, `build_specs/research_chat_v2.md` (intentional — pending Chat v2 design decision)
+
+**Next action:** No code work is blocked. The build infrastructure for Stages 5b + 6b is in place but **gated on traffic** — wait for the tripwire log lines to fire before activating. Pre-launch env vars still owed:
+
 ```bash
-# Phase 3 — build PRD-12, PRD-13, PRD-14 in sequence
-git checkout -b feat/prd-12-watchlists-profiles
-# Build watchlists + user profiles first (required for community signal score)
-# Then PRD-13 (votes + community signals) on same or new branch
-# Then PRD-14 (strategy sharing + comments)
+# Railway:
+#   EMAIL_UNSUB_SIGNING_KEY ($(openssl rand -hex 32))
+#   CAN_SPAM_ADDRESS
+# When PostHog/Resend keys land → no code change required (safe no-op pattern)
 ```
 
-**Production env vars still needed (sign-in won't work until set):**
-```
-Vercel:  AUTH_SECRET, GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET,
-         INTERNAL_API_KEY, INTERNAL_API_BASE_URL
-Railway: INTERNAL_API_KEY (same value as Vercel)
+**Pre-flag-flip discipline (added 2026-05-21):** Before any future `GATING_ENABLED` or similar flag flip, walk [docs/SHADOW_MODE_REVIEW.md](../docs/SHADOW_MODE_REVIEW.md). The May 21 boundary bug would have been caught by it.
+
+**Surface the catch-up backlog:**
+```bash
+railway logs --service api | grep -E "DEFERRED_TRIGGER|gate_event|email_noop"
 ```
 
 ---
 
-## PRD Execution Queue
+## Stage Execution Queue
 
-| Order | PRD | Status | Branch | Tag |
-|---|---|---|---|---|
-| 1 | PRD-06 | ✅ DONE | `feat/prd-06-fmp-integration` | `prd-06-complete` |
-| 2 | PRD-07 | ✅ DONE | `feat/prd-07-stock-screener` | `prd-07-complete` |
-| 3 | PRD-08a | ✅ DONE | `feat/prd-08a-fundamental-analysis` | `prd-08a-complete` |
-| 4 | PRD-08b | ✅ DONE | `feat/prd-08b-business-intelligence` | `prd-08b-complete` |
-| 5 | PRD-09 | ✅ DONE | `feat/prd-09-news-sentiment-backend` | `prd-09-complete` |
-| 6 | PRD-10 | ✅ DONE | `feat/prd-10-news-sentiment-frontend` | `prd-10-complete` |
-| 7 | PRD-11 | ✅ DONE | `feat/prd-11-auth` | `prd-11-complete` |
-| **8** | **PRD-12** | **In progress** | `feat/prd-12-watchlists-profiles` | `prd-12-complete` |
-| 9 | PRD-13 | Next after PRD-12 | `feat/prd-13-community-signals` | `prd-13-complete` |
-| 10 | PRD-14 | Next after PRD-13 | `feat/prd-14-community-page` | `prd-14-complete` |
-| — | PRD-05 | In discussion | — | — |
+| Stage | Status | What landed |
+|---|---|---|
+| Stage 1 | ✅ SHIPPED 2026-05-18 | Real accounts + tier entitlements + monthly meter + `Plan` |
+| Stage 1a | ✅ SHIPPED 2026-05-20 | `WeeklyUsage` + `AnonymousSession` + `SavedStrategy` + anonymous flow + `QuotaBadge` |
+| Stage 2 | ✅ SHIPPED 2026-05-19 | Stripe billing (4 tiers, 14-day trial, Checkout + Portal, webhook + idempotency, APScheduler) |
+| Stage 3 | ✅ SHIPPED 2026-05-20 | `require_entitlement` + `GATING_ENABLED` (shadow) + runs/universe/history caps + robustness whitelist + S&P 500 scope + UpgradeModal/SoftPaywall/402 interceptor |
+| Stage 4a | ✅ SHIPPED 2026-05-20 | `published_strategies` + `attribution_visits` + `/s/[slug]` + ShareButton + Scout auto-publish |
+| Stage 4b | ✅ SHIPPED 2026-05-20 | `/community` feed + Clone-to-workspace |
+| Stage 5a | ✅ SHIPPED 2026-05-20 | `stripe_invoices` + creators tables + `revshare_service` + sitemap/robots + StructuredData + 3 SEO sample pages |
+| Stage 6a | ✅ SHIPPED 2026-05-20 | PostHog + Resend safe-no-op wrappers + 10 events + EmailPreference + welcome email + `/account/email` + H1 A/B flag stub |
+| **Stage 5b** | **Deferred — traffic-gated** | 47 more SEO landing pages (editorial), comparison pages (legal), creator UI, payout/gate crons |
+| **Stage 6b** | **Deferred — traffic-gated** | 7 more email templates, ZH copy, 4 cron jobs, Resend webhook, PostHog dashboards |
 
----
+> **Note:** PRDs 11/12/13/14 below were exploratory drafts (May 11-12). All four got rewritten properly as Stages 1-4. Do not reopen the PRD branch model — Stage 1-6 is canonical.
 
-## Open To-Dos (non-PRD)
+## Legacy PRD Execution Queue (historical)
 
-| # | Item | Priority | Notes |
+| Order | PRD | Status | Notes |
 |---|---|---|---|
-| 1 | Set production auth env vars | High | AUTH_SECRET, GOOGLE_CLIENT_ID/SECRET, INTERNAL_API_KEY on Vercel + Railway |
-| 2 | Reddit API credentials | Medium | Add REDDIT_CLIENT_ID + SECRET to Railway when approved |
-| 3 | Market snapshot staleness bug | Low | `fix/market-snapshot-staleness` branch |
-| 4 | PRD-05: `not_supported` strategy handling | Low | Redirect UX — needs design decision |
-| 5 | Sentiment pre-warmer background job | Low | Top-100 S&P 500 every 3h via APScheduler |
+| 1 | PRD-06 | ✅ DONE | `prd-06-complete` — FMP integration |
+| 2 | PRD-07 | ✅ DONE | `prd-07-complete` — stock screener |
+| 3 | PRD-08a | ✅ DONE | `prd-08a-complete` — fundamental analysis |
+| 4 | PRD-08b | ✅ DONE | `prd-08b-complete` — 10-K business intelligence |
+| 5 | PRD-09 | ✅ DONE | `prd-09-complete` — news/sentiment backend |
+| 6 | PRD-10 | ✅ DONE | `prd-10-complete` — news/sentiment frontend |
+| 7 | PRD-11 | ⚠ Superseded by Stage 1 | Early-access auth — rewritten properly with billing |
+| 8 | PRD-12 | ⚠ Superseded by Stage 4a | Watchlists/profiles draft — community redone via publish primitive |
+| 9 | PRD-13 | ⚠ Superseded by Stage 4a | Votes/signals draft — replaced by attribution model |
+| 10 | PRD-14 | ⚠ Superseded by Stage 4b | Community page draft — replaced by discovery feed |
+| — | PRD-05 | In discussion | `not_supported` strategy handling — no Stage equivalent yet |
+
+---
+
+## Open To-Dos (non-Stage)
+
+| # | Item | Priority | Trigger |
+|---|---|---|---|
+| 1 | Set `EMAIL_UNSUB_SIGNING_KEY` on Railway | High | Before first real email send (currently unsafe dev default) |
+| 2 | Set `CAN_SPAM_ADDRESS` on Railway | High | Before scale-marketing (≥100 users) |
+| 3 | Move uncommitted `research-workspace.tsx` to feature branch | High | Git workflow rule — never edit on `main` |
+| 4 | Reddit API credentials | Medium | When approved → add `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET` |
+| 5 | Frontend lint debt (26 errors across 22 files) | Low | When touching one of the affected files for a real feature |
+| 6 | PRD-05: `not_supported` strategy handling | Low | Redirect UX — needs design decision |
+| 7 | Market snapshot staleness bug | Low | `fix/market-snapshot-staleness` branch |
+| 8 | Sentiment pre-warmer background job | Low | Top-100 S&P 500 every 3h via APScheduler |
+
+See [docs/DEFERRED.md](../docs/DEFERRED.md) for the ~30 trigger-gated items split across Stage 5b + Stage 6b.
 
 ---
 
 ## Session History
+
+### 2026-05-21 — The Three-Bug Chain + Gate Hardening
+
+Three bugs in series, each unmasked by the fix for the previous one. Plus
+hardening that ships the lessons as durable artifacts.
+
+**Bug 1 — Scout misrouting (PR #7, `0243e2d`).** Signed-in Scouts saw the
+"Sign up to build custom strategies" anonymous modal during NextAuth's
+loading window. Code already self-diagnosed at line 100 as "the May 20
+evening regression". Fix: use `sessionStatus === "unauthenticated"` not
+`!sessionUserId`.
+
+**Bug 2 — sync-user 500 on orphaned User (PR #8, `0128c32`).** User row
+existed without companion Plan; `sync_user` crashed on `user.plan.tier`.
+Self-healing branch silently swallowed the 500. Fix: lazy-create a Scout
+Plan when `user.plan is None`.
+
+**Bug 3 — History boundary off-by-one (today's PR).** 5-year backtest
+(1827 days / 365.25 = 5.0027 yr) tripped the strict `> 5` Scout cap;
+modal displayed "5.0 yr exceeds 5 yr" — visually identical numbers. Fix:
+`_HISTORY_TOLERANCE_YEARS = 7 / 365.25`.
+
+**Hardening shipped same PR:**
+- 5 new boundary tests (3 history, 2 runs)
+- 1 Postgres invariant test (`test_orphan_user_detection_query_works`)
+- `apps/api/scripts/check_orphan_users.py` — operational mirror
+- `apps/api/CLAUDE.md` rule #9 — orphan-Plan trap + heal recipe
+- `docs/SHADOW_MODE_REVIEW.md` — pre-enforcement checklist
+- Console.log diagnostic from PR #7 removed
+- Confirmed `GATING_ENABLED=true` on Railway is intentional
+
+Full saga in [project_log.md](../project_log.md) (2026-05-21 section) and
+[docs/BUILDING_LIVERMORE_JOURNAL.md](../docs/BUILDING_LIVERMORE_JOURNAL.md) Episode 24.
 
 ### 2026-05-15 — Market Pulse data quality + domain + mobile UX
 

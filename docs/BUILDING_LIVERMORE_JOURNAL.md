@@ -348,6 +348,148 @@ The technical pattern is **safe no-op** — both PostHog and Resend wrappers sil
 
 The infrastructure side of the GTM roadmap is complete. Everything from here is content (SEO pages, additional emails), admin tooling that's only useful with creators applying, or A/B tests that need ≥1500 Scout signups to power.
 
+### Episode 24 — The Three-Bug Chain (May 21)
+
+The day after the 28-commit Stage-3-through-6a marathon. The product was
+live. Then a real user — Jimmy — tried to sign in and run a strategy. And
+hit, in series, three bugs that each masked the next.
+
+**Bug 1 — "Why does the modal say 'sign up' when I'm signed up?"**
+
+A screenshot lands: signed-in Scout, sitting on `/workspace`, configuring
+a custom strategy. Click Run → "Sign up to build custom strategies" modal.
+The exact copy promised them 5 weekly runs in exchange for signing up.
+They already signed up.
+
+The fix turned out to be a one-line change in `research-workspace.tsx`.
+But what was instructive was that the *code itself* knew about the bug.
+At line 100, sitting in the committed `main` branch:
+
+> *"...the May 20 evening regression."*
+
+An earlier session had ship-fixed half the bug. The diagnostic comment
+was the smoking gun.
+
+**Root cause:** `isAnonymous = !sessionUserId` was true during NextAuth's
+brief `loading` state on page mount — `session.user.id` is undefined
+while the cookie decodes. Authenticated users were therefore routed to
+`/api/anonymous/backtest/run`, which 402'd with `anonymous_chat_locked`.
+The user saw the wrong modal because the frontend told the backend they
+were anonymous.
+
+**Fix in PR #7 (commit `0243e2d`):** use `sessionStatus === "unauthenticated"`
+as the source of truth. Plus an `isSessionLoading` guard so clicks during
+the loading window get a clean retry message.
+
+**Bug 2 — "OK, now I get a different error after I sign in"**
+
+Post-deploy, the user reloads and clicks Run. New error: yellow + red
+banner, both saying "Your account session needs to be refreshed."
+
+For the next ~30 minutes, the assistant kept pushing the auth angle —
+"check Vercel env vars," "verify INTERNAL_API_KEY," "look at the
+self-healing branch." The user pushed back twice: *"I have not seen any
+issue with [Vercel]. Now it's the gating route problem which I don't
+think you should keep banging the front end."*
+
+The assistant kept arguing for the auth angle because the error string in
+the screenshot was traceable, grep-able, to exactly one place — the
+frontend early-return when `needsSessionRefresh` is true. The string
+existed nowhere else. The block was provably client-side. But the user
+was right about something more important: the *cause* of `backendToken
+== null` was on the backend.
+
+Diagnostic that finally cracked it: a one-liner in the browser console:
+
+```js
+fetch('/api/auth/session').then(r => r.json()).then(s => console.log(JSON.stringify(s, null, 2)))
+```
+
+That printed `backendToken: null` clearly. From there, Vercel logs
+narrowed it: `[auth] self-heal sync-user non-ok { status: 500 }`. Then
+Railway logs gave the smoking gun:
+
+```
+File "/app/app/api/routes/auth.py", line 380, in sync_user
+    session_token=create_session_token(user.id, user.plan.tier),
+                                                ^^^^^^^^^^^^^^
+AttributeError: 'NoneType' object has no attribute 'tier'
+```
+
+A User row existed without its companion Plan row — orphaned by a
+partial-failure path during the May 19/20 migration odyssey. Every
+sync-user call had been crashing for this user for *days*, silently,
+because the catch swallowed the 500.
+
+**Fix in PR #8 (commit `0128c32`):** lazy-create a Scout Plan when
+`user.plan is None`, just before reading `.tier`. One-shot heal that
+unsticks every affected user on their next request.
+
+**Bug 3 — The boundary that rounds to nothing**
+
+Post-PR-#8 deploy. Backend token mints. Page loads cleanly. User
+configures a 5-year backtest. Modal:
+
+> *Custom backtest history exceeds your tier limit*
+> *Current: 5.0 yr · Limit: 5 yr*
+
+Visually identical numbers. The math: `1827 / 365.25 = 5.0027`. Strictly
+> 5. Display rounds to `.1f` and shows "5.0". Looks like a typo in the
+gate. Isn't. It's the float math being unforgiving on the boundary the
+user actually picks.
+
+**Fix in today's PR:** `_HISTORY_TOLERANCE_YEARS = 7 / 365.25`. One-week
+tolerance absorbs leap-year + one-day-over jitter; 5.5y still blocks.
+
+---
+
+**The bigger insight — three bugs in series.** The first hid the second:
+while Scouts were misrouted to anonymous, the orphan-User crash never
+surfaced (the auth path that hits sync-user wasn't even being walked).
+The second hid the third: while the orphan crash blocked all authed
+calls, the boundary math gate never got to fire either.
+
+Each fix unmasked the next bug *because* the layer above had been
+papering over the layer below. Stack-of-issues debugging. You don't see
+the inner layer until you fix the outer.
+
+**The hardening that shipped same day.** The user's question was good
+and direct: *"do we need a long term fix to ensure these gates don't
+cause stupid issues again?"* Three preventions landed in one PR:
+
+1. Boundary-trio tests for every Scout gate (`test_scout_history_5y_plus_1_day_passes`
+   is the literal codification of today's regression)
+2. A Postgres invariant test (`test_orphan_user_detection_query_works`)
+   plus an operational script (`apps/api/scripts/check_orphan_users.py`)
+   so the orphan pattern can be detected before users hit the heal
+3. `docs/SHADOW_MODE_REVIEW.md` — a one-page checklist documenting the
+   `gate_event` aggregation command that would have surfaced Bug 3 days
+   earlier if anyone had been reading the shadow logs
+
+Plus `apps/api/CLAUDE.md` got a 9th trap added — the orphan-Plan
+pattern, with the heal recipe — so any future agent touching auth code
+reads it before writing.
+
+**Quotable moments:**
+
+- *"Trust the user when they say 'look here, not there.'"* — the
+  assistant kept circling auth/env vars when Vercel was already verified
+  clean; the actual fix was on the backend
+- *"A partial fix is a future bug."* — the May 20 routing fix shipped
+  half-done; the code comment "the May 20 evening regression" was
+  literally the system pointing at its own broken bit
+- *"Shadow mode is only as good as someone reading the shadow logs."* —
+  `GATING_ENABLED=true` got flipped without the soak step; today's
+  modal would have been a `gate_event` line in shadow that someone
+  could have noticed
+- *"Floating-point year math is a tax you pay forever."* — fix is one
+  tolerance constant; you just have to be looking for it
+- *"Each fix unmasked the next bug, because the layer above had been
+  papering over the layer below."*
+
+**Content hook:** *The day I shipped three bug fixes and discovered each
+one was hiding the next.*
+
 ---
 
 ## Recurring journeys (themes)

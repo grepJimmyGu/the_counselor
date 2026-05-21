@@ -132,6 +132,35 @@ def delete_thing(...) -> Response:
 NULL without defaults. Use `source='commodity_spot'` (or the appropriate
 ingestion source) and `fetched_at=datetime.utcnow()`.
 
+### 9. A User row without a Plan row crashes sync-user
+
+`sync_user` ends with `create_session_token(user.id, user.plan.tier)`. If
+the User row exists but `user.plan` is `None`, that's an `AttributeError`
+and the route 500s — the May 21 incident.
+
+`_create_user_with_plan` does both inserts in one `db.commit()` so the
+ORM path is atomic. The orphan state only appears for users created
+during partial-failure paths (e.g. the May 19/20 migration odyssey).
+
+**Pattern:** before reading `user.plan.tier` anywhere, branch on the
+absence:
+
+```python
+if user.plan is None:
+    db.add(Plan(user_id=user.id, tier="scout", status="active"))
+    db.commit()
+    db.refresh(user)
+    logging.getLogger("livermore.auth").warning(
+        "healed orphaned user without plan: user_id=%s email=%s",
+        user.id, user.email,
+    )
+```
+
+`tests/test_postgres_migrations.py::test_orphan_user_detection_query_works`
+guards the detection query. `apps/api/scripts/check_orphan_users.py` is
+the operational mirror — run before any auth-related change to confirm
+the production DB has no orphans.
+
 ---
 
 ## Cross-dialect quick reference

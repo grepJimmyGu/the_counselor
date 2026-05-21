@@ -192,3 +192,77 @@ def test_history_20yr_for_quant_succeeds(make_user, db: Session, enable_gating):
         end_date=date.today(),
     )
     _enforce_custom_caps(strategy, ent, user_id=user.id)  # no raise
+
+
+# ── Boundary trio for history_too_long ────────────────────────────────────────
+# Codifies the May 21 regression: 5-year backtest from 2021-05-20 to 2026-05-21
+# is 1827 days = 5.0027 years; strict `> 5` tripped a gate that the displayed
+# "5.0 yr" said it shouldn't. Tolerance lives in deps_entitlement.py.
+
+
+def test_scout_history_exactly_5_years_passes(make_user, db: Session, enable_gating):
+    """5 calendar years (1825-1827 days) must NOT block Scout — matches what
+    the user picks when they choose '5 years' from a date picker."""
+    user = make_user(email="scout-hist-exact-5y@test.com", tier="scout")
+    ent = _ent_for(user, db)
+    end = date.today()
+    strategy = _make_strategy(start_date=end.replace(year=end.year - 5), end_date=end)
+    _enforce_custom_caps(strategy, ent, user_id=user.id)  # no raise
+
+
+def test_scout_history_5y_plus_1_day_passes(make_user, db: Session, enable_gating):
+    """The literal May 21 regression case: 1827 days = 5.0027 yr. Tolerance
+    absorbs this; bug pre-fix would have raised history_too_long."""
+    user = make_user(email="scout-hist-5y1d@test.com", tier="scout")
+    ent = _ent_for(user, db)
+    strategy = _make_strategy(
+        start_date=date.today() - timedelta(days=1827),
+        end_date=date.today(),
+    )
+    _enforce_custom_caps(strategy, ent, user_id=user.id)  # no raise
+
+
+def test_scout_history_5y_plus_2_weeks_still_blocks(make_user, db: Session, enable_gating):
+    """The tolerance is small — 14 days past the cap still blocks. Catches
+    a future regression where someone widens the tolerance too far."""
+    user = make_user(email="scout-hist-5y2w@test.com", tier="scout")
+    ent = _ent_for(user, db)
+    # 5 years + 14 days = ~5.038 yr, comfortably past the 7-day tolerance
+    strategy = _make_strategy(
+        start_date=date.today() - timedelta(days=int(365.25 * 5) + 14),
+        end_date=date.today(),
+    )
+    with pytest.raises(HTTPException) as exc:
+        _enforce_custom_caps(strategy, ent, user_id=user.id)
+    assert exc.value.detail["entitlement"]["code"] == "history_too_long"
+
+
+# ── Boundary trio for runs_exhausted ──────────────────────────────────────────
+
+
+def test_scout_4_of_5_runs_used_passes(make_user, db: Session, enable_gating):
+    """Just-under the cap: 4 used → 1 remaining → 5th custom run passes."""
+    user = make_user(email="scout-runs-4@test.com", tier="scout")
+    for _ in range(4):
+        increment_custom_backtest(db, user.id)
+
+    dep = require_entitlement(needs_run_quota=True, template_id_field="template_id")
+    req = mock_request(body={"strategy_json": {}})
+    out_user, ent = asyncio.run(dep(request=req, user=user, db=db))
+    assert ent.custom_backtest_runs_remaining == 1
+
+
+def test_scout_5_of_5_runs_used_blocks(make_user, db: Session, enable_gating):
+    """At the cap: 5 used → 0 remaining → 6th must 402. Distinct from the
+    existing `test_scout_6th_custom_run_raises_402` which validates the
+    same boundary but reads more like 'the 6th run' than 'at the cap'."""
+    user = make_user(email="scout-runs-5@test.com", tier="scout")
+    for _ in range(5):
+        increment_custom_backtest(db, user.id)
+
+    dep = require_entitlement(needs_run_quota=True, template_id_field="template_id")
+    req = mock_request(body={"strategy_json": {}})
+    with pytest.raises(HTTPException) as exc:
+        asyncio.run(dep(request=req, user=user, db=db))
+    assert exc.value.detail["entitlement"]["code"] == "runs_exhausted"
+    assert exc.value.detail["entitlement"]["current_value"] == "5/5"

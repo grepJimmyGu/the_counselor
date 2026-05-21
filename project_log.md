@@ -8,6 +8,105 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-05-21 — The Three-Bug Chain + Gate Hardening
+
+A debugging session that started "Scout users are stuck on the upgrade modal"
+and ended three bug fixes deep, with a gate-hardening PR to keep the bug class
+from recurring.
+
+### Bug 1 — Scout misrouting to /api/anonymous/backtest/run (PR #7)
+
+**Symptom:** Signed-in Scout users see the "Sign up to build custom strategies"
+modal when clicking Run in `/workspace`. The modal copy promises that signup
+unlocks 5 weekly runs — but they were already signed up.
+
+**Root cause:** During NextAuth's brief `loading` state on page mount,
+`session.user.id` is undefined. The old check
+`isAnonymous = !sessionUserId` therefore returned `true` for signed-in
+users in that window, routing them to `/api/anonymous/backtest/run`.
+That endpoint 402s with `anonymous_chat_locked` when `template_id ===
+"custom"`, surfacing the wrong modal to signed-in users.
+
+The code already self-diagnosed the bug at
+[research-workspace.tsx:100](apps/web/src/components/workspace/research-workspace.tsx#L100)
+as "the May 20 evening regression" — an earlier partial fix existed but
+was incomplete.
+
+**Fix:** Use `sessionStatus === "unauthenticated"` (NextAuth's
+authoritative signal) as the source of truth. Add `isSessionLoading`
+guard to handleRunBacktestWith so clicks during the loading window
+get a clean retry message instead of misrouted 402s. Add
+`needsSessionRefresh` for stale JWTs minted pre-9789974.
+
+**Commit:** `0243e2d` (squash of branch `fix/scout-misrouting-anonymous-endpoint`)
+
+### Bug 2 — sync-user 500 on orphaned User-without-Plan (PR #8)
+
+**Symptom:** Post-PR-#7 deploy. Signed-in Scout sees "Your account session
+is out of date" banner + falls back to anonymous quota display ("1 free
+run left — sign up to save"). Browser console: `backendToken: null` in
+the NextAuth session.
+
+**Root cause:** `POST /api/auth/sync-user` crashes at
+[auth.py:380](apps/api/app/api/routes/auth.py#L380) with
+`AttributeError: 'NoneType' object has no attribute 'tier'`. The User row
+existed but `user.plan` was `None` — orphaned by a partial-failure path
+during the May 19/20 migration odyssey. Every subsequent sync-user call
+(initial Google signin + self-healing branch at
+[auth.ts:61](apps/web/src/auth.ts#L61) on every request) hit the same
+crash; the catch silently swallowed it; user's JWT was stuck with
+`backendToken=null` indefinitely.
+
+**Fix:** Lazy-create a Scout `Plan` row when `user.plan is None` just
+before reading `user.plan.tier`. Logs a WARN so we can measure how often
+the heal fires.
+
+**Commit:** `0128c32` (squash of branch `fix/sync-user-heal-orphaned-plan`)
+
+### Bug 3 — History boundary off-by-one (today's PR)
+
+**Symptom:** Post-PR-#8 deploy. Scout configures a normal 5-year custom
+backtest (`2021-05-20 → 2026-05-21`); modal fires: *"Custom backtest
+history exceeds your tier limit. Current: 5.0 yr · Limit: 5 yr"*.
+
+**Root cause:** `(end - start).days / 365.25 = 1827 / 365.25 = 5.0027`,
+which strictly exceeds the 5-year Scout cap. Display rounds to "5.0 yr"
+so the modal looks visually wrong — same numbers either side of the
+divider. Math is correct; UX is misleading. Surfaces because
+`GATING_ENABLED=true` on Railway (intentional per env-var review today).
+
+**Fix:** One-week tolerance constant
+`_HISTORY_TOLERANCE_YEARS = 7 / 365.25` in
+[deps_entitlement.py](apps/api/app/api/deps_entitlement.py) +
+[backtest.py](apps/api/app/api/routes/backtest.py); applied to both
+history checks. 5-year backtests pass; 5.5-year still blocks.
+
+### Gate hardening
+
+Plus three preventions targeting the *bug class*, not just the bugs:
+
+| Prevention | What it catches |
+|---|---|
+| Boundary-trio tests for history_too_long (`apps/api/tests/test_gating_backtest.py`) | Future regressions when caps move; the 5.0027 case is now codified |
+| Boundary-trio tests for runs_exhausted | Off-by-one bugs in the quota counter |
+| Postgres invariant test `test_orphan_user_detection_query_works` | Codifies the SQL that finds orphan Users; if the heal in sync-user is ever removed, this stays as the canary |
+| Standalone script `apps/api/scripts/check_orphan_users.py` | Operational mirror — run against any environment to confirm clean state |
+| `apps/api/CLAUDE.md` rule #9 | Auto-loaded for any agent touching auth — documents the orphan pattern + heal recipe |
+| `docs/SHADOW_MODE_REVIEW.md` | Pre-enforcement checklist; the `gate_event` log aggregation command would have surfaced Bug 3 days earlier |
+| Console.log diagnostic removed from `research-workspace.tsx` | PR #7 cleanup — served its purpose |
+
+### Architectural decisions
+
+- **Tolerance lives in `deps_entitlement.py` as `_HISTORY_TOLERANCE_YEARS`**, imported by `backtest.py` so the two history checks stay in lockstep.
+- **Heal logic stays in `sync_user`**, not in `_create_user_with_plan`. The atomic-create path already commits both rows in one transaction; the only way to get an orphan is legacy data, which the lazy-heal addresses.
+- **`GATING_ENABLED=true` is the intended production state**; today's review (`railway variables --service the_counselor | grep GATING_ENABLED` → `true`) confirmed it. The shadow-mode soak we should have done was skipped — `SHADOW_MODE_REVIEW.md` is now the gate for future flag flips.
+
+### Backend tests grew
+
+`420 → 425+` (3 history boundary, 2 runs boundary, 1 Postgres invariant).
+
+---
+
 ## 2026-05-20 — Stages 3, 4a/b, 5a, 6a in one day
 
 The biggest shipping day in the project. 28+ commits, 411 backend tests

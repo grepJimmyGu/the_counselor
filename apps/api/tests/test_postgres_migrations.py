@@ -235,6 +235,46 @@ def test_stage_1a_tables_accept_non_uuid_user_id():
     engine.dispose()
 
 
+def test_orphan_user_detection_query_works():
+    """Codifies the production query that identifies User rows missing their
+    companion Plan row. Such orphans crash sync-user on `user.plan.tier`
+    (May 21 incident, fixed by PR #8). This test creates a deliberate orphan,
+    runs the detection query, and asserts the orphan is found.
+
+    Run the same query operationally:
+        python apps/api/scripts/check_orphan_users.py
+    """
+    from sqlalchemy.orm import sessionmaker
+
+    from app.models.user import User
+
+    engine = _fresh_engine()
+    Base.metadata.create_all(bind=engine)
+    run_startup_migrations(engine)
+    SessionLocal = sessionmaker(bind=engine, future=True)
+    db = SessionLocal()
+    try:
+        # Insert a User WITHOUT a companion Plan — simulates the orphan
+        # state observed in production for users created during the
+        # May 19/20 migration odyssey.
+        db.add(User(id="orphan-test-1", email="orphan@test.com"))
+        db.commit()
+
+        rows = db.execute(text(
+            "SELECT u.id FROM users u "
+            "LEFT JOIN plans p ON p.user_id = u.id "
+            "WHERE p.user_id IS NULL"
+        )).fetchall()
+
+        assert [r[0] for r in rows] == ["orphan-test-1"], (
+            "Detection query failed to identify the deliberate orphan. "
+            "If you change the query, also update apps/api/scripts/check_orphan_users.py."
+        )
+    finally:
+        db.close()
+        engine.dispose()
+
+
 # NOTE: removed `test_migration_handles_legacy_users_id_uuid`. The premise
 # (production users.id is UUID) is not the actual production state — Stage 1
 # deployed with users.id as VARCHAR(36) and has been working since. The
