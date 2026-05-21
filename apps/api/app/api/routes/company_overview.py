@@ -3,12 +3,21 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
+from app.api.deps_entitlement import require_entitlement
 from app.db.session import get_db
 from app.schemas.company_overview import CompanyOverviewResponse, TrendSection
 from app.services.company_overview_service import CompanyOverviewService
 from app.services.company_trend_service import CompanyTrendService
 
 router = APIRouter(prefix="/api/company", tags=["company-overview"])
+
+# Stage 3: Market Pulse routes are gated to S&P 500 for Scout + anonymous viewers.
+# allow_anonymous=True so unauthenticated browsing of /stocks/AAPL still works;
+# only non-S&P-500 tickers (e.g. /stocks/SMCI) trip the gate.
+_market_pulse_gate = require_entitlement(
+    market_pulse_ticker_field="symbol",
+    allow_anonymous=True,
+)
 _service = CompanyOverviewService()
 _trend_svc = CompanyTrendService()
 
@@ -16,9 +25,13 @@ _trend_svc = CompanyTrendService()
 @router.get("/{symbol}/overview", response_model=CompanyOverviewResponse)
 async def get_company_overview(
     symbol: str,
+    _gate=Depends(_market_pulse_gate),
     db: Session = Depends(get_db),
 ) -> CompanyOverviewResponse:
-    """Full company overview including health, valuation, business map, market position."""
+    """Full company overview including health, valuation, business map, market position.
+
+    Gated: Scout + anonymous → S&P 500 only. Strategist+ → all US tickers.
+    """
     try:
         return await _service.get_overview(db, symbol.upper())
     except Exception as exc:
@@ -28,6 +41,7 @@ async def get_company_overview(
 @router.get("/{symbol}/trend", response_model=TrendSection)
 def get_company_trend(
     symbol: str,
+    _gate=Depends(_market_pulse_gate),
     db: Session = Depends(get_db),
 ) -> TrendSection:
     """
@@ -37,6 +51,8 @@ def get_company_trend(
 
     Synchronous — no external API call. Reads directly from DB.
     Requires price history to be loaded via /api/data/warmup first.
+
+    Gated: Scout + anonymous → S&P 500 only.
     """
     sym = symbol.upper()
     try:

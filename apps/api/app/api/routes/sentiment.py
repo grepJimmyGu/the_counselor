@@ -3,6 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
+from app.api.deps_entitlement import require_entitlement
 from app.db.session import get_db
 from app.schemas.sentiment import (
     CommunityMention,
@@ -23,6 +24,12 @@ _service = SentimentService()
 _toolkit_service = SentimentToolkitService()
 _sandbox = SentimentSandboxReviewer()
 
+# Stage 3: per-ticker sentiment routes gated to S&P 500 for Scout + anonymous.
+_market_pulse_gate = require_entitlement(
+    market_pulse_ticker_field="symbol",
+    allow_anonymous=True,
+)
+
 
 @router.get("/providers/status", response_model=ProvidersStatusResponse)
 def get_providers_status() -> ProvidersStatusResponse:
@@ -38,8 +45,10 @@ def get_toolkits() -> list[dict]:
 async def get_sentiment_summary(
     symbol: str,
     refresh: bool = Query(default=False, description="Force-refresh ignoring cache"),
+    _gate=Depends(_market_pulse_gate),
     db: Session = Depends(get_db),
 ) -> SentimentSummaryResponse:
+    """Gated: Scout + anonymous → S&P 500 only."""
     try:
         return await _service.get_summary(symbol.upper(), db, refresh=refresh)
     except Exception as exc:
@@ -49,8 +58,10 @@ async def get_sentiment_summary(
 @router.get("/{symbol}/news", response_model=list[NewsArticle])
 async def get_raw_news(
     symbol: str,
+    _gate=Depends(_market_pulse_gate),
     db: Session = Depends(get_db),
 ) -> list[NewsArticle]:
+    """Gated: Scout + anonymous → S&P 500 only."""
     try:
         return await _service.get_raw_articles(symbol.upper(), db)
     except Exception as exc:
@@ -60,8 +71,10 @@ async def get_raw_news(
 @router.get("/{symbol}/community", response_model=list[CommunityMention])
 async def get_raw_community(
     symbol: str,
+    _gate=Depends(_market_pulse_gate),
     db: Session = Depends(get_db),
 ) -> list[CommunityMention]:
+    """Gated: Scout + anonymous → S&P 500 only."""
     try:
         return await _service.get_raw_mentions(symbol.upper(), db)
     except Exception as exc:

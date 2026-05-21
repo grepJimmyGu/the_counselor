@@ -25,7 +25,7 @@ from typing import Optional
 from fastapi import Depends, Request
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user
+from app.api.deps import get_current_user, get_current_user_or_anonymous
 from app.api.entitlement_errors import CodeT, upgrade_error
 from app.core.config import get_settings
 from app.data.sp500_tickers import is_sp500
@@ -36,6 +36,8 @@ from app.services.entitlements import (
     get_entitlements,
     get_or_create_current_weekly_usage,
 )
+
+_LEGACY_ANON_ID = "legacy-anon-0000"
 
 _log = logging.getLogger("livermore.gating")
 
@@ -48,6 +50,7 @@ def require_entitlement(
     template_id_field: Optional[str] = "template_id",
     robustness_tests_field: Optional[str] = None,
     market_pulse_ticker_field: Optional[str] = None,
+    allow_anonymous: bool = False,
 ):
     """Return a FastAPI dependency that validates the request against the
     current user's entitlements.
@@ -65,14 +68,21 @@ def require_entitlement(
         robustness_tests_field: name of the top-level body field holding a
             list of robustness test names. Each must be in ent.robustness_tests.
         market_pulse_ticker_field: name of the URL path parameter holding a
-            stock ticker. Scout tier requires it to be in the S&P 500 set.
+            stock ticker. Scout tier (and anonymous, if allow_anonymous=True)
+            requires it to be in the S&P 500 set.
+        allow_anonymous: if True, uses get_current_user_or_anonymous so the
+            route accepts unauthenticated requests. The legacy-anon synthetic
+            user is treated as Scout-tier for entitlements purposes. When the
+            gate fires for an anonymous user, the 402 envelope sets
+            is_anonymous=True and cta_action="signup".
 
     Returns the (user, entitlements) tuple.
     """
+    user_dep = get_current_user_or_anonymous if allow_anonymous else get_current_user
 
     async def _dep(
         request: Request,
-        user: User = Depends(get_current_user),
+        user: User = Depends(user_dep),
         db: Session = Depends(get_db),
     ) -> tuple[User, Entitlements]:
         weekly = get_or_create_current_weekly_usage(db, user.id)
@@ -198,14 +208,17 @@ def _violation(
                    current=5/5 limit=5 shadow=true
     """
     settings = get_settings()
+    is_anonymous = user.id == _LEGACY_ANON_ID
     if settings.gating_enabled:
         raise upgrade_error(
             code,
             current_tier=ent.tier,
             current_value=current_value,
             limit_value=limit_value,
+            is_anonymous=is_anonymous,
         )
     _log.info(
-        "gate_event code=%s tier=%s user_id=%s path=%s current=%s limit=%s shadow=true",
+        "gate_event code=%s tier=%s user_id=%s path=%s current=%s limit=%s shadow=true%s",
         code, ent.tier, user.id, path, current_value, limit_value,
+        " anonymous=true" if is_anonymous else "",
     )
