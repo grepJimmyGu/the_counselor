@@ -68,6 +68,10 @@ class BacktestMetrics(BaseModel):
 
 class BacktestRunRequest(BaseModel):
     strategy_json: StrategyJSON
+    # Stage 3: set to the template_id (a string) when running a pre-built template.
+    # Custom/chat-built strategies leave this null. The gating dep skips universe
+    # + history caps when template_id is present (templates are unlimited).
+    template_id: Optional[str] = None
 
 
 class BacktestResult(BaseModel):
