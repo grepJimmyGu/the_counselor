@@ -111,23 +111,6 @@ export function ResearchWorkspace() {
   // to get a fresh JWT with a populated backendToken.
   const needsSessionRefresh = sessionStatus === "authenticated" && !backendToken;
 
-  // ── Diagnostic — temporary ───────────────────────────────────────────
-  // Logs the routing decision to the browser console so we can verify
-  // the fix end-to-end against a real production session without having
-  // to add server logging. Remove once we've confirmed the regression is
-  // gone for both anonymous and signed-in users.
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    // eslint-disable-next-line no-console
-    console.log("[workspace] routing state", {
-      sessionStatus,
-      sessionUserId,
-      hasBackendToken: !!backendToken,
-      isAnonymous,
-      needsSessionRefresh,
-      isSessionLoading,
-    });
-  }, [sessionStatus, sessionUserId, backendToken, isAnonymous, needsSessionRefresh, isSessionLoading]);
   // Stage 3: read the viewer's tier-aware caps so we can hide UI for locked
   // features (peer_ticker is Quant-only) and keep the experience consistent
   // with what the backend will allow.

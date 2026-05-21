@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.api.deps_entitlement import require_entitlement
+from app.api.deps_entitlement import _HISTORY_TOLERANCE_YEARS, require_entitlement
 from app.api.entitlement_errors import upgrade_error
 from app.core.config import get_settings
 from app.db.session import get_db
@@ -196,7 +196,7 @@ def _enforce_custom_caps(strategy, ent: Entitlements, *, user_id: str) -> None:
         )
 
     history_years = (strategy.end_date - strategy.start_date).days / 365.25
-    if history_years > ent.history_window_years_custom:
+    if history_years > ent.history_window_years_custom + _HISTORY_TOLERANCE_YEARS:
         if settings.gating_enabled:
             raise upgrade_error(
                 "history_too_long",
