@@ -2,6 +2,7 @@ from app.models.anonymous_session import AnonymousSession  # noqa: F401
 from app.models.attribution_visit import AttributionVisit  # noqa: F401
 from app.models.backtest import BacktestRecord
 from app.models.creator import Creator, CreatorApplication, CreatorPayout  # noqa: F401
+from app.models.email_preference import EmailPreference  # noqa: F401
 from app.models.data_fetch_log import DataFetchLog
 from app.models.price_bar import PriceBar
 from app.models.published_strategy import PublishedStrategy  # noqa: F401
@@ -21,6 +22,7 @@ __all__ = [
     "CreatorApplication",
     "CreatorPayout",
     "DataFetchLog",
+    "EmailPreference",
     "MonthlyUsage",
     "Plan",
     "PriceBar",

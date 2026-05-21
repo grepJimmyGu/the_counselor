@@ -122,6 +122,25 @@ def _track_signup_completed(user: User, provider: str) -> None:
         pass
 
 
+def _try_send_welcome_email(db: Session, user: User) -> None:
+    """Stage 6a: fire-and-forget welcome email. Safe no-op when Resend
+    isn't configured. Failure must never block signup."""
+    try:
+        from app.emails.welcome import render_welcome
+        from app.services.email_service import send_email
+        rendered = render_welcome(user)
+        send_email(
+            db, user,
+            template="welcome",
+            subject=rendered["subject"],
+            html=rendered["html"],
+            text=rendered["text"],
+            category="marketing",  # welcome is borderline; respects unsub
+        )
+    except Exception:
+        pass
+
+
 # ── Password signup / login ───────────────────────────────────────────────────
 
 @router.post("/password/signup", status_code=201)
@@ -145,8 +164,9 @@ def password_signup(
     _try_merge_anonymous_session(db, user.id, request.cookies.get(ANON_COOKIE_NAME))
     # Stage 4a: convert any /s/<slug>?via=<handle> attribution.
     _try_convert_attribution(db, request, user)
-    # Stage 6a: signup_completed event.
+    # Stage 6a: signup_completed event + welcome email.
     _track_signup_completed(user, provider="password")
+    _try_send_welcome_email(db, user)
     return _make_token_response(user)
 
 
@@ -231,8 +251,9 @@ def google_oauth_callback(
         _try_merge_anonymous_session(db, user.id, request.cookies.get(ANON_COOKIE_NAME))
         # Stage 4a: convert any /s/<slug>?via=<handle> attribution.
         _try_convert_attribution(db, request, user)
-        # Stage 6a: signup_completed event.
+        # Stage 6a: signup_completed event + welcome email.
         _track_signup_completed(user, provider="google")
+        _try_send_welcome_email(db, user)
 
     token = create_session_token(user.id, user.plan.tier)
     pub = UserPublic(

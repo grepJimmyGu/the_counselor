@@ -1451,6 +1451,32 @@ def run_startup_migrations(engine: Engine) -> None:
         except Exception:
             pass
 
+        # ── Stage 6a: email preferences ───────────────────────────────────────
+        if is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS email_preferences (
+                    user_id VARCHAR(36) PRIMARY KEY,
+                    transactional BOOLEAN NOT NULL DEFAULT 1,
+                    weekly_digest BOOLEAN NOT NULL DEFAULT 1,
+                    upsell_nudges BOOLEAN NOT NULL DEFAULT 1,
+                    creator_program BOOLEAN NOT NULL DEFAULT 1,
+                    unsubscribed_at TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS email_preferences (
+                    user_id VARCHAR(36) PRIMARY KEY,
+                    transactional BOOLEAN NOT NULL DEFAULT TRUE,
+                    weekly_digest BOOLEAN NOT NULL DEFAULT TRUE,
+                    upsell_nudges BOOLEAN NOT NULL DEFAULT TRUE,
+                    creator_program BOOLEAN NOT NULL DEFAULT TRUE,
+                    unsubscribed_at TIMESTAMPTZ,
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+            """))
+
     # ── Post-create cleanup (isolated; runs AFTER all CREATE TABLE statements) ──
     # Purge bad revenue_segments rows from PRD-08d parser bug. Isolated so a
     # missing table on fresh DB can't poison the shared transaction above.
