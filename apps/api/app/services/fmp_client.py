@@ -128,6 +128,22 @@ class FMPClient:
             pass
         return None
 
+    async def get_quotes_batch(self, symbols: list[str]) -> list[dict]:
+        """Batch live quotes — FMP accepts comma-separated symbols and returns
+        one response per ticker. Used by the live-quote cache service so a page
+        with N tickers costs 1 FMP call instead of N.
+
+        Returns an empty list on any failure (callers fall back to cache).
+        """
+        if not symbols:
+            return []
+        joined = ",".join(s.upper() for s in symbols)
+        try:
+            data = await self._get("/quote", {"symbol": joined})
+            return data if isinstance(data, list) else []
+        except Exception:
+            return []
+
     async def get_revenue_segments(self, symbol: str, limit: int = 5) -> list[dict]:
         """Annual product/business revenue segmentation (last N years)."""
         try:
