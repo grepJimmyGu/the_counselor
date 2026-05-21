@@ -13,15 +13,22 @@ import type { SectorCard } from "@/lib/contracts";
 import { fmtPct, interpretCmf } from "@/lib/market-pulse-format";
 
 /**
- * Section 3 — Sector heatmap view.
+ * Section 3 — Sector heatmap view (2 rows × 6+5 tiles on desktop).
  *
- * 11 sector tiles, each color-interpolated by `perf_1d` on a diverging
- * emerald↔red scale clamped at ±1.5%. Click → /stocks/{symbol}. Hover
- * (desktop) → tooltip with CMF + RS vs SPY + volume_ratio (the
- * previously-orphaned backend field finally surfaces here).
+ * Revised 2026-05-21 per Jimmy's feedback ("sector rotation heatmap can
+ * be in 2 rows with each grid having metrics number shown"). Each tile
+ * is bigger now (~140×100px on desktop) and shows 5 metrics directly:
+ *   1. Sector name (top, semibold) + symbol below in mono
+ *   2. perf_1d (large, color-coded against tile background)
+ *   3. perf_5d (smaller, secondary)
+ *   4. CMF mini-bar (bottom, full-width)
+ *   5. volume_ratio chip (only when elevated, e.g. >1.15×)
  *
- * Tile aria-label embeds the plain-English read so screen readers
- * don't depend on color alone.
+ * Tile background color-interpolated by perf_1d (diverging emerald↔red,
+ * clamped at ±1.5%). Click → /stocks/{symbol}. Hover (desktop) →
+ * tooltip with the same 5 metrics + interpretation chip; tooltip is
+ * now mostly redundant with the visible numbers but kept for the
+ * `interpretCmf` label and screen-reader users.
  */
 
 const CLAMP = 0.015; // ±1.5% — matches the "tuning knob" decision in the plan.
@@ -32,7 +39,9 @@ export function SectorHeatmap({ sectors }: { sectors: SectorCard[] }) {
   return (
     <TooltipProvider delayDuration={200}>
       <div
-        className="grid grid-cols-4 sm:grid-cols-6 lg:grid-cols-11 gap-1.5"
+        // Mobile: 2 cols → ~6 rows; tablet: 3 cols; desktop: 6 cols (so 11
+        // tiles split 6 + 5 across two rows).
+        className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-2"
         role="list"
         aria-label="Sector performance heatmap"
       >
@@ -46,13 +55,21 @@ export function SectorHeatmap({ sectors }: { sectors: SectorCard[] }) {
 
 function SectorTile({ sector }: { sector: SectorCard }) {
   const perf = sector.perf_1d;
-  const { backgroundColor, textColor } = tileColors(perf);
+  const { backgroundColor, textColor, mutedTextColor } = tileColors(perf);
   const cmfRead = interpretCmf(sector.cmf_20);
   const ariaLabel = [
     sector.name,
     perf != null ? `${fmtPct(perf)} today` : "no data",
+    sector.perf_5d != null ? `5-day ${fmtPct(sector.perf_5d)}` : "",
     cmfRead.label.toLowerCase(),
-  ].join(", ");
+    sector.volume_ratio != null && sector.volume_ratio > 1.15
+      ? `volume ${sector.volume_ratio.toFixed(1)}x elevated`
+      : "",
+  ]
+    .filter(Boolean)
+    .join(", ");
+
+  const showVolChip = sector.volume_ratio != null && sector.volume_ratio > 1.15;
 
   return (
     <Tooltip>
@@ -61,17 +78,57 @@ function SectorTile({ sector }: { sector: SectorCard }) {
           href={`/stocks/${sector.symbol}` as Route}
           role="listitem"
           aria-label={ariaLabel}
-          className="block rounded-md p-2 transition-transform hover:scale-[1.03] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+          className="block min-h-[104px] rounded-lg p-3 transition-transform hover:scale-[1.02] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
           style={{ backgroundColor, color: textColor }}
         >
-          <div className="text-[10px] font-semibold leading-tight truncate">
-            {shortSectorName(sector.name)}
+          {/* Row 1 — name + symbol */}
+          <div className="flex items-baseline justify-between gap-1 min-w-0">
+            <div
+              className="text-[11px] font-semibold leading-tight truncate"
+              title={sector.name}
+            >
+              {shortSectorName(sector.name)}
+            </div>
+            <div
+              className="font-mono text-[10px] shrink-0"
+              style={{ color: mutedTextColor }}
+            >
+              {sector.symbol}
+            </div>
           </div>
-          <div className="mt-1 font-mono text-base font-bold tabular-nums">
-            {perf != null ? fmtPct(perf, 1) : "—"}
+
+          {/* Row 2 — perf_1d big, perf_5d smaller */}
+          <div className="mt-1 flex items-baseline gap-2">
+            <div className="font-mono text-lg font-bold tabular-nums leading-none">
+              {perf != null ? fmtPct(perf, 1) : "—"}
+            </div>
+            {sector.perf_5d != null && (
+              <div
+                className="font-mono text-[10px] tabular-nums"
+                style={{ color: mutedTextColor }}
+              >
+                5D {fmtPct(sector.perf_5d, 1)}
+              </div>
+            )}
           </div>
-          <div className="mt-1 h-1 rounded-full overflow-hidden bg-black/15">
-            <CmfMiniBar value={sector.cmf_20} />
+
+          {/* Row 3 — CMF mini-bar + optional volume chip */}
+          <div className="mt-2 flex items-center gap-1.5">
+            <div className="flex-1 h-1.5 rounded-full overflow-hidden bg-black/15">
+              <CmfMiniBar value={sector.cmf_20} />
+            </div>
+            {showVolChip && (
+              <span
+                className="rounded-full px-1.5 py-0.5 font-mono text-[9px] font-medium"
+                style={{
+                  backgroundColor: "rgba(0,0,0,0.18)",
+                  color: textColor,
+                }}
+                title={`Volume ratio ${sector.volume_ratio!.toFixed(2)}×`}
+              >
+                {sector.volume_ratio!.toFixed(1)}×
+              </span>
+            )}
           </div>
         </Link>
       </TooltipTrigger>
@@ -104,21 +161,35 @@ function SectorTile({ sector }: { sector: SectorCard }) {
 function tileColors(perf: number | null | undefined): {
   backgroundColor: string;
   textColor: string;
+  mutedTextColor: string;
 } {
-  if (perf == null) return { backgroundColor: "#f3f4f6", textColor: "#6b7280" };
+  if (perf == null)
+    return {
+      backgroundColor: "#f3f4f6",
+      textColor: "#6b7280",
+      mutedTextColor: "#9ca3af",
+    };
   const clamped = Math.max(-CLAMP, Math.min(CLAMP, perf));
   const intensity = Math.abs(clamped) / CLAMP; // 0..1
 
   if (perf >= 0) {
-    // Light emerald (0.05) → dark emerald (1.0)
+    // Light emerald (0.0) → dark emerald (1.0)
     const rgb = lerpRgb([209, 250, 229], [5, 150, 105], intensity);
-    const textColor = intensity > 0.55 ? "#ffffff" : "#064e3b";
-    return { backgroundColor: `rgb(${rgb.join(",")})`, textColor };
+    const onDark = intensity > 0.55;
+    return {
+      backgroundColor: `rgb(${rgb.join(",")})`,
+      textColor: onDark ? "#ffffff" : "#064e3b",
+      mutedTextColor: onDark ? "rgba(255,255,255,0.75)" : "#065f46",
+    };
   }
   // Light red → dark red
   const rgb = lerpRgb([254, 226, 226], [220, 38, 38], intensity);
-  const textColor = intensity > 0.55 ? "#ffffff" : "#7f1d1d";
-  return { backgroundColor: `rgb(${rgb.join(",")})`, textColor };
+  const onDark = intensity > 0.55;
+  return {
+    backgroundColor: `rgb(${rgb.join(",")})`,
+    textColor: onDark ? "#ffffff" : "#7f1d1d",
+    mutedTextColor: onDark ? "rgba(255,255,255,0.75)" : "#991b1b",
+  };
 }
 
 function lerpRgb(
