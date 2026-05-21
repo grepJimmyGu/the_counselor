@@ -31,6 +31,7 @@ from app.api.routes.community_publish import (
     attribution_router,
     router as community_publish_router,
 )
+from app.api.routes.email import prefs_router as email_prefs_router, unsub_router as email_unsub_router
 from app.api.routes.saved_strategies import router as saved_strategies_router
 from app.core.config import get_settings
 from app.db.migrations import run_startup_migrations
@@ -319,6 +320,8 @@ app.include_router(anonymous_router)  # Stage 1a
 app.include_router(saved_strategies_router)  # Stage 1a
 app.include_router(community_publish_router)  # Stage 4a
 app.include_router(attribution_router)  # Stage 4a
+app.include_router(email_prefs_router)  # Stage 6a
+app.include_router(email_unsub_router)  # Stage 6a
 
 
 @app.get("/health")

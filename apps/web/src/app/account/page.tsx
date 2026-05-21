@@ -5,6 +5,7 @@ export const dynamic = "force-dynamic";
 import { useSession } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -180,6 +181,19 @@ export default function AccountPage() {
       {me && (
         <BillingSection me={me} backendToken={backendToken} />
       )}
+
+      {/* Email preferences link */}
+      <section className="rounded-xl border border-border bg-card p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">Email</h2>
+            <p className="mt-1 text-sm text-muted-foreground">Pick what you want to hear from us about.</p>
+          </div>
+          <Button asChild variant="outline" size="sm">
+            <Link href={"/account/email" as Route}>Manage</Link>
+          </Button>
+        </div>
+      </section>
     </main>
   );
 }

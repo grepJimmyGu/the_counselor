@@ -538,3 +538,36 @@ export async function trackAttributionVisit(
     credentials: "include", // sets/reads livermore_vsid cookie
   });
 }
+
+// ── Email preferences (Stage 6a) ──────────────────────────────────────────────
+
+export interface EmailPreferencesResponse {
+  transactional: boolean;
+  weekly_digest: boolean;
+  upsell_nudges: boolean;
+  creator_program: boolean;
+  unsubscribed_at: string | null;
+}
+
+export async function getEmailPreferences(
+  backendToken: string,
+): Promise<EmailPreferencesResponse> {
+  return fetchApi("/api/me/email-preferences", {
+    headers: { Authorization: `Bearer ${backendToken}` },
+  });
+}
+
+export async function updateEmailPreferences(
+  payload: {
+    weekly_digest?: boolean;
+    upsell_nudges?: boolean;
+    creator_program?: boolean;
+  },
+  backendToken: string,
+): Promise<EmailPreferencesResponse> {
+  return fetchApi("/api/me/email-preferences", {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${backendToken}` },
+    body: JSON.stringify(payload),
+  });
+}
