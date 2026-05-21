@@ -34,6 +34,7 @@ import { MacroPanels } from "@/components/market-pulse/MacroPanels";
 import { SectorRotation } from "@/components/market-pulse/SectorRotation";
 import { HistoryRhymes } from "@/components/market-pulse/HistoryRhymes";
 import { TopMovers, type MoverItem } from "@/components/market-pulse/TopMovers";
+import { Screener } from "@/components/market-pulse/Screener";
 import { StickySubNav } from "@/components/market-pulse/StickySubNav";
 import {
   BriefSkeleton,
@@ -221,7 +222,10 @@ export default function MarketPulseV2Preview() {
         <HistoryRhymes />
 
         {/* Section 5 — Top Movers */}
-        {loading ? <TopMoversSkeleton rows={8} /> : <TopMovers items={moverItems} />}
+        {loading ? <TopMoversSkeleton rows={10} /> : <TopMovers items={moverItems} />}
+
+        {/* Section 6 — Algorithmic Stock Screens (mock data; backend wires in Phase 1) */}
+        <Screener />
 
         {/* Section 6 — Footer */}
         <footer className="border-t border-border/60 pt-4 text-[10px] text-muted-foreground">
