@@ -29,6 +29,10 @@ class Settings(BaseSettings):
     stripe_price_strategist_annual: str = ""
     stripe_price_quant_monthly: str = ""
     stripe_price_quant_annual: str = ""
+    # Stage 3 — gating feature flag. Defaults to False (shadow mode: log would-be
+    # 402s but allow the request). Flip to True in production after observing
+    # shadow-mode telemetry for ~24h. Stage 6 will replace this with a PostHog flag.
+    gating_enabled: bool = False
     frontend_url: str = "http://localhost:3000"  # used for portal/checkout return URLs
     llm_provider: str = "disabled"
     llm_api_key: str = ""
