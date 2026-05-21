@@ -74,6 +74,60 @@ not improvise rules from training-data assumptions.
 
 ---
 
+## Pre-push checklist (Livermore)
+
+Before any PR ready to merge into `main`:
+
+1. Backend tests pass: `cd apps/api && python3 -m pytest -q`
+2. Frontend build clean: `cd apps/web && npm run build`
+3. Backend smoke test if you touched API surface: hit `/health` + the
+   specific endpoint you changed
+4. Python 3.9 compat: grep your diff for `| None` / `X | Y` — replace with
+   `Optional[X]` / `Union[X, Y]` if any
+5. Env var audit if you added one: Railway and/or Vercel matches; document
+   in [docs/PROJECT_BACKLOG.md](docs/PROJECT_BACKLOG.md) §2 if not yet set
+
+*Why:* 2026-05-07 — a push without this checklist would have shipped the
+multi-asset backtester crash and an empty `momentum_rotation.rules` bug.
+
+## Test discipline (Livermore)
+
+- **Every bugfix pairs with a regression test.** No exceptions. The
+  pattern: write the test that reproduces the bug, watch it fail, then
+  fix the code until it passes. The test suite has grown 37 → 44 → 51
+  → 52 → 420 → 446+ via this rule.
+- **Frontend: define TypeScript types in `apps/web/src/lib/contracts.ts`
+  *before* writing the UI component.** Catches schema drift between
+  backend response and frontend render at the type-check step instead of
+  at runtime. *Why:* a sandbox-schema rename once silently broke
+  `research-workspace.tsx`; types-first would have surfaced it pre-commit.
+
+## Project context (Livermore)
+
+The canonical in-repo sources of truth (read on demand, not all at boot):
+
+| Topic | File |
+|---|---|
+| Current state + next action + resumption checklist | [`agent-system/WORK_LOG.md`](agent-system/WORK_LOG.md) |
+| Chronological history of what shipped | [`project_log.md`](project_log.md) |
+| Episodic build journal + lessons | [`docs/BUILDING_LIVERMORE_JOURNAL.md`](docs/BUILDING_LIVERMORE_JOURNAL.md) |
+| Production crash post-mortems | [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md) |
+| Traffic-gated work (Stage 5b/6b) | [`docs/DEFERRED.md`](docs/DEFERRED.md) |
+| Pre-enforcement checklist before `GATING_ENABLED=true` | [`docs/SHADOW_MODE_REVIEW.md`](docs/SHADOW_MODE_REVIEW.md) |
+
+**Quick facts** (the things that don't fit anywhere else):
+
+- Three-tier SaaS: Scout (free), Strategist ($24/mo), Quant ($79/mo).
+  TIER_CAPS matrix in `apps/api/app/services/entitlements.py`.
+- Deployed: Railway (`thecounselor-production.up.railway.app`) + Vercel
+  (`livermorealpha.com`). GitHub repo: `grepJimmyGu/the_counselor`.
+- `GATING_ENABLED=true` on Railway (confirmed intentional 2026-05-21).
+- Live quote cache wired into 5 frontend surfaces (ticker bar, stock
+  detail, workspace preview, community feed, Market Pulse). Commodity
+  spot deferred — see PROJECT_BACKLOG.md §4.
+
+---
+
 ## For Claude Code sessions
 
 You auto-load this `CLAUDE.md` plus any other `CLAUDE.md` files in the repo
