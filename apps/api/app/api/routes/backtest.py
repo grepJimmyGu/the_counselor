@@ -129,6 +129,17 @@ async def run_backtest(
             errors.extend(gate.reports[sym].blocking_errors)
         raise HTTPException(status_code=400, detail="; ".join(errors))
 
+    # Stage 6a: backtest_started event
+    try:
+        from app.services.posthog_service import capture as _ph_capture
+        _ph_capture(user.id, "backtest_started", {
+            "strategy_type": strategy.strategy_type,
+            "universe_size": len(universe),
+            "is_template": is_template,
+        })
+    except Exception:
+        pass
+
     try:
         result = await engine.run(db, strategy)
         if gate.overall_status == "warning":
@@ -147,6 +158,18 @@ async def run_backtest(
             increment_template_backtest(db, user.id)
         else:
             increment_custom_backtest(db, user.id)
+
+        # Stage 6a: backtest_completed event
+        try:
+            from app.services.posthog_service import capture as _ph_capture
+            _ph_capture(user.id, "backtest_completed", {
+                "strategy_type": strategy.strategy_type,
+                "total_return": result.metrics.total_return,
+                "sharpe_ratio": result.metrics.sharpe_ratio,
+                "is_template": is_template,
+            })
+        except Exception:
+            pass
 
         return result
     except Exception as exc:

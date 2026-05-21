@@ -77,6 +77,16 @@ def start_trial(
     plan.billing_cycle = None
     db.commit()
 
+    # Stage 6a: trial_started event
+    try:
+        from app.services.posthog_service import capture
+        capture(current_user.id, "trial_started", {
+            "tier": body.tier,
+            "days": _TRIAL_DAYS,
+        })
+    except Exception:
+        pass
+
     return TrialStartResponse(trial_end=trial_end, tier=body.tier)
 
 

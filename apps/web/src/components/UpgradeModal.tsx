@@ -8,6 +8,7 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import type { EntitlementErrorCode, EntitlementErrorDetail } from "@/lib/contracts";
 import { subscribeUpgrade } from "@/lib/upgrade-modal-event-bus";
+import { track } from "@/lib/analytics";
 
 interface ModalCopy {
   title: string;
@@ -172,7 +173,17 @@ function UpgradeActions({
         </Button>
       )}
       <Button asChild size="sm">
-        <Link href={primaryHref as Route} onClick={onClose}>
+        <Link
+          href={primaryHref as Route}
+          onClick={() => {
+            track("paywall_cta_clicked", {
+              code: detail.code,
+              cta_action: detail.cta_action,
+              required_tier: detail.required_tier ?? undefined,
+            });
+            onClose();
+          }}
+        >
           {primaryLabel}
         </Link>
       </Button>

@@ -110,6 +110,18 @@ def _try_convert_attribution(db: Session, request: Request, user: User) -> None:
         db.rollback()
 
 
+def _track_signup_completed(user: User, provider: str) -> None:
+    """Stage 6a: fire signup_completed analytics event. Safe no-op."""
+    try:
+        from app.services.posthog_service import capture
+        capture(user.id, "signup_completed", {
+            "provider": provider,
+            "locale": user.locale or "en",
+        })
+    except Exception:
+        pass
+
+
 # ── Password signup / login ───────────────────────────────────────────────────
 
 @router.post("/password/signup", status_code=201)
@@ -133,6 +145,8 @@ def password_signup(
     _try_merge_anonymous_session(db, user.id, request.cookies.get(ANON_COOKIE_NAME))
     # Stage 4a: convert any /s/<slug>?via=<handle> attribution.
     _try_convert_attribution(db, request, user)
+    # Stage 6a: signup_completed event.
+    _track_signup_completed(user, provider="password")
     return _make_token_response(user)
 
 
@@ -217,6 +231,8 @@ def google_oauth_callback(
         _try_merge_anonymous_session(db, user.id, request.cookies.get(ANON_COOKIE_NAME))
         # Stage 4a: convert any /s/<slug>?via=<handle> attribution.
         _try_convert_attribution(db, request, user)
+        # Stage 6a: signup_completed event.
+        _track_signup_completed(user, provider="google")
 
     token = create_session_token(user.id, user.plan.tier)
     pub = UserPublic(

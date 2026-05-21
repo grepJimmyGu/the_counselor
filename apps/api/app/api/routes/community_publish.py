@@ -143,6 +143,16 @@ def create_published(
     db: Session = Depends(get_db),
 ) -> PublishedStrategyDetail:
     row = svc.publish_strategy(db, current_user, payload)
+    # Stage 6a: strategy_published event
+    try:
+        from app.services.posthog_service import capture
+        capture(current_user.id, "strategy_published", {
+            "strategy_type": row.strategy_type,
+            "universe_size": len(row.universe_snapshot or []),
+            "slug": row.slug,
+        })
+    except Exception:
+        pass
     return _detail(row, db)
 
 
@@ -241,4 +251,14 @@ def track_attribution_visit(
         via_handle=payload.via,
         landed_url=payload.url,
     )
+    # Stage 6a: referral_landed event (keyed on visitor_session_id since
+    # there's no authenticated user yet).
+    if visit is not None:
+        try:
+            from app.services.posthog_service import capture
+            capture(visit.visitor_session_id, "referral_landed", {
+                "via_handle": visit.referrer_handle,
+            })
+        except Exception:
+            pass
     return TrackVisitResponse(tracked=visit is not None)

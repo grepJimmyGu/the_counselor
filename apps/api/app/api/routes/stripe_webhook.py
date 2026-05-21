@@ -82,6 +82,7 @@ def _dispatch(db: Session, event_type: str, obj: dict) -> None:
         billing_state.apply_subscription_created(db, obj)
         _log_attribution_on_conversion(db, obj)
         _mark_attribution_paid(db, obj)
+        _track_checkout_completed(obj)
     elif event_type == "customer.subscription.updated":
         billing_state.apply_subscription_updated(db, obj)
     elif event_type == "customer.subscription.deleted":
@@ -179,6 +180,26 @@ def _record_stripe_invoice(db: Session, invoice_obj: dict) -> None:
     except Exception as exc:
         logger.warning("record_stripe_invoice failed: %s", exc)
         db.rollback()
+
+
+def _track_checkout_completed(subscription_obj: dict) -> None:
+    """Stage 6a: emit checkout_completed analytics event. Safe no-op."""
+    try:
+        from app.services.posthog_service import capture
+        metadata = subscription_obj.get("metadata") or {}
+        user_id = metadata.get("user_id")
+        if not user_id:
+            return
+        items = (subscription_obj.get("items") or {}).get("data") or []
+        price = items[0].get("price", {}) if items else {}
+        capture(user_id, "checkout_completed", {
+            "tier": metadata.get("tier"),
+            "billing_cycle": metadata.get("billing_cycle"),
+            "amount_cents": price.get("unit_amount"),
+            "subscription_id": subscription_obj.get("id"),
+        })
+    except Exception:
+        pass
 
 
 def _mark_attribution_paid(db: Session, subscription_obj: dict) -> None:

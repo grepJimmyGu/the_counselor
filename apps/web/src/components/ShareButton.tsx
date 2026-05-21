@@ -5,6 +5,7 @@ import { Check, Share2 } from "lucide-react";
 import { useSession } from "next-auth/react";
 
 import { Button } from "@/components/ui/button";
+import { track } from "@/lib/analytics";
 
 interface Props {
   /** URL path to share, e.g. "/s/my-strategy-abc123". */
@@ -30,6 +31,7 @@ export function ShareButton({ path }: Props) {
   async function handleShare() {
     const base = typeof window !== "undefined" ? window.location.origin : "";
     const url = handle ? `${base}${path}?via=${encodeURIComponent(handle)}` : `${base}${path}`;
+    track("share_clicked", { path, surface: "copy_link", has_handle: !!handle });
     try {
       await navigator.clipboard.writeText(url);
       setCopied(true);

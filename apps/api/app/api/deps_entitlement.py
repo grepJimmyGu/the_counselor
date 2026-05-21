@@ -209,6 +209,20 @@ def _violation(
     """
     settings = get_settings()
     is_anonymous = user.id == _LEGACY_ANON_ID
+
+    # Stage 6a: paywall_hit event — fires whether enforcement or shadow mode.
+    try:
+        from app.services.posthog_service import capture as _ph_capture
+        _ph_capture(user.id, "paywall_hit", {
+            "code": code,
+            "current_tier": ent.tier,
+            "path": path,
+            "is_anonymous": is_anonymous,
+            "enforced": settings.gating_enabled,
+        })
+    except Exception:
+        pass
+
     if settings.gating_enabled:
         raise upgrade_error(
             code,
