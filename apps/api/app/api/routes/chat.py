@@ -38,6 +38,14 @@ from app.models.anonymous_session import AnonymousSession
 from app.models.chat import ChatConversation, ChatMessage
 from app.models.user import User
 from app.services.anonymous_service import get_or_create_anonymous_session
+from app.services.chat_guardrails import (
+    append_redaction_warning,
+    attempt_citation_reprompt,
+    classify_refusal,
+    detect_uncited_numerics,
+    log_refusal_event,
+    log_uncited_event,
+)
 from app.services.chat_tools import (
     UnknownToolError,
     dispatch_tool_call,
@@ -267,6 +275,12 @@ async def _run_tool_loop(
     messages: List[dict],
     max_iterations: int = 5,
     tool_whitelist: Optional[set] = None,
+    # Ticket #9 guardrail context. All optional so existing callers
+    # remain valid; passing them enables structured event logging.
+    user_id: Optional[str] = None,
+    anon_session_id: Optional[str] = None,
+    tier: str = "unknown",
+    user_message: str = "",
 ) -> AsyncIterator[str]:
     """Core orchestration: call LLM, dispatch tool calls, re-invoke until done.
 
@@ -278,6 +292,11 @@ async def _run_tool_loop(
     are exposed to the LLM AND honored by the dispatcher. The anonymous
     chat passes a restricted set per spec §2.2. Authed chat passes None
     (all tools allowed).
+
+    Guardrail context (ticket #9): user_id / anon_session_id / tier /
+    user_message are surfaced in the structured chat_refusal /
+    numeric_uncited log lines emitted from `_apply_guardrails`. The
+    weekly digest job aggregates from those lines.
     """
     gateway = get_llm_gateway()
     all_specs = get_openai_tool_specs()
@@ -336,7 +355,21 @@ async def _run_tool_loop(
         )
 
         if finish_reason != "tool_calls" or not tool_calls:
-            # LLM finished without (or beyond) needing more tools.
+            # LLM finished without (or beyond) needing more tools. Run
+            # guardrails on the final assistant text before signaling done.
+            tool_names = _gather_tool_names_used(messages)
+            async for frame in _apply_guardrails(
+                db=db,
+                conversation_id=conversation_id,
+                messages=messages,
+                response_text=accumulated_text,
+                tool_names_used=tool_names,
+                user_id=user_id,
+                anon_session_id=anon_session_id,
+                tier=tier,
+                user_message=user_message,
+            ):
+                yield frame
             yield _sse("done", {"finish_reason": finish_reason or "stop"})
             return
 
@@ -396,6 +429,142 @@ def _serialize_tool_result(result: Any) -> str:
     return json.dumps(result, default=str)
 
 
+# ── Guardrails (ticket #9) ────────────────────────────────────────────────────
+
+
+def _gather_tool_names_used(messages: List[dict]) -> List[str]:
+    """Walk the messages list and extract names of tools the assistant called.
+
+    Used as input to the refusal log so we know whether the assistant tried
+    a tool path before refusing (vs. blanket-refusing the user)."""
+    names: List[str] = []
+    for m in messages:
+        for tc in m.get("tool_calls") or []:
+            name = tc.get("name") or tc.get("function", {}).get("name")
+            if name:
+                names.append(name)
+    return names
+
+
+async def _apply_guardrails(
+    *,
+    db: Session,
+    conversation_id: str,
+    messages: List[dict],
+    response_text: str,
+    tool_names_used: List[str],
+    user_id: Optional[str],
+    anon_session_id: Optional[str],
+    tier: str,
+    user_message: str,
+) -> AsyncIterator[str]:
+    """Two checks on the final assistant text:
+
+      (a) Refusal classification — if the text matches a known refusal
+          shape, emit a structured chat_refusal event. Frontend may use
+          the SSE `guardrail` frame to render the refusal styled
+          differently.
+
+      (b) Citation enforcement — if the text contains uncited numeric
+          claims AND any tools were used this turn, try ONE reprompt
+          asking the LLM to add citation chips. If that fails too,
+          append a redaction warning to the persisted text and log
+          a numeric_uncited event with reprompt_succeeded=False.
+
+    Yields SSE frames for any user-visible guardrail action; the chat
+    endpoint streams them inline with the regular `token`/`done` flow.
+    """
+    # (a) Refusal classification
+    refusal_category = classify_refusal(response_text)
+    if refusal_category is not None:
+        log_refusal_event(
+            category=refusal_category,
+            user_message=user_message,
+            assistant_response=response_text,
+            tool_calls_attempted=tool_names_used,
+            user_id=user_id,
+            anon_session_id=anon_session_id,
+            tier=tier,
+            conversation_id=conversation_id,
+        )
+        yield _sse("guardrail", {"action": "refusal_logged", "category": refusal_category})
+
+    # (b) Citation enforcement
+    if not tool_names_used:
+        # No tools were used this turn → the response is general
+        # knowledge / refusal copy, nothing to cite. Skip.
+        return
+
+    uncited = detect_uncited_numerics(response_text)
+    if not uncited:
+        return
+
+    # Try one reprompt.
+    rewritten = await attempt_citation_reprompt(
+        messages=messages,
+        response_text=response_text,
+        uncited=uncited,
+    )
+    if rewritten is not None:
+        # Success — replace the persisted assistant message text. The
+        # original streamed text is already in the user's terminal/UI;
+        # the frontend can refetch on done or re-render from DB.
+        last_assistant = (
+            db.query(ChatMessage)
+            .filter(
+                ChatMessage.conversation_id == conversation_id,
+                ChatMessage.role == "assistant",
+            )
+            .order_by(ChatMessage.created_at.desc())
+            .first()
+        )
+        if last_assistant is not None:
+            last_assistant.content = rewritten
+            db.commit()
+        log_uncited_event(
+            uncited=uncited,
+            conversation_id=conversation_id,
+            reprompt_succeeded=True,
+            user_id=user_id,
+            anon_session_id=anon_session_id,
+            tier=tier,
+        )
+        yield _sse("guardrail", {
+            "action": "citation_reprompt_succeeded",
+            "uncited_count": len(uncited),
+            "rewritten_text": rewritten,
+        })
+        return
+
+    # Reprompt failed. Append warning + log event with
+    # reprompt_succeeded=False.
+    warned = append_redaction_warning(response_text, uncited)
+    last_assistant = (
+        db.query(ChatMessage)
+        .filter(
+            ChatMessage.conversation_id == conversation_id,
+            ChatMessage.role == "assistant",
+        )
+        .order_by(ChatMessage.created_at.desc())
+        .first()
+    )
+    if last_assistant is not None:
+        last_assistant.content = warned
+        db.commit()
+    log_uncited_event(
+        uncited=uncited,
+        conversation_id=conversation_id,
+        reprompt_succeeded=False,
+        user_id=user_id,
+        anon_session_id=anon_session_id,
+        tier=tier,
+    )
+    yield _sse("guardrail", {
+        "action": "citation_warning_appended",
+        "uncited_count": len(uncited),
+    })
+
+
 # ── Route ─────────────────────────────────────────────────────────────────────
 
 
@@ -450,7 +619,12 @@ async def post_message(
         # `started` lets the frontend differentiate "request received" from
         # "first token" (which can be 2-3s on cold cache).
         yield _sse("started", {"conversation_id": conv.id})
-        async for frame in _run_tool_loop(db, conv.id, messages):
+        async for frame in _run_tool_loop(
+            db, conv.id, messages,
+            user_id=user.id,
+            tier=user.plan.tier if user.plan else "unknown",
+            user_message=body.content,
+        ):
             yield frame
 
     return StreamingResponse(
@@ -578,7 +752,11 @@ async def post_anonymous_message(
             "anon_turns_remaining": ANON_TURN_CAP - session.chat_turns_used,
         })
         async for frame in _run_tool_loop(
-            db, conv.id, messages, tool_whitelist=ANON_TOOL_WHITELIST,
+            db, conv.id, messages,
+            tool_whitelist=ANON_TOOL_WHITELIST,
+            anon_session_id=session.id,
+            tier="anonymous",
+            user_message=body.content,
         ):
             yield frame
 

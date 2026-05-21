@@ -274,8 +274,16 @@ def _start_scheduler() -> None:
         # QA tripwires — daily schema-drift check (see app/jobs/qa_jobs.py).
         # Violations log `INVARIANT_BROKEN: schema_drift ...` to Railway,
         # grep-able alongside the existing `DEFERRED_TRIGGER:` lines.
-        from app.jobs.qa_jobs import check_schema_drift_job
+        from app.jobs.qa_jobs import (
+            audit_chat_responses_job,
+            chat_guardrails_digest_job,
+            check_schema_drift_job,
+        )
         scheduler.add_job(check_schema_drift_job, "cron", hour=3, minute=0)
+        # Ticket #9 — chat guardrails. Auditor samples 50 convs nightly;
+        # digest aggregates the week's refusals + uncited events on Sunday.
+        scheduler.add_job(audit_chat_responses_job, "cron", hour=2, minute=0)
+        scheduler.add_job(chat_guardrails_digest_job, "cron", day_of_week="sun", hour=9, minute=0)
         scheduler.start()
     except Exception as exc:
         logger.warning("APScheduler failed to start: %s", exc)
