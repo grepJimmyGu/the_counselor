@@ -9,18 +9,24 @@
 
 ## Current Session
 
-**Status:** Stages 1, 1a, 2, 3, 4a, 4b, 5a, 6a shipped + 3-bug-chain debugged on 2026-05-21 + gate hardening landed
-**Active branch:** main (HEAD: post-merge of `fix/gate-hardening-and-saga`)
-**Last stable tag:** `prd-14-complete` (2026-05-12) — no `stage-*` tags exist; stages shipped untagged
-**Tests:** **~426 backend** (was 420; +3 history boundary, +2 runs boundary, +1 Postgres invariant) · frontend build clean
+**Status:** Live-quote system shipped (5 frontend surfaces) + Chat v2 Phase 1 tickets #1–#6 all landed on main + Market Pulse Phase 0 preview open (PR #41) + parallel-work protocol established
+**Active branch:** main (HEAD: `3710d9b` — Stage 7 ticket #6 anonymous chat endpoint)
+**Last stable tag:** `prd-14-complete` (2026-05-12) — no `stage-*` tags exist
+**Tests:** **~535 backend** all green (was ~426 → +109 across live-quote service, chat tools, chat endpoints, narrative deterministic templates) · frontend build clean
 **Deployed:** Railway + Vercel both healthy
-- `GATING_ENABLED=true` (enforcement — confirmed intentional via `railway variables` on 2026-05-21)
+- `GATING_ENABLED=true` (enforcement)
 - `POSTHOG_API_KEY` not set → analytics queue silently
 - `RESEND_API_KEY` not set → emails log `email_noop`
+- Live-quote cache (FMP `/stable/quote` fan-out) confirmed working in prod via curl
 
-**Untracked:** `WeChat/`, `build_specs/research_chat_v2.md` (intentional — pending Chat v2 design decision)
+**Open work in flight:**
+- PR [#41](https://github.com/grepJimmyGu/the_counselor/pull/41) — Market Pulse Phase 0 preview at `/uiux/market-pulse-v2`. Awaiting Jimmy's browser review against the Vercel preview URL. Phase 1 (promote to `/stocks` + LLM narrative service) blocks on this.
+- `claude/feat/market-pulse-v2-preview` branch — preserved until #41 review concludes.
+- `codex/improve-chat-builder` branch — codex session's abandoned chat-builder work (3 commits not on main). Kept; rebase or drop is a separate per-branch decision.
 
-**Next action:** No code work is blocked. The build infrastructure for Stages 5b + 6b is in place but **gated on traffic** — wait for the tripwire log lines to fire before activating. Pre-launch env vars still owed:
+**Next action:**
+- Jimmy reviews `/uiux/market-pulse-v2` preview, lists changes → iterate or sign off → Phase 1 starts
+- Pre-launch env vars still owed:
 
 ```bash
 # Railway:
@@ -91,6 +97,35 @@ See [docs/DEFERRED.md](../docs/DEFERRED.md) for the ~30 trigger-gated items spli
 ---
 
 ## Session History
+
+### 2026-05-21 (continued) — Live quotes everywhere, Chat v2 Phase 1, agent-team protocol
+
+**Live-quote system (10 PRs)** — backend cache with TTL + per-symbol lock prevents thundering herd, FMP fan-out via N parallel `get_quote` calls (the comma-batch syntax doesn't work on `/stable/quote`), `/api/live/quotes` endpoint, `useLiveQuotes` SWR hook, `LiveTickerBar` global component, wired into stock-detail header / workspace strategy preview / community feed cards / Market Pulse cards. Commodity spot wire-in deliberately deferred — ETF-share-price vs commodity-$/oz scale mismatch (see [docs/PROJECT_BACKLOG.md](../docs/PROJECT_BACKLOG.md) §4).
+
+PRs: [#24](https://github.com/grepJimmyGu/the_counselor/pull/24) (cache + endpoint + hook + ticker bar), [#25](https://github.com/grepJimmyGu/the_counselor/pull/25) (`/stocks/[ticker]`), [#26](https://github.com/grepJimmyGu/the_counselor/pull/26) (workspace), [#27](https://github.com/grepJimmyGu/the_counselor/pull/27) (community — landed a muddy commit with two unrelated `build_specs/` files, documented), [#29](https://github.com/grepJimmyGu/the_counselor/pull/29) (FMP fanout fix), [#31](https://github.com/grepJimmyGu/the_counselor/pull/31) (Market Pulse cards).
+
+**Chat v2 Phase 1 — tickets #1–#6 all on main:**
+| Ticket | PR | Subject |
+|---|---|---|
+| #1 schema | PR #28 → content via #29 muddy chain | chat_conversations + chat_messages tables, AnonymousSession.chat_turns_used |
+| #2 adapter | [#37](https://github.com/grepJimmyGu/the_counselor/pull/37) | LLMGateway streaming tool-calling + 13 tests |
+| #3 light tools | [#38](https://github.com/grepJimmyGu/the_counselor/pull/38) | chat_tools executor + 3 tools (concept_explainer, onboarding_tutor, template_search) |
+| #4 heavy tools | [#43](https://github.com/grepJimmyGu/the_counselor/pull/43) | 4 wrappers around backtest/stock_lookup/strategy_builder_iterate |
+| #5 authed endpoint | [#44](https://github.com/grepJimmyGu/the_counselor/pull/44) | `POST /api/chat/turn` SSE + tool dispatch loop |
+| #6 anon endpoint | [#45](https://github.com/grepJimmyGu/the_counselor/pull/45) | Anonymous chat variant w/ 5-turn-per-session cap |
+
+**Agent-team coordination protocol** — multi-session collisions burned ~3 PRs (PR #27 muddy commit, PR #30 picking up wrong branch, PR #40/#42 closed-on-base-delete). Recovery and prevention:
+- [`agent-system/PARALLEL_WORK.md`](PARALLEL_WORK.md) (PR #30) — branch-prefix-per-agent convention (`claude/…`, `codex/…`), one worktree per session, state-in-git
+- Root-of-repo [`CLAUDE.md`](../CLAUDE.md) (PRs #34 → #35 → #36) — onboarding pointer; auto-loaded by Claude Code on session boot; migrates Livermore operational rules out of user memory so new accounts get them from `git clone` alone
+- Master-merger role — `claude-main` (this session) holds the sole authority on `gh pr merge` to `main`. Other sessions push branches + open PRs. Reduced muddy-commit rate to zero for the rest of the day.
+- Six shadow branches deleted from origin via `git cherry`-based shadow detection. Two real-work branches preserved (`claude/feat/market-pulse-v2-preview`, `codex/improve-chat-builder`).
+
+**Market Pulse Phase 0 preview** — full redesign plan (LLM-narrative hero + indices hero + sector heatmap + macro strip + unified Movers list + sticky sub-nav) shipped as a hidden route preview at `/uiux/market-pulse-v2`. Awaiting visual review before promoting to `/stocks` in Phase 1.
+
+**Lessons codified into [CLAUDE.md](../CLAUDE.md):**
+- Stacked PRs lose backend CI (`pull_request: branches: [main]` filter)
+- Squash-merging a parent with `--delete-branch` closes stacked children automatically; recover with rebase + new PR
+- `git cherry main origin/<branch>` is the canonical shadow-branch detector
 
 ### 2026-05-21 — The Three-Bug Chain + Gate Hardening
 

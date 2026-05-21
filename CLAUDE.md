@@ -102,6 +102,60 @@ multi-asset backtester crash and an empty `momentum_rotation.rules` bug.
   at runtime. *Why:* a sandbox-schema rename once silently broke
   `research-workspace.tsx`; types-first would have surfaced it pre-commit.
 
+## PR & branch mechanics (Livermore)
+
+Three traps that bit us on 2026-05-21 — codify before they repeat.
+
+### Stacked PRs lose backend CI
+
+`.github/workflows/backend-ci.yml` has `on.pull_request.branches: [main]` —
+backend tests only fire when the PR's base is `main`. A PR stacked on
+another branch (base != main) gets only the Vercel preview checks; no
+pytest, no Postgres migration smoke test. Either:
+
+- Rebase every PR onto current `main` and set `base=main` before opening
+  it — get full CI per PR (recommended)
+- Or stack and manually verify locally with `pytest -q` before merging
+  each. Master-merger must run the local check explicitly; CI green on
+  parent ≠ CI green on child.
+
+### Stacked-PR cascade on parent-delete
+
+When you squash-merge a parent with `--delete-branch`, GitHub does NOT
+auto-retarget child PRs to `main`. Children become `mergeStateStatus:
+DIRTY, state: CLOSED` instantly — and `gh pr edit --base main` refuses
+("Cannot change the base branch of a closed pull request"). Recovery:
+
+1. The child's head branch still exists. Rebase it onto current `main`
+   to drop the squash-duplicate commits:
+   ```bash
+   git rebase --onto main <old-parent-tip-sha> <child-head-branch>
+   ```
+2. Open a new PR from the rebased branch with `base=main`. New PR
+   number, same content, full CI fires.
+
+Avoiding this entirely: don't stack. Open each ticket as `base=main` once
+the previous ticket has landed.
+
+### Detect shadow branches with `git cherry`
+
+A branch is a "shadow" when its content is on `main` (via squash) but its
+commit hashes differ. Safe to delete if:
+
+```bash
+git cherry main origin/<branch>
+```
+
+- Outputs `+ <sha>` for commits NOT in main (real unmerged work)
+- Outputs `- <sha>` for commits patch-identical to something on main
+- Branch is a shadow if every line starts with `-` (zero `+`).
+
+When `+` lines exist but the diff is only docs / session-slot bookkeeping,
+the branch is still effectively a shadow. Verify with
+`git diff main..origin/<branch> -- <key-files>`.
+
+---
+
 ## Project context (Livermore)
 
 The canonical in-repo sources of truth (read on demand, not all at boot):
