@@ -107,8 +107,8 @@ def merge_anonymous_into_user(
     user_id: str,
 ) -> None:
     """Called from auth/signup. Attaches the anonymous one-shot backtest result
-    to the new user (so 'your first backtest is already in your saved list'
-    works) and marks the session as converted.
+    AND any anonymous chat_conversations (Stage 7 / ticket #6) to the new
+    user, then marks the session as converted.
 
     Idempotent: re-running is a no-op once converted_to_user_id is set."""
     if session.converted_to_user_id == user_id:
@@ -118,6 +118,21 @@ def merge_anonymous_into_user(
         backtest = db.get(BacktestRecord, session.last_backtest_id)
         if backtest and backtest.user_id is None:
             backtest.user_id = user_id
+
+    # Stage 7 ticket #6: re-attribute anonymous chat conversations.
+    # We keep `anon_session_id` populated for history/audit; the
+    # ownership-check function in chat.py prefers `user_id` when set.
+    from app.models.chat import ChatConversation  # local import — avoid cycle
+    convs = (
+        db.query(ChatConversation)
+        .filter(
+            ChatConversation.anon_session_id == session.id,
+            ChatConversation.user_id.is_(None),
+        )
+        .all()
+    )
+    for conv in convs:
+        conv.user_id = user_id
 
     session.converted_to_user_id = user_id
     session.converted_at = datetime.utcnow()

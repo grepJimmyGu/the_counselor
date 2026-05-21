@@ -26,7 +26,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, AsyncIterator, Dict, List, Optional
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -34,8 +34,10 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.api.entitlement_errors import upgrade_error
 from app.db.session import get_db
+from app.models.anonymous_session import AnonymousSession
 from app.models.chat import ChatConversation, ChatMessage
 from app.models.user import User
+from app.services.anonymous_service import get_or_create_anonymous_session
 from app.services.chat_tools import (
     UnknownToolError,
     dispatch_tool_call,
@@ -51,7 +53,24 @@ from app.services.llm_adapter import (
 
 
 router = APIRouter(prefix="/api/chat", tags=["chat"])
+anonymous_router = APIRouter(prefix="/api/anonymous/chat", tags=["chat", "anonymous"])
 _log = logging.getLogger("livermore.chat")
+
+
+# Anonymous-tier chat constants per build_specs/07_chat_v2_research_partner.md §2:
+ANON_TURN_CAP = 5  # turns per AnonymousSession (lifetime, not daily)
+ANON_TOKEN_CAP = 8_000  # rough char approximation; the spec quotes 8K tokens
+ANON_TOOL_WHITELIST: set[str] = {
+    "strategy_builder_iterate",
+    "concept_explainer",
+    "template_search",
+    "onboarding_tutor",
+    "backtest_execute",
+}
+# Excluded for anonymous (would otherwise be tempting):
+#   stock_lookup     — Stage 3 already gates by S&P 500 scope, but the
+#                      tool itself touches per-user state we'd rather not.
+#   backtest_explain — requires backtest_id ownership; anon can't own one.
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────
@@ -247,15 +266,25 @@ async def _run_tool_loop(
     conversation_id: str,
     messages: List[dict],
     max_iterations: int = 5,
+    tool_whitelist: Optional[set] = None,
 ) -> AsyncIterator[str]:
     """Core orchestration: call LLM, dispatch tool calls, re-invoke until done.
 
     Yields SSE-formatted strings. Persists each assistant + tool message to
     chat_messages as the loop progresses. Caps at `max_iterations` to prevent
     a runaway tool-call chain (LLM accidentally calls the same tool in a loop).
+
+    `tool_whitelist`: if provided, only tools whose names are in this set
+    are exposed to the LLM AND honored by the dispatcher. The anonymous
+    chat passes a restricted set per spec §2.2. Authed chat passes None
+    (all tools allowed).
     """
     gateway = get_llm_gateway()
-    tools = get_openai_tool_specs()
+    all_specs = get_openai_tool_specs()
+    if tool_whitelist is None:
+        tools = all_specs
+    else:
+        tools = [s for s in all_specs if s["function"]["name"] in tool_whitelist]
 
     for iteration in range(max_iterations):
         try:
@@ -321,6 +350,13 @@ async def _run_tool_loop(
 
         for tc in tool_calls:
             try:
+                # Whitelist check: enforce even if the LLM picked a tool we
+                # didn't advertise (defense against hallucinated tool names).
+                if tool_whitelist is not None and tc.name not in tool_whitelist:
+                    raise UnknownToolError(
+                        f"Tool '{tc.name}' not available in this context. "
+                        f"Allowed: {sorted(tool_whitelist)}"
+                    )
                 result = await dispatch_tool_call(tc.name, tc.arguments)
                 result_text = _serialize_tool_result(result)
             except UnknownToolError as exc:
@@ -423,5 +459,134 @@ async def post_message(
         headers={
             "Cache-Control": "no-cache",
             "X-Accel-Buffering": "no",  # disable nginx buffering if proxied
+        },
+    )
+
+
+# ── Anonymous chat (ticket #6) ────────────────────────────────────────────────
+
+
+def _check_anonymous_chat_quota(session: AnonymousSession) -> None:
+    """5-turn cap per AnonymousSession (lifetime, not daily). Raises 402
+    with `is_anonymous=true` so the frontend renders the signup CTA inline."""
+    if session.chat_turns_used >= ANON_TURN_CAP:
+        _log.info(
+            "chat_quota_exhausted anonymous session_id=%s used=%s cap=%s",
+            session.id, session.chat_turns_used, ANON_TURN_CAP,
+        )
+        raise upgrade_error(
+            "chat_quota_exhausted",
+            current_tier=None,
+            current_value=str(session.chat_turns_used),
+            limit_value=str(ANON_TURN_CAP),
+            is_anonymous=True,
+            cta_action_override="signup",
+        )
+
+
+def _get_or_create_anon_conversation(
+    db: Session,
+    conversation_id: str,
+    anon_session_id: str,
+    context_type: Optional[str],
+    context_payload: Optional[dict],
+) -> ChatConversation:
+    """Anonymous variant of conversation create-or-load. Ownership is keyed
+    on `anon_session_id`, not `user_id`. A cookie-rotated visitor effectively
+    starts fresh — that's intentional; anon convs are throwaway by design."""
+    existing = db.get(ChatConversation, conversation_id)
+    if existing is not None:
+        if existing.anon_session_id != anon_session_id:
+            raise HTTPException(status_code=403, detail="Conversation not found.")
+        return existing
+
+    conv = ChatConversation(
+        id=conversation_id,
+        user_id=None,
+        anon_session_id=anon_session_id,
+        title="New chat",
+        context_type=context_type,
+        context_payload=context_payload,
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    db.add(conv)
+    db.commit()
+    db.refresh(conv)
+    return conv
+
+
+@anonymous_router.post("/conversations/{conversation_id}/messages")
+async def post_anonymous_message(
+    conversation_id: str,
+    body: ChatMessageRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Anonymous chat endpoint. Same SSE protocol as the authed route, but:
+      - Cookie-tracked AnonymousSession instead of User+Plan
+      - 5-turn lifetime cap (vs daily caps for authed tiers)
+      - Tool whitelist: 5 of 7 tools (stock_lookup + backtest_explain excluded)
+      - 8K-char input cap (defense-in-depth; the spec quotes 8K tokens but
+        char-counting is a cheap and conservative approximation)
+      - 402 envelope flags `is_anonymous=true`; cta_action='signup'
+
+    No authentication is required. The anonymous session cookie is created
+    on first visit (existing `get_or_create_anonymous_session` flow) and
+    persists across pages — so a guest who chatted on Market Pulse and then
+    visits a stock page is still the same session.
+    """
+    # Defense-in-depth: cap input length before any LLM call. Tokens are
+    # ~4 chars on average; 8K tokens ≈ 32K chars. We use a hard 8K-char
+    # cap as a conservative bound that obviously hits well before token
+    # cap (rather than estimating tokens — which depends on the tokenizer).
+    if len(body.content) > ANON_TOKEN_CAP:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Anonymous chat input too long ({len(body.content)} chars; cap {ANON_TOKEN_CAP}).",
+        )
+
+    session = get_or_create_anonymous_session(request, response, db)
+
+    # 1. Quota.
+    _check_anonymous_chat_quota(session)
+
+    # 2. Conversation create-or-load.
+    conv = _get_or_create_anon_conversation(
+        db,
+        conversation_id=conversation_id,
+        anon_session_id=session.id,
+        context_type=body.context_type,
+        context_payload=body.context_payload,
+    )
+
+    # 3. Persist user message + bump turn counter BEFORE any LLM call.
+    #    Same anti-bypass rationale as the authed route.
+    _persist_message(db, conv.id, role="user", content=body.content)
+    session.chat_turns_used += 1
+    db.commit()
+
+    # 4. Build messages.
+    history = _load_history(db, conv.id, limit=20)
+    messages: List[dict] = [{"role": "system", "content": _system_prompt()}] + history
+
+    # 5. Stream — same as authed, but with the anon tool whitelist.
+    async def event_stream() -> AsyncIterator[str]:
+        yield _sse("started", {
+            "conversation_id": conv.id,
+            "anon_turns_remaining": ANON_TURN_CAP - session.chat_turns_used,
+        })
+        async for frame in _run_tool_loop(
+            db, conv.id, messages, tool_whitelist=ANON_TOOL_WHITELIST,
+        ):
+            yield frame
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
         },
     )
