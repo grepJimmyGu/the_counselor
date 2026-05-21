@@ -40,6 +40,7 @@ import { DrawdownChart, EquityCurveChart } from "@/components/workspace/charts";
 import { MonthlyHeatmap } from "@/components/workspace/monthly-heatmap";
 import { BacktestLoading } from "@/components/strategy-builder/backtest-loading";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
+import { PublishModal } from "@/components/PublishModal";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -112,6 +113,7 @@ export function ResearchWorkspace() {
   const [robustnessJob, setRobustnessJob] = useState<RobustnessJobResponse | null>(null);
   const [isRunningRobustness, setIsRunningRobustness] = useState(false);
   const [builderOpen, setBuilderOpen] = useState(false);
+  const [publishOpen, setPublishOpen] = useState(false);
   const [tradeLogExpanded, setTradeLogExpanded] = useState(false);
 
   const activeTemplate: ResearchTemplate | undefined = strategy
@@ -322,6 +324,16 @@ export function ResearchWorkspace() {
         initialTemplate={activeTemplate}
       />
 
+      {strategy && backtestResult && (
+        <PublishModal
+          open={publishOpen}
+          onClose={() => setPublishOpen(false)}
+          strategy={strategy}
+          result={backtestResult}
+          backendToken={backendToken}
+        />
+      )}
+
       <div className="mx-auto max-w-[1400px] px-4 py-6 md:px-6 lg:px-8 space-y-6">
 
         {/* ── Header ──────────────────────────────────────────────────── */}
@@ -498,6 +510,15 @@ export function ResearchWorkspace() {
                 {!savedSlug && (
                   <Button variant="outline" size="sm" onClick={() => { setSaveName(strategy?.strategy_name ?? ""); setSaveStep("name"); setSaveIsPublic(true); setSaveError(null); setShowSaveDialog(true); }}>
                     Save
+                  </Button>
+                )}
+                {backendToken && backtestResult && strategy && (
+                  <Button
+                    variant="default"
+                    size="sm"
+                    onClick={() => setPublishOpen(true)}
+                  >
+                    Publish to community
                   </Button>
                 )}
                 {savedSlug && (
