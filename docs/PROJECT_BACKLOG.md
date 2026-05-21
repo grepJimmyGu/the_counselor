@@ -95,6 +95,7 @@ actively blocking development; all are gates on going-live activities.
 | Chat v2 (Research Partner) | [`build_specs/research_chat_v2.md`](../build_specs/research_chat_v2.md), 660 lines, Year-1 proposal | Awaiting go/no-go. Phasing in §6 — 3 phases × ~4 weeks. Untracked file; will need to be committed before Phase 1 starts. |
 | PRD-05 `not_supported` strategy handling | Strategy parser returns `not_supported` when LLM can't map the request to a backend strategy type. UX redirect TBD. | Low priority, in discussion. No Stage equivalent yet. |
 | Drop `robustness_jobs.user_id` zombie column | Schema drift item #10 above | Schedule when convenient; not urgent. |
+| Live commodity spot prices on `/commodities/[symbol]` | Page displays $/oz, $/bbl (commodity spot units). FMP `useLiveQuotes` returns ETF share prices (GLD, USO, COPX, WEAT) — different scale. Overriding `spotPrice` with the ETF quote re-introduces the WTI $133 vs $83 bug fixed earlier. Deferred 2026-05-21 after the live-quote rollout. | Skip until a live commodity-spot data source exists (Alpha Vantage commodity API, FMP futures plan, or a backend conversion factor). Option B from the rollout — supplementary "ETF proxy: $X ▲%" chip alongside the spot — is still available if visual freshness becomes more important than data fidelity. |
 
 ---
 
