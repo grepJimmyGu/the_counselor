@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import datetime
 from typing import Optional
 
@@ -370,6 +371,20 @@ def sync_user(body: _SyncUserRequest, db: Session = Depends(get_db)) -> _UserRes
                 convert_on_signup(db, _FauxReq(), user)  # type: ignore[arg-type]
             except Exception:
                 db.rollback()
+
+    # Heal orphaned User rows that have no Plan row attached. This came up
+    # for users created during the May 19/20 migration odyssey, where a
+    # partial-failure path could commit a User without its companion Plan.
+    # Without this heal, every subsequent sync-user call 500s on
+    # `user.plan.tier` and the user is permanently stuck with backendToken=null.
+    if user.plan is None:
+        db.add(Plan(user_id=user.id, tier="scout", status="active"))
+        db.commit()
+        db.refresh(user)
+        logging.getLogger("livermore.auth").warning(
+            "healed orphaned user without plan: user_id=%s email=%s",
+            user.id, user.email,
+        )
 
     return _UserResponse(
         id=user.id,
