@@ -1182,6 +1182,111 @@ def run_startup_migrations(engine: Engine) -> None:
         except Exception:
             pass
 
+        # ── Stage 4: Community + Sharing ──────────────────────────────────────
+        # published_strategies — frozen public copy of a saved strategy.
+        # No FK to users.id (Stage 1a rule). app-layer enforces ownership.
+        if is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS published_strategies (
+                    id VARCHAR(36) PRIMARY KEY,
+                    slug VARCHAR(64) NOT NULL UNIQUE,
+                    user_id VARCHAR(36) NOT NULL,
+                    title VARCHAR(120) NOT NULL,
+                    description TEXT,
+                    strategy_json TEXT NOT NULL,
+                    backtest_record_id VARCHAR(64),
+                    metrics_snapshot TEXT NOT NULL,
+                    universe_snapshot TEXT NOT NULL,
+                    benchmark_snapshot VARCHAR(32) NOT NULL,
+                    strategy_type VARCHAR(64) NOT NULL,
+                    equity_curve_snapshot TEXT NOT NULL DEFAULT '[]',
+                    is_hidden BOOLEAN NOT NULL DEFAULT 0,
+                    is_deleted BOOLEAN NOT NULL DEFAULT 0,
+                    locale VARCHAR(8) NOT NULL DEFAULT 'en',
+                    follow_count INTEGER NOT NULL DEFAULT 0,
+                    like_count INTEGER NOT NULL DEFAULT 0,
+                    comment_count INTEGER NOT NULL DEFAULT 0,
+                    view_count INTEGER NOT NULL DEFAULT 0,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS published_strategies (
+                    id VARCHAR(36) PRIMARY KEY,
+                    slug VARCHAR(64) NOT NULL UNIQUE,
+                    user_id VARCHAR(36) NOT NULL,
+                    title VARCHAR(120) NOT NULL,
+                    description TEXT,
+                    strategy_json JSONB NOT NULL,
+                    backtest_record_id VARCHAR(64),
+                    metrics_snapshot JSONB NOT NULL,
+                    universe_snapshot JSONB NOT NULL,
+                    benchmark_snapshot VARCHAR(32) NOT NULL,
+                    strategy_type VARCHAR(64) NOT NULL,
+                    equity_curve_snapshot JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    is_hidden BOOLEAN NOT NULL DEFAULT FALSE,
+                    is_deleted BOOLEAN NOT NULL DEFAULT FALSE,
+                    locale VARCHAR(8) NOT NULL DEFAULT 'en',
+                    follow_count INTEGER NOT NULL DEFAULT 0,
+                    like_count INTEGER NOT NULL DEFAULT 0,
+                    comment_count INTEGER NOT NULL DEFAULT 0,
+                    view_count INTEGER NOT NULL DEFAULT 0,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+            """))
+        for stmt in (
+            "CREATE INDEX IF NOT EXISTS ix_published_user ON published_strategies (user_id)",
+            "CREATE INDEX IF NOT EXISTS ix_published_type ON published_strategies (strategy_type)",
+            "CREATE INDEX IF NOT EXISTS ix_published_created ON published_strategies (created_at DESC)",
+        ):
+            try:
+                conn.execute(text(stmt))
+            except Exception:
+                pass
+
+        # attribution_visits — share-URL clicks → referrer + conversion tracking.
+        if is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS attribution_visits (
+                    id VARCHAR(36) PRIMARY KEY,
+                    visitor_session_id VARCHAR(64) NOT NULL,
+                    referrer_handle VARCHAR(32) NOT NULL,
+                    referrer_user_id VARCHAR(36) NOT NULL,
+                    landed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    landed_url VARCHAR(500) NOT NULL,
+                    converted_to_user_id VARCHAR(36),
+                    converted_at TIMESTAMP,
+                    converted_to_paid_at TIMESTAMP
+                )
+            """))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS attribution_visits (
+                    id VARCHAR(36) PRIMARY KEY,
+                    visitor_session_id VARCHAR(64) NOT NULL,
+                    referrer_handle VARCHAR(32) NOT NULL,
+                    referrer_user_id VARCHAR(36) NOT NULL,
+                    landed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    landed_url VARCHAR(500) NOT NULL,
+                    converted_to_user_id VARCHAR(36),
+                    converted_at TIMESTAMPTZ,
+                    converted_to_paid_at TIMESTAMPTZ
+                )
+            """))
+        for stmt in (
+            "CREATE INDEX IF NOT EXISTS ix_attribution_vsid ON attribution_visits (visitor_session_id)",
+            "CREATE INDEX IF NOT EXISTS ix_attribution_referrer_handle ON attribution_visits (referrer_handle)",
+            "CREATE INDEX IF NOT EXISTS ix_attribution_referrer_user ON attribution_visits (referrer_user_id)",
+            "CREATE INDEX IF NOT EXISTS ix_attribution_converted ON attribution_visits (converted_to_user_id)",
+        ):
+            try:
+                conn.execute(text(stmt))
+            except Exception:
+                pass
+
     # ── Post-create cleanup (isolated; runs AFTER all CREATE TABLE statements) ──
     # Purge bad revenue_segments rows from PRD-08d parser bug. Isolated so a
     # missing table on fresh DB can't poison the shared transaction above.
