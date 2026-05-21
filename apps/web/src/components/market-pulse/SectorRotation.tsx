@@ -5,6 +5,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { SectorCard } from "@/lib/contracts";
 import { SectorHeatmap } from "./SectorHeatmap";
 import { SectorTable } from "./SectorTable";
+import { SectorComparisonChart } from "./SectorComparisonChart";
 
 /**
  * Section 3 — Sector Rotation container.
@@ -30,8 +31,12 @@ export function SectorRotation({
 }) {
   const [view, setView] = useState<View>("heatmap");
   const [sort, setSort] = useState<Sort>("cmf");
+  // Per 2026-05-21 feedback: click a heatmap tile → expand inline below
+  // with a sector ETF vs S&P 500 comparison chart + returns table.
+  const [activeSymbol, setActiveSymbol] = useState<string | null>(null);
 
   const sorted = useMemo(() => sortSectors(sectors, sort), [sectors, sort]);
+  const activeSector = sorted.find((s) => s.symbol === activeSymbol) ?? null;
 
   return (
     <section id="sectors" aria-labelledby="sectors-heading" className="space-y-3">
@@ -75,7 +80,21 @@ export function SectorRotation({
       </div>
 
       {view === "heatmap" ? (
-        <SectorHeatmap sectors={sorted} />
+        <>
+          <SectorHeatmap
+            sectors={sorted}
+            activeSymbol={activeSymbol}
+            onTileClick={(sym) =>
+              setActiveSymbol((current) => (current === sym ? null : sym))
+            }
+          />
+          {activeSector && (
+            <SectorComparisonChart
+              sector={activeSector}
+              onClose={() => setActiveSymbol(null)}
+            />
+          )}
+        </>
       ) : (
         <SectorTable sectors={sorted} />
       )}
