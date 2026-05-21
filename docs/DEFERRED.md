@@ -97,6 +97,11 @@ Each `DEFERRED_TRIGGER` line names which item in this file just became real.
 - **Detection:** Manual / support
 - **Effort:** ~3 hours (form + admin queue + approve/reject mechanics)
 
+### Creator badge (gold star) on `/s/[slug]` + community feed
+- **Trigger:** Creator program goes live (needs the application form above)
+- **Detection:** Verified Quant subscribers approved as creators
+- **Effort:** ~1 hour. Add `is_creator: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")` to `app/models/user.py`. Restore the dead `is_creator` branch in `app/services/entitlements.py:get_entitlements` (removed 2026-05-20 as unreachable code — the column didn't exist) so that `Entitlements.community_badge == "creator"` flows through for Quant + is_creator. Frontend already handles the "creator" badge variant in `apps/web/src/components/community/VerifiedBadge.tsx`.
+
 ### Creator dashboard `/creators/dashboard`
 - **Trigger:** First creator approved (need an applicant first)
 - **Effort:** ~4 hours

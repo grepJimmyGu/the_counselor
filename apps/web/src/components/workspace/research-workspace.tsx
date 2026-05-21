@@ -29,6 +29,7 @@ import {
   type StrategyJson,
 } from "@/lib/contracts";
 import { useLocale } from "@/lib/locale-context";
+import { useEntitlements } from "@/lib/useEntitlements";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -98,6 +99,11 @@ export function ResearchWorkspace() {
   // ticker), and the 402 envelope surfaces the SoftPaywall + signup CTA.
   const backendToken = (session as unknown as { backendToken?: string } | null)?.backendToken;
   const isAnonymous = !backendToken;
+  // Stage 3: read the viewer's tier-aware caps so we can hide UI for locked
+  // features (peer_ticker is Quant-only) and keep the experience consistent
+  // with what the backend will allow.
+  const { entitlements } = useEntitlements();
+  const canUsePeerTicker = entitlements?.robustness_tests?.includes("peer_ticker") ?? false;
 
   const [strategy, setStrategy] = useState<StrategyJson | null>(null);
   const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
@@ -199,11 +205,20 @@ export function ResearchWorkspace() {
             // Anonymous endpoint requires a non-empty template_id (Pydantic
             // min_length=1). Use the active template's id when known so
             // telemetry can attribute the run; otherwise mark it as a custom
-            // build — the backend will then 402 on the universe ≤ 1 cap.
+            // build — the backend will then 402 with anonymous_chat_locked
+            // (added 2026-05-20) or anonymous_universe_too_large.
             template_id: activeTemplate?.id ?? "custom",
             strategy_json: strat,
           })
-        : await runBacktest(strat, { backendToken });
+        : await runBacktest(strat, {
+            backendToken,
+            // Pass templateId so require_entitlement (deps_entitlement.py:92)
+            // skips the universe/history caps for template runs. Without this,
+            // a Scout running the bundled 30-ticker momentum template would
+            // 402 universe_too_large once gating is on — contradicting the
+            // "templates always unlimited" copy.
+            templateId: activeTemplate?.id,
+          });
       setBacktestResult(result);
       const [explainerPayload, reviewerPayload] = await Promise.all([
         explainStrategy(strat, result, "en"),
@@ -238,7 +253,12 @@ export function ResearchWorkspace() {
     if (!strategy) return;
     setIsRunningRobustness(true);
     setRobustnessJob(null);
-    const peers = peerTickers.split(",").map(s => s.trim().toUpperCase()).filter(Boolean);
+    // Defensive: only include peer_ticker if the viewer's tier actually
+    // unlocks it. The input is already hidden for non-Quant, but a stale
+    // peerTickers state from a tier downgrade shouldn't trigger a 402.
+    const peers = canUsePeerTicker
+      ? peerTickers.split(",").map(s => s.trim().toUpperCase()).filter(Boolean)
+      : [];
     try {
       const job = await runRobustness(
         strategy,
@@ -264,9 +284,23 @@ export function ResearchWorkspace() {
 
   async function handleSaveStrategy() {
     if (!backtestResult || !saveName.trim()) return;
+    // Match the backend's SaveStrategyRequest.title min_length=3 — kept in
+    // sync so a Scout saving a 2-char title sees a friendly inline error
+    // here instead of a 422 from the backend.
+    if (saveName.trim().length < 3) {
+      setSaveError("Name must be at least 3 characters.");
+      return;
+    }
+    // Save now requires auth — surface a clear error rather than letting the
+    // request 401. Anonymous users hit a different (publish modal) flow.
+    if (!backendToken) {
+      setSaveError("Please sign in to save strategies.");
+      return;
+    }
     setIsSaving(true); setSaveError(null);
     try {
       const { slug } = await saveStrategy(
+        backendToken,
         backtestResult.backtest_id, saveName.trim(), saveIsPublic,
         backtestResult as unknown as object, strategy?.strategy_type ?? "unknown",
       );
@@ -768,16 +802,29 @@ export function ResearchWorkspace() {
               {/* Robustness */}
               <TabsContent value="robustness" className="mt-6 space-y-4">
                 <div className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4 sm:flex-row sm:items-end">
-                  <div className="flex-1 space-y-1">
-                    <label className="text-xs text-muted-foreground">{t.peerTickersLabel}</label>
-                    <input
-                      className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
-                      placeholder={t.peerTickersPlaceholder}
-                      value={peerTickers}
-                      onChange={e => setPeerTickers(e.target.value)}
-                      disabled={isRunningRobustness}
-                    />
-                  </div>
+                  {/* peer_ticker is a Quant-only robustness test. For lower
+                      tiers, hide the input — the backend would otherwise 402
+                      `robustness_test_locked` once gating is live. */}
+                  {canUsePeerTicker ? (
+                    <div className="flex-1 space-y-1">
+                      <label className="text-xs text-muted-foreground">{t.peerTickersLabel}</label>
+                      <input
+                        className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-primary"
+                        placeholder={t.peerTickersPlaceholder}
+                        value={peerTickers}
+                        onChange={e => setPeerTickers(e.target.value)}
+                        disabled={isRunningRobustness}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex-1 rounded-md border border-dashed border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
+                      Peer-ticker comparison is a Quant feature.{" "}
+                      <a href="/pricing" className="underline hover:text-foreground">
+                        Upgrade
+                      </a>{" "}
+                      to compare your strategy against custom benchmark tickers.
+                    </div>
+                  )}
                   <Button onClick={handleRunRobustness} disabled={!strategy || isRunningRobustness}>
                     {isRunningRobustness ? <><Loader2 className="h-4 w-4 animate-spin" />{t.runningRobustness}</> : t.runRobustness}
                   </Button>

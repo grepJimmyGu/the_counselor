@@ -176,8 +176,11 @@ def get_entitlements(user: User, weekly_usage: Optional[WeeklyUsage]) -> Entitle
     runs_per_week = caps["custom_backtest_runs_per_week"]
     runs_remaining = None if runs_per_week is None else max(0, runs_per_week - runs_used)
 
-    is_creator = getattr(user, "is_creator", False)
-    badge = "creator" if tier == "quant" and is_creator else caps["community_badge"]
+    # Creator badge (gold star) is deferred to Stage 5b — needs an is_creator
+    # column on User + an admin assignment endpoint. Until then everyone gets
+    # the tier's default badge (None for Scout/Strategist, "verified" for
+    # Quant). Tracked in docs/DEFERRED.md.
+    badge = caps["community_badge"]
 
     return Entitlements(
         tier=tier,

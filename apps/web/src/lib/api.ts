@@ -209,25 +209,35 @@ export async function getRobustnessJob(runId: string): Promise<RobustnessJobResp
 }
 
 export async function saveStrategy(
+  backendToken: string,
   backtestId: string,
   name: string,
   isPublic = true,
   resultPayload?: object,
   strategyType?: string,
 ): Promise<{ slug: string; url: string; is_public: boolean }> {
+  // `backendToken` is required (added 2026-05-20 after the QA audit found
+  // /api/strategies/save was completely unauthenticated). The backend now
+  // 401s if the Authorization header is missing — and Scout tier saves
+  // additionally have their is_public forced to True regardless of what we
+  // send here, by `saved_strategies_always_public`.
+  const headers = {
+    "Content-Type": "application/json",
+    Authorization: `Bearer ${backendToken}`,
+  };
   // Attempt 1: lightweight request (no payload) — works for strategies run on production
   try {
     return await fetchApi<{ slug: string; url: string; is_public: boolean }>(
       "/api/strategies/save",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({ backtest_id: backtestId, name, is_public: isPublic }),
       }
     );
   } catch (firstErr: unknown) {
     // Only retry with full payload if the record genuinely doesn't exist (404)
-    // For any other error (already saved, network, etc.) surface immediately
+    // For any other error (already saved, 402, 401, network, etc.) surface immediately
     const is404 =
       firstErr instanceof Error &&
       (firstErr.message.includes("404") || firstErr.message.toLowerCase().includes("not found"));
@@ -239,7 +249,7 @@ export async function saveStrategy(
       "/api/strategies/save",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         body: JSON.stringify({
           backtest_id: backtestId,
           name,
@@ -253,6 +263,7 @@ export async function saveStrategy(
 }
 
 export async function updateStrategyVisibility(
+  backendToken: string,
   slug: string,
   isPublic: boolean
 ): Promise<{ slug: string; is_public: boolean }> {
@@ -260,7 +271,10 @@ export async function updateStrategyVisibility(
     `/api/strategies/${slug}/visibility`,
     {
       method: "PATCH",
-      headers: { "Content-Type": "application/json" },
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${backendToken}`,
+      },
       body: JSON.stringify({ is_public: isPublic }),
     }
   );

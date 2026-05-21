@@ -12,6 +12,7 @@ Quota enforcement raises a 402 with code='saved_strategies_quota_reached'.
 """
 from __future__ import annotations
 
+import logging
 from typing import Optional
 from uuid import uuid4
 
@@ -26,9 +27,16 @@ from app.services.entitlements import (
     get_or_create_current_weekly_usage,
 )
 
+_log = logging.getLogger(__name__)
+
 
 class SaveStrategyRequest(BaseModel):
-    title: str = Field(..., min_length=1, max_length=120)
+    # min_length=3 mirrors PublishStrategyRequest in community_publish_service.
+    # Mismatched limits would let a Scout save a 1-char title (passes here) and
+    # silently fail to auto-publish (raises ValidationError there) — the
+    # community feed would then be missing entries that the user thinks are
+    # live. Keep these aligned.
+    title: str = Field(..., min_length=3, max_length=120)
     strategy_json: dict
     is_public: bool = False
     backtest_record_id: Optional[str] = None
@@ -91,7 +99,14 @@ def save_strategy(
                     backtest_record_id=payload.backtest_record_id,
                 ),
             )
-        except Exception:
+        except Exception as exc:
+            # Don't break the user's save flow if auto-publish fails — but
+            # don't swallow silently either. Loud logging here is what would
+            # have caught the min_length=1 vs 3 mismatch before production.
+            _log.warning(
+                "auto-publish failed for user=%s strategy=%s title=%r: %s",
+                user.id, strategy.id, payload.title, exc,
+            )
             db.rollback()
             # Re-fetch the saved strategy in case the rollback dropped it from
             # the session.

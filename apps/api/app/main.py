@@ -275,6 +275,15 @@ def _start_scheduler() -> None:
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)  # creates all tables first
     run_startup_migrations(engine)          # then backfill/alter existing tables
+    # Surface the gating flag on every deploy. After the 2026-05-20 QA audit
+    # found that GATING_ENABLED defaulted to False and no Stage 3 cap was
+    # firing in prod, we want a single grep-able log line to confirm the env
+    # var picked up on each rollout.
+    _s = get_settings()
+    logger.info(
+        "feature_flags gating_enabled=%s app_env=%s",
+        _s.gating_enabled, _s.app_env,
+    )
     _start_scheduler()
     # Ensure all Market Pulse ETF price bars are loaded (non-blocking)
     asyncio.create_task(_warmup_market_etfs())

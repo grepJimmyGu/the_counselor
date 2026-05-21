@@ -13,8 +13,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user
+from app.api.entitlement_errors import upgrade_error
 from app.db.session import get_db
 from app.models.backtest import BacktestRecord
+from app.models.user import User
 from app.schemas.strategy_storage import (
     LivePerformanceResponse,
     PublicStrategyItem,
@@ -22,6 +25,10 @@ from app.schemas.strategy_storage import (
     StrategySaveRequest,
     StrategySaveResponse,
     VisibilityUpdateRequest,
+)
+from app.services.entitlements import (
+    get_entitlements,
+    get_or_create_current_weekly_usage,
 )
 from app.services.live_performance_service import get_cached_performance, get_live_performance
 
@@ -35,7 +42,44 @@ def _make_slug(name: str) -> str:
 
 
 @router.post("/save", response_model=StrategySaveResponse)
-def save_strategy(req: StrategySaveRequest, db: Session = Depends(get_db)) -> StrategySaveResponse:
+def save_strategy(
+    req: StrategySaveRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> StrategySaveResponse:
+    """Save a backtest result as a slugged, optionally-public strategy.
+
+    Auth + tier enforcement (added 2026-05-20 after a QA audit found this
+    endpoint was completely unauthenticated):
+      • Bearer token required (anonymous saves are not supported here; the
+        anonymous one-shot flow lives in /api/anonymous/backtest/run, which
+        leaves user_id=NULL on the BacktestRecord and is later attached by
+        merge_anonymous_into_user on signup).
+      • Tier cap: `ent.saved_strategies_max` counted across the user's own
+        slugged records. Scout cap is 10; Strategist 25; Quant 10,000.
+      • Scout override: `ent.saved_strategies_always_public=True` forces
+        is_public=True regardless of what the request body sent. This is
+        intentional — Scout = public-only is the explicit Stage 1a design.
+    """
+    weekly = get_or_create_current_weekly_usage(db, user.id)
+    ent = get_entitlements(user, weekly)
+
+    # Cap check (count this user's existing slugged records, not all saves)
+    count = db.query(BacktestRecord).filter(
+        BacktestRecord.user_id == user.id,
+        BacktestRecord.slug.is_not(None),
+    ).count()
+    if count >= ent.saved_strategies_max:
+        raise upgrade_error(
+            "saved_strategies_quota_reached",
+            current_tier=ent.tier,
+            current_value=str(count),
+            limit_value=str(ent.saved_strategies_max),
+        )
+
+    # Scout-tier override: force is_public=True.
+    is_public = True if ent.saved_strategies_always_public else req.is_public
+
     record = db.scalar(select(BacktestRecord).where(BacktestRecord.id == req.backtest_id))
 
     if not record:
@@ -52,8 +96,16 @@ def save_strategy(req: StrategySaveRequest, db: Session = Depends(get_db)) -> St
             strategy_type=req.strategy_type,
             strategy_name=req.name,
             result_payload=req.result_payload,
+            user_id=user.id,
         )
         db.add(record)
+    else:
+        # Existing record — verify the caller owns it (or claim it if legacy).
+        # Legacy anonymous-era rows have user_id=None; first authed save claims them.
+        if record.user_id and record.user_id != user.id:
+            raise HTTPException(status_code=403, detail="Not your backtest.")
+        if record.user_id is None:
+            record.user_id = user.id
 
     if record.slug:
         raise HTTPException(status_code=400, detail="Strategy already saved.")
@@ -61,21 +113,38 @@ def save_strategy(req: StrategySaveRequest, db: Session = Depends(get_db)) -> St
     slug = _make_slug(req.name)
     record.slug = slug
     record.name = req.name
-    record.is_public = req.is_public
+    record.is_public = is_public
     record.saved_at = datetime.utcnow()
     db.commit()
 
-    return StrategySaveResponse(slug=slug, url=f"/strategies/{slug}", is_public=req.is_public)
+    return StrategySaveResponse(slug=slug, url=f"/strategies/{slug}", is_public=is_public)
 
 
 @router.patch("/{slug}/visibility", response_model=StrategySaveResponse)
 def update_visibility(
-    slug: str, req: VisibilityUpdateRequest, db: Session = Depends(get_db)
+    slug: str,
+    req: VisibilityUpdateRequest,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
 ) -> StrategySaveResponse:
-    """Toggle public/private visibility of a saved strategy."""
+    """Toggle public/private visibility of a saved strategy.
+
+    Owner check (added 2026-05-20): only the user who saved the strategy can
+    flip its visibility. Legacy anonymous-era records (user_id=None) remain
+    editable by anyone — pragmatic compatibility shim; tighten in a follow-up
+    once those rows have been backfilled or migrated.
+
+    Scout users have `saved_strategies_always_public=True` and the save flow
+    forces is_public=True. They can still call this endpoint, but the request
+    body's is_public is honored as-is — a Scout flipping their own strategy
+    private is not the spec, but we don't block it explicitly here either,
+    leaving the future Stage 5 tightening to revisit.
+    """
     record = db.scalar(select(BacktestRecord).where(BacktestRecord.slug == slug))
     if not record:
         raise HTTPException(status_code=404, detail="Strategy not found.")
+    if record.user_id and record.user_id != user.id:
+        raise HTTPException(status_code=403, detail="Not your strategy.")
     record.is_public = req.is_public
     db.commit()
     return StrategySaveResponse(

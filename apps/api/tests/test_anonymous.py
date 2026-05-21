@@ -156,3 +156,63 @@ def test_lookup_by_converted_user_id(make_user, db: Session) -> None:
     assert found is not None
     assert found.id == session.id
     assert found.via_handle == "creator-jimmy"
+
+
+# ── Endpoint-level: template_id="custom" sentinel rejection (2026-05-20) ────
+
+
+def test_anonymous_endpoint_rejects_custom_template_id(db: Session) -> None:
+    """The workspace sends template_id='custom' when no template is loaded.
+    The anonymous endpoint must reject this with anonymous_chat_locked, not
+    fall through to the universe-size cap. Tests the route function directly
+    to avoid spinning up an httpx async client just for this assertion."""
+    import asyncio
+    import pytest as _pt
+    from datetime import date, timedelta
+    from fastapi import HTTPException
+    from app.api.routes.anonymous import (
+        anonymous_backtest_run,
+        AnonymousBacktestRunRequest,
+    )
+    from app.schemas.strategy import (
+        CashManagement,
+        PositionSizing,
+        RiskManagement,
+        StrategyJSON,
+    )
+
+    req = _stub_request()
+    resp = _stub_response()
+
+    # Construct a fully-valid StrategyJSON so we can prove the rejection
+    # comes from the template_id check, not from a Pydantic validation
+    # failure on a malformed body.
+    strategy = StrategyJSON(
+        strategy_name="test-strategy",
+        strategy_type="moving_average_filter",
+        universe=["AAPL"],
+        benchmark="SPY",
+        start_date=date.today() - timedelta(days=200),
+        end_date=date.today(),
+        initial_capital=10_000,
+        rebalance_frequency="monthly",
+        transaction_cost_bps=10,
+        slippage_bps=5,
+        rules=[],
+        position_sizing=PositionSizing(method="equal_weight"),
+        risk_management=RiskManagement(),
+        cash_management=CashManagement(hold_cash_when_no_signal=True),
+    )
+    payload = AnonymousBacktestRunRequest(
+        template_id="custom",
+        strategy_json=strategy,
+    )
+
+    with _pt.raises(HTTPException) as exc:
+        asyncio.run(anonymous_backtest_run(
+            payload=payload, request=req, response=resp, db=db,
+        ))
+    assert exc.value.status_code == 402
+    assert exc.value.detail["entitlement"]["code"] == "anonymous_chat_locked"
+    assert exc.value.detail["entitlement"]["is_anonymous"] is True
+    assert exc.value.detail["entitlement"]["cta_action"] == "signup"

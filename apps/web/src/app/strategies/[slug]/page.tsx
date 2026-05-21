@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "next/navigation";
+import { useSession } from "next-auth/react";
 import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
 import { getSavedStrategy, updateStrategyVisibility, getStrategyLivePerformance } from "@/lib/api";
@@ -28,6 +29,8 @@ function fmt(n: number, isPercent = false) {
 
 export default function SavedStrategyPage() {
   const { slug } = useParams<{ slug: string }>();
+  const { data: session } = useSession();
+  const backendToken = (session as unknown as { backendToken?: string } | null)?.backendToken;
   const [data, setData] = useState<SavedStrategy | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPublic, setIsPublic] = useState<boolean | null>(null);
@@ -124,18 +127,20 @@ export default function SavedStrategyPage() {
                 {copied ? <Check className="h-3 w-3 text-emerald-500" /> : <Copy className="h-3 w-3" />}
                 {copied ? "Copied!" : "Share"}
               </button>
-              {/* Visibility toggle */}
+              {/* Visibility toggle — only renders for signed-in users; the
+                  backend now requires a Bearer token and an owner match. */}
               <button
                 onClick={async () => {
+                  if (!backendToken) return;
                   setTogglingVisibility(true);
                   try {
                     const next = !isPublic;
-                    await updateStrategyVisibility(slug, next);
+                    await updateStrategyVisibility(backendToken, slug, next);
                     setIsPublic(next);
                   } catch {/* silent */}
                   finally { setTogglingVisibility(false); }
                 }}
-                disabled={togglingVisibility}
+                disabled={togglingVisibility || !backendToken}
                 className={cn(
                   "flex cursor-pointer items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-semibold transition-all",
                   isPublic

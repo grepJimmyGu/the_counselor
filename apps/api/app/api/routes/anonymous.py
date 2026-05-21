@@ -75,6 +75,16 @@ async def anonymous_backtest_run(
 ) -> BacktestResult:
     session = get_or_create_anonymous_session(request, response, db)
 
+    # Spec rule (build_specs/03 §1): anonymous viewers can run templates only —
+    # chat-built ("custom") strategies require signup. The frontend workspace
+    # uses the literal "custom" sentinel when no template is loaded
+    # (research-workspace.tsx). Reject here so the SoftPaywall surfaces the
+    # right copy instead of silently passing through and only tripping on the
+    # universe-size cap below.
+    # Stage 5 will replace this with a server-side template whitelist.
+    if payload.template_id == "custom":
+        raise upgrade_error("anonymous_chat_locked", is_anonymous=True)
+
     # First-touch referrer preservation (Creator Program credit through funnel).
     if payload.via_handle:
         record_anonymous_referrer(db, session, payload.via_handle)

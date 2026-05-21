@@ -58,11 +58,16 @@ def start_trial(
     if plan is None:
         raise HTTPException(status_code=404, detail="Plan not found.")
 
-    # One trial per user lifetime — enforced by checking if trial_end was ever set
+    # One trial per user lifetime — enforced by checking if trial_end was ever set.
+    # Copy points to /pricing so users upgrading between tiers (e.g. Strategist
+    # → Quant after their first trial) have a clear path forward.
     if plan.trial_end is not None:
         raise HTTPException(
             status_code=409,
-            detail="You have already used your free trial.",
+            detail=(
+                "Free trial is one per account. "
+                "Upgrade directly from the pricing page to start your subscription."
+            ),
         )
     if plan.status in ("trialing", "active") and plan.stripe_subscription_id:
         raise HTTPException(
