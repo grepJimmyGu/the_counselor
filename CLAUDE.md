@@ -1,8 +1,14 @@
-# AGENTS_TEAM — read this first
+# CLAUDE.md — read this first
 
 If you are an AI agent (Claude Code, codex, any other) about to touch this
 repository, this file is your boot sequence. Read it before you run any
 command, open any branch, or write any file.
+
+> **Filename note:** named `CLAUDE.md` because Claude Code auto-loads files
+> with that name from anywhere in the repo, so every new Claude Code
+> session picks up these rules on boot without any extra wiring. Other
+> agents (codex, etc.) should still read this file — its scope is *every*
+> agent on the team, not just Claude Code.
 
 The Livermore codebase is worked on by multiple agent sessions in parallel
 plus a human (Jimmy). That arrangement has specific rules — break them and
@@ -68,13 +74,14 @@ not improvise rules from training-data assumptions.
 
 ---
 
-## For Claude Code sessions on Jimmy's machine
+## For Claude Code sessions
 
-You auto-load user memory from `~/.claude/projects/-Users-jimmygu/memory/`
-which includes the same rules summarized above. This file is the canonical
-source if the two ever diverge. If memory says one thing and this file
-says another, **this file wins** (it's in git, machine-independent,
-versioned).
+You auto-load this `CLAUDE.md` plus any other `CLAUDE.md` files in the repo
+(see `apps/api/CLAUDE.md`). On Jimmy's primary machine you also auto-load
+user memory at `~/.claude/projects/-Users-jimmygu/memory/` which has
+overlapping rules. **This file wins** if memory ever diverges — it's in
+git, machine-independent, versioned. New accounts / new machines don't
+inherit memory; they inherit this file via `git clone`.
 
 ---
 
