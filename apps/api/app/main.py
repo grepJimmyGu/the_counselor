@@ -311,6 +311,15 @@ app = FastAPI(title=settings.app_name, lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.allowed_origins,
+    # Vercel auto-generates a fresh preview URL per PR — the format is
+    # `the-counselor-web-git-<branch-slug>-grepjimmygus-projects.vercel.app`
+    # or `the-counselor-web-<hash>-grepjimmygus-projects.vercel.app` for
+    # individual deploys. A static allowed_origins list can't keep up with
+    # PR churn; this regex covers every preview of this project without
+    # admitting other Vercel apps. Added 2026-05-21 after PR #41's Market
+    # Pulse preview rendered with empty data because Railway rejected the
+    # CORS preflight.
+    allow_origin_regex=r"https://the-counselor-web-.*\.vercel\.app",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
