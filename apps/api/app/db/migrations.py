@@ -70,6 +70,21 @@ def _run_stage1_isolated_ddl(engine: Engine, is_sqlite: bool) -> None:
         except Exception:
             pass
 
+    # ── 3b. Stage 5a: Plan.comped column ─────────────────────────────────────
+    # Idempotent ADD COLUMN — isolated tx so a re-add doesn't poison the conn.
+    try:
+        with engine.begin() as c:
+            if is_sqlite:
+                c.execute(text(
+                    "ALTER TABLE plans ADD COLUMN comped BOOLEAN NOT NULL DEFAULT 0"
+                ))
+            else:
+                c.execute(text(
+                    "ALTER TABLE plans ADD COLUMN IF NOT EXISTS comped BOOLEAN NOT NULL DEFAULT FALSE"
+                ))
+    except Exception:
+        pass  # column already exists
+
     # ── 4. Indexes that depend on columns added above ─────────────────────────
     # These live here (not in main conn) because IF NOT EXISTS still aborts a Postgres
     # transaction if the referenced COLUMN is missing — even though the INDEX might not exist.
@@ -1286,6 +1301,155 @@ def run_startup_migrations(engine: Engine) -> None:
                 conn.execute(text(stmt))
             except Exception:
                 pass
+
+        # ── Stage 5a: SEO + Creator Program ──────────────────────────────────
+        # stripe_invoices — ledger of paid invoices for revshare calc.
+        if is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS stripe_invoices (
+                    id VARCHAR(64) PRIMARY KEY,
+                    customer_user_id VARCHAR(36) NOT NULL,
+                    subscription_id VARCHAR(64) NOT NULL,
+                    amount_paid_cents INTEGER NOT NULL,
+                    currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+                    status VARCHAR(16) NOT NULL,
+                    paid_at TIMESTAMP NOT NULL,
+                    period_start TIMESTAMP NOT NULL,
+                    period_end TIMESTAMP NOT NULL,
+                    raw TEXT NOT NULL
+                )
+            """))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS stripe_invoices (
+                    id VARCHAR(64) PRIMARY KEY,
+                    customer_user_id VARCHAR(36) NOT NULL,
+                    subscription_id VARCHAR(64) NOT NULL,
+                    amount_paid_cents INTEGER NOT NULL,
+                    currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+                    status VARCHAR(16) NOT NULL,
+                    paid_at TIMESTAMPTZ NOT NULL,
+                    period_start TIMESTAMPTZ NOT NULL,
+                    period_end TIMESTAMPTZ NOT NULL,
+                    raw JSONB NOT NULL
+                )
+            """))
+        try:
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_stripe_invoices_customer ON stripe_invoices (customer_user_id)"
+            ))
+        except Exception:
+            pass
+
+        # creator_applications
+        if is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS creator_applications (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    handle_link VARCHAR(200) NOT NULL,
+                    follower_count INTEGER,
+                    content_format VARCHAR(32) NOT NULL,
+                    sample_url VARCHAR(500) NOT NULL,
+                    pitch TEXT NOT NULL,
+                    status VARCHAR(16) NOT NULL DEFAULT 'pending',
+                    reviewed_by_user_id VARCHAR(36),
+                    reviewed_at TIMESTAMP,
+                    reviewed_note TEXT,
+                    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+            """))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS creator_applications (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    handle_link VARCHAR(200) NOT NULL,
+                    follower_count INTEGER,
+                    content_format VARCHAR(32) NOT NULL,
+                    sample_url VARCHAR(500) NOT NULL,
+                    pitch TEXT NOT NULL,
+                    status VARCHAR(16) NOT NULL DEFAULT 'pending',
+                    reviewed_by_user_id VARCHAR(36),
+                    reviewed_at TIMESTAMPTZ,
+                    reviewed_note TEXT,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+            """))
+        try:
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_creator_apps_user ON creator_applications (user_id)"
+            ))
+        except Exception:
+            pass
+
+        # creators
+        if is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS creators (
+                    user_id VARCHAR(36) PRIMARY KEY,
+                    application_id VARCHAR(36) NOT NULL,
+                    status VARCHAR(16) NOT NULL DEFAULT 'active',
+                    activated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    suspended_at TIMESTAMP,
+                    payout_email VARCHAR(320) NOT NULL,
+                    payout_country VARCHAR(2) NOT NULL DEFAULT 'US',
+                    stripe_connect_account_id VARCHAR(64),
+                    notes TEXT
+                )
+            """))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS creators (
+                    user_id VARCHAR(36) PRIMARY KEY,
+                    application_id VARCHAR(36) NOT NULL,
+                    status VARCHAR(16) NOT NULL DEFAULT 'active',
+                    activated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    suspended_at TIMESTAMPTZ,
+                    payout_email VARCHAR(320) NOT NULL,
+                    payout_country VARCHAR(2) NOT NULL DEFAULT 'US',
+                    stripe_connect_account_id VARCHAR(64),
+                    notes TEXT
+                )
+            """))
+
+        # creator_payouts
+        if is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS creator_payouts (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    amount_cents INTEGER NOT NULL,
+                    currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+                    period_start DATE NOT NULL,
+                    period_end DATE NOT NULL,
+                    paid_at TIMESTAMP NOT NULL,
+                    method VARCHAR(16) NOT NULL,
+                    external_reference VARCHAR(120),
+                    note TEXT
+                )
+            """))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS creator_payouts (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    amount_cents INTEGER NOT NULL,
+                    currency VARCHAR(3) NOT NULL DEFAULT 'USD',
+                    period_start DATE NOT NULL,
+                    period_end DATE NOT NULL,
+                    paid_at TIMESTAMPTZ NOT NULL,
+                    method VARCHAR(16) NOT NULL,
+                    external_reference VARCHAR(120),
+                    note TEXT
+                )
+            """))
+        try:
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_creator_payouts_user ON creator_payouts (user_id)"
+            ))
+        except Exception:
+            pass
 
     # ── Post-create cleanup (isolated; runs AFTER all CREATE TABLE statements) ──
     # Purge bad revenue_segments rows from PRD-08d parser bug. Isolated so a

@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime, date
 from typing import Optional, List
 
-from sqlalchemy import String, DateTime, Date, Integer, ForeignKey, UniqueConstraint, Index
+from sqlalchemy import String, DateTime, Date, Integer, Boolean, ForeignKey, UniqueConstraint, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.session import Base
@@ -49,6 +49,11 @@ class Plan(Base):
     tier: Mapped[str] = mapped_column(String(16), default="scout", nullable=False)
     status: Mapped[str] = mapped_column(String(16), default="active", nullable=False)
     billing_cycle: Mapped[Optional[str]] = mapped_column(String(8), nullable=True)
+    # Stage 5a — Creator Program: comped=True means we don't charge for this
+    # tier (they're an active Creator getting Strategist comped, or other promo).
+    comped: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False,
+    )
 
     # Stripe — filled by Stage 2
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
