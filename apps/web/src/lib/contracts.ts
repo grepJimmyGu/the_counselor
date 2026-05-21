@@ -72,7 +72,6 @@ export type EntitlementErrorCode =
   | "saved_strategies_quota_reached"
   | "anonymous_runs_exhausted"
   | "anonymous_universe_too_large"
-  | "anonymous_chat_locked"
   | "anonymous_asset_class_locked"
   // Stage 3 codes (declared now for type stability)
   | "runs_exhausted"
