@@ -19,9 +19,10 @@ string for telemetry; Stage 5 will introduce a server-side whitelist).
 """
 from __future__ import annotations
 
+from datetime import timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
@@ -35,6 +36,7 @@ from app.services.anonymous_service import (
     increment_anonymous_run,
     record_anonymous_referrer,
 )
+from app.services.backtest_preflight import ensure_data_available, validate_universe
 from app.services.backtester import engine
 from app.services.entitlements import get_anonymous_entitlements
 
@@ -100,6 +102,30 @@ async def anonymous_backtest_run(
     # by the chat builder's own output (~10 tickers max).
     if session.runs_used >= 1:
         raise upgrade_error("anonymous_runs_exhausted", is_anonymous=True)
+
+    # Data pre-flight — mirrors what /api/backtest/run does for authed users.
+    # Without this step, the engine crashes on any uncached ticker
+    # (sector-rotation with 11 SPDR ETFs was the original report on 2026-05-22).
+    strategy = payload.strategy_json
+    universe = [s.upper() for s in (strategy.universe or [])]
+    all_symbols = universe + [strategy.benchmark] if strategy.benchmark else universe
+
+    invalid = await validate_universe(db, universe)
+    if invalid:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown or unsupported ticker(s): {', '.join(invalid)}. "
+                   "Please check the symbols and try again.",
+        )
+
+    required_from = strategy.start_date - timedelta(days=400)
+    fetch_errors = await ensure_data_available(db, all_symbols, required_from)
+    if fetch_errors:
+        msgs = "; ".join(f"{sym}: {err}" for sym, err in fetch_errors.items())
+        raise HTTPException(
+            status_code=400,
+            detail=f"Could not retrieve price data: {msgs}",
+        )
 
     # Run the backtest. Engine persists a BacktestRecord with user_id=NULL;
     # merge_anonymous_into_user will set user_id on signup.
