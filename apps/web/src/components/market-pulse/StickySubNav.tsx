@@ -21,6 +21,7 @@ const ANCHORS: { id: string; label: string }[] = [
   { id: "sectors", label: "Sectors" },
   { id: "history", label: "History" },
   { id: "movers", label: "Movers" },
+  { id: "screener", label: "Screens" },
 ];
 
 export function StickySubNav() {
