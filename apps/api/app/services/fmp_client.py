@@ -129,20 +129,23 @@ class FMPClient:
         return None
 
     async def get_quotes_batch(self, symbols: list[str]) -> list[dict]:
-        """Batch live quotes — FMP accepts comma-separated symbols and returns
-        one response per ticker. Used by the live-quote cache service so a page
-        with N tickers costs 1 FMP call instead of N.
+        """Live quotes for N symbols. Fans out to N parallel `get_quote(symbol)`
+        calls via asyncio.gather. Drops the comma-separated batch optimization
+        because FMP's /stable/quote treats `?symbol=A,B,C` as a single literal
+        ticker rather than a list (verified 2026-05-21 — endpoint returned `{}`).
 
-        Returns an empty list on any failure (callers fall back to cache).
+        Cost note: at the design point (~11 ticker-bar symbols polled every
+        30s when all stale), this is ~22 calls/min steady-state — well
+        under FMP starter's ~300/min limit.
         """
         if not symbols:
             return []
-        joined = ",".join(s.upper() for s in symbols)
-        try:
-            data = await self._get("/quote", {"symbol": joined})
-            return data if isinstance(data, list) else []
-        except Exception:
-            return []
+        upper = [s.upper() for s in symbols]
+        results = await asyncio.gather(
+            *(self.get_quote(sym) for sym in upper),
+            return_exceptions=False,
+        )
+        return [r for r in results if r is not None]
 
     async def get_revenue_segments(self, symbol: str, limit: int = 5) -> list[dict]:
         """Annual product/business revenue segmentation (last N years)."""
