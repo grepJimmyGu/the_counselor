@@ -9,6 +9,7 @@ import {
 } from "lucide-react";
 
 import {
+  anonymousBacktestRun,
   explainStrategy,
   getRobustnessJob,
   getSavedStrategy,
@@ -88,10 +89,15 @@ export function ResearchWorkspace() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { data: session } = useSession();
-  // Stage 3: forward the backend session token so /api/backtest/run can resolve
-  // the user (otherwise it returns 401). Anonymous users go through the separate
-  // /api/anonymous/backtest/run path, not this component.
+  // Stage 3: forward the backend session token to /api/backtest/run (the
+  // authed endpoint) so it can resolve the user.
+  // Stage 1a: when there is no session token we treat the visitor as
+  // anonymous and route through /api/anonymous/backtest/run instead — that
+  // endpoint enforces the one-free-run-per-cookie quota via AnonymousSession.
+  // The backend will still 402 if the strategy is out-of-scope (e.g. >1
+  // ticker), and the 402 envelope surfaces the SoftPaywall + signup CTA.
   const backendToken = (session as unknown as { backendToken?: string } | null)?.backendToken;
+  const isAnonymous = !backendToken;
 
   const [strategy, setStrategy] = useState<StrategyJson | null>(null);
   const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
@@ -188,7 +194,16 @@ export function ResearchWorkspace() {
     setExplanation(null);
     setSandboxReview(null);
     try {
-      const result = await runBacktest(strat, { backendToken });
+      const result = isAnonymous
+        ? await anonymousBacktestRun({
+            // Anonymous endpoint requires a non-empty template_id (Pydantic
+            // min_length=1). Use the active template's id when known so
+            // telemetry can attribute the run; otherwise mark it as a custom
+            // build — the backend will then 402 on the universe ≤ 1 cap.
+            template_id: activeTemplate?.id ?? "custom",
+            strategy_json: strat,
+          })
+        : await runBacktest(strat, { backendToken });
       setBacktestResult(result);
       const [explainerPayload, reviewerPayload] = await Promise.all([
         explainStrategy(strat, result, "en"),
