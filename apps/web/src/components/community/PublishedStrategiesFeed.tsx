@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
 import { listPublishedStrategies } from "@/lib/api";
 import type { PublishedStrategySummary } from "@/lib/contracts";
+import { useLiveQuotes, type LiveQuote } from "@/lib/useLiveQuotes";
 
 type Sort = "trending" | "newest";
 
@@ -34,6 +35,13 @@ export function PublishedStrategiesFeed() {
   const [items, setItems] = useState<PublishedStrategySummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [sort, setSort] = useState<Sort>("trending");
+
+  // Live prices for every ticker mentioned in any feed card. One hook call
+  // = one batched FMP request via the cache; each card consumes via prop.
+  const allSymbols = Array.from(
+    new Set(items.flatMap(s => s.universe.slice(0, 3))),
+  );
+  const { quotes: liveQuotes } = useLiveQuotes(allSymbols);
 
   useEffect(() => {
     let cancelled = false;
@@ -95,7 +103,7 @@ export function PublishedStrategiesFeed() {
       ) : (
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((s) => (
-            <Card key={s.id} s={s} />
+            <Card key={s.id} s={s} liveQuotes={liveQuotes} />
           ))}
         </div>
       )}
@@ -127,10 +135,20 @@ function SortBtn({
   );
 }
 
-function Card({ s }: { s: PublishedStrategySummary }) {
+function Card({
+  s,
+  liveQuotes,
+}: {
+  s: PublishedStrategySummary;
+  liveQuotes: Record<string, LiveQuote>;
+}) {
   const m = s.metrics;
   const totalReturn = m.total_return;
   const positive = (totalReturn ?? 0) >= 0;
+  // Show live chips for the first 3 universe tickers (matches the prefetch
+  // window in the parent so cards never over-promise quotes the parent
+  // didn't ask for).
+  const liveTickers = s.universe.slice(0, 3);
   return (
     <Link
       href={`/s/${s.slug}` as Route}
@@ -170,6 +188,33 @@ function Card({ s }: { s: PublishedStrategySummary }) {
         <span>DD {fmtPct(m.max_drawdown, 0)}</span>
         <span>{s.universe.length}t</span>
       </div>
+
+      {liveTickers.some(sym => liveQuotes[sym.toUpperCase()]) && (
+        <div className="mt-2 flex flex-wrap gap-1">
+          {liveTickers.map(sym => {
+            const q = liveQuotes[sym.toUpperCase()];
+            if (!q) return null;
+            const up = q.change_percent >= 0;
+            return (
+              <span
+                key={sym}
+                className="inline-flex items-baseline gap-1 rounded-full bg-muted px-1.5 py-0.5 text-[10px]"
+              >
+                <span className="font-mono font-medium text-foreground">
+                  {sym.toUpperCase()}
+                </span>
+                <span
+                  className={`tabular-nums font-medium ${
+                    up ? "text-emerald-600" : "text-rose-600"
+                  }`}
+                >
+                  {up ? "+" : ""}{q.change_percent.toFixed(1)}%
+                </span>
+              </span>
+            );
+          })}
+        </div>
+      )}
 
       <div className="mt-3 border-t border-border/60 pt-2 text-[10px] text-muted-foreground">
         {s.strategy_type.replace(/_/g, " ")}
