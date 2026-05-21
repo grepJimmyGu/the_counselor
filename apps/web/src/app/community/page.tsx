@@ -40,6 +40,7 @@ import {
   getFinalScore,
 } from "@/lib/evaluation/scoring";
 import type { StockMetricsInput } from "@/lib/evaluation/types";
+import { PublishedStrategiesFeed } from "@/components/community/PublishedStrategiesFeed";
 import { UpvoteButton } from "@/components/community/upvote-button";
 import { VoteBar } from "@/components/community/vote-bar";
 import { Badge } from "@/components/ui/badge";
@@ -892,7 +893,10 @@ export default function CommunityPage() {
               )}
             </section>
 
-            <section className={cn("space-y-3", activeTab !== "strategies" && "hidden")}>
+            <section className={cn("space-y-6", activeTab !== "strategies" && "hidden")}>
+              {/* Stage 4b: new community publishes feed (Stage 4a primitive) */}
+              <PublishedStrategiesFeed />
+
               <div className="flex flex-col gap-1 sm:flex-row sm:items-center sm:justify-between">
                 <div className="flex items-center gap-2">
                   <Target className="h-4 w-4 text-purple-500" />

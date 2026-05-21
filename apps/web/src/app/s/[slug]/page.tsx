@@ -5,16 +5,21 @@ export const dynamic = "force-dynamic";
 import { Suspense, useEffect, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { useParams, useSearchParams } from "next/navigation";
+import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { ArrowRight, Loader2, TrendingDown, TrendingUp } from "lucide-react";
+import { ArrowRight, CopyPlus, Loader2, TrendingDown, TrendingUp } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ShareButton } from "@/components/ShareButton";
 import { VerifiedBadge } from "@/components/VerifiedBadge";
-import { getPublishedStrategy, trackAttributionVisit } from "@/lib/api";
-import type { PublishedStrategyDetail } from "@/lib/contracts";
+import {
+  createSavedStrategy,
+  getPublishedStrategy,
+  trackAttributionVisit,
+  UpgradeRequiredError,
+} from "@/lib/api";
+import type { PublishedStrategyDetail, StrategyJson } from "@/lib/contracts";
 
 // ── Formatters ────────────────────────────────────────────────────────────────
 
@@ -41,12 +46,16 @@ export default function PublishedStrategyPage() {
 function Inner() {
   const { slug } = useParams<{ slug: string }>();
   const searchParams = useSearchParams();
-  const { status } = useSession();
+  const router = useRouter();
+  const { data: session, status } = useSession();
   const via = searchParams.get("via");
+  const backendToken = (session as unknown as { backendToken?: string } | null)?.backendToken;
 
   const [data, setData] = useState<PublishedStrategyDetail | null>(null);
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [cloning, setCloning] = useState(false);
+  const [cloneError, setCloneError] = useState<string | null>(null);
 
   // Fetch the strategy
   useEffect(() => {
@@ -79,6 +88,33 @@ function Inner() {
       /* attribution failures must not block page render */
     });
   }, [via]);
+
+  async function handleClone() {
+    if (!data || !backendToken) return;
+    setCloneError(null);
+    setCloning(true);
+    try {
+      await createSavedStrategy(
+        {
+          title: data.title,
+          strategy_json: data.strategy_json,
+          is_public: false,
+          backtest_record_id: undefined, // we don't have a fresh BacktestRecord; user will re-run in workspace
+        },
+        backendToken,
+      );
+      router.push("/workspace");
+    } catch (err) {
+      if (err instanceof UpgradeRequiredError) {
+        // UpgradeModal already dispatched by fetchApi interceptor
+        setCloneError(null);
+      } else {
+        setCloneError((err as Error).message || "Couldn't clone right now.");
+      }
+    } finally {
+      setCloning(false);
+    }
+  }
 
   if (loading) return <PageSkeleton />;
   if (notFound || !data) return <NotFound />;
@@ -118,8 +154,30 @@ function Inner() {
             <h1 className="font-heading text-2xl font-bold leading-tight sm:text-3xl">
               {data.title}
             </h1>
-            <ShareButton path={`/s/${data.slug}`} />
+            <div className="flex shrink-0 items-center gap-2">
+              {!isAnonymous && (
+                <Button
+                  size="sm"
+                  onClick={handleClone}
+                  disabled={cloning}
+                  className="gap-1.5"
+                >
+                  {cloning ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                  ) : (
+                    <>
+                      <CopyPlus className="h-3.5 w-3.5" />
+                      Clone
+                    </>
+                  )}
+                </Button>
+              )}
+              <ShareButton path={`/s/${data.slug}`} />
+            </div>
           </div>
+          {cloneError && (
+            <p className="text-xs text-destructive">{cloneError}</p>
+          )}
 
           <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
             <div className="flex items-center gap-1.5">
