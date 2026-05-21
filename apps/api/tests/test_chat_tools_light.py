@@ -222,13 +222,21 @@ async def test_onboarding_tutor_step_zero_works():
 # ── dispatcher + registry ─────────────────────────────────────────────────────
 
 
-def test_registry_contains_all_three_light_tools():
-    """The 3 tools shipped in this ticket must be registered. If a fourth
-    tool is added (ticket #4), update this list."""
+def test_registry_contains_all_phase1_tools():
+    """All Phase 1 tools (ticket #3 light + ticket #4 heavier) must be
+    registered. When ticket #4 lands its 4 heavier tools, this set grew
+    from 3 → 7. Future tickets append; never remove without a deprecation
+    plan."""
     assert set(TOOL_REGISTRY.keys()) == {
+        # Light (ticket #3)
         "concept_explainer",
         "template_search",
         "onboarding_tutor",
+        # Heavier (ticket #4)
+        "strategy_builder_iterate",
+        "backtest_execute",
+        "stock_lookup",
+        "backtest_explain",
     }
 
 
@@ -237,7 +245,7 @@ def test_get_openai_tool_specs_strips_handler():
     name/description/parameters."""
     specs = get_openai_tool_specs()
 
-    assert len(specs) == 3
+    assert len(specs) == len(TOOL_REGISTRY)
     for spec in specs:
         assert spec["type"] == "function"
         fn = spec["function"]

@@ -18,6 +18,14 @@ from __future__ import annotations
 
 from typing import Any, Awaitable, Callable, Dict, TypedDict
 
+from app.services.chat_tools.backtest_execute import (
+    BACKTEST_EXECUTE_DEF,
+    execute_backtest,
+)
+from app.services.chat_tools.backtest_explain import (
+    BACKTEST_EXPLAIN_DEF,
+    explain_backtest,
+)
 from app.services.chat_tools.concept_explainer import (
     CONCEPT_EXPLAINER_DEF,
     explain_concept,
@@ -25,6 +33,14 @@ from app.services.chat_tools.concept_explainer import (
 from app.services.chat_tools.onboarding_tutor import (
     ONBOARDING_TUTOR_DEF,
     run_onboarding_tutor,
+)
+from app.services.chat_tools.stock_lookup import (
+    STOCK_LOOKUP_DEF,
+    lookup_stock,
+)
+from app.services.chat_tools.strategy_builder_iterate import (
+    STRATEGY_BUILDER_ITERATE_DEF,
+    iterate_strategy,
 )
 from app.services.chat_tools.template_search import (
     TEMPLATE_SEARCH_DEF,
@@ -51,9 +67,15 @@ class ToolDefinition(TypedDict):
 # adding it here. Keeping the registry centralized means there's exactly one
 # place to grep when wiring or debugging.
 TOOL_REGISTRY: Dict[str, ToolDefinition] = {
+    # Light tools (ticket #3)
     "concept_explainer": CONCEPT_EXPLAINER_DEF,
     "template_search": TEMPLATE_SEARCH_DEF,
     "onboarding_tutor": ONBOARDING_TUTOR_DEF,
+    # Heavier tools (ticket #4)
+    "strategy_builder_iterate": STRATEGY_BUILDER_ITERATE_DEF,
+    "backtest_execute": BACKTEST_EXECUTE_DEF,
+    "stock_lookup": STOCK_LOOKUP_DEF,
+    "backtest_explain": BACKTEST_EXPLAIN_DEF,
 }
 
 
@@ -108,7 +130,13 @@ __all__ = [
     "UnknownToolError",
     "dispatch_tool_call",
     "get_openai_tool_specs",
+    # Light tools
     "explain_concept",
     "search_templates",
     "run_onboarding_tutor",
+    # Heavier tools
+    "iterate_strategy",
+    "execute_backtest",
+    "lookup_stock",
+    "explain_backtest",
 ]
