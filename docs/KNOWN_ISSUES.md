@@ -31,6 +31,76 @@ A running log of bugs encountered, root causes, and confirmed fixes. Add new ent
 
 ---
 
+### Production schema drift — UUID columns, oauth_provider NOT NULL, orphan Plan rows
+**Date:** 2026-05-21
+**Area:** backend / migrations / data
+**Symptom:**
+```
+POST /api/auth/password/signup
+  psycopg.errors.DatatypeMismatch: column "id" is of type uuid but expression
+  is of type character varying
+  LINE 1: ... VALUES ($1::VARCHAR, ...
+
+GET /api/company/AAPL/overview          (anonymous and signed-in alike)
+GET /api/fundamental/overview/AAPL
+  psycopg.errors.UndefinedFunction: operator does not exist:
+    uuid = character varying
+  LINE 3: WHERE users.id = $1::VARCHAR
+
+POST /api/auth/sync-user                (real Google-OAuth users)
+  AttributeError: 'NoneType' object has no attribute 'tier'
+```
+Every backend code path that wrote to or queried `users` 500'd. Market Pulse listing stayed up (no `users` query) but every per-ticker detail page, fundamental page, sentiment page, and signup attempt failed. The only reason production looked alive was the few endpoints that don't query `users`.
+
+**Root cause:**
+Three independent drifts between the SQLAlchemy model (source of truth) and the live Postgres schema (bootstrapped under prior model versions and never migrated):
+
+1. **`users.id` / `plans.user_id` / `monthly_usage.user_id` type drift.** Model = `String(36)`, prod = `uuid`. Introduced when an earlier model revision used `Uuid(as_uuid=False)` (see the 2026-05-19 entry below); the model was reverted to `String(36)` but the existing prod column was never altered. Every `WHERE users.id = $1::VARCHAR` query 500'd. The two `*.user_id` columns drifted via FK relationships to `users.id`.
+
+2. **`users.oauth_provider` NOT NULL drift.** Model = `nullable=True` (added when password signup landed alongside Google OAuth), prod = `NOT NULL` (column originally created when Google was the only provider, never relaxed). Every password signup attempted to insert `None` → `NotNullViolation`.
+
+3. **Orphaned User rows.** Both pre-existing users had a `User` row but no companion `Plan` row, so `sync_user`'s `user.plan.tier` access raised `AttributeError`. Likely created during a partial-failure path in the May 19/20 migration odyssey.
+
+Why it surfaced on 2026-05-21 specifically: that day's QA work was the first attempt at password signup since these drifts were introduced. Until then no flow that exercised these write paths had run, so the bugs sat dormant — manifesting only as the user-visible "Failed to fetch" on stock detail pages that triggered the investigation.
+
+**Fix:**
+Single transaction against production:
+```sql
+ALTER TABLE plans         DROP CONSTRAINT plans_user_id_fkey;
+ALTER TABLE monthly_usage DROP CONSTRAINT monthly_usage_user_id_fkey;
+ALTER TABLE users         ALTER COLUMN id      TYPE VARCHAR(36) USING id::text;
+ALTER TABLE plans         ALTER COLUMN user_id TYPE VARCHAR(36) USING user_id::text;
+ALTER TABLE monthly_usage ALTER COLUMN user_id TYPE VARCHAR(36) USING user_id::text;
+ALTER TABLE users         ALTER COLUMN oauth_provider DROP NOT NULL;
+ALTER TABLE plans         ADD CONSTRAINT plans_user_id_fkey
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+ALTER TABLE monthly_usage ADD CONSTRAINT monthly_usage_user_id_fkey
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE;
+INSERT INTO plans (user_id, tier, status, comped, updated_at)
+SELECT u.id, 'scout', 'active', false, NOW()
+  FROM users u LEFT JOIN plans p ON p.user_id = u.id
+ WHERE p.user_id IS NULL;
+```
+
+Code-level defenses already merged in parallel:
+- PR #7 — workspace anonymous-routing fix
+- PR #8 — `sync_user` heals orphans on the fly (the runtime mirror of #3 above)
+- PR #9 — `apps/api/scripts/check_orphan_users.py` + `test_orphan_user_detection_query_works` + the orphan invariant codified as rule #9 in `apps/api/CLAUDE.md`
+
+No idempotent ALTER was added to `migrations.py`. Fresh DBs bootstrapped from the current model already produce the correct schema (`String(36)`, `nullable=True`, etc.) — the ALTERs above only matter for the specific prod row whose history this entry documents. If a stale snapshot ever needs to be reconciled, the transaction above is the canonical recipe.
+
+**Files:** Direct DB writes against production. Forward defense added in this session:
+- `apps/api/app/jobs/qa_jobs.py` — new, holds `check_schema_drift_job`
+- `apps/api/scripts/check_schema_drift.py` — CLI mirror
+- `apps/api/app/main.py` — registers the job in `_start_scheduler` (daily 03:00 UTC)
+
+**Rule:**
+1. **Schema drift is a category, not an incident.** Any model column-type change (`Uuid` → `String(36)`, `nullable=False` → `True`, length tweaks) requires an explicit prod migration on the same deploy. `Base.metadata.create_all` only creates missing tables — it never alters existing columns.
+2. **The new tripwire is the long-term guard.** `check_schema_drift_job` runs daily at 03:00 UTC and logs `INVARIANT_BROKEN: schema_drift ...` for every FATAL/WARN drift. Surface via `railway logs --service the_counselor | grep INVARIANT_BROKEN`. CLI mirror: `DATABASE_URL=... PYTHONPATH=apps/api python apps/api/scripts/check_schema_drift.py`. Run before any auth-touching change.
+3. **Pre-existing drift is expected output.** First run against prod reports ~8 WARN items unrelated to this incident (e.g., `users.email` is `varchar(255)` in prod vs `varchar(320)` in the model — a separate legacy drift). Triage individually, don't bulk-migrate; the tripwire's job is to make this drift visible and refuse to grow.
+
+---
+
 ### Uuid(as_uuid=False) strips hyphens in SQLite — breaks raw SQL queries
 **Date:** 2026-05-19
 **Area:** backend / models

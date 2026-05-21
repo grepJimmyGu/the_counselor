@@ -266,6 +266,11 @@ def _start_scheduler() -> None:
         from app.jobs.billing_jobs import expire_trials_job, dunning_expiry_job
         scheduler.add_job(expire_trials_job, "cron", minute=15)
         scheduler.add_job(dunning_expiry_job, "cron", minute=30)
+        # QA tripwires — daily schema-drift check (see app/jobs/qa_jobs.py).
+        # Violations log `INVARIANT_BROKEN: schema_drift ...` to Railway,
+        # grep-able alongside the existing `DEFERRED_TRIGGER:` lines.
+        from app.jobs.qa_jobs import check_schema_drift_job
+        scheduler.add_job(check_schema_drift_job, "cron", hour=3, minute=0)
         scheduler.start()
     except Exception as exc:
         logger.warning("APScheduler failed to start: %s", exc)
