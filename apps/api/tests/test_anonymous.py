@@ -158,39 +158,28 @@ def test_lookup_by_converted_user_id(make_user, db: Session) -> None:
     assert found.via_handle == "creator-jimmy"
 
 
-# ── Endpoint-level: template_id="custom" sentinel rejection (2026-05-20) ────
+# ── Endpoint-level: anonymous custom-run policy (2026-05-22) ─────────────────
+#
+# Policy change: anonymous viewers get ONE backtest per session — template
+# OR custom (chat-built). The frontend sends `template_id="custom"` when no
+# template is loaded; the backend used to 402 with `anonymous_chat_locked`
+# but now lets it through on the first run and applies the same gates that
+# apply to template runs (universe size, asset class, runs_used).
 
 
-def test_anonymous_endpoint_rejects_custom_template_id(db: Session) -> None:
-    """The workspace sends template_id='custom' when no template is loaded.
-    The anonymous endpoint must reject this with anonymous_chat_locked, not
-    fall through to the universe-size cap. Tests the route function directly
-    to avoid spinning up an httpx async client just for this assertion."""
-    import asyncio
-    import pytest as _pt
+def _stub_strategy(universe=None):
+    """Minimal valid StrategyJSON for endpoint-level tests."""
     from datetime import date, timedelta
-    from fastapi import HTTPException
-    from app.api.routes.anonymous import (
-        anonymous_backtest_run,
-        AnonymousBacktestRunRequest,
-    )
     from app.schemas.strategy import (
         CashManagement,
         PositionSizing,
         RiskManagement,
         StrategyJSON,
     )
-
-    req = _stub_request()
-    resp = _stub_response()
-
-    # Construct a fully-valid StrategyJSON so we can prove the rejection
-    # comes from the template_id check, not from a Pydantic validation
-    # failure on a malformed body.
-    strategy = StrategyJSON(
+    return StrategyJSON(
         strategy_name="test-strategy",
         strategy_type="moving_average_filter",
-        universe=["AAPL"],
+        universe=universe or ["AAPL"],
         benchmark="SPY",
         start_date=date.today() - timedelta(days=200),
         end_date=date.today(),
@@ -203,9 +192,60 @@ def test_anonymous_endpoint_rejects_custom_template_id(db: Session) -> None:
         risk_management=RiskManagement(),
         cash_management=CashManagement(hold_cash_when_no_signal=True),
     )
+
+
+def test_anonymous_custom_template_id_blocked_only_after_first_run(db: Session) -> None:
+    """Regression for the May 22 policy change. A SECOND attempt with
+    template_id='custom' must 402 with anonymous_runs_exhausted (not the
+    removed anonymous_chat_locked). Proves the first attempt is allowed
+    through to the actual backtest engine and the second is gated."""
+    import asyncio
+    import pytest as _pt
+    from fastapi import HTTPException
+    from app.api.routes.anonymous import (
+        anonymous_backtest_run,
+        AnonymousBacktestRunRequest,
+    )
+
+    # Simulate a session that has already used its one free run.
+    req, resp = _stub_request(), _stub_response()
+    session = get_or_create_anonymous_session(req, resp, db)
+    increment_anonymous_run(db, session, backtest_id="bt-prior")
+
+    # Replay the same session via cookie on the next request.
+    req2 = _stub_request(cookies={COOKIE_NAME: session.id})
+    resp2 = _stub_response()
+
     payload = AnonymousBacktestRunRequest(
         template_id="custom",
-        strategy_json=strategy,
+        strategy_json=_stub_strategy(),
+    )
+
+    with _pt.raises(HTTPException) as exc:
+        asyncio.run(anonymous_backtest_run(
+            payload=payload, request=req2, response=resp2, db=db,
+        ))
+    assert exc.value.status_code == 402
+    assert exc.value.detail["entitlement"]["code"] == "anonymous_runs_exhausted"
+    assert exc.value.detail["entitlement"]["is_anonymous"] is True
+    assert exc.value.detail["entitlement"]["cta_action"] == "signup"
+
+
+def test_anonymous_custom_with_multi_ticker_still_hits_universe_gate(db: Session) -> None:
+    """Even on the first run, the universe-size cap (≤1 ticker) still
+    applies. Custom strategies don't get a free pass past that gate."""
+    import asyncio
+    import pytest as _pt
+    from fastapi import HTTPException
+    from app.api.routes.anonymous import (
+        anonymous_backtest_run,
+        AnonymousBacktestRunRequest,
+    )
+
+    req, resp = _stub_request(), _stub_response()
+    payload = AnonymousBacktestRunRequest(
+        template_id="custom",
+        strategy_json=_stub_strategy(universe=["AAPL", "MSFT"]),
     )
 
     with _pt.raises(HTTPException) as exc:
@@ -213,6 +253,4 @@ def test_anonymous_endpoint_rejects_custom_template_id(db: Session) -> None:
             payload=payload, request=req, response=resp, db=db,
         ))
     assert exc.value.status_code == 402
-    assert exc.value.detail["entitlement"]["code"] == "anonymous_chat_locked"
-    assert exc.value.detail["entitlement"]["is_anonymous"] is True
-    assert exc.value.detail["entitlement"]["cta_action"] == "signup"
+    assert exc.value.detail["entitlement"]["code"] == "anonymous_universe_too_large"

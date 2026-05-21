@@ -6,8 +6,11 @@ upgrade modal copy and `cta_action` to pick the primary button behavior.
 
 Stage 1a uses the foundation laid out below for two codes only:
   - saved_strategies_quota_reached
-  - anonymous_runs_exhausted, anonymous_universe_too_large, anonymous_chat_locked,
+  - anonymous_runs_exhausted, anonymous_universe_too_large,
     anonymous_asset_class_locked (all cta_action="signup")
+
+(Removed 2026-05-22: `anonymous_chat_locked` — anonymous now allowed ONE
+custom run; the runs_exhausted cap covers the post-first-run case.)
 
 Stage 3 will extend with: runs_exhausted, universe_too_large, history_too_long,
 robustness_test_locked, market_pulse_ticker_out_of_scope.
@@ -26,7 +29,6 @@ CodeT = Literal[
     # Stage 1a — anonymous gates (all resolve to signup)
     "anonymous_runs_exhausted",
     "anonymous_universe_too_large",
-    "anonymous_chat_locked",
     "anonymous_asset_class_locked",
     # Stage 3 — extended (declared now so the literal is stable across stages)
     "runs_exhausted",
@@ -61,7 +63,6 @@ _CTA_COPY: dict[str, str] = {
     "saved_strategies_quota_reached": "Upgrade to save more strategies",
     "anonymous_runs_exhausted": "Sign up to keep exploring",
     "anonymous_universe_too_large": "Sign up to backtest larger universes",
-    "anonymous_chat_locked": "Sign up to build custom strategies",
     "anonymous_asset_class_locked": "Sign up to unlock more asset classes",
     "runs_exhausted": "Upgrade to Strategist for unlimited runs",
     "universe_too_large": "Upgrade to test larger universes",

@@ -229,8 +229,8 @@ export function ResearchWorkspace() {
             // Anonymous endpoint requires a non-empty template_id (Pydantic
             // min_length=1). Use the active template's id when known so
             // telemetry can attribute the run; otherwise mark it as a custom
-            // build — the backend will then 402 with anonymous_chat_locked
-            // (added 2026-05-20) or anonymous_universe_too_large.
+            // build — as of 2026-05-22 anonymous viewers get ONE backtest
+            // (template OR custom). After that, runs_exhausted fires.
             template_id: activeTemplate?.id ?? "custom",
             strategy_json: strat,
           })

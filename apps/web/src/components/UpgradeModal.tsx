@@ -67,12 +67,6 @@ const COPY: Record<EntitlementErrorCode, ModalCopy> = {
     primaryCta: "Continue with Google",
     secondaryCta: "Back",
   },
-  anonymous_chat_locked: {
-    title: "Sign up to build custom strategies",
-    body: "Anonymous viewers can run templates. Build a custom strategy with the AI chat builder by signing up — Scout (free) includes 5 weekly runs.",
-    primaryCta: "Continue with Google",
-    secondaryCta: "Back to templates",
-  },
   anonymous_asset_class_locked: {
     title: "Sign up to unlock more asset classes",
     body: "Anonymous viewers can run equity-only templates. Strategist unlocks commodities; Quant adds A-shares.",
