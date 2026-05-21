@@ -37,6 +37,8 @@ CodeT = Literal[
     "history_too_long",
     "robustness_test_locked",
     "market_pulse_ticker_out_of_scope",
+    # Stage 7 — chat
+    "chat_quota_exhausted",
 ]
 
 
@@ -68,6 +70,7 @@ _CTA_COPY: dict[str, str] = {
     "history_too_long": "Upgrade for longer backtest windows",
     "robustness_test_locked": "Upgrade to Quant for the full robustness suite",
     "market_pulse_ticker_out_of_scope": "Upgrade to research all US stocks",
+    "chat_quota_exhausted": "Sign up for unlimited chat",
 }
 
 # Which tier unlocks each code.
@@ -78,6 +81,7 @@ _REQUIRED_TIER: dict[str, Optional[str]] = {
     "history_too_long": "strategist",
     "robustness_test_locked": "quant",
     "market_pulse_ticker_out_of_scope": "strategist",
+    "chat_quota_exhausted": "strategist",  # Scout cap → upgrade to Strategist
     # Anonymous codes resolve to signup; no required_tier.
 }
 
@@ -89,9 +93,17 @@ def upgrade_error(
     current_value: Optional[str] = None,
     limit_value: Optional[str] = None,
     is_anonymous: bool = False,
+    cta_action_override: Optional[Literal["signup", "trial", "checkout", "upgrade"]] = None,
 ) -> HTTPException:
-    """Build a 402 HTTPException with the standardized envelope."""
-    cta_action: Literal["signup", "upgrade"] = "signup" if is_anonymous else "upgrade"
+    """Build a 402 HTTPException with the standardized envelope.
+
+    `cta_action_override` lets a specific gate pick a non-default action
+    without touching the rest of the routing logic. Default is "signup"
+    for anonymous, "upgrade" otherwise. The chat quota gate (Stage 7) uses
+    "trial" for Scout to send them to the 14-day Strategist trial.
+    """
+    default_cta: Literal["signup", "upgrade"] = "signup" if is_anonymous else "upgrade"
+    cta_action = cta_action_override or default_cta
     required = None if is_anonymous else _REQUIRED_TIER.get(code)
     upgrade_url = (
         f"/signup?gate={code}" if is_anonymous else f"/pricing?gate={code}&from={current_tier or 'scout'}"
