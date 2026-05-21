@@ -30,6 +30,7 @@ import {
 } from "@/lib/contracts";
 import { useLocale } from "@/lib/locale-context";
 import { useEntitlements } from "@/lib/useEntitlements";
+import { useLiveQuotes } from "@/lib/useLiveQuotes";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -119,6 +120,11 @@ export function ResearchWorkspace() {
 
   const [strategy, setStrategy] = useState<StrategyJson | null>(null);
   const [backtestResult, setBacktestResult] = useState<BacktestResult | null>(null);
+
+  // Live prices for the strategy's universe. Renders as a small chip row
+  // beneath the preview summary line.
+  const liveUniverseSymbols = strategy?.universe?.slice(0, 8) ?? [];
+  const { quotes: liveUniverseQuotes } = useLiveQuotes(liveUniverseSymbols);
   const [explanation, setExplanation] = useState<ExplanationResponse | null>(null);
   const [sandboxReview, setSandboxReview] = useState<SandboxReviewResponse | null>(null);
   const [isRunning, setIsRunning] = useState(false);
@@ -431,6 +437,33 @@ export function ResearchWorkspace() {
                   {strategy.universe.slice(0, 5).join(", ")}{strategy.universe.length > 5 ? ` +${strategy.universe.length - 5} more` : ""}{" "}
                   · {strategy.start_date} → {strategy.end_date}
                 </p>
+                {liveUniverseSymbols.some(sym => liveUniverseQuotes[sym.toUpperCase()]) && (
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {liveUniverseSymbols.map(sym => {
+                      const q = liveUniverseQuotes[sym.toUpperCase()];
+                      if (!q) return null;
+                      const up = q.change_percent >= 0;
+                      return (
+                        <span
+                          key={sym}
+                          className="inline-flex items-baseline gap-1 rounded-full border border-border bg-background px-2 py-0.5 text-xs"
+                        >
+                          <span className="font-mono font-semibold">{sym.toUpperCase()}</span>
+                          <span className="tabular-nums">${q.price.toFixed(2)}</span>
+                          <span
+                            className={`tabular-nums font-medium ${
+                              up
+                                ? "text-emerald-600 dark:text-emerald-400"
+                                : "text-rose-600 dark:text-rose-400"
+                            }`}
+                          >
+                            {up ? "+" : ""}{q.change_percent.toFixed(2)}%
+                          </span>
+                        </span>
+                      );
+                    })}
+                  </div>
+                )}
               </>
             ) : (
               <h1 className="font-heading text-xl font-bold tracking-tight">Workspace</h1>
