@@ -6,29 +6,29 @@ import { cn } from "@/lib/utils";
 import { MoverRow, type MoverRowProps } from "./MoverRow";
 
 /**
- * Section 5 — Movers (unified ranked list).
+ * Section 5 — Top Movers (unified ranked list).
  *
- * Replaces the previous Stocks/ETFs/Commodities tabs with one ranked
- * list plus category filter chips and a sort dropdown. Sort defaults
- * to "Top gainers" (most-natural retail framing per Yahoo / Robinhood);
- * "Most active" surfaces the `volume_ratio` field (already in
- * `AssetCard` for assets returned by the backend; falls back to mid-
- * list ordering when unavailable).
+ * Renamed from "Movers" on 2026-05-21 per Jimmy's preview feedback.
+ * Drops commodities from the list (the page composition no longer
+ * appends the static commodity stub array). Filter chips: All · Stocks
+ * · ETFs.
  *
- * No backend change. Source: `top_assets + featured_etfs +
- * static-commodity-array`, de-duped by symbol.
+ * Sort defaults to "Top gainers" (most-natural retail framing per Yahoo
+ * / Robinhood). "Most active" still sorts by `cmf_20` today as a stand-in;
+ * Phase 2 will add `volume_ratio` to `AssetCard` for a true volume-based
+ * sort.
  */
 
 export interface MoverItem {
   card: AssetCard;
-  category: "Stock" | "ETF" | "Commodity";
+  category: "Stock" | "ETF";
   href: string;
 }
 
-type Filter = "all" | "stock" | "etf" | "commodity";
+type Filter = "all" | "stock" | "etf";
 type Sort = "gainers" | "losers" | "active" | "cmf";
 
-export function MoversList({ items }: { items: MoverItem[] }) {
+export function TopMovers({ items }: { items: MoverItem[] }) {
   const [filter, setFilter] = useState<Filter>("all");
   const [sort, setSort] = useState<Sort>("gainers");
 
@@ -36,25 +36,27 @@ export function MoversList({ items }: { items: MoverItem[] }) {
     const byCat =
       filter === "all"
         ? items
-        : items.filter(
-            (i) => i.category.toLowerCase() === filter,
-          );
+        : items.filter((i) => i.category.toLowerCase() === filter);
     return sortItems(byCat, sort);
   }, [items, filter, sort]);
 
   const counts = useMemo(() => countByCategory(items), [items]);
 
   return (
-    <section id="movers" aria-labelledby="movers-heading" className="space-y-3">
+    <section
+      id="movers"
+      aria-labelledby="movers-heading"
+      className="space-y-3"
+    >
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <h2
           id="movers-heading"
           className="text-sm font-semibold uppercase tracking-wide text-muted-foreground"
         >
-          Movers
+          Top Movers
         </h2>
         <select
-          aria-label="Sort movers by"
+          aria-label="Sort top movers by"
           value={sort}
           onChange={(e) => setSort(e.target.value as Sort)}
           className="rounded-md border border-border bg-white px-2 py-1 text-xs focus-visible:outline-2 focus-visible:outline-primary"
@@ -81,11 +83,6 @@ export function MoversList({ items }: { items: MoverItem[] }) {
           active={filter === "etf"}
           onClick={() => setFilter("etf")}
           label={`ETFs (${counts.etf})`}
-        />
-        <FilterChip
-          active={filter === "commodity"}
-          onClick={() => setFilter("commodity")}
-          label={`Commodities (${counts.commodity})`}
         />
       </div>
 
@@ -134,18 +131,14 @@ function FilterChip({
   );
 }
 
-function countByCategory(items: MoverItem[]): {
-  stock: number;
-  etf: number;
-  commodity: number;
-} {
+function countByCategory(items: MoverItem[]): { stock: number; etf: number } {
   return items.reduce(
     (acc, i) => {
       const k = i.category.toLowerCase() as keyof typeof acc;
       acc[k]++;
       return acc;
     },
-    { stock: 0, etf: 0, commodity: 0 },
+    { stock: 0, etf: 0 },
   );
 }
 
@@ -162,8 +155,9 @@ function sortItems(items: MoverItem[], sort: Sort): MoverItem[] {
     );
   }
   // active + cmf both sort by cmf_20 descending — until `volume_ratio` is
-  // surfaced for assets we use CMF as the proxy for "money flowing here."
-  // The dropdown distinguishes them in copy so we can split logic later.
+  // surfaced for assets (Phase 2) we use CMF as the proxy for "money
+  // flowing here." The dropdown copy distinguishes them so we can split
+  // logic later without changing the UI.
   return arr.sort(
     (a, b) => (b.card.cmf_20 ?? -Infinity) - (a.card.cmf_20 ?? -Infinity),
   );

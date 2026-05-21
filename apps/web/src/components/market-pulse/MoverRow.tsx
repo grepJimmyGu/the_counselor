@@ -8,64 +8,69 @@ import type { AssetCard } from "@/lib/contracts";
 import { fmtPct, fmtPrice } from "@/lib/market-pulse-format";
 
 /**
- * Single 60px row in the unified Movers list.
+ * Single dense 2-line row in the Top Movers list.
  *
- * Layout (desktop): symbol | name + category chip | CMF bar | perf badge | price | chevron
- * Mobile: symbol + perf on top row, name + price on bottom row.
+ * Layout (same across desktop and mobile):
+ *   Line 1: <SYMBOL>  <Name>  [Sector chip]
+ *   Line 2: <perf_1d badge>  <CMF chip>  <price>  <volume ratio>  →
  *
- * `category` is rendered as a small chip beside the name so users can
- * see "ETF" / "Stock" / "Commodity" at a glance without having to switch
- * tabs (per Section 5's "one list + filter chips" decision).
+ * Per Jimmy's 2026-05-21 feedback: the previous desktop layout had too
+ * much empty space across the row. The 2-line shape fits more
+ * information vertically and reads consistently on mobile + desktop.
+ *
+ * `volume_ratio` is rendered as a chip; AssetCard doesn't expose it yet
+ * (backend addition in Phase 2). Shown as "—" until then to lock the
+ * final layout.
  */
 
 export interface MoverRowProps {
   card: AssetCard;
-  category: "Stock" | "ETF" | "Commodity";
+  category: "Stock" | "ETF";
   href: string;
 }
 
 export function MoverRow({ card, category, href }: MoverRowProps) {
+  // AssetCard doesn't have volume_ratio today (only SectorCard does).
+  // Casting through `unknown` so we don't break the contract — Phase 2
+  // backend addition will make this a real field.
+  const volumeRatio = (card as unknown as { volume_ratio?: number | null })
+    .volume_ratio;
+  const sector = card.sector;
+
   return (
     <Link
       href={href as Route}
-      className="block rounded-lg transition-colors hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
+      className="block rounded-lg px-3 py-2 transition-colors hover:bg-muted/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
     >
-      {/* Desktop */}
-      <div className="hidden sm:grid grid-cols-[5rem_1fr_8rem_6rem_5.5rem_1.5rem] items-center gap-3 px-3 py-2.5 min-h-[52px]">
+      {/* Line 1 — symbol, name, sector chip */}
+      <div className="flex items-baseline gap-2">
         <span className="font-mono text-xs font-bold">{card.symbol}</span>
-        <div className="min-w-0">
-          <div className="text-xs font-medium truncate">
-            {card.name}
-            <span className="ml-2 inline-flex items-center rounded-full border border-border bg-muted/40 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
-              {category}
-            </span>
-          </div>
-        </div>
-        <CmfMini value={card.cmf_20} />
-        <PerfBadge value={card.perf_1d} />
-        <span className="font-mono text-xs font-semibold tabular-nums text-right">
-          {fmtPrice(card.price)}
+        <span className="text-xs text-foreground/80 truncate flex-1 min-w-0">
+          {card.name}
         </span>
-        <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/60" />
+        {sector && (
+          <span className="hidden sm:inline-flex shrink-0 items-center rounded-full border border-border bg-muted/40 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-muted-foreground">
+            {sector}
+          </span>
+        )}
+        <span className="inline-flex shrink-0 items-center rounded-full border border-border/60 bg-muted/30 px-1.5 py-0.5 text-[9px] font-medium uppercase tracking-wide text-muted-foreground/80">
+          {category}
+        </span>
       </div>
 
-      {/* Mobile */}
-      <div className="sm:hidden flex flex-col gap-1 px-3 py-2.5 min-h-[56px]">
-        <div className="flex items-center justify-between gap-2">
-          <span className="font-mono text-xs font-bold">{card.symbol}</span>
-          <PerfBadge value={card.perf_1d} />
-        </div>
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[11px] text-foreground/80 truncate">
-            {card.name}
-            <span className="ml-1 text-[9px] uppercase tracking-wide text-muted-foreground">
-              ({category})
-            </span>
-          </span>
-          <span className="font-mono text-xs font-semibold tabular-nums shrink-0">
-            {fmtPrice(card.price)}
-          </span>
-        </div>
+      {/* Line 2 — perf, CMF, price, volume ratio, chevron */}
+      <div className="mt-1 flex items-center gap-3 text-xs">
+        <PerfBadge value={card.perf_1d} />
+        <CmfMini value={card.cmf_20} />
+        <span className="font-mono text-xs font-semibold tabular-nums shrink-0">
+          {fmtPrice(card.price)}
+        </span>
+        <span className="font-mono text-[10px] tabular-nums text-muted-foreground shrink-0">
+          {volumeRatio != null ? `${volumeRatio.toFixed(1)}× vol` : "— vol"}
+        </span>
+        <span className="ml-auto shrink-0">
+          <ChevronRight className="h-3.5 w-3.5 text-muted-foreground/60" />
+        </span>
       </div>
     </Link>
   );

@@ -33,22 +33,15 @@ import { MarketBrief } from "@/components/market-pulse/MarketBrief";
 import { IndicesHero } from "@/components/market-pulse/IndicesHero";
 import { SectorRotation } from "@/components/market-pulse/SectorRotation";
 import { MacroStrip } from "@/components/market-pulse/MacroStrip";
-import { MoversList, type MoverItem } from "@/components/market-pulse/MoversList";
+import { TopMovers, type MoverItem } from "@/components/market-pulse/TopMovers";
 import { StickySubNav } from "@/components/market-pulse/StickySubNav";
 import {
   BriefSkeleton,
   IndicesHeroSkeleton,
   MacroStripSkeleton,
-  MoversListSkeleton,
+  TopMoversSkeleton,
   SectorHeatmapSkeleton,
 } from "@/components/market-pulse/SkeletonStates";
-
-const COMMODITY_STUBS: { symbol: string; name: string; etf: string }[] = [
-  { symbol: "GOLD", name: "Gold (spot proxy)", etf: "GLD" },
-  { symbol: "WTI", name: "WTI Crude (spot proxy)", etf: "USO" },
-  { symbol: "COPPER", name: "Copper (spot proxy)", etf: "COPX" },
-  { symbol: "WHEAT", name: "Wheat (spot proxy)", etf: "WEAT" },
-];
 
 export default function MarketPulseV2Preview() {
   const [market, setMarket] = useState<"US" | "CN">("US");
@@ -101,9 +94,9 @@ export default function MarketPulseV2Preview() {
     return { ...c, price: lq.price, perf_1d: lq.change_percent / 100 };
   }
 
-  // ── Movers list assembly ────────────────────────────────────────────────────
-  // Merge top_assets (stocks) + featured_etfs (ETFs) + a static commodity
-  // array. De-dup by symbol; the most-detailed source wins on a tie.
+  // ── Top Movers list assembly ────────────────────────────────────────────────
+  // Merge top_assets (stocks) + featured_etfs (ETFs). Commodities dropped
+  // per 2026-05-21 feedback. De-dup by symbol.
   const moverItems = useMemo<MoverItem[]>(() => {
     if (!data) return [];
     const seen = new Set<string>();
@@ -125,28 +118,6 @@ export default function MarketPulseV2Preview() {
         card: withLive(a),
         category: "ETF",
         href: `/stocks/${a.symbol}`,
-      });
-    }
-    for (const c of COMMODITY_STUBS) {
-      if (seen.has(c.symbol)) continue;
-      seen.add(c.symbol);
-      // Synthesize an AssetCard shape; perf_1d unknown without /commodities
-      // call — keep null so the row sorts neutrally.
-      const stubCard: AssetCard = {
-        symbol: c.symbol,
-        name: c.name,
-        sector: "Commodity",
-        price: null,
-        perf_1d: null,
-        cmf_20: null,
-        market_cap: null,
-        latest_date: null,
-        is_stale: false,
-      };
-      out.push({
-        card: stubCard,
-        category: "Commodity",
-        href: `/commodities/${c.symbol}`,
       });
     }
     return out;
@@ -255,8 +226,8 @@ export default function MarketPulseV2Preview() {
           )
         )}
 
-        {/* Section 5 — Movers */}
-        {loading ? <MoversListSkeleton rows={8} /> : <MoversList items={moverItems} />}
+        {/* Section 5 — Top Movers */}
+        {loading ? <TopMoversSkeleton rows={8} /> : <TopMovers items={moverItems} />}
 
         {/* Section 6 — Footer */}
         <footer className="border-t border-border/60 pt-4 text-[10px] text-muted-foreground">

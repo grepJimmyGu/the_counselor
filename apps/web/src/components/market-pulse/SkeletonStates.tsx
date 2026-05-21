@@ -92,7 +92,7 @@ export function MoverRowSkeleton() {
   );
 }
 
-export function MoversListSkeleton({ rows = 8 }: { rows?: number }) {
+export function TopMoversSkeleton({ rows = 8 }: { rows?: number }) {
   return (
     <div className="space-y-1 rounded-xl border border-border bg-white p-2">
       {Array.from({ length: rows }).map((_, i) => (
