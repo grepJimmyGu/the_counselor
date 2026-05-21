@@ -72,9 +72,30 @@ def save_strategy(
     db.commit()
     db.refresh(strategy)
 
-    # TODO (Stage 4): when community publish service exists, also publish
-    # to the community feed if ent.saved_strategies_always_public. For now
-    # is_public=True is the only signal community code needs to read.
+    # Stage 4: auto-publish for tiers where saved_strategies_always_public=True
+    # (Scout). Publishing is a snapshot, so subsequent edits to the saved row
+    # don't leak — the user explicitly publishes again if they want to update.
+    # Failure to auto-publish must NOT block the save (best-effort).
+    if ent.saved_strategies_always_public:
+        try:
+            from app.services.community_publish_service import (
+                PublishStrategyRequest,
+                publish_strategy,
+            )
+            publish_strategy(
+                db, user,
+                PublishStrategyRequest(
+                    title=payload.title,
+                    description=None,
+                    strategy_json=payload.strategy_json,
+                    backtest_record_id=payload.backtest_record_id,
+                ),
+            )
+        except Exception:
+            db.rollback()
+            # Re-fetch the saved strategy in case the rollback dropped it from
+            # the session.
+            strategy = db.get(SavedStrategy, strategy.id) or strategy
 
     return strategy
 
