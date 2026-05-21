@@ -145,9 +145,33 @@ def _bump_monthly_legacy(db: Session, user_id: str) -> None:
 # ── Entitlements resolvers ────────────────────────────────────────────────────
 
 def get_entitlements(user: User, weekly_usage: Optional[WeeklyUsage]) -> Entitlements:
-    """Resolve capability caps for *user* given their current-week *weekly_usage*."""
+    """Resolve capability caps for *user* given their current-week *weekly_usage*.
+
+    Stage 6a: for Scout-tier users, reads the PostHog feature flag
+    'paywall_variant' (deterministic per user.id) and applies one of three
+    H1 paywall variants:
+        A (default): runs_meter cap = 5/week (current behavior)
+        B: history_window_years_custom = 3 (instead of 5)
+        C: universe_size_max_custom = 3 (instead of 5)
+
+    When PostHog isn't configured, get_feature_flag returns 'A' and
+    nothing changes. Safe to leave wired indefinitely.
+    """
     tier = user.plan.tier
-    caps = TIER_CAPS[tier]
+    caps = TIER_CAPS[tier].copy()
+
+    # H1 A/B test — only applies to Scout (other tiers are unlimited/wider)
+    if tier == "scout":
+        try:
+            from app.services.posthog_service import get_feature_flag
+            variant = get_feature_flag("paywall_variant", user.id, default="A")
+        except Exception:
+            variant = "A"
+        if variant == "B":
+            caps["history_window_years_custom"] = 3
+        elif variant == "C":
+            caps["universe_size_max_custom"] = 3
+
     runs_used = weekly_usage.custom_backtest_runs if weekly_usage else 0
     runs_per_week = caps["custom_backtest_runs_per_week"]
     runs_remaining = None if runs_per_week is None else max(0, runs_per_week - runs_used)
