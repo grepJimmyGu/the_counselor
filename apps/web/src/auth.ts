@@ -47,52 +47,116 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
 
   callbacks: {
     async jwt({ token, user, account }) {
-      if (account && user) {
-        token.providerUserId = account.providerAccountId ?? user.id;
-        token.provider = account.provider;
-        token.avatarUrl = user.image ?? null;
-        token.displayName = user.name ?? null;
-        // Credentials flow: backend token already in user object
-        if ((user as any).sessionToken) {
-          token.backendToken = (user as any).sessionToken;
-        }
-      }
-      return token;
-    },
-
-    async session({ session, token }) {
-      session.user.id = token.providerUserId as string;
-      session.user.provider = token.provider as string;
-      session.user.avatarUrl = token.avatarUrl as string | null;
-      (session as any).backendToken = token.backendToken ?? null;
-      return session;
-    },
-
-    async signIn({ user, account }) {
-      if (account?.provider === "google") {
+      // Self-healing branch — runs on every request when the token is
+      // missing backendToken but we know this was a Google login. Lets
+      // existing sessions (minted before sync-user wired its token) recover
+      // on their next request instead of having to log out and back in.
+      // Only fires once because once backendToken is set, the condition is
+      // false. We use token.email (a NextAuth standard claim) as the key.
+      if (
+        !account &&
+        !user &&
+        token.provider === "google" &&
+        !token.backendToken &&
+        token.email
+      ) {
         const internalKey = process.env.INTERNAL_API_KEY;
-        if (internalKey && API_BASE && user.email) {
+        if (internalKey && API_BASE) {
           try {
-            await fetch(`${API_BASE}/api/auth/sync-user`, {
+            const res = await fetch(`${API_BASE}/api/auth/sync-user`, {
               method: "POST",
               headers: {
                 "Content-Type": "application/json",
                 "X-Internal-Key": internalKey,
               },
               body: JSON.stringify({
-                email: user.email,
-                display_name: user.name ?? null,
-                avatar_url: user.image ?? null,
+                email: token.email,
+                display_name: token.displayName ?? token.name ?? null,
+                avatar_url: token.avatarUrl ?? token.picture ?? null,
                 provider: "google",
-                provider_user_id: account.providerAccountId ?? user.id,
+                // We may have lost the original providerAccountId by now;
+                // sync-user is keyed by email anyway and will resolve to
+                // the existing backend user row.
+                provider_user_id: (token.providerUserId as string) ?? "",
               }),
             });
+            if (res.ok) {
+              const data = await res.json();
+              token.providerUserId = data.id;
+              token.backendToken = data.session_token ?? null;
+            }
           } catch {
-            // Swallowed — sync failure must never block sign-in
+            // Healing is best-effort; user will retry next request.
           }
         }
       }
-      return true;
+
+      if (account && user) {
+        token.provider = account.provider;
+        token.avatarUrl = user.image ?? null;
+        token.displayName = user.name ?? null;
+
+        // Credentials flow — backend already minted a session token during
+        // authorize(); pass it through.
+        if (user.sessionToken) {
+          token.providerUserId = user.id;
+          token.backendToken = user.sessionToken;
+        }
+
+        // Google flow — exchange the OAuth identity for a backend user row
+        // and a session token via /api/auth/sync-user. Without this step the
+        // workspace + other authed endpoints see backendToken=null and 401.
+        // We do this here (not in signIn) so the token is persisted in the
+        // JWT cookie; signIn callbacks can't mutate the token.
+        if (account.provider === "google") {
+          const internalKey = process.env.INTERNAL_API_KEY;
+          let synced = false;
+          if (internalKey && API_BASE && user.email) {
+            try {
+              const res = await fetch(`${API_BASE}/api/auth/sync-user`, {
+                method: "POST",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Internal-Key": internalKey,
+                },
+                body: JSON.stringify({
+                  email: user.email,
+                  display_name: user.name ?? null,
+                  avatar_url: user.image ?? null,
+                  provider: "google",
+                  provider_user_id: account.providerAccountId ?? user.id,
+                }),
+              });
+              if (res.ok) {
+                const data = await res.json();
+                // Use the backend's user id (deterministic across logins),
+                // not Google's providerAccountId.
+                token.providerUserId = data.id;
+                token.backendToken = data.session_token ?? null;
+                synced = true;
+              }
+            } catch {
+              // Swallowed — sync failure must not block sign-in.
+            }
+          }
+          if (!synced) {
+            // Fallback so downstream code still has *some* user id, even if
+            // sync-user couldn't run (e.g. missing env). backendToken stays
+            // null and authed routes will continue to 401 — which is the
+            // right signal that the platform is misconfigured.
+            token.providerUserId = account.providerAccountId ?? user.id;
+          }
+        }
+      }
+      return token;
+    },
+
+    async session({ session, token }) {
+      session.user.id = token.providerUserId ?? session.user.id;
+      session.user.provider = token.provider;
+      session.user.avatarUrl = token.avatarUrl ?? null;
+      session.backendToken = token.backendToken ?? null;
+      return session;
     },
   },
 
@@ -115,6 +179,20 @@ declare module "next-auth" {
       provider?: string;
       avatarUrl?: string | null;
     };
+  }
+
+  interface User {
+    sessionToken?: string;
+  }
+}
+
+declare module "@auth/core/jwt" {
+  interface JWT {
+    providerUserId?: string;
+    provider?: string;
+    avatarUrl?: string | null;
+    displayName?: string | null;
+    backendToken?: string | null;
   }
 }
 

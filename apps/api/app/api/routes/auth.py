@@ -303,6 +303,10 @@ class _UserResponse(BaseModel):
     display_name: Optional[str]
     avatar_url: Optional[str]
     created_at: datetime
+    # The backend-minted JWT session token. Returned by sync-user so the
+    # Next.js auth.ts jwt() callback can store it as session.backendToken,
+    # which the workspace + other authed endpoints read on subsequent calls.
+    session_token: Optional[str] = None
 
 
 def _verify_internal_key(x_internal_key: Optional[str] = Header(default=None)) -> None:
@@ -373,6 +377,7 @@ def sync_user(body: _SyncUserRequest, db: Session = Depends(get_db)) -> _UserRes
         display_name=user.display_name,
         avatar_url=user.avatar_url,
         created_at=user.created_at,
+        session_token=create_session_token(user.id, user.plan.tier),
     )
 
 
