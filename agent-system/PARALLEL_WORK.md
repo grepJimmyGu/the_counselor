@@ -6,6 +6,27 @@ Multiple AI agent sessions (Claude Code, codex, etc.) operate on this repo concu
 
 ---
 
+## Master merger (designated 2026-05-21)
+
+**`claude-main` is the sole agent authorized to run `gh pr merge` against `main`.**
+
+Other sessions push branches and **open** PRs, but do **not** merge them. The master merger:
+
+1. **Diff sanity check** — reads the PR diff, verifies files match the title/body, scans for muddy commits (unrelated files snuck in via the cross-session collisions we've seen).
+2. **Detects no-op PRs** — if a PR's branch content is already on `main` (e.g., its commits got picked up by a sibling muddy PR), the master merger closes it with a comment rather than merging an empty squash.
+3. **Self-merges its own work** under the same diff-sanity rigor.
+
+**Why this exists:** between 2026-05-21 morning and afternoon, three separate PRs (#27, #29, #30) merged with unintended files attached because multiple `gh pr merge` calls fired from sessions that had drifted off their intended branches. Funneling all merges through one agent eliminates the class.
+
+If you're a non-master session and want a PR merged:
+- Push your branch and open the PR yourself (titles + bodies as normal)
+- Leave it alone — don't call `gh pr merge`
+- `claude-main` reviews + merges; if no-op, closes with a comment so you see why
+
+If `claude-main` isn't reachable and you need to merge urgently, fall back to Jimmy. Don't bypass the master merger silently.
+
+---
+
 ## Conventions
 
 ### 1. Branch prefix per agent
@@ -75,7 +96,7 @@ Either:
 
 | Session | Worktree path | Branch | HEAD | Status |
 |---|---|---|---|---|
-| claude-main | `/Users/jimmygu/the_counselor` | `claude/docs/parallel-work-protocol` | (this commit) | pending PR — protocol doc |
+| **claude-main** (master merger) | `/Users/jimmygu/the_counselor` | rotating per-task | latest | Permanent — owns all `gh pr merge` to `main` |
 | codex-chatbuilder | `/private/tmp/the_counselor_chatbuilder_test` | `codex/improve-chat-builder` | `0932c75` | abandoned 2026-05-19; rebase or delete |
 
 When you start, **add a row.** When you finish, **delete it** (history is in git).
