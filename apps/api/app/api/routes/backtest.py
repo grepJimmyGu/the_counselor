@@ -12,33 +12,16 @@ from app.db.session import get_db
 from app.models.backtest import BacktestRecord
 from app.schemas.backtest import BacktestResult, BacktestRunRequest
 from app.schemas.identity import Entitlements
-from app.services.alpha_vantage import AlphaVantageClient
+from app.services.backtest_preflight import ensure_data_available, validate_universe
 from app.services.backtester.engine import BacktestEngine
 from app.services.data_quality_service import DataQualityService
 from app.services.entitlements import increment_custom_backtest, increment_template_backtest
-from app.services.price_cache_service import PriceCacheService
-from app.services.symbol_service import SymbolService
 
 _log = logging.getLogger("livermore.gating")
 
 router = APIRouter(prefix="/api/backtest", tags=["backtest"])
 engine = BacktestEngine()
-_symbol_service = SymbolService(AlphaVantageClient())
 _quality_service = DataQualityService()
-_cache_svc = PriceCacheService(AlphaVantageClient())
-
-
-async def _validate_universe(db: Session, symbols: list[str]) -> list[str]:
-    invalid: list[str] = []
-    for symbol in symbols:
-        cached = _symbol_service.get_by_symbol(db, symbol)
-        if cached:
-            continue
-        results = await _symbol_service.search(db, symbol)
-        exact = next((r for r in results if r.symbol == symbol), None)
-        if not exact:
-            invalid.append(symbol)
-    return invalid
 
 
 def _credibility_warnings(result: BacktestResult) -> list[str]:
@@ -65,21 +48,6 @@ def _credibility_warnings(result: BacktestResult) -> list[str]:
     return warnings
 
 
-async def _ensure_data_available(db: Session, symbols: list[str], required_from: date) -> dict[str, str]:
-    """
-    For any symbol with no cached data, attempt a fetch before the quality gate runs.
-    Returns a dict of symbol → error message for symbols that couldn't be fetched.
-    """
-    fetch_errors: dict[str, str] = {}
-    for symbol in symbols:
-        if _cache_svc.get_bar_count(db, symbol) == 0:
-            try:
-                await _cache_svc.ensure_history(db, symbol, required_from)
-            except Exception as exc:
-                fetch_errors[symbol] = str(exc)
-    return fetch_errors
-
-
 @router.post("/run", response_model=BacktestResult)
 async def run_backtest(
     payload: BacktestRunRequest,
@@ -103,7 +71,7 @@ async def run_backtest(
     all_symbols = universe + [strategy.benchmark]
 
     # 1. Symbol existence check
-    invalid = await _validate_universe(db, universe)
+    invalid = await validate_universe(db, universe)
     if invalid:
         raise HTTPException(
             status_code=400,
@@ -113,7 +81,7 @@ async def run_backtest(
 
     # 2. Auto-fetch any symbols with no cached data before the quality gate
     required_from = strategy.start_date - timedelta(days=400)
-    fetch_errors = await _ensure_data_available(db, all_symbols, required_from)
+    fetch_errors = await ensure_data_available(db, all_symbols, required_from)
     if fetch_errors:
         msgs = "; ".join(f"{sym}: {err}" for sym, err in fetch_errors.items())
         raise HTTPException(
