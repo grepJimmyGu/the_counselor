@@ -53,15 +53,28 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
       // on their next request instead of having to log out and back in.
       // Only fires once because once backendToken is set, the condition is
       // false. We use token.email (a NextAuth standard claim) as the key.
+      // Drop the `token.provider === "google"` precondition that the
+      // original version had. Some pre-fix JWTs were minted without a
+      // `provider` claim, leaving them unhealable. Credentials users
+      // always have backendToken set at login, so "missing backendToken +
+      // has email" reliably identifies a Google JWT that needs healing.
       if (
         !account &&
         !user &&
-        token.provider === "google" &&
         !token.backendToken &&
         token.email
       ) {
         const internalKey = process.env.INTERNAL_API_KEY;
-        if (internalKey && API_BASE) {
+        if (!internalKey || !API_BASE) {
+          // Surfacing this in Vercel server logs so we don't silently
+          // strand users with an unhealable JWT. INTERNAL_API_KEY +
+          // INTERNAL_API_BASE_URL (or NEXT_PUBLIC_API_BASE_URL) must be
+          // set in Vercel env vars for self-healing to work.
+          console.warn(
+            "[auth] self-heal skipped: missing env",
+            { hasInternalKey: !!internalKey, hasApiBase: !!API_BASE, email: token.email },
+          );
+        } else {
           try {
             const res = await fetch(`${API_BASE}/api/auth/sync-user`, {
               method: "POST",
@@ -84,9 +97,23 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
               const data = await res.json();
               token.providerUserId = data.id;
               token.backendToken = data.session_token ?? null;
+              if (!data.session_token) {
+                console.warn(
+                  "[auth] self-heal got 200 but session_token was null",
+                  { email: token.email, dataKeys: Object.keys(data) },
+                );
+              }
+            } else {
+              console.warn(
+                "[auth] self-heal sync-user non-ok",
+                { status: res.status, email: token.email },
+              );
             }
-          } catch {
-            // Healing is best-effort; user will retry next request.
+          } catch (err) {
+            console.warn(
+              "[auth] self-heal sync-user threw",
+              { email: token.email, error: String(err) },
+            );
           }
         }
       }

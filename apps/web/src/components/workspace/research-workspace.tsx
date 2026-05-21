@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { signOut, useSession } from "next-auth/react";
 import {
   AlertTriangle, ArrowRight, Bot, Loader2, Play,
   LineChart, Settings2,
@@ -90,15 +90,22 @@ export function ResearchWorkspace() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { data: session } = useSession();
-  // Stage 3: forward the backend session token to /api/backtest/run (the
-  // authed endpoint) so it can resolve the user.
-  // Stage 1a: when there is no session token we treat the visitor as
-  // anonymous and route through /api/anonymous/backtest/run instead — that
-  // endpoint enforces the one-free-run-per-cookie quota via AnonymousSession.
-  // The backend will still 402 if the strategy is out-of-scope (e.g. >1
-  // ticker), and the 402 envelope surfaces the SoftPaywall + signup CTA.
+  // Routing source-of-truth: presence of a NextAuth session, NOT the
+  // backend-minted token. A user who signed in before the May 20 auth fix
+  // shipped has a stale JWT cookie (no `backendToken`), but they ARE
+  // signed in. Routing them to the anonymous endpoint based on
+  // !backendToken misled them with "Sign up to build custom strategy"
+  // when they were already signed up — that was the May 20 evening
+  // regression. Trust the session presence; handle missing token
+  // explicitly via `needsSessionRefresh` below.
+  const sessionUserId = session?.user?.id;
   const backendToken = (session as unknown as { backendToken?: string } | null)?.backendToken;
-  const isAnonymous = !backendToken;
+  const isAnonymous = !sessionUserId;
+  // Signed in but backendToken never got minted into the JWT cookie
+  // (self-healing branch in auth.ts either failed silently or this is
+  // an old JWT from before the fix). The user must sign out + back in
+  // to get a fresh JWT with a populated backendToken.
+  const needsSessionRefresh = !!sessionUserId && !backendToken;
   // Stage 3: read the viewer's tier-aware caps so we can hide UI for locked
   // features (peer_ticker is Quant-only) and keep the experience consistent
   // with what the backend will allow.
@@ -193,6 +200,14 @@ export function ResearchWorkspace() {
 
   // ── Backtest runner ───────────────────────────────────────────────────────
   async function handleRunBacktestWith(strat: StrategyJson) {
+    if (needsSessionRefresh) {
+      // The session banner below already explains this; surface the same
+      // message inline so a click on Run gives immediate feedback.
+      setErrorMessage(
+        "Your account session needs to be refreshed. Click \"Refresh session\" below the header to sign out and back in, then retry."
+      );
+      return;
+    }
     setIsRunning(true);
     setErrorMessage(null);
     setSavedSlug(null);
@@ -427,6 +442,29 @@ export function ResearchWorkspace() {
             )}
           </div>
         </header>
+
+        {/* ── Session-refresh banner ─────────────────────────────────────
+            Fires when NextAuth reports the user is signed in but the JWT
+            cookie predates the May 20 auth fix (no backendToken). One click
+            signs them out so they can sign back in and get a fresh JWT.  */}
+        {needsSessionRefresh && (
+          <div className="flex items-center justify-between gap-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm">
+            <div className="flex items-start gap-2">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+              <span>
+                Your account session is out of date and we can&apos;t reach the backend with it.
+                Sign out and back in to refresh — your saved work is unaffected.
+              </span>
+            </div>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => void signOut({ callbackUrl: "/login" })}
+            >
+              Refresh session
+            </Button>
+          </div>
+        )}
 
         {/* ── Error ───────────────────────────────────────────────────── */}
         {errorMessage && (
