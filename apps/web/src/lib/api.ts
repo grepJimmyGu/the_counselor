@@ -20,8 +20,42 @@ import type {
 } from "@/lib/contracts";
 import { dispatchUpgrade } from "@/lib/upgrade-modal-event-bus";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8001";
+/**
+ * API base URL resolution.
+ *
+ * Priority:
+ *   1. `NEXT_PUBLIC_API_BASE_URL` baked in at build time (production + any
+ *      preview where Jimmy set it explicitly on Vercel).
+ *   2. Runtime host check on the client: if the page is served from
+ *      localhost/127.0.0.1, use the local FastAPI dev port (8001).
+ *   3. Otherwise (Vercel preview deployments without the env var,
+ *      static-export sites, anywhere not localhost) fall back to the
+ *      production Railway URL so the page doesn't try to fetch from a
+ *      127.0.0.1 that doesn't exist for the visitor.
+ *
+ * Why: 2026-05-21 — the PR #41 Market Pulse preview rendered with empty
+ * data because Vercel didn't inject NEXT_PUBLIC_API_BASE_URL for the
+ * Preview environment, the old fallback was `http://127.0.0.1:8001`, and
+ * the visitor's browser had nothing at that port. Switching the default
+ * to the production URL means previews work for anyone who can reach
+ * the preview, env-var or not.
+ */
+const PROD_API_FALLBACK = "https://thecounselor-production.up.railway.app";
+const LOCAL_API_FALLBACK = "http://127.0.0.1:8001";
+
+function deriveApiBaseUrl(): string {
+  const fromEnv = process.env.NEXT_PUBLIC_API_BASE_URL;
+  if (fromEnv) return fromEnv;
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname;
+    if (host === "localhost" || host === "127.0.0.1") {
+      return LOCAL_API_FALLBACK;
+    }
+  }
+  return PROD_API_FALLBACK;
+}
+
+const API_BASE_URL = deriveApiBaseUrl();
 
 /**
  * Custom Error thrown on 402 responses. Carries the parsed envelope so callers
