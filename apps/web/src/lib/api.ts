@@ -48,26 +48,49 @@ async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> {
   });
 
   if (!response.ok) {
-    // 402 Upgrade Required — parse the envelope and trigger the global modal.
-    if (response.status === 402) {
-      try {
-        const payload = (await response.json()) as EntitlementErrorResponse;
-        if (payload?.error === "upgrade_required" && payload?.entitlement) {
-          dispatchUpgrade(payload.entitlement);
-          throw new UpgradeRequiredError(payload.entitlement);
-        }
-      } catch (err) {
-        if (err instanceof UpgradeRequiredError) throw err;
-        // fall through to generic error
+    // Read the body once. `response.json()` consumes the stream — calling it
+    // twice (as the old implementation did) silently failed because the
+    // second read always threw, which masked any detail string we could have
+    // surfaced.
+    let body: unknown = null;
+    try {
+      body = await response.json();
+    } catch {
+      // Non-JSON response. Leave body=null and fall through to generic.
+    }
+
+    // 402 Upgrade Required — dispatch the global modal.
+    //
+    // FastAPI wraps `HTTPException(detail=<envelope>)` inside `{ detail: ... }`,
+    // so the EntitlementErrorResponse lives at `body.detail` (not `body`).
+    // Accept both shapes defensively in case a route ever returns the
+    // envelope raw (Pydantic response_model) instead of via HTTPException.
+    if (response.status === 402 && body && typeof body === "object") {
+      const root = body as Record<string, unknown>;
+      const candidate =
+        root.detail && typeof root.detail === "object"
+          ? (root.detail as Record<string, unknown>)
+          : root;
+      if (
+        candidate.error === "upgrade_required" &&
+        candidate.entitlement &&
+        typeof candidate.entitlement === "object"
+      ) {
+        const envelope = candidate as unknown as EntitlementErrorResponse;
+        dispatchUpgrade(envelope.entitlement);
+        throw new UpgradeRequiredError(envelope.entitlement);
       }
     }
+
+    // Generic error path: surface the backend's `detail` text when it's a
+    // string (FastAPI's default for HTTPException(detail="...")).
     let message = `Request failed with status ${response.status}`;
-    try {
-      const payload = (await response.json()) as { detail?: string };
-      if (payload.detail) {
-        message = payload.detail;
+    if (body && typeof body === "object") {
+      const detail = (body as Record<string, unknown>).detail;
+      if (typeof detail === "string") {
+        message = detail;
       }
-    } catch {}
+    }
     throw new Error(message);
   }
 
