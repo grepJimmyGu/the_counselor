@@ -30,14 +30,12 @@ import { useLiveQuotes } from "@/lib/useLiveQuotes";
 import { buildNarrative } from "@/lib/market-pulse-narrative";
 
 import { MarketBrief } from "@/components/market-pulse/MarketBrief";
-import { IndicesHero } from "@/components/market-pulse/IndicesHero";
 import { SectorRotation } from "@/components/market-pulse/SectorRotation";
 import { MacroStrip } from "@/components/market-pulse/MacroStrip";
 import { TopMovers, type MoverItem } from "@/components/market-pulse/TopMovers";
 import { StickySubNav } from "@/components/market-pulse/StickySubNav";
 import {
   BriefSkeleton,
-  IndicesHeroSkeleton,
   MacroStripSkeleton,
   TopMoversSkeleton,
   SectorHeatmapSkeleton,
@@ -191,19 +189,9 @@ export default function MarketPulseV2Preview() {
           </div>
         )}
 
-        {/* Section 1 — Brief */}
+        {/* Section 1 — Brief (now includes the inline 4-cell index ticker
+            absorbed from the removed IndicesHero section) */}
         {loading ? <BriefSkeleton /> : data && <MarketBrief data={applyLiveToData(data, withLive)} />}
-
-        {/* Section 2 — Indices */}
-        {loading ? (
-          <IndicesHeroSkeleton />
-        ) : (
-          data && (
-            <IndicesHero
-              indices={data.indices.map(withLive) as IndexCard[]}
-            />
-          )
-        )}
 
         {/* Section 3 — Sector rotation */}
         {loading ? (
