@@ -19,6 +19,7 @@ import { EvaluationDashboard } from "./_evaluation-dashboard";
 import { WatchlistButton } from "@/components/community/watchlist-button";
 import { VoteBar } from "@/components/community/vote-bar";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
+import { useLiveQuotes } from "@/lib/useLiveQuotes";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -46,6 +47,12 @@ function CompanyPageInner() {
   const [gateDetail, setGateDetail] = useState<EntitlementErrorDetail | null>(null);
   const [builderOpen, setBuilderOpen] = useState(false);
   const [builderIdea, setBuilderIdea] = useState<string | undefined>(undefined);
+
+  // Live price for this ticker. Falls back to data.price (loaded server-side
+  // via FMP) until the first poll resolves; from then on overrides it.
+  const liveSymbols = ticker ? [ticker.toUpperCase()] : [];
+  const { quotes: liveQuotes } = useLiveQuotes(liveSymbols);
+  const liveQuote = ticker ? liveQuotes[ticker.toUpperCase()] : undefined;
 
   useEffect(() => {
     if (!ticker) return;
@@ -155,7 +162,23 @@ function CompanyPageInner() {
           <div>
             <div className="flex items-center gap-2">
               <span className="font-mono text-2xl font-bold">{data.symbol}</span>
-              {data.price && <span className="font-mono text-xl font-semibold">${data.price.toFixed(2)}</span>}
+              {(liveQuote?.price ?? data.price) != null && (
+                <span className="font-mono text-xl font-semibold">
+                  ${(liveQuote?.price ?? data.price!).toFixed(2)}
+                </span>
+              )}
+              {liveQuote && (
+                <span
+                  className={`font-mono text-sm font-medium ${
+                    liveQuote.change_percent >= 0
+                      ? "text-emerald-600 dark:text-emerald-400"
+                      : "text-rose-600 dark:text-rose-400"
+                  }`}
+                >
+                  {liveQuote.change_percent >= 0 ? "+" : ""}
+                  {liveQuote.change_percent.toFixed(2)}%
+                </span>
+              )}
             </div>
             <div className="mt-1 text-base text-muted-foreground">{data.name}</div>
             <div className="mt-2 flex flex-wrap gap-1.5">
