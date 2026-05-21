@@ -85,6 +85,24 @@ def _run_stage1_isolated_ddl(engine: Engine, is_sqlite: bool) -> None:
     except Exception:
         pass  # column already exists
 
+    # ── 3c. Stage 7 (chat v2 Phase 1): AnonymousSession.chat_turns_used ──────
+    # Caps anonymous chat at 5 turns per session — see
+    # build_specs/07_chat_v2_research_partner.md §2.
+    try:
+        with engine.begin() as c:
+            if is_sqlite:
+                c.execute(text(
+                    "ALTER TABLE anonymous_sessions "
+                    "ADD COLUMN chat_turns_used INTEGER NOT NULL DEFAULT 0"
+                ))
+            else:
+                c.execute(text(
+                    "ALTER TABLE anonymous_sessions "
+                    "ADD COLUMN IF NOT EXISTS chat_turns_used INTEGER NOT NULL DEFAULT 0"
+                ))
+    except Exception:
+        pass  # column already exists
+
     # ── 4. Indexes that depend on columns added above ─────────────────────────
     # These live here (not in main conn) because IF NOT EXISTS still aborts a Postgres
     # transaction if the referenced COLUMN is missing — even though the INDEX might not exist.

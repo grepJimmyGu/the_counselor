@@ -286,3 +286,138 @@ def test_orphan_user_detection_query_works():
 # MonthlyUsage models and add primaryjoin to the relationships. Until then,
 # the simpler `test_no_new_fk_constraints_point_at_users_id` (above) prevents
 # NEW tables from introducing FKs to users.id, which is the actual risk surface.
+
+
+# ── Stage 7 / Phase 1 / Ticket #1 — chat schema ──────────────────────────────
+
+
+def test_chat_conversations_and_messages_tables_exist():
+    """Both tables register through Base.metadata.create_all on a fresh Postgres,
+    with the columns the build spec calls out (build_specs/07_chat_v2_research_partner.md §5)."""
+    engine = _fresh_engine()
+    Base.metadata.create_all(bind=engine)
+    run_startup_migrations(engine)
+
+    with engine.connect() as c:
+        conv_cols = dict(c.execute(text(
+            "SELECT column_name, is_nullable FROM information_schema.columns "
+            "WHERE table_name='chat_conversations'"
+        )).fetchall())
+        msg_cols = dict(c.execute(text(
+            "SELECT column_name, is_nullable FROM information_schema.columns "
+            "WHERE table_name='chat_messages'"
+        )).fetchall())
+
+    # Conversation columns + nullability — owner cols are both nullable
+    # (app-layer enforces XOR; the build spec §5 calls this out explicitly).
+    expected_conv = {
+        "id": "NO",
+        "user_id": "YES",
+        "anon_session_id": "YES",
+        "title": "NO",
+        "context_type": "YES",
+        "context_payload": "YES",
+        "created_at": "NO",
+        "updated_at": "NO",
+    }
+    for col, nullable in expected_conv.items():
+        assert conv_cols.get(col) == nullable, (
+            f"chat_conversations.{col} expected nullable={nullable}, got {conv_cols.get(col)!r}"
+        )
+
+    expected_msg = {
+        "id": "NO",
+        "conversation_id": "NO",
+        "role": "NO",
+        "content": "YES",
+        "tool_calls": "YES",
+        "tool_results": "YES",
+        "tokens_in": "NO",
+        "tokens_out": "NO",
+        "created_at": "NO",
+    }
+    for col, nullable in expected_msg.items():
+        assert msg_cols.get(col) == nullable, (
+            f"chat_messages.{col} expected nullable={nullable}, got {msg_cols.get(col)!r}"
+        )
+
+    engine.dispose()
+
+
+def test_chat_messages_cascade_on_conversation_delete():
+    """Deleting a chat_conversations row removes its messages — orphan messages
+    have no meaning. Model declares ondelete='CASCADE' on the conversation_id FK."""
+    engine = _fresh_engine()
+    Base.metadata.create_all(bind=engine)
+    run_startup_migrations(engine)
+
+    conv_id = str(uuid.uuid4())
+    msg_id = str(uuid.uuid4())
+
+    with engine.begin() as c:
+        c.execute(
+            text(
+                "INSERT INTO chat_conversations "
+                "(id, user_id, title, created_at, updated_at) "
+                "VALUES (:id, :uid, 'Test', NOW(), NOW())"
+            ),
+            {"id": conv_id, "uid": "115253677145661247079"},
+        )
+        c.execute(
+            text(
+                "INSERT INTO chat_messages "
+                "(id, conversation_id, role, content, tokens_in, tokens_out, created_at) "
+                "VALUES (:id, :cid, 'user', 'hi', 0, 0, NOW())"
+            ),
+            {"id": msg_id, "cid": conv_id},
+        )
+
+    with engine.begin() as c:
+        c.execute(text("DELETE FROM chat_conversations WHERE id = :id"), {"id": conv_id})
+        remaining = c.execute(
+            text("SELECT COUNT(*) FROM chat_messages WHERE id = :id"), {"id": msg_id}
+        ).scalar()
+
+    assert remaining == 0, "cascade delete from chat_conversations did not remove chat_messages row"
+    engine.dispose()
+
+
+def test_anonymous_session_chat_turns_used_column_present_with_default():
+    """The Stage 7 anonymous chat quota lives on anonymous_sessions.chat_turns_used.
+    Column must be INTEGER NOT NULL with server_default='0' so a fresh anonymous
+    INSERT works without explicitly setting it (mirrors runs_used pattern)."""
+    engine = _fresh_engine()
+    Base.metadata.create_all(bind=engine)
+    run_startup_migrations(engine)
+
+    with engine.connect() as c:
+        row = c.execute(text(
+            "SELECT data_type, is_nullable, column_default "
+            "FROM information_schema.columns "
+            "WHERE table_name='anonymous_sessions' AND column_name='chat_turns_used'"
+        )).fetchone()
+
+    assert row is not None, "anonymous_sessions.chat_turns_used missing on fresh Postgres"
+    data_type, is_nullable, column_default = row
+    assert data_type == "integer", f"chat_turns_used type={data_type!r}, expected integer"
+    assert is_nullable == "NO", "chat_turns_used must be NOT NULL"
+    assert column_default is not None and "0" in column_default, (
+        f"chat_turns_used server_default missing or wrong: {column_default!r}"
+    )
+
+    # And the column accepts an insert without specifying it.
+    with engine.begin() as c:
+        c.execute(
+            text(
+                "INSERT INTO anonymous_sessions "
+                "(id, ip_first_seen, ip_last_seen, landed_at, last_seen_at) "
+                "VALUES (:id, '127.0.0.1', '127.0.0.1', NOW(), NOW())"
+            ),
+            {"id": str(uuid.uuid4())},
+        )
+        turns = c.execute(text(
+            "SELECT chat_turns_used FROM anonymous_sessions LIMIT 1"
+        )).scalar()
+    assert turns == 0, f"chat_turns_used default should be 0, got {turns!r}"
+
+    engine.dispose()
