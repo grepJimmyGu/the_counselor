@@ -100,6 +100,16 @@ def _try_merge_anonymous_session(
         db.rollback()
 
 
+def _try_convert_attribution(db: Session, request: Request, user: User) -> None:
+    """Stage 4a: if the signup came from a /s/<slug>?via=<handle> click,
+    convert the un-converted attribution row to this user. Silent on failure."""
+    try:
+        from app.services.attribution_service import convert_on_signup
+        convert_on_signup(db, request, user)
+    except Exception:
+        db.rollback()
+
+
 # ── Password signup / login ───────────────────────────────────────────────────
 
 @router.post("/password/signup", status_code=201)
@@ -121,6 +131,8 @@ def password_signup(
     )
     # Stage 1a: attach any anonymous one-shot backtest to this new account.
     _try_merge_anonymous_session(db, user.id, request.cookies.get(ANON_COOKIE_NAME))
+    # Stage 4a: convert any /s/<slug>?via=<handle> attribution.
+    _try_convert_attribution(db, request, user)
     return _make_token_response(user)
 
 
@@ -203,6 +215,8 @@ def google_oauth_callback(
     # Returning users already have their account; nothing to merge.
     if is_new:
         _try_merge_anonymous_session(db, user.id, request.cookies.get(ANON_COOKIE_NAME))
+        # Stage 4a: convert any /s/<slug>?via=<handle> attribution.
+        _try_convert_attribution(db, request, user)
 
     token = create_session_token(user.id, user.plan.tier)
     pub = UserPublic(
@@ -230,6 +244,9 @@ class _SyncUserRequest(BaseModel):
     # Stage 1a: NextAuth forwards the livermore_anon_id cookie value so we
     # can merge any pre-signup anonymous backtest into the new user.
     anonymous_session_id: Optional[str] = None
+    # Stage 4a: NextAuth forwards the livermore_vsid cookie value so we can
+    # convert the referrer-attribution row to this new user.
+    visitor_session_id: Optional[str] = None
 
 
 class _UserResponse(BaseModel):
@@ -283,8 +300,24 @@ def sync_user(body: _SyncUserRequest, db: Session = Depends(get_db)) -> _UserRes
         )
 
     # Stage 1a: merge anonymous backtest on NEW signups only.
+    # Stage 4a: convert any /s/<slug>?via=<handle> attribution by faking a
+    # cookie object on a temp request — convert_on_signup just reads
+    # request.cookies.get('livermore_vsid').
     if is_new_user:
         _try_merge_anonymous_session(db, user.id, body.anonymous_session_id)
+        if body.visitor_session_id:
+            try:
+                from app.services.attribution_service import (
+                    VSID_COOKIE_NAME,
+                    convert_on_signup,
+                )
+
+                class _FauxReq:
+                    cookies = {VSID_COOKIE_NAME: body.visitor_session_id}
+
+                convert_on_signup(db, _FauxReq(), user)  # type: ignore[arg-type]
+            except Exception:
+                db.rollback()
 
     return _UserResponse(
         id=user.id,

@@ -81,6 +81,7 @@ def _dispatch(db: Session, event_type: str, obj: dict) -> None:
     if event_type == "customer.subscription.created":
         billing_state.apply_subscription_created(db, obj)
         _log_attribution_on_conversion(db, obj)
+        _mark_attribution_paid(db, obj)
     elif event_type == "customer.subscription.updated":
         billing_state.apply_subscription_updated(db, obj)
     elif event_type == "customer.subscription.deleted":
@@ -117,3 +118,18 @@ def _log_attribution_on_conversion(db: Session, subscription_obj: dict) -> None:
         session.id,
         subscription_obj.get("id"),
     )
+
+
+def _mark_attribution_paid(db: Session, subscription_obj: dict) -> None:
+    """Stage 4a: on customer.subscription.created, mark the user's attribution
+    row as converted-to-paid. Stage 5's Creator Program queries this column
+    for payout calculations. Silent on failure."""
+    metadata = subscription_obj.get("metadata") or {}
+    user_id = metadata.get("user_id")
+    if not user_id:
+        return
+    try:
+        from app.services.attribution_service import mark_paid_conversion
+        mark_paid_conversion(db, user_id, subscription_id=subscription_obj.get("id"))
+    except Exception as exc:
+        logger.warning("mark_attribution_paid failed for user_id=%s: %s", user_id, exc)

@@ -15,8 +15,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response
-from pydantic import BaseModel
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -25,9 +25,14 @@ from app.db.session import get_db
 from app.models.published_strategy import PublishedStrategy
 from app.models.user import User
 from app.services import community_publish_service as svc
+from app.services.attribution_service import track_visit
 from app.services.community_publish_service import PublishStrategyRequest
 
 router = APIRouter(prefix="/api/community/strategies", tags=["community_publish"])
+
+# Stage 4a: a separate attribution-tracking router lives at
+# /api/community/attribution/* so it's discoverable next to the publish routes.
+attribution_router = APIRouter(prefix="/api/community/attribution", tags=["attribution"])
 
 
 # ── Response schemas ─────────────────────────────────────────────────────────
@@ -207,3 +212,33 @@ def delete_published(
     if not ok:
         raise HTTPException(status_code=404, detail="Strategy not found.")
     return Response(status_code=204)
+
+
+# ── Attribution ───────────────────────────────────────────────────────────────
+
+
+class TrackVisitRequest(BaseModel):
+    url: str = Field(..., max_length=500)
+    via: str = Field(..., min_length=1, max_length=32)
+
+
+class TrackVisitResponse(BaseModel):
+    tracked: bool
+
+
+@attribution_router.post("/track", response_model=TrackVisitResponse)
+def track_attribution_visit(
+    payload: TrackVisitRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> TrackVisitResponse:
+    """Called from /s/[slug] page mount when ?via=<handle> is in the URL.
+    Resolves the handle to a user, sets livermore_vsid cookie if missing,
+    records the visit. Returns silently if the handle is unknown."""
+    visit = track_visit(
+        db, request, response,
+        via_handle=payload.via,
+        landed_url=payload.url,
+    )
+    return TrackVisitResponse(tracked=visit is not None)

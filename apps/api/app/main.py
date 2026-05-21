@@ -27,7 +27,10 @@ from app.api.routes.sentiment import router as sentiment_router
 from app.api.routes.strategy_storage import router as strategy_storage_router
 from app.api.routes.strategy import router as strategy_router
 from app.api.routes.anonymous import router as anonymous_router
-from app.api.routes.community_publish import router as community_publish_router
+from app.api.routes.community_publish import (
+    attribution_router,
+    router as community_publish_router,
+)
 from app.api.routes.saved_strategies import router as saved_strategies_router
 from app.core.config import get_settings
 from app.db.migrations import run_startup_migrations
@@ -315,6 +318,7 @@ app.include_router(sentiment_router)
 app.include_router(anonymous_router)  # Stage 1a
 app.include_router(saved_strategies_router)  # Stage 1a
 app.include_router(community_publish_router)  # Stage 4a
+app.include_router(attribution_router)  # Stage 4a
 
 
 @app.get("/health")
