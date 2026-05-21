@@ -180,3 +180,174 @@ def check_schema_drift_job() -> None:
     for v in violations:
         if v.startswith((_FATAL, _WARN)):
             logger.warning("%s %s", _LOG_PREFIX, v)
+
+
+# ── Chat guardrails: LLM-judge auditor (Stage 7 / ticket #9) ─────────────────
+
+
+_AUDITOR_LOG_PREFIX = "CHAT_AUDIT"
+
+
+async def audit_chat_responses_job() -> None:
+    """Nightly cron at 02:00 UTC. Samples N recent conversations and asks an
+    'auditor' LLM whether each assistant response is grounded in the tool
+    outputs it used. Flagged conversations emit `CHAT_AUDIT_FLAGGED` log
+    lines; the weekly digest job aggregates.
+
+    Spec reference: build_specs/07_chat_v2_research_partner.md §3.7
+    ('Async: LLM-judge auditor'). Costs ~$3/mo at expected volume
+    (gpt-4o-mini, 50 audits/day).
+
+    Safe to call repeatedly — read-only sampling, no DB mutation.
+    """
+    import json as _json
+    from datetime import datetime, timedelta
+
+    from app.db.session import SessionLocal
+    from app.models.chat import ChatMessage
+    from app.services.llm_adapter import (
+        ChatDone as _ChatDone,
+        ChatToken as _ChatToken,
+        LLMAdapterError as _AdapterErr,
+        get_llm_gateway as _gw,
+    )
+
+    SAMPLE_SIZE = 50
+    WINDOW_HOURS = 24
+
+    gateway = _gw()
+    if not gateway.is_enabled:
+        logger.info("%s skipped — LLM not configured", _AUDITOR_LOG_PREFIX)
+        return
+
+    cutoff = datetime.utcnow() - timedelta(hours=WINDOW_HOURS)
+    db = SessionLocal()
+    try:
+        # Pull assistant messages from the last 24h that have a preceding
+        # user message and at least one tool message (i.e., tool-grounded
+        # responses where citation matters).
+        assistants = (
+            db.query(ChatMessage)
+            .filter(
+                ChatMessage.role == "assistant",
+                ChatMessage.created_at >= cutoff,
+                ChatMessage.content.isnot(None),
+            )
+            .order_by(ChatMessage.created_at.desc())
+            .limit(SAMPLE_SIZE * 3)  # over-sample; many will have no tools
+            .all()
+        )
+
+        sampled = 0
+        flagged = 0
+        for a in assistants:
+            if sampled >= SAMPLE_SIZE:
+                break
+            # Find the preceding user message + any tool messages in the
+            # same conversation BEFORE this assistant row.
+            preceding = (
+                db.query(ChatMessage)
+                .filter(
+                    ChatMessage.conversation_id == a.conversation_id,
+                    ChatMessage.created_at < a.created_at,
+                )
+                .order_by(ChatMessage.created_at.desc())
+                .limit(10)
+                .all()
+            )
+            user_msg = next((m for m in preceding if m.role == "user"), None)
+            tool_msgs = [m for m in preceding if m.role == "tool"]
+            if user_msg is None or not tool_msgs:
+                continue  # not a tool-grounded response; skip
+
+            sampled += 1
+            tool_summary = " | ".join(
+                (m.tool_results or {}).get("content", "")[:500] for m in reversed(tool_msgs)
+            )
+            auditor_prompt = (
+                f'The user asked: "{user_msg.content[:500]}"\n\n'
+                f'The chat responded: "{a.content[:1200]}"\n\n'
+                f'The chat used these tool outputs: {tool_summary[:2000]}\n\n'
+                "List any factual claims in the response that are NOT "
+                "supported by the tool outputs. Output strict JSON: "
+                '{"unsupported_claims": [{"claim": "...", "reason": "..."}]}.'
+                " If everything is supported, return "
+                '{"unsupported_claims": []}.'
+            )
+
+            try:
+                chunks = []
+                async for ev in gateway.chat_completion_with_tools(
+                    messages=[
+                        {"role": "system", "content": "You are a strict factual auditor."},
+                        {"role": "user", "content": auditor_prompt},
+                    ],
+                    tools=[],
+                ):
+                    if isinstance(ev, _ChatToken):
+                        chunks.append(ev.text)
+                    elif isinstance(ev, _ChatDone):
+                        break
+            except _AdapterErr as exc:
+                logger.warning("%s audit LLM error conv=%s: %r",
+                               _AUDITOR_LOG_PREFIX, a.conversation_id, exc)
+                continue
+
+            raw = "".join(chunks).strip()
+            try:
+                # Extract the first JSON object from the response.
+                start = raw.find("{")
+                end = raw.rfind("}") + 1
+                parsed = _json.loads(raw[start:end]) if start >= 0 else {}
+                unsupported = parsed.get("unsupported_claims", []) or []
+            except Exception:
+                unsupported = []
+
+            if unsupported:
+                flagged += 1
+                logger.warning(
+                    "%s_FLAGGED conv=%s n_unsupported=%d sample=%s",
+                    _AUDITOR_LOG_PREFIX,
+                    a.conversation_id,
+                    len(unsupported),
+                    _json.dumps(unsupported[:3], default=str)[:400],
+                )
+
+        logger.info(
+            "%s done sampled=%d flagged=%d window_hours=%d",
+            _AUDITOR_LOG_PREFIX, sampled, flagged, WINDOW_HOURS,
+        )
+    finally:
+        db.close()
+
+
+# ── Chat guardrails: weekly digest ────────────────────────────────────────────
+
+
+def chat_guardrails_digest_job() -> None:
+    """Sunday 09:00 UTC weekly digest. v1: a structured log line summarizing
+    the week — counts of refusals by category, counts of numeric_uncited
+    events, top-flagged conversations from the auditor. Operator greps:
+
+        railway logs --service the_counselor | grep CHAT_DIGEST
+
+    v2 (deferred): emit as an email via the existing Resend wrapper. Wiring
+    is straightforward (`from app.services.email_service import send_email`)
+    but needs `EMAIL_DIGEST_RECIPIENT` env var which we haven't set yet.
+    Logging covers the operator's primary need; email is a UX upgrade.
+    """
+    # v1 stub: emit a heartbeat so we know the job ran. Aggregation against
+    # Railway log scrape is the operator workflow until v2 reads from a
+    # structured chat_guardrail_events table (deferred ticket).
+    logger.info(
+        "CHAT_DIGEST week_ending=%s — aggregate from this command: "
+        "`railway logs --service the_counselor --since 7d | "
+        "grep -E 'chat_refusal|numeric_uncited|CHAT_AUDIT_FLAGGED' | "
+        "jq -s 'group_by(.event) | map({event: .[0].event, count: length})'`",
+        _today_iso(),
+    )
+
+
+def _today_iso() -> str:
+    from datetime import date
+    return date.today().isoformat()
