@@ -2089,3 +2089,121 @@ export interface PublicStrategyItem {
   follower_count: number;
   live?: LivePerformance | null;
 }
+
+
+// ── Stage 7: Chat v2 (ticket #7) ──────────────────────────────────────────────
+//
+// Types-first per CLAUDE.md frontend rule. These mirror the backend SSE
+// protocol — every field in a frame the widget might receive is enumerated
+// here so schema drift surfaces at typecheck-time rather than runtime.
+
+/** Context the widget tells the backend about for this conversation.
+ *  Backend uses it for system-prompt anchoring (e.g., "looking at AAPL"). */
+export type ChatContextType =
+  | "workspace"
+  | `stock:${string}`
+  | `backtest:${string}`
+  | `community_strategy:${string}`
+  | "user_saved"
+  | "general";
+
+export interface ChatMessageRequest {
+  content: string;
+  context_type?: ChatContextType | null;
+  context_payload?: Record<string, unknown> | null;
+}
+
+/** SSE frame types produced by /api/chat/conversations/{id}/messages.
+ *  Each `type` corresponds to one branch of the discriminated union below.
+ *  Match the chat.py _sse(...) call sites exactly. */
+export type ChatEventType =
+  | "started"
+  | "token"
+  | "tool_call_start"
+  | "tool_result"
+  | "guardrail"
+  | "done"
+  | "error";
+
+interface ChatEventBase {
+  type: ChatEventType;
+}
+
+/** First frame after the request is accepted. Authed path includes
+ *  conversation_id only; anonymous path also includes anon_turns_remaining
+ *  so the widget can render "3 of 5 free turns left". */
+export interface ChatStartedEvent extends ChatEventBase {
+  type: "started";
+  conversation_id: string;
+  anon_turns_remaining?: number;
+}
+
+export interface ChatTokenEvent extends ChatEventBase {
+  type: "token";
+  text: string;
+}
+
+export interface ChatToolCallStartEvent extends ChatEventBase {
+  type: "tool_call_start";
+  call_id: string;
+  name: string;
+  arguments: Record<string, unknown>;
+}
+
+export interface ChatToolResultEvent extends ChatEventBase {
+  type: "tool_result";
+  call_id: string;
+  name: string;
+}
+
+/** Ticket #9 guardrail action frames. The widget can use these to style
+ *  the message differently (refusal banner, citation chip badge, warning). */
+export interface ChatGuardrailEvent extends ChatEventBase {
+  type: "guardrail";
+  action:
+    | "refusal_logged"
+    | "citation_reprompt_succeeded"
+    | "citation_warning_appended";
+  category?: string;            // for refusal_logged
+  uncited_count?: number;       // for citation_*
+  rewritten_text?: string;      // for citation_reprompt_succeeded
+}
+
+export interface ChatDoneEvent extends ChatEventBase {
+  type: "done";
+  finish_reason: string;
+}
+
+export interface ChatErrorEvent extends ChatEventBase {
+  type: "error";
+  message: string;
+  fatal?: boolean;
+}
+
+export type ChatEvent =
+  | ChatStartedEvent
+  | ChatTokenEvent
+  | ChatToolCallStartEvent
+  | ChatToolResultEvent
+  | ChatGuardrailEvent
+  | ChatDoneEvent
+  | ChatErrorEvent;
+
+/** Local widget state — one entry per displayed message. The widget
+ *  builds these from streamed events; nothing on the wire matches this
+ *  shape exactly. */
+export interface UIChatMessage {
+  id: string;
+  role: "user" | "assistant" | "tool";
+  content: string;
+  /** Parsed `<cite source="..." id="..."/>` chips, extracted at render time. */
+  citations?: Array<{ source: string; id?: string; raw: string }>;
+  /** Set on assistant messages whose backend guardrail.action=refusal_logged. */
+  refusalCategory?: string;
+  /** Set when citation_warning_appended fires — widget can show a warning. */
+  hasCitationWarning?: boolean;
+  /** Set when this message is mid-stream (tokens still arriving). */
+  isStreaming?: boolean;
+  /** Tool-message body, displayed as a collapsed chip rather than prose. */
+  toolName?: string;
+}

@@ -15,6 +15,7 @@ import { BusinessModelSection } from "./_business-model-section";
 import { MarketPositionSectionUI } from "./_market-position-section";
 import type { Route } from "next";
 import { SentimentTab } from "./_sentiment-tab";
+import { ChatWidget } from "@/components/ChatWidget";
 import { EvaluationDashboard } from "./_evaluation-dashboard";
 import { WatchlistButton } from "@/components/community/watchlist-button";
 import { VoteBar } from "@/components/community/vote-bar";
@@ -304,6 +305,8 @@ export default function CompanyPage() {
       </main>
     }>
       <CompanyPageInner />
+      {/* Stage 7 ticket #7: chat widget on stock-detail surface */}
+      <ChatWidget />
     </Suspense>
   );
 }

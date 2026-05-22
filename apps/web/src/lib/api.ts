@@ -55,7 +55,7 @@ function deriveApiBaseUrl(): string {
   return PROD_API_FALLBACK;
 }
 
-const API_BASE_URL = deriveApiBaseUrl();
+export const API_BASE_URL = deriveApiBaseUrl();
 
 /**
  * Custom Error thrown on 402 responses. Carries the parsed envelope so callers
