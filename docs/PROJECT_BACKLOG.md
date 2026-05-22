@@ -99,6 +99,28 @@ actively blocking development; all are gates on going-live activities.
 
 ---
 
+## 4b. Market Pulse v2 — remaining Phase 1 sub-phases
+
+The Market Pulse v2 redesign shipped to `/stocks` via PRs #56–59. Mock-data
+surfaces still need real backend wiring. Sub-phases are ship-able
+independently — master-merger merges in this order; 1d/1e/1f/1g
+parallelizable.
+
+| Sub-phase | Scope | Effort | Notes |
+|---|---|---|---|
+| ✅ **1a** | Promote v2 → /stocks | — | PR #56 |
+| ✅ **1b** | LLM narrative service | — | PR #57 |
+| ✅ **1b-extra** | Real index values via FMP `^DJI`/`^IXIC`/`^GSPC`/`^RUT` | — | PR #58 |
+| ✅ **decimal-fix** | Sentence-splitter regression | — | PR #59 |
+| 🚧 **LLM prompt rewrite** | Replace generic system prompt with Jimmy-provided financial-news-summary prompt | ~30 min | **Waiting on Jimmy to share the prompt** (2026-05-22) |
+| ⏳ **1c** | Real macro signals (ISM PMI, Core CPI, 10Y, HY OAS) via FRED + AV mix | ~4-6h | Needs FRED API key in Railway env vars; biggest remaining piece |
+| ⏳ **1d** | Real sector ETF-vs-SPY series in the comparison chart | ~2-3h | Uses existing 3yr `price_bars`; can parallelize with 1e/1f |
+| ⏳ **1e** | History Rhymes backend (`macro_similarity_service.py` + cosine over 5y) | ~5-6h | New service; parallelizable |
+| ⏳ **1f** | Screener preset filter logic on `/stocks/screener?preset=<slug>` | ~3-4h | 9 presets; tier-gating enforcement via existing `require_entitlement` |
+| ⏳ **1g (new)** | Top news sidebar in MarketBrief right column (replaces the temporary 2-col layout that just shows watch_items there) | ~4-5h backend + ~1-2h frontend | Per 2026-05-22 feedback. Backend: news service (use `market-news-analyst` skill pattern OR extend PRD-09 sentiment provider). Frontend: 4-6 news headlines, refreshed hourly, linked to source. |
+
+---
+
 ## 5. Engineering debt
 
 | Item | Source | Effort | Trigger |
