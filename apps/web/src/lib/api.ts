@@ -426,6 +426,25 @@ export async function getScreenerResults(params: Record<string, string | number 
   return fetchApi(`/api/screener/results${qs ? `?${qs}` : ""}`);
 }
 
+// Phase 1f — preset screens (Market Pulse Section 6 cards)
+export async function getScreenerPresets(): Promise<import("@/lib/contracts").ScreenerPresetsResponse> {
+  return fetchApi("/api/screener/presets");
+}
+
+export async function getScreenerPresetResults(
+  slug: string,
+  limit = 50,
+  offset = 0,
+  opts: { backendToken?: string } = {},
+): Promise<import("@/lib/contracts").ScreenerResponse> {
+  const headers: Record<string, string> = {};
+  if (opts.backendToken) headers["Authorization"] = `Bearer ${opts.backendToken}`;
+  return fetchApi(
+    `/api/screener/preset/${encodeURIComponent(slug)}?limit=${limit}&offset=${offset}`,
+    { headers },
+  );
+}
+
 // ── PRD-09/10: News & Sentiment ───────────────────────────────────────────────
 
 export async function getSentimentSummary(

@@ -4,8 +4,12 @@ import { useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import type { Route } from "next";
-import { ArrowUpDown, ChevronDown, ChevronUp, Search, SlidersHorizontal, X } from "lucide-react";
-import { getScreenerFilters, getScreenerResults } from "@/lib/api";
+import { ArrowUpDown, ChevronDown, ChevronUp, SlidersHorizontal, X } from "lucide-react";
+import {
+  getScreenerFilters,
+  getScreenerPresetResults,
+  getScreenerResults,
+} from "@/lib/api";
 import type { ScreenerFiltersResponse, ScreenerResult } from "@/lib/contracts";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
@@ -88,9 +92,21 @@ export function StocksPageInner() {
     router.replace(`/stocks?${params.toString()}`, { scroll: false });
   }
 
+  // Phase 1f — `?preset=<slug>` deep-link from Market Pulse Section 6
+  // routes through the per-preset endpoint instead of the generic
+  // filter results. Tier-gated presets surface a 402 → existing
+  // SoftPaywall modal on Strategist / Quant lockouts.
+  const presetSlug = searchParams.get("preset") || "";
+
   const fetchResults = useCallback(async () => {
     setLoading(true);
     try {
+      if (presetSlug) {
+        const data = await getScreenerPresetResults(presetSlug, 50, 0);
+        setResults(data.results);
+        setTotal(data.total);
+        return;
+      }
       const params: Record<string, string | number | undefined> = {};
       searchParams.forEach((v, k) => { params[k] = v; });
       if (!params.sort_by) params.sort_by = "market_cap";
@@ -101,7 +117,7 @@ export function StocksPageInner() {
       setTotal(data.total);
     } catch { setResults([]); setTotal(0); }
     finally { setLoading(false); }
-  }, [searchParams]);
+  }, [presetSlug, searchParams]);
 
   useEffect(() => {
     getScreenerFilters().then(setFiltersMeta).catch(() => {});
@@ -120,8 +136,17 @@ export function StocksPageInner() {
           <div>
             <h1 className="font-heading text-2xl font-bold">Stock Screener</h1>
             <p className="mt-1 text-sm text-muted-foreground">
-              {filtersMeta ? `${filtersMeta.total_symbols.toLocaleString()} symbols` : "Loading…"}
-              {total > 0 && activeCount > 0 ? ` · ${total.toLocaleString()} matching` : ""}
+              {presetSlug ? (
+                <>
+                  Preset: <span className="font-mono font-semibold">{presetSlug}</span>
+                  {total > 0 ? ` · ${total.toLocaleString()} matches` : ""}
+                </>
+              ) : (
+                <>
+                  {filtersMeta ? `${filtersMeta.total_symbols.toLocaleString()} symbols` : "Loading…"}
+                  {total > 0 && activeCount > 0 ? ` · ${total.toLocaleString()} matching` : ""}
+                </>
+              )}
             </p>
           </div>
           <div className="flex items-center gap-2">
