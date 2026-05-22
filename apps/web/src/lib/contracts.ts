@@ -1657,6 +1657,15 @@ export interface AssetCard {
   is_stale?: boolean;
 }
 
+/** Phase 1b — LLM-generated narrative block. Null when LLM_PROVIDER is
+ * unset or the backend's narrative generation fails. Frontend falls back
+ * to the deterministic template in `lib/market-pulse-narrative.ts`. */
+export interface MarketNarrative {
+  headline: string;
+  sector_rotation: string;
+  watch_items: string[];
+}
+
 export interface MarketPulseResponse {
   market: string;               // "US" | "CN"
   as_of: string;
@@ -1665,6 +1674,7 @@ export interface MarketPulseResponse {
   sectors: SectorCard[];        // sorted by CMF descending
   top_assets: AssetCard[];      // top 10 by CMF from full universe
   featured_etfs: AssetCard[];
+  narrative?: MarketNarrative | null;
 }
 
 // ── PRD-trend: Stock Trend types ──────────────────────────────────────────────

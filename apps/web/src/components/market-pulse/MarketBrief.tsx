@@ -53,7 +53,15 @@ const MOCK_INDICES: MockIndex[] = [
 ];
 
 export function MarketBrief({ data }: { data: MarketPulseResponse }) {
-  const narrative = buildNarrative(data);
+  // Phase 1b — prefer the backend's LLM-generated narrative when present.
+  // Falls through to the deterministic template (`lib/market-pulse-narrative.ts`)
+  // when `data.narrative` is null (LLM_PROVIDER unset, backend failure, etc.).
+  const deterministic = buildNarrative(data);
+  const llmNarrative = data.narrative ?? null;
+  const headlineSentences = llmNarrative
+    ? splitIntoSentences(llmNarrative.headline)
+    : deterministic.headline;
+  const isLlm = llmNarrative != null;
 
   return (
     <section
@@ -66,7 +74,8 @@ export function MarketBrief({ data }: { data: MarketPulseResponse }) {
       </h2>
 
       {/* Inline index ticker — actual index point values
-          (Phase 0a mock; Phase 1 wires real backend) */}
+          (Phase 0a mock; real DJI/IXIC/SPX/RUT fetch ships as a small
+          follow-up PR after the LLM narrative service lands) */}
       <div className="mb-5">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {MOCK_INDICES.map((idx) => (
@@ -81,7 +90,7 @@ export function MarketBrief({ data }: { data: MarketPulseResponse }) {
       </div>
 
       <div className="space-y-2">
-        {narrative.headline.map((sentence, i) => (
+        {headlineSentences.map((sentence, i) => (
           <p
             key={i}
             className={cn(
@@ -94,15 +103,57 @@ export function MarketBrief({ data }: { data: MarketPulseResponse }) {
         ))}
       </div>
 
-      {narrative.pills.length > 0 && (
+      {/* Pills only render from the deterministic path — LLM narrative
+          gets its own "watch_items" surface below. */}
+      {!isLlm && deterministic.pills.length > 0 && (
         <div className="mt-5 flex flex-wrap gap-2">
-          {narrative.pills.map((p) => (
+          {deterministic.pills.map((p) => (
             <Pill key={p.label} pill={p} />
           ))}
         </div>
       )}
+
+      {isLlm && llmNarrative.watch_items.length > 0 && (
+        <div className="mt-5 space-y-1.5">
+          <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+            What to watch
+          </div>
+          <ul className="space-y-1">
+            {llmNarrative.watch_items.map((item, i) => (
+              <li
+                key={i}
+                className="text-sm text-foreground/80 leading-snug flex gap-2"
+              >
+                <span className="text-primary mt-1.5 h-1 w-1 rounded-full bg-primary shrink-0" />
+                <span>{item}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {/* Small attribution chip telling the user whether they're seeing
+          the LLM read or the fallback. Subtle — only on hover via title. */}
+      <div className="mt-4 text-[9px] text-muted-foreground/60">
+        {isLlm ? "Narrative generated hourly" : "Deterministic summary"}
+      </div>
     </section>
   );
+}
+
+/**
+ * Split an LLM-generated `headline` paragraph into rendered sentences.
+ * Mirrors the shape of `buildNarrative()`'s deterministic output (string[])
+ * so the render loop above is uniform regardless of source.
+ * Splits on `. ` (period + space) and re-attaches the period.
+ */
+function splitIntoSentences(text: string): string[] {
+  const trimmed = text.trim();
+  if (!trimmed) return [];
+  // Split on sentence boundaries but keep the punctuation attached.
+  const parts = trimmed.match(/[^.!?]+[.!?]+\s*/g);
+  if (!parts || parts.length === 0) return [trimmed];
+  return parts.map((s) => s.trim()).filter(Boolean);
 }
 
 function IndexTickerCell({ idx }: { idx: MockIndex }) {
