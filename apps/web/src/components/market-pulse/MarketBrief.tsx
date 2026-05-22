@@ -163,14 +163,20 @@ export function MarketBrief({ data }: { data: MarketPulseResponse }) {
  * Split an LLM-generated `headline` paragraph into rendered sentences.
  * Mirrors the shape of `buildNarrative()`'s deterministic output (string[])
  * so the render loop above is uniform regardless of source.
- * Splits on `. ` (period + space) and re-attaches the period.
+ *
+ * Sentence boundary = end-of-sentence punctuation (`.` `!` `?`) followed
+ * by whitespace AND a capital letter. The capital-letter lookahead is
+ * what protects decimal numbers from being shredded — "1.92%" doesn't
+ * have a capital letter after the `.`, so it stays intact. This was a
+ * production bug visible after 1b shipped (Jimmy's 2026-05-22 screenshot
+ * showed "the XLE sector up 1." / "92%, while small caps lagged…").
  */
 function splitIntoSentences(text: string): string[] {
   const trimmed = text.trim();
   if (!trimmed) return [];
-  // Split on sentence boundaries but keep the punctuation attached.
-  const parts = trimmed.match(/[^.!?]+[.!?]+\s*/g);
-  if (!parts || parts.length === 0) return [trimmed];
+  // Split AT (lookbehind) end-of-sentence punctuation followed by
+  // whitespace AND (lookahead) a capital letter starting the next sentence.
+  const parts = trimmed.split(/(?<=[.!?])\s+(?=[A-Z"'])/);
   return parts.map((s) => s.trim()).filter(Boolean);
 }
 
