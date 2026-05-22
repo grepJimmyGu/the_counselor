@@ -39,6 +39,8 @@ CodeT = Literal[
     "market_pulse_ticker_out_of_scope",
     # Stage 7 — chat
     "chat_quota_exhausted",
+    # Phase 1f (2026-05-22) — Market Pulse screener preset gating
+    "screener_preset_locked",
 ]
 
 
@@ -71,6 +73,7 @@ _CTA_COPY: dict[str, str] = {
     "robustness_test_locked": "Upgrade to Quant for the full robustness suite",
     "market_pulse_ticker_out_of_scope": "Upgrade to research all US stocks",
     "chat_quota_exhausted": "Sign up for unlimited chat",
+    "screener_preset_locked": "Upgrade to unlock this preset screen",
 }
 
 # Which tier unlocks each code.
@@ -94,6 +97,7 @@ def upgrade_error(
     limit_value: Optional[str] = None,
     is_anonymous: bool = False,
     cta_action_override: Optional[Literal["signup", "trial", "checkout", "upgrade"]] = None,
+    required_tier_override: Optional[Literal["strategist", "quant"]] = None,
 ) -> HTTPException:
     """Build a 402 HTTPException with the standardized envelope.
 
@@ -101,10 +105,19 @@ def upgrade_error(
     without touching the rest of the routing logic. Default is "signup"
     for anonymous, "upgrade" otherwise. The chat quota gate (Stage 7) uses
     "trial" for Scout to send them to the 14-day Strategist trial.
+
+    `required_tier_override` lets gates whose required tier varies
+    per-call (e.g. screener presets — some lock Strategist+, others
+    Quant+) supply the value directly instead of relying on the
+    `_REQUIRED_TIER` static mapping by code.
     """
     default_cta: Literal["signup", "upgrade"] = "signup" if is_anonymous else "upgrade"
     cta_action = cta_action_override or default_cta
-    required = None if is_anonymous else _REQUIRED_TIER.get(code)
+    required = (
+        None
+        if is_anonymous
+        else (required_tier_override or _REQUIRED_TIER.get(code))
+    )
     upgrade_url = (
         f"/signup?gate={code}" if is_anonymous else f"/pricing?gate={code}&from={current_tier or 'scout'}"
     )

@@ -1610,6 +1610,22 @@ export interface ScreenerFiltersResponse {
   total_symbols: number;
 }
 
+/** Phase 1f — preset summary metadata for the 9 Market Pulse screener
+ * tile cards. Returned by `GET /api/screener/presets`. */
+export interface ScreenerPresetSummary {
+  slug: string;
+  title: string;
+  description: string;
+  icon: string;        // lucide-react icon name, e.g. "BrainCircuit"
+  tier: "scout" | "strategist" | "quant";
+  result_count: number;
+  sample_tickers: string[];
+}
+
+export interface ScreenerPresetsResponse {
+  presets: ScreenerPresetSummary[];
+}
+
 // ── PRD-15: Market Pulse types ────────────────────────────────────────────────
 
 export interface IndexCard {

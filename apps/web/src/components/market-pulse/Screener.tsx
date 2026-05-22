@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import {
@@ -7,6 +8,7 @@ import {
   Coins,
   Eye,
   Gem,
+  Loader2,
   Lock,
   MessageSquareText,
   Newspaper,
@@ -16,132 +18,83 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getScreenerPresets } from "@/lib/api";
+import type { ScreenerPresetSummary } from "@/lib/contracts";
 
 /**
  * Section 6 — Stock Screener / Algorithmic Recommendations.
  *
- * 3×2 grid of 6 algorithm-generated stock lists (1 col on mobile,
+ * 3×3 grid of 9 algorithm-generated stock lists (1 col on mobile,
  * 2 on tablet, 3 on desktop). Modeled on the Seeking Alpha screener
  * tile pattern Jimmy referenced on 2026-05-21.
  *
- * **Phase 0a status:** each card is a visual stub with hardcoded sample
- * tickers + a mock result count. Click target is
- * `/stocks/screener?preset=<slug>` — the existing screener page exists,
- * Phase 1 wires the preset filter on the backend.
+ * **Phase 1f (2026-05-22):** preset cards now fetch from
+ * `GET /api/screener/presets` for real result counts and sample
+ * tickers. Click target is `/stocks/screener?preset=<slug>` — the
+ * existing screener page reads the `preset` query param and calls
+ * the per-preset results endpoint, which enforces tier via 402 for
+ * Strategist / Quant presets (existing global SoftPaywall modal
+ * intercepts).
  *
- * **Tier gating:** 3 of the 6 cards are flagged with a tier badge
- * ("Strategist" / "Quant"). Phase 0a renders the badge visually; the
- * existing entitlements layer (`require_entitlement` + the `SoftPaywall`
- * 402 interceptor) handles real enforcement when the user clicks
- * through. Visual today, enforced in Phase 1.
+ * Falls back to a hardcoded preset list (matching the backend's
+ * `screener_presets.py`) if the summary endpoint errors — visual
+ * shape stays stable but counts / samples may be off.
  */
 
 type Tier = "scout" | "strategist" | "quant";
 
-interface ScreenCard {
-  slug: string;
-  title: string;
-  description: string;
-  icon: LucideIcon;
-  resultCount: number;
-  sampleTickers: string[];
-  tier: Tier;
-}
+const ICON_MAP: Record<string, LucideIcon> = {
+  BrainCircuit,
+  TrendingUp,
+  Rocket,
+  Star,
+  Coins,
+  Gem,
+  Newspaper,
+  MessageSquareText,
+  Eye,
+};
 
-const SCREENS: ScreenCard[] = [
-  {
-    slug: "trending-ai",
-    title: "Trending AI Stocks",
-    description:
-      "AI-themed equities ranked by recent momentum + capital inflow.",
-    icon: BrainCircuit,
-    resultCount: 24,
-    sampleTickers: ["NVDA", "AMD", "GOOGL", "MSFT", "AVGO"],
-    tier: "scout",
-  },
-  {
-    slug: "top-growth",
-    title: "Top Growth Stocks",
-    description:
-      "Revenue + earnings compounders, ranked by 3-yr growth + ROIC.",
-    icon: TrendingUp,
-    resultCount: 38,
-    sampleTickers: ["NVDA", "META", "AMZN", "NFLX", "TSLA"],
-    tier: "scout",
-  },
-  {
-    slug: "top-small-cap",
-    title: "Top Small Cap Stocks",
-    description:
-      "Market cap < $2B with positive momentum + improving fundamentals.",
-    icon: Rocket,
-    resultCount: 17,
-    sampleTickers: ["SOFI", "RIVN", "FUBO", "IONQ", "BBAI"],
-    tier: "scout",
-  },
-  {
-    slug: "top-rated",
-    title: "Top Rated Stocks",
-    description:
-      "Analyst consensus Strong Buy + Livermore quant rating in top decile.",
-    icon: Star,
-    resultCount: 22,
-    sampleTickers: ["NVDA", "MSFT", "AAPL", "GOOGL", "META"],
-    tier: "scout",
-  },
-  {
-    slug: "top-dividend",
-    title: "Top Dividend Stocks",
-    description:
-      "High dividend yield with growth + safety guardrails (>4% sustainable).",
-    icon: Coins,
-    resultCount: 31,
-    sampleTickers: ["JNJ", "XOM", "KO", "PFE", "VZ"],
-    tier: "scout",
-  },
-  {
-    slug: "top-value",
-    title: "Top Value Stocks",
-    description:
-      "Low P/E + high free-cash-flow yield, screened for trap avoidance.",
-    icon: Gem,
-    resultCount: 19,
-    sampleTickers: ["JPM", "BAC", "C", "WFC", "GS"],
-    tier: "scout",
-  },
-  {
-    slug: "positive-catalyst",
-    title: "Positive Catalyst Watchlist",
-    description:
-      "Stocks with recent positive catalysts identified by news sentiment.",
-    icon: Newspaper,
-    resultCount: 12,
-    sampleTickers: ["TSLA", "COIN", "PLTR", "RIVN"],
-    tier: "strategist",
-  },
-  {
-    slug: "community-confirmed",
-    title: "News Confirmed by Community",
-    description:
-      "Headlines that community votes + watchlists are amplifying right now.",
-    icon: MessageSquareText,
-    resultCount: 9,
-    sampleTickers: ["NVDA", "AAPL", "AMZN", "TSLA"],
-    tier: "strategist",
-  },
-  {
-    slug: "rising-attention",
-    title: "Rising Attention Stocks",
-    description:
-      "Sentiment + volume both surging — unusual interest, early signal.",
-    icon: Eye,
-    resultCount: 6,
-    sampleTickers: ["PLTR", "SOFI", "COIN", "RBLX"],
-    tier: "quant",
-  },
+// Shape-only fallback. Mirror of `all_presets()` order in
+// `apps/api/app/services/screener_presets.py`. Used until the summary
+// fetch resolves so the tiles render immediately on first paint.
+const FALLBACK_PRESETS: ScreenerPresetSummary[] = [
+  { slug: "trending-ai", title: "Trending AI Stocks", description: "AI-themed equities — semiconductors, hyperscalers, infra software, model labs.", icon: "BrainCircuit", tier: "scout", result_count: 0, sample_tickers: [] },
+  { slug: "top-growth", title: "Top Growth Stocks", description: "Mega/large-cap tech, communication & discretionary — revenue compounders.", icon: "TrendingUp", tier: "scout", result_count: 0, sample_tickers: [] },
+  { slug: "top-small-cap", title: "Top Small Cap Stocks", description: "Market cap $300M–$2B. Higher risk / higher growth potential.", icon: "Rocket", tier: "scout", result_count: 0, sample_tickers: [] },
+  { slug: "top-rated", title: "Top Rated Stocks", description: "Mega/large-cap names trading at reasonable P/E — quality + value blend.", icon: "Star", tier: "scout", result_count: 0, sample_tickers: [] },
+  { slug: "top-dividend", title: "Top Dividend Stocks", description: "Dividend yield ≥ 4%, sorted high → low. Income-focused.", icon: "Coins", tier: "scout", result_count: 0, sample_tickers: [] },
+  { slug: "top-value", title: "Top Value Stocks", description: "P/E < 15 and market cap ≥ $2B. Sorted cheapest-first.", icon: "Gem", tier: "scout", result_count: 0, sample_tickers: [] },
+  { slug: "positive-catalyst", title: "Positive Catalyst Watchlist", description: "Stocks with recent positive catalysts.", icon: "Newspaper", tier: "strategist", result_count: 0, sample_tickers: [] },
+  { slug: "community-confirmed", title: "News Confirmed by Community", description: "Headlines the community is amplifying.", icon: "MessageSquareText", tier: "strategist", result_count: 0, sample_tickers: [] },
+  { slug: "rising-attention", title: "Rising Attention Stocks", description: "Sentiment + volume both surging — unusual interest, early signal.", icon: "Eye", tier: "quant", result_count: 0, sample_tickers: [] },
 ];
 
 export function Screener() {
+  const [presets, setPresets] = useState<ScreenerPresetSummary[]>(FALLBACK_PRESETS);
+  const [loading, setLoading] = useState(true);
+  const [isLive, setIsLive] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getScreenerPresets()
+      .then((r) => {
+        if (!cancelled) {
+          setPresets(r.presets);
+          setIsLive(true);
+        }
+      })
+      .catch(() => {
+        /* leave fallback in place */
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <section
       id="screener"
@@ -155,9 +108,19 @@ export function Screener() {
         >
           Stock Screener
         </h2>
-        <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-900">
-          Preview · mock data
-        </span>
+        {loading ? (
+          <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/30 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" /> Loading
+          </span>
+        ) : isLive ? (
+          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-900">
+            Live · {presets.reduce((sum, p) => sum + p.result_count, 0)} matches
+          </span>
+        ) : (
+          <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-900">
+            Counts unavailable
+          </span>
+        )}
       </div>
       <p className="text-xs text-muted-foreground">
         Pre-built algorithmic screens curated by Livermore. Click any card
@@ -165,7 +128,7 @@ export function Screener() {
       </p>
 
       <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-        {SCREENS.map((s) => (
+        {presets.map((s) => (
           <ScreenerCard key={s.slug} screen={s} />
         ))}
       </div>
@@ -173,8 +136,8 @@ export function Screener() {
   );
 }
 
-function ScreenerCard({ screen }: { screen: ScreenCard }) {
-  const Icon = screen.icon;
+function ScreenerCard({ screen }: { screen: ScreenerPresetSummary }) {
+  const Icon = ICON_MAP[screen.icon] ?? Gem;
   const isGated = screen.tier !== "scout";
   return (
     <Link
@@ -209,19 +172,21 @@ function ScreenerCard({ screen }: { screen: ScreenCard }) {
         </div>
       </div>
 
-      <div className="mt-3 flex flex-wrap gap-1">
-        {screen.sampleTickers.map((t) => (
-          <span
-            key={t}
-            className="rounded-md bg-muted/50 px-1.5 py-0.5 font-mono text-[10px] font-medium text-foreground/70"
-          >
-            {t}
-          </span>
-        ))}
-      </div>
+      {screen.sample_tickers.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1">
+          {screen.sample_tickers.map((t) => (
+            <span
+              key={t}
+              className="rounded-md bg-muted/50 px-1.5 py-0.5 font-mono text-[10px] font-medium text-foreground/70"
+            >
+              {t}
+            </span>
+          ))}
+        </div>
+      )}
 
       <div className="mt-3 flex items-center justify-between border-t border-border/60 pt-2 text-[11px] text-muted-foreground">
-        <span>{screen.resultCount} stocks</span>
+        <span>{screen.result_count > 0 ? `${screen.result_count} stocks` : "—"}</span>
         <span className="font-medium text-primary">View all →</span>
       </div>
     </Link>
