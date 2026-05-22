@@ -97,8 +97,10 @@ Either:
 | Session | Worktree path | Branch | HEAD | Status |
 |---|---|---|---|---|
 | **claude-main** (master merger) | `/Users/jimmygu/the_counselor` | rotating per-task | latest | Permanent — owns all `gh pr merge` to `main` |
-| claude-chat-v2-p2 | `/Users/jimmygu/the_counselor-chat-v2-p2` | `claude/feat/chat-v2-p1-2-adapter` | (this commit) | active — Stage 7 ticket #2 (LLM adapter + tool-calling + SSE) |
+| claude-chat-v2-p7-widget | `/Users/jimmygu/the_counselor-chat-v2-p7-widget` | rotating per-task | latest | active — built Stage 7 chat v2 tickets #2–#7 + #9; currently on `claude/docs/chat-v2-phase1-recap` after landing PR #53 (production hang fix) |
 | codex-chatbuilder | `/private/tmp/the_counselor_chatbuilder_test` | `codex/improve-chat-builder` | `0932c75` | abandoned 2026-05-19; rebase or delete |
+
+The old `claude-chat-v2-p2` row (worktree `the_counselor-chat-v2-p2`) was retired 2026-05-22 once ticket #6 landed; that worktree is dormant and can be removed when convenient.
 
 When you start, **add a row.** When you finish, **delete it** (history is in git).
 
@@ -106,7 +108,7 @@ When you start, **add a row.** When you finish, **delete it** (history is in git
 
 These exist on origin but no session is actively working on them. Sometimes a PR was opened and the session moved on; sometimes the branch was abandoned. Keep this list short:
 
-_(none currently — PR #28 was closed 2026-05-21 as no-op; schema work landed via PR #29)_
+- `claude/fix/chat-detached-session-in-streaming` — PR #53 open, awaiting claude-main review/merge (production hang fix)
 
 ---
 

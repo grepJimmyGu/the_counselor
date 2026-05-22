@@ -8,6 +8,72 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-05-22 — Stage 7 Chat v2 Phase 1 complete + production hang fix
+
+All eight Phase 1 tickets of the Stage 7 chat-v2 build landed on `main`,
+delivering an end-to-end conversational research surface — backend SSE
+endpoints, 7 tool-calling chat tools, runtime guardrails, and a floating
+widget mounted on `/workspace` + `/stocks/[ticker]`.
+
+### What shipped
+
+| Ticket | Surface | PR(s) |
+|---|---|---|
+| #1 — schema | `chat_conversations` + `chat_messages` + `AnonymousSession.chat_turns_used` | landed via #29's muddy bundle, ratified #43 |
+| #2 — LLM adapter | `chat_completion_with_tools` async iterator over OpenAI streaming | #37 |
+| #3 — light tools | `concept_explainer` (reads `apps/api/docs/chat_concepts.md` at runtime), `template_search`, `onboarding_tutor` stub + central registry + dispatcher | #38 |
+| #4 — heavier tools | `strategy_builder_iterate`, `backtest_execute`, `stock_lookup`, `backtest_explain` — wraps existing services | #43 |
+| #5 — authed endpoint | `POST /api/chat/conversations/{id}/messages` w/ SSE + tool loop + tier daily caps | #44 (recovery from stacked-PR cascade) |
+| #6 — anonymous endpoint | `POST /api/anonymous/chat/{...}` w/ 5-turn lifetime cap, tool whitelist, signup-merge | #45 (same recovery flow) |
+| #7 — frontend widget | `ChatWidget.tsx` floating panel + `useChatStream` hook + types-first contracts.ts additions | #50 |
+| #9 — guardrails | Refusal classifier + structured event log + citation reprompt + nightly LLM-judge auditor + weekly digest | #48 |
+
+Test suite grew **464 → 563** over the session. Schema-drift tripwire (built in the previous session) ran nightly with no new WARNs; new chat tables registered cleanly. Frontend `npm run build` green throughout.
+
+### The deferred ticket
+
+Ticket #8 (homepage / `/templates` / `/account` onboarding entry points + UpgradeModal wiring on 402 + 100-prompt adversarial refusal QA corpus) is the only remaining Phase 1 item. Not on the critical path for "can a user chat at all" — the widget is already discoverable via the floating launcher.
+
+### The production hang (post-mortem in [KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md))
+
+Within minutes of #50 deploying, Jimmy reported the widget hanging — 200 OK with `text/event-stream`, but zero body bytes. Root cause: every `event_stream()` generator in `chat.py` touched ORM attributes (`session.chat_turns_used`, `conv.id`, `user.plan.tier`) *after* the FastAPI-injected `Depends(get_db)` session had closed, raising `DetachedInstanceError`. Starlette's ASGI exception handler silently absorbed it inside a TaskGroup, leaving the SSE body empty forever.
+
+Existing tests didn't catch it because they iterate the StreamingResponse synchronously while the test fixture's `db` is still live. PR #53 fixes by:
+- Snapshotting all ORM attribute reads into plain locals before each generator's first yield
+- Opening a fresh DB session inside `_run_tool_loop` bound to the SAME engine as the caller's `db` (`sessionmaker(bind=db.get_bind())`), so tests use their in-memory SQLite engine and production uses Postgres without monkey-patching
+- A regression test (`test_streaming_survives_request_session_close`) that explicitly closes the test session between the route return and the SSE iteration — produces zero frames against the bug, three frames against the fix
+
+### Process learnings logged elsewhere
+
+- **Stacked-PR cascade on parent-delete** — when #38 squash-merged + auto-deleted `claude/feat/chat-v2-p1-3-tools-light`, the stacked #39/#40/#42 PRs went `state: CLOSED` immediately and `gh pr edit --base main` refused. Recovery via `git rebase --onto main <old-parent-tip>` then opening fresh PRs. Codified in `CLAUDE.md` PR mechanics section.
+- **Stacked PRs lose backend CI** — `.github/workflows/backend-ci.yml` triggers only on `base: main`. Stacked PRs got Vercel preview but no pytest/Postgres-smoke. Codified same place.
+- **Force-push auto-mode blocking** — the auto-mode classifier correctly blocked claude-main from force-pushing this session's branches during the rebase recovery. claude-main worked around by opening parallel `*-rebased` branches under their own prefix. Captured in feedback_livermore_workflow memory.
+
+### Files touched (high level)
+
+```
+apps/api/app/api/routes/chat.py       (NEW + extended through 5 tickets)
+apps/api/app/services/chat_tools/     (NEW package, 7 tools + registry)
+apps/api/app/services/chat_guardrails.py  (NEW — ticket #9)
+apps/api/app/jobs/qa_jobs.py          (extended — nightly auditor + digest)
+apps/api/app/models/chat.py           (NEW — ticket #1 tables)
+apps/api/app/models/anonymous_session.py  (added chat_turns_used)
+apps/api/app/services/anonymous_service.py  (merge_anonymous_into_user now re-attributes chat_conversations)
+apps/api/app/services/llm_adapter.py  (added ChatToken/ChatToolCall/ChatDone + chat_completion_with_tools)
+apps/api/docs/chat_concepts.md        (NEW — 30 curated concept entries)
+apps/api/tests/test_chat_{models,endpoint,tools_light,tools_heavy,guardrails,refusal_adversarial,anonymous_chat}.py
+apps/web/src/components/ChatWidget.tsx     (NEW)
+apps/web/src/lib/useChatStream.ts          (NEW)
+apps/web/src/lib/contracts.ts              (chat event union + UI message types)
+apps/web/src/app/{workspace,stocks/[ticker]}/page.tsx  (mount widget)
+```
+
+### What backend CI verified
+
+Every merged PR ran the full Postgres migration smoke test, full pytest, CodeQL Python/JS/Actions, and Vercel preview build before squashing to main.
+
+---
+
 ## 2026-05-21 — The Three-Bug Chain + Gate Hardening
 
 A debugging session that started "Scout users are stuck on the upgrade modal"

@@ -31,6 +31,64 @@ A running log of bugs encountered, root causes, and confirmed fixes. Add new ent
 
 ---
 
+### Chat SSE returns 200 + empty body — DetachedInstanceError inside StreamingResponse
+**Date:** 2026-05-22
+**Area:** backend / streaming endpoints
+**Symptom:**
+```
+POST /api/anonymous/chat/conversations/<id>/messages
+  HTTP/2 200 OK
+  content-type: text/event-stream; charset=utf-8
+  x-accel-buffering: no
+  (response body: zero bytes, connection stays open until client times out)
+
+Railway log:
+  ERROR:    Exception in ASGI application
+  | sqlalchemy.orm.exc.DetachedInstanceError: Instance <AnonymousSession ...>
+  |   is not bound to a Session; attribute refresh operation cannot proceed
+```
+Frontend symptom: widget posts a message, shows the user bubble + streaming dots placeholder, never receives any `data:` SSE frame. Loading state persists forever.
+
+Both the authed (`/api/chat/conversations/...`) and anonymous (`/api/anonymous/chat/conversations/...`) endpoints hit identical failure modes.
+
+**Root cause:**
+FastAPI's `Depends(get_db)` provides a **request-scoped** SQLAlchemy session. It closes the moment the route handler `return`s. `StreamingResponse(event_stream(), ...)` is the value the handler returns — but the `event_stream()` async generator runs **after** the handler completes, driven by the ASGI server pulling chunks.
+
+By the time `event_stream` executes its first `yield`, `db` is already closed. Any ORM-bound attribute access on objects the handler captured into the generator's closure (`session.chat_turns_used`, `conv.id`, `user.plan.tier`, etc.) raises `DetachedInstanceError`. Starlette wraps the ASGI app in a TaskGroup that catches and absorbs the exception, ending the response — but by then headers (200 + content-type) have already been flushed, and the body silently terminates with zero bytes.
+
+The bug was invisible to the existing pytest suite because tests call `post_message()` and iterate `response.body_iterator` synchronously while the test's `db` fixture is still alive. Production differs: FastAPI closes the dep-session as soon as the handler returns, before the ASGI server begins iterating.
+
+**Fix:**
+Two coupled changes in `apps/api/app/api/routes/chat.py`:
+
+1. **Snapshot every ORM attribute to a plain local BEFORE the generator yields.** Both `event_stream()` definitions (authed + anon) now read `conv.id`, `user.id`, `user.plan.tier`, `session.chat_turns_used`, `session.id`, `body.content` into `*_snap` locals immediately above the `async def event_stream()`. The generator references only the snapped values.
+
+2. **Open a fresh DB session inside `_run_tool_loop`.** The loop persists assistant + tool messages as it iterates; those writes need a live session. The fresh session is bound to the **same engine** as the caller's `db`:
+   ```python
+   from sqlalchemy.orm import sessionmaker
+   StreamMaker = sessionmaker(bind=db.get_bind(), autoflush=False, autocommit=False, future=True)
+   stream_db = StreamMaker()
+   try:
+       async for frame in _run_tool_loop_inner(stream_db, ...): yield frame
+   finally:
+       stream_db.close()
+   ```
+   Using `db.get_bind()` instead of the global `SessionLocal` lets tests drive the loop against their in-memory SQLite engine without monkey-patching. Production binds to the production Postgres engine. Same code, both surfaces.
+
+The outer `_run_tool_loop` is now a thin context manager owning the new session's lifecycle. The original loop body moved verbatim to `_run_tool_loop_inner` so callers (and the loop's existing tests) didn't need to change.
+
+**Regression test:**
+`tests/test_chat_endpoint.py::test_streaming_survives_request_session_close`. Calls `post_message()`, **explicitly closes the test's db session**, then iterates the `StreamingResponse`. Before the fix it produces an empty `frames` list (matching production). After: `started` → `token` → `done` as expected. The simulate-close-then-iterate pattern is the canonical pattern for any future streaming endpoint that touches ORM state.
+
+**Files:** `apps/api/app/api/routes/chat.py`, `apps/api/tests/test_chat_endpoint.py`. Forward defense PR #53.
+
+**Rule:**
+**Any FastAPI route that returns a `StreamingResponse` whose generator touches ORM-bound objects MUST snapshot the values into plain locals before the first yield, AND open a fresh session inside the generator for any in-stream DB writes.** The `Depends(get_db)` session is closed by the time the generator runs — treat captured ORM objects as dead. The session-from-`db.get_bind()` pattern makes the fix testable without monkey-patching.
+
+A related catch: this failure mode is **silent** — the browser sees a valid 200 + correct content-type, and only the lack of body bytes (and a Railway log message most people aren't watching) hints at the cause. Any future streaming endpoint should be exercised end-to-end with the close-then-iterate test pattern.
+
+---
+
 ### Production schema drift — UUID columns, oauth_provider NOT NULL, orphan Plan rows
 **Date:** 2026-05-21
 **Area:** backend / migrations / data
