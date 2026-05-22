@@ -11,7 +11,7 @@ not actively being worked on. Living document — add, update, prune.
 - GitHub issues — the canonical task tracker for actionable items. This
   doc points to the issue; the issue holds the conversation + spec.
 
-**Last refreshed:** 2026-05-21
+**Last refreshed:** 2026-05-22 (post Phase 1c–1f ship)
 
 ---
 
@@ -99,25 +99,34 @@ actively blocking development; all are gates on going-live activities.
 
 ---
 
-## 4b. Market Pulse v2 — remaining Phase 1 sub-phases
+## 4b. Market Pulse v2 — Phase 1 status
 
-The Market Pulse v2 redesign shipped to `/stocks` via PRs #56–59. Mock-data
-surfaces still need real backend wiring. Sub-phases are ship-able
-independently — master-merger merges in this order; 1d/1e/1f/1g
-parallelizable.
+The Market Pulse v2 redesign shipped to `/stocks` via PRs #56–60, then
+the four real-data sub-phases shipped 2026-05-22 (PRs #61–62, #64–65).
+Phase 1 is essentially done — only 1g and the LLM prompt rewrite remain.
 
-| Sub-phase | Scope | Effort | Notes |
+| Sub-phase | Scope | Status | PR |
 |---|---|---|---|
-| ✅ **1a** | Promote v2 → /stocks | — | PR #56 |
-| ✅ **1b** | LLM narrative service | — | PR #57 |
-| ✅ **1b-extra** | Real index values via FMP `^DJI`/`^IXIC`/`^GSPC`/`^RUT` | — | PR #58 |
-| ✅ **decimal-fix** | Sentence-splitter regression | — | PR #59 |
+| ✅ **1a** | Promote v2 → /stocks | shipped | #56 |
+| ✅ **1b** | LLM narrative service | shipped | #57 |
+| ✅ **1b-extra** | Real index values via FMP `^DJI`/`^IXIC`/`^GSPC`/`^RUT` | shipped | #58 |
+| ✅ **decimal-fix** | Sentence-splitter regression | shipped | #59 |
+| ✅ **2-col layout** | MarketBrief narrative on left, takeaways on right | shipped | #60 |
+| ✅ **1c** | Real macro signals — CPI YoY + 10Y Treasury via AV; mock Growth + Stress pending FRED key | shipped | #61 |
+| ✅ **1d** | Real sector ETF-vs-SPY comparison series in the click-expansion chart | shipped | #62 |
+| ✅ **1e** | History Rhymes backend (`macro_similarity_service.py` — cosine over 5y of 5d return vectors across 6 macro ETFs) | shipped | #64 |
+| ✅ **1f** | Screener preset filter logic — 9 presets, real counts + tier gating via 402 envelope | shipped | #65 |
 | 🚧 **LLM prompt rewrite** | Replace generic system prompt with Jimmy-provided financial-news-summary prompt | ~30 min | **Waiting on Jimmy to share the prompt** (2026-05-22) |
-| ⏳ **1c** | Real macro signals (ISM PMI, Core CPI, 10Y, HY OAS) via FRED + AV mix | ~4-6h | Needs FRED API key in Railway env vars; biggest remaining piece |
-| ⏳ **1d** | Real sector ETF-vs-SPY series in the comparison chart | ~2-3h | Uses existing 3yr `price_bars`; can parallelize with 1e/1f |
-| ⏳ **1e** | History Rhymes backend (`macro_similarity_service.py` + cosine over 5y) | ~5-6h | New service; parallelizable |
-| ⏳ **1f** | Screener preset filter logic on `/stocks/screener?preset=<slug>` | ~3-4h | 9 presets; tier-gating enforcement via existing `require_entitlement` |
 | ⏳ **1g (new)** | Top news sidebar in MarketBrief right column (replaces the temporary 2-col layout that just shows watch_items there) | ~4-5h backend + ~1-2h frontend | Per 2026-05-22 feedback. Backend: news service (use `market-news-analyst` skill pattern OR extend PRD-09 sentiment provider). Frontend: 4-6 news headlines, refreshed hourly, linked to source. |
+
+### Follow-ups from the 1c–1f ship
+
+| Item | Trigger | Effort |
+|---|---|---|
+| Set `FRED_API_KEY` on Railway → swap Growth (ISM Services PMI) + Stress (HY OAS) macro signals to real FRED data | When you want to drop the last two `Mock` pills in the Macro Pulse table | 1 min env var + ~2h backend (FRED client + signal builders) |
+| Replace `positive-catalyst` curated basket with news-sentiment query | When PRD-09 sentiment coverage is dense enough to be a useful screen | ~2-3h |
+| Replace `community-confirmed` curated basket with vote/watchlist rollup query | When community engagement hits scale | ~2-3h |
+| Replace `rising-attention` curated basket with real volume_ratio across the stocks universe | Backend addition; small | ~3-4h |
 
 ---
 
