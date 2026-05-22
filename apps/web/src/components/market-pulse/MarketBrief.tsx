@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import type { MarketPulseResponse } from "@/lib/contracts";
 import { buildNarrative, type PillStat } from "@/lib/market-pulse-narrative";
 import { fmtPct } from "@/lib/market-pulse-format";
+import { useLiveQuotes } from "@/lib/useLiveQuotes";
 
 /**
  * Section 1 — the narrative hero card.
@@ -29,30 +30,42 @@ import { fmtPct } from "@/lib/market-pulse-format";
  * fallback remains for LLM-unconfigured environments.
  */
 
-// Per Jimmy's 2026-05-21 feedback: the inline ticker should show the
-// ACTUAL index numbers (Dow Jones, Nasdaq Composite, S&P 500, Russell
-// 2000 point values) rather than the ETF proxy share prices that
-// `data.indices` returns today (SPY ~$740, QQQ ~$485, etc.).
-//
-// Phase 0a uses HARDCODED MOCK values matching realistic late-2026
-// levels so the ticker visual is reviewable. Phase 1 wires a backend
-// indices endpoint that fetches DJI / IXIC / SPX / RUT directly from
-// FMP (or AV) and lets us drop this constant.
-interface MockIndex {
+/**
+ * Inline ticker shows the actual index point values (Dow Jones, Nasdaq
+ * Composite, S&P 500, Russell 2000) rather than ETF proxy share prices.
+ * Phase 1b-extra: fetched live from FMP via the existing `useLiveQuotes`
+ * hook using the `^` index symbols, which FMP's `/stable/quote` endpoint
+ * supports natively. No new backend code required — the live-quote cache
+ * already deduplicates + batches these.
+ *
+ * `MOCK_INDICES` is kept as the SSR-time / loading fallback so the cells
+ * never render empty during the first 200ms before `useLiveQuotes`
+ * resolves. The `tickerSymbol` (^DJI etc.) keys the live override; the
+ * `clickTarget` (DIA etc.) is the ETF-proxy ticker the click-through
+ * link points at since we don't have per-index detail pages.
+ */
+interface IndexConfig {
   label: string;
-  value: number;
-  perf: number;
-  symbol: string; // ETF proxy used for the click-through link
+  fallbackValue: number; // shown briefly until live data resolves
+  fallbackPerf: number;
+  tickerSymbol: string; // FMP index symbol — `^DJI` etc.
+  clickTarget: string; // ETF proxy for the click-through link
 }
 
-const MOCK_INDICES: MockIndex[] = [
-  { label: "Dow Jones", value: 38234.16, perf: -0.0042, symbol: "DIA" },
-  { label: "Nasdaq Composite", value: 17623.45, perf: 0.0118, symbol: "QQQ" },
-  { label: "S&P 500", value: 5310.12, perf: 0.0028, symbol: "SPY" },
-  { label: "Russell 2000", value: 2089.12, perf: -0.0031, symbol: "IWM" },
+const INDEX_CONFIGS: IndexConfig[] = [
+  { label: "Dow Jones", fallbackValue: 50285, fallbackPerf: 0.0055, tickerSymbol: "^DJI", clickTarget: "DIA" },
+  { label: "Nasdaq Composite", fallbackValue: 26293, fallbackPerf: 0.0009, tickerSymbol: "^IXIC", clickTarget: "QQQ" },
+  { label: "S&P 500", fallbackValue: 7446, fallbackPerf: 0.0018, tickerSymbol: "^GSPC", clickTarget: "SPY" },
+  { label: "Russell 2000", fallbackValue: 2580, fallbackPerf: -0.0010, tickerSymbol: "^RUT", clickTarget: "IWM" },
 ];
 
 export function MarketBrief({ data }: { data: MarketPulseResponse }) {
+  // Phase 1b-extra: live index point values via FMP (`^DJI`, `^IXIC`,
+  // `^GSPC`, `^RUT`). Falls back to fallbackValue / fallbackPerf during
+  // the first poll before the cache resolves.
+  const indexSymbols = INDEX_CONFIGS.map((c) => c.tickerSymbol);
+  const { quotes: liveIndexQuotes } = useLiveQuotes(indexSymbols);
+
   // Phase 1b — prefer the backend's LLM-generated narrative when present.
   // Falls through to the deterministic template (`lib/market-pulse-narrative.ts`)
   // when `data.narrative` is null (LLM_PROVIDER unset, backend failure, etc.).
@@ -73,19 +86,24 @@ export function MarketBrief({ data }: { data: MarketPulseResponse }) {
         Market Brief
       </h2>
 
-      {/* Inline index ticker — actual index point values
-          (Phase 0a mock; real DJI/IXIC/SPX/RUT fetch ships as a small
-          follow-up PR after the LLM narrative service lands) */}
+      {/* Inline index ticker — real DJI / IXIC / GSPC / RUT point values
+          via FMP's `/stable/quote` (^-prefixed). Falls back to seeded
+          values during the first 200-300ms before useLiveQuotes resolves. */}
       <div className="mb-5">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          {MOCK_INDICES.map((idx) => (
-            <IndexTickerCell key={idx.symbol} idx={idx} />
-          ))}
-        </div>
-        <div className="mt-1.5">
-          <span className="rounded-full border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[9px] font-medium text-amber-900">
-            Preview · mock index values
-          </span>
+          {INDEX_CONFIGS.map((cfg) => {
+            const live = liveIndexQuotes[cfg.tickerSymbol];
+            return (
+              <IndexTickerCell
+                key={cfg.tickerSymbol}
+                config={cfg}
+                liveValue={live?.price ?? cfg.fallbackValue}
+                livePerf={
+                  live ? live.change_percent / 100 : cfg.fallbackPerf
+                }
+              />
+            );
+          })}
         </div>
       </div>
 
@@ -156,21 +174,29 @@ function splitIntoSentences(text: string): string[] {
   return parts.map((s) => s.trim()).filter(Boolean);
 }
 
-function IndexTickerCell({ idx }: { idx: MockIndex }) {
-  const isUp = idx.perf >= 0;
-  // Format index point values without decimals (38,234 not 38,234.16) for
-  // readability — these are quoted as whole-number indices in the press.
-  const valueStr = idx.value.toLocaleString("en-US", {
+function IndexTickerCell({
+  config,
+  liveValue,
+  livePerf,
+}: {
+  config: IndexConfig;
+  liveValue: number;
+  livePerf: number;
+}) {
+  const isUp = livePerf >= 0;
+  // Index point values render without decimals (50,285 not 50,285.16) for
+  // readability — that's how they're quoted in financial press.
+  const valueStr = liveValue.toLocaleString("en-US", {
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
   });
   return (
     <Link
-      href={`/stocks/${idx.symbol}` as Route}
+      href={`/stocks/${config.clickTarget}` as Route}
       className="block rounded-lg border border-border/60 bg-white/60 px-3 py-2 transition-colors hover:bg-white"
     >
       <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-        {idx.label}
+        {config.label}
       </div>
       <div className="mt-0.5 flex items-baseline justify-between gap-2">
         <span className="font-mono text-sm font-semibold tabular-nums">
@@ -182,7 +208,7 @@ function IndexTickerCell({ idx }: { idx: MockIndex }) {
             isUp ? "text-emerald-600" : "text-red-500",
           )}
         >
-          {fmtPct(idx.perf)}
+          {fmtPct(livePerf)}
         </span>
       </div>
     </Link>
