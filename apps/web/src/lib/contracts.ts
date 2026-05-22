@@ -1696,6 +1696,31 @@ export interface MarketPulseResponse {
   macro_signals?: MacroSignal[];
 }
 
+/** Phase 1d — (sector, SPY) cumulative-return comparison series. Both
+ * series are normalized to 0 at the start of the window so the chart
+ * shows comparative drift. `sector_day` etc are pre-computed perf
+ * numbers used by the returns table underneath the chart. */
+export interface SectorComparisonPoint {
+  date: string;     // ISO date
+  sector: number;   // cumulative return, decimal (0.082 = +8.2%)
+  spy: number;
+}
+
+export interface SectorComparisonResponse {
+  symbol: string;
+  sector_name: string;
+  range: "1M" | "6M" | "YTD" | "1Y" | "3Y";
+  series: SectorComparisonPoint[];
+  sector_day: number | null;
+  sector_ytd: number | null;
+  sector_1y: number | null;
+  sector_3y: number | null;
+  spy_day: number | null;
+  spy_ytd: number | null;
+  spy_1y: number | null;
+  spy_3y: number | null;
+}
+
 // ── PRD-trend: Stock Trend types ──────────────────────────────────────────────
 
 export interface StockTrendData {

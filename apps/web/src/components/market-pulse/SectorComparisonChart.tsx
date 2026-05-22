@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { ArrowRight, X } from "lucide-react";
+import { ArrowRight, Loader2, X } from "lucide-react";
 import {
   AreaChart,
   Area,
@@ -14,8 +14,12 @@ import {
   YAxis,
 } from "recharts";
 import { cn } from "@/lib/utils";
-import type { SectorCard } from "@/lib/contracts";
+import type {
+  SectorCard,
+  SectorComparisonResponse,
+} from "@/lib/contracts";
 import { fmtPct } from "@/lib/market-pulse-format";
+import { getSectorComparison } from "@/lib/api";
 
 /**
  * Inline expansion under the sector heatmap. Renders a sector-ETF
@@ -23,24 +27,26 @@ import { fmtPct } from "@/lib/market-pulse-format";
  * Seeking Alpha "Sector vs S&P 500" comparison view Jimmy referenced
  * on 2026-05-21.
  *
- * **Phase 0a status:** chart data is hardcoded MOCK (synthetic 1-yr
- * normalized series). Real backend (`GET /api/sectors/{symbol}/comparison`
- * or extended `/api/company/{symbol}/trend`) ships in Phase 1. Returns
- * table values are derived from the mock series for visual consistency.
+ * **Phase 1d (2026-05-22):** chart data now fetched live from
+ * `GET /api/market/sector-comparison/{symbol}?range=...`. Backend
+ * computes normalized cumulative returns from `price_bars`, with a 5
+ * min server-side cache so sector tile re-clicks are cheap. Returns
+ * table reads the pre-computed Day / YTD / 1Y / 3Y totals from the
+ * same response (no client-side derivation).
  *
- * **Time ranges:** Phase 0a supports 1M / 6M / YTD / 1Y / 3Y. 5Y / 10Y /
- * MAX would require extending backend `price_bars` retention past the
- * current 3-yr warmup window — deferred.
+ * **Time ranges:** 1M / 6M / YTD / 1Y / 3Y. 5Y / 10Y / MAX would
+ * require extending backend `price_bars` retention past the current
+ * 3-yr warmup window — deferred.
  */
 
 type Range = "1M" | "6M" | "YTD" | "1Y" | "3Y";
 
-const RANGES: { id: Range; label: string; days: number }[] = [
-  { id: "1M", label: "1M", days: 22 },
-  { id: "6M", label: "6M", days: 130 },
-  { id: "YTD", label: "YTD", days: 100 },
-  { id: "1Y", label: "1Y", days: 252 },
-  { id: "3Y", label: "3Y", days: 756 },
+const RANGES: { id: Range; label: string }[] = [
+  { id: "1M", label: "1M" },
+  { id: "6M", label: "6M" },
+  { id: "YTD", label: "YTD" },
+  { id: "1Y", label: "1Y" },
+  { id: "3Y", label: "3Y" },
 ];
 
 export function SectorComparisonChart({
@@ -51,14 +57,36 @@ export function SectorComparisonChart({
   onClose: () => void;
 }) {
   const [range, setRange] = useState<Range>("1Y");
+  const [data, setData] = useState<SectorComparisonResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  // Mock series — generates a deterministic-ish synthetic walk so the
-  // shape looks plausible and is stable across renders.
-  const series = useMemo(
-    () => buildMockSeries(sector.symbol, range),
-    [sector.symbol, range],
-  );
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    getSectorComparison(sector.symbol, range)
+      .then((r) => {
+        if (!cancelled) setData(r);
+      })
+      .catch((e: Error) => {
+        if (!cancelled)
+          setError(e.message || "Comparison data unavailable.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sector.symbol, range]);
 
+  // Series for the chart. Map ISO date → display label (M/D).
+  const series = (data?.series ?? []).map((p) => ({
+    label: formatDateLabel(p.date),
+    sector: p.sector,
+    spy: p.spy,
+  }));
   const sectorTotal = series[series.length - 1]?.sector ?? 0;
   const spyTotal = series[series.length - 1]?.spy ?? 0;
 
@@ -73,9 +101,16 @@ export function SectorComparisonChart({
           <div className="mt-2 flex flex-wrap items-center gap-3">
             <ReturnBadge color="#f59e0b" label={sector.symbol} value={sectorTotal} />
             <ReturnBadge color="#3b82f6" label="SPY" value={spyTotal} />
-            <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-900">
-              Preview · mock series
-            </span>
+            {loading && (
+              <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/30 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+                <Loader2 className="h-3 w-3 animate-spin" /> Loading
+              </span>
+            )}
+            {!loading && !error && data && (
+              <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-900">
+                Live · {data.series.length} bars
+              </span>
+            )}
           </div>
         </div>
         <div className="flex items-center gap-1">
@@ -107,68 +142,80 @@ export function SectorComparisonChart({
 
       {/* Chart */}
       <div className="mt-4 h-[280px]">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={series} margin={{ top: 5, right: 20, bottom: 0, left: 0 }}>
-            <defs>
-              <linearGradient id={`grad-sector-${sector.symbol}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.2} />
-                <stop offset="100%" stopColor="#f59e0b" stopOpacity={0} />
-              </linearGradient>
-              <linearGradient id={`grad-spy-${sector.symbol}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.2} />
-                <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
-              </linearGradient>
-            </defs>
-            <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
-            <XAxis
-              dataKey="label"
-              tick={{ fontSize: 10, fill: "#9ca3af" }}
-              tickLine={false}
-              axisLine={false}
-              interval="preserveStartEnd"
-              minTickGap={40}
-            />
-            <YAxis
-              tickFormatter={(v) => `${(v * 100).toFixed(0)}%`}
-              tick={{ fontSize: 10, fill: "#9ca3af" }}
-              tickLine={false}
-              axisLine={false}
-              width={48}
-            />
-            <Tooltip
-              contentStyle={{
-                fontSize: 11,
-                border: "1px solid #e5e7eb",
-                borderRadius: 6,
-              }}
-              formatter={(value, name) => [
-                `${(Number(value) * 100).toFixed(2)}%`,
-                name,
-              ]}
-            />
-            <Area
-              type="monotone"
-              dataKey="sector"
-              stroke="#f59e0b"
-              strokeWidth={1.5}
-              fill={`url(#grad-sector-${sector.symbol})`}
-              name={sector.symbol}
-              dot={false}
-            />
-            <Area
-              type="monotone"
-              dataKey="spy"
-              stroke="#3b82f6"
-              strokeWidth={1.5}
-              fill={`url(#grad-spy-${sector.symbol})`}
-              name="SPY"
-              dot={false}
-            />
-          </AreaChart>
-        </ResponsiveContainer>
+        {error && (
+          <div className="flex h-full items-center justify-center text-xs text-muted-foreground">
+            <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-amber-900">
+              {error}
+            </div>
+          </div>
+        )}
+        {!error && (
+          <ResponsiveContainer width="100%" height="100%">
+            <AreaChart data={series} margin={{ top: 5, right: 20, bottom: 0, left: 0 }}>
+              <defs>
+                <linearGradient id={`grad-sector-${sector.symbol}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#f59e0b" stopOpacity={0.2} />
+                  <stop offset="100%" stopColor="#f59e0b" stopOpacity={0} />
+                </linearGradient>
+                <linearGradient id={`grad-spy-${sector.symbol}`} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.2} />
+                  <stop offset="100%" stopColor="#3b82f6" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f3f4f6" vertical={false} />
+              <XAxis
+                dataKey="label"
+                tick={{ fontSize: 10, fill: "#9ca3af" }}
+                tickLine={false}
+                axisLine={false}
+                interval="preserveStartEnd"
+                minTickGap={40}
+              />
+              <YAxis
+                tickFormatter={(v) => `${(v * 100).toFixed(0)}%`}
+                tick={{ fontSize: 10, fill: "#9ca3af" }}
+                tickLine={false}
+                axisLine={false}
+                width={48}
+              />
+              <Tooltip
+                contentStyle={{
+                  fontSize: 11,
+                  border: "1px solid #e5e7eb",
+                  borderRadius: 6,
+                }}
+                formatter={(value, name) => [
+                  `${(Number(value) * 100).toFixed(2)}%`,
+                  name,
+                ]}
+              />
+              <Area
+                type="monotone"
+                dataKey="sector"
+                stroke="#f59e0b"
+                strokeWidth={1.5}
+                fill={`url(#grad-sector-${sector.symbol})`}
+                name={sector.symbol}
+                dot={false}
+              />
+              <Area
+                type="monotone"
+                dataKey="spy"
+                stroke="#3b82f6"
+                strokeWidth={1.5}
+                fill={`url(#grad-spy-${sector.symbol})`}
+                name="SPY"
+                dot={false}
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
       </div>
 
-      {/* Returns table */}
+      {/* Returns table — values come from the API, NOT derived from the
+          chart series. Backend pulls Day / YTD / 1Y / 3Y from the full
+          available bar history so these stay accurate regardless of
+          which window the chart is zoomed into. */}
       <div className="mt-4 overflow-x-auto">
         <table className="min-w-full text-xs">
           <thead>
@@ -183,21 +230,21 @@ export function SectorComparisonChart({
           <tbody className="font-mono tabular-nums">
             <tr className="border-t border-border/60">
               <td className="px-2 py-1.5 font-sans font-semibold text-foreground">
-                {sector.name}
+                {data?.sector_name ?? sector.name}
               </td>
-              <PerfCell value={sector.perf_1d} />
-              <PerfCell value={sector.perf_5d != null ? sector.perf_5d * 5 : null} />
-              <PerfCell value={sectorTotal} />
-              <PerfCell value={sectorTotal * 1.5} />
+              <PerfCell value={data?.sector_day ?? sector.perf_1d} />
+              <PerfCell value={data?.sector_ytd} />
+              <PerfCell value={data?.sector_1y} />
+              <PerfCell value={data?.sector_3y} />
             </tr>
             <tr className="border-t border-border/60">
               <td className="px-2 py-1.5 font-sans font-semibold text-foreground">
                 S&P 500
               </td>
-              <PerfCell value={0.005} />
-              <PerfCell value={0.08} />
-              <PerfCell value={spyTotal} />
-              <PerfCell value={spyTotal * 1.5} />
+              <PerfCell value={data?.spy_day} />
+              <PerfCell value={data?.spy_ytd} />
+              <PerfCell value={data?.spy_1y} />
+              <PerfCell value={data?.spy_3y} />
             </tr>
           </tbody>
         </table>
@@ -264,55 +311,13 @@ function PerfCell({ value }: { value: number | null | undefined }) {
   );
 }
 
-// ── Mock series builder ─────────────────────────────────────────────────────
-//
-// Deterministic-ish synthetic walk so the chart looks plausible without
-// a real backend call. Uses the symbol string as a seed so different
-// sectors produce visibly different paths.
-
-function buildMockSeries(
-  symbol: string,
-  range: Range,
-): { label: string; sector: number; spy: number }[] {
-  const cfg = RANGES.find((r) => r.id === range)!;
-  const days = cfg.days;
-  const seed = hashString(symbol);
-
-  // Sector drift varies by symbol; SPY drift is fixed-ish to look like the market.
-  const sectorDrift = ((seed % 100) / 100) * 0.0008 - 0.0001; // ~ -0.01%/d to +0.07%/d
-  const spyDrift = 0.0004;
-
-  const points: { label: string; sector: number; spy: number }[] = [];
-  let sectorCum = 0;
-  let spyCum = 0;
-  const today = new Date();
-
-  for (let i = 0; i < days; i++) {
-    const d = new Date(today);
-    d.setDate(today.getDate() - (days - 1 - i));
-    const label = `${d.getMonth() + 1}/${d.getDate()}`;
-
-    // Pseudo-random noise via sin combinations seeded by symbol + day.
-    const sectorNoise =
-      Math.sin((seed + i) * 0.37) * 0.008 +
-      Math.sin((seed + i) * 0.13) * 0.004;
-    const spyNoise =
-      Math.sin((seed + i) * 0.21) * 0.006 +
-      Math.sin((seed + i) * 0.09) * 0.003;
-
-    sectorCum = sectorCum + sectorDrift + sectorNoise * 0.05;
-    spyCum = spyCum + spyDrift + spyNoise * 0.04;
-
-    points.push({ label, sector: sectorCum, spy: spyCum });
-  }
-
-  return points;
-}
-
-function hashString(s: string): number {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) {
-    h = (h * 31 + s.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h);
+/**
+ * Format an ISO date ("2025-08-14") as a short label ("8/14") for the
+ * x-axis. Manual parse to avoid timezone drift — `new Date("2025-08-14")`
+ * is parsed as UTC midnight and can render as "8/13" in Pacific.
+ */
+function formatDateLabel(iso: string): string {
+  const [_y, m, d] = iso.split("-");
+  if (!m || !d) return iso;
+  return `${parseInt(m, 10)}/${parseInt(d, 10)}`;
 }
