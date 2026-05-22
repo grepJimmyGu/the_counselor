@@ -166,6 +166,13 @@ async def get_market_pulse(
     falls back to the deterministic template in
     `lib/market-pulse-narrative.ts`.
 
+    Phase 1c: response also carries `macro_signals` — the 4-row payload
+    used by `MacroPulseTable` (Growth / Inflation / Rates / Stress).
+    Rates + Inflation are real (Alpha Vantage TREASURY_YIELD + CPI);
+    Growth + Stress remain mock pending a FRED key. Cached 24h
+    server-side and surfaced as part of the pulse response so the
+    frontend doesn't need a second round-trip.
+
     Pass bypass_cache=true to force recomputation (clears both pulse and
     narrative caches).
     """
@@ -194,6 +201,21 @@ async def get_market_pulse(
                 narrative = None
             _pulse_svc.set_cached_narrative(market, narrative)
 
+        # Phase 1c — macro signals (Growth / Inflation / Rates / Stress).
+        # The service has its own 24h cache; calling it here is cheap.
+        # Defensive: any failure falls back to an empty list so the page
+        # doesn't error (frontend then uses its hardcoded mock).
+        from app.services.macro_signals_service import get_macro_signals
+        try:
+            macro_signals = await get_macro_signals()
+            macro_signals_payload = [vars(s) for s in macro_signals]
+        except Exception as exc:  # noqa: BLE001 — never fail the page
+            import logging
+            logging.getLogger("livermore.market_pulse").warning(
+                "macro_signals fetch failed: %r", exc,
+            )
+            macro_signals_payload = []
+
         return {
             "market": r.market,
             "as_of": r.as_of,
@@ -203,6 +225,7 @@ async def get_market_pulse(
             "top_assets": [vars(a) for a in r.top_assets],
             "featured_etfs": [vars(a) for a in r.featured_etfs],
             "narrative": narrative.model_dump() if narrative else None,
+            "macro_signals": macro_signals_payload,
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc

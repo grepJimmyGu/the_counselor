@@ -122,6 +122,54 @@ class AlphaVantageClient:
                 continue
         return sorted(result, key=lambda x: x["date"])
 
+    async def fetch_treasury_yield(
+        self, maturity: str = "10year", interval: str = "monthly"
+    ) -> list[dict]:
+        """AV Economic Indicators — `function=TREASURY_YIELD`. Returns the
+        full historical series for the requested maturity. Free-tier per
+        AV docs; no Premium gate.
+
+        Phase 1c uses this for the Rates row in MacroPulseTable.
+        """
+        payload = await self._request(
+            {
+                "function": "TREASURY_YIELD",
+                "interval": interval,
+                "maturity": maturity,
+                "datatype": "json",
+            }
+        )
+        data = payload.get("data", [])
+        if not data:
+            raise AlphaVantageError(
+                f"No Treasury yield data returned ({maturity}, {interval})."
+            )
+        # AV returns [{ "date": "2026-05-01", "value": "4.30" }, ...]
+        # Newest first; we flip to chronological order for downstream consumers.
+        return list(reversed(data))
+
+    async def fetch_cpi(self, interval: str = "monthly") -> list[dict]:
+        """AV Economic Indicators — `function=CPI`. Returns the full
+        historical CPI series. Free-tier per AV docs.
+
+        Note: this is HEADLINE CPI, not Core CPI. AV doesn't expose a
+        dedicated Core CPI series; FRED (`CORESTICKM158SFRBATL` or
+        `CPILFESL`) is the typical source. Phase 1c uses headline CPI as
+        an approximation; Phase 1c-extra wires FRED for the dedicated
+        Core CPI series.
+        """
+        payload = await self._request(
+            {
+                "function": "CPI",
+                "interval": interval,
+                "datatype": "json",
+            }
+        )
+        data = payload.get("data", [])
+        if not data:
+            raise AlphaVantageError("No CPI data returned.")
+        return list(reversed(data))
+
     async def search_symbols(self, query: str) -> list[dict]:
         payload = await self._request({"function": "SYMBOL_SEARCH", "keywords": query})
         matches = payload.get("bestMatches", [])
