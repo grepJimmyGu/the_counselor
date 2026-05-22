@@ -206,7 +206,11 @@ export function MarketPulsePage() {
           data && (
             <SectorRotation
               sectors={data.sectors as SectorCard[]}
-              rotationHeadline={narrative?.sectorRotation}
+              rotationHeadline={
+                // Phase 1b: prefer LLM-generated rotation interpretation;
+                // fall back to the deterministic template when LLM is off.
+                data.narrative?.sector_rotation ?? narrative?.sectorRotation
+              }
             />
           )
         )}

@@ -481,6 +481,14 @@ def _build_featured_etfs(market: str, db: Session) -> list[AssetCard]:
 _CACHE: dict[str, tuple[datetime, MarketPulseResponse]] = {}
 _CACHE_TTL_MINUTES = 60
 
+# Phase 1b — narrative cache parallel to the pulse cache. Same TTL.
+# Held separately so the route layer can decide whether to lazily fill it
+# without forcing every `get_pulse()` caller through the LLM path.
+# Value: (timestamp, narrative_or_None). None = "we tried but LLM was off /
+# errored"; absent = "never tried this market yet".
+from typing import Any as _Any  # local alias for narrative payload
+_NARRATIVE_CACHE: dict[str, tuple[datetime, _Any]] = {}
+
 
 class MarketPulseService:
 
@@ -542,3 +550,29 @@ class MarketPulseService:
 
     def invalidate_cache(self) -> None:
         _CACHE.clear()
+        _NARRATIVE_CACHE.clear()
+
+    # ── Narrative cache (Phase 1b) ─────────────────────────────────────────
+    # Pulse data is sync (`get_pulse` reads price_bars); narrative is async
+    # (LLM call). Route layer fetches the pulse first, then checks the
+    # narrative cache and lazily generates if empty.
+
+    def get_cached_narrative(self, market: str):
+        """Returns narrative if cached and fresh; None if expired/never
+        generated. None doesn't distinguish 'absent' from 'LLM disabled' —
+        the route just calls generate_narrative() either way (it itself
+        handles the disabled case)."""
+        key = market.upper()
+        entry = _NARRATIVE_CACHE.get(key)
+        if entry is None:
+            return None
+        cached_at, narrative = entry
+        if (datetime.utcnow() - cached_at) >= timedelta(minutes=_CACHE_TTL_MINUTES):
+            return None
+        return narrative
+
+    def set_cached_narrative(self, market: str, narrative) -> None:
+        """Store narrative (or None) for this market. Storing None lets us
+        skip retrying within the TTL window after a known LLM-disabled or
+        failure path."""
+        _NARRATIVE_CACHE[market.upper()] = (datetime.utcnow(), narrative)

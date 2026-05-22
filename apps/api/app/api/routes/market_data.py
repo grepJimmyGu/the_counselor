@@ -149,7 +149,7 @@ _pulse_svc = MarketPulseService()
 
 
 @router.get("/market/pulse")
-def get_market_pulse(
+async def get_market_pulse(
     market: str = Query(default="US", pattern="^(US|CN)$"),
     bypass_cache: bool = Query(default=False),
     db: Session = Depends(get_db),
@@ -158,12 +158,42 @@ def get_market_pulse(
     Market Pulse: index ETF performance, macro chips, sector capital flow signals
     (Chaikin Money Flow 20d), and dynamic top 10 assets by CMF.
     All data from price_bars — no FMP calls at request time. 1h cache.
-    Pass bypass_cache=true to force recomputation (e.g. after manual refresh).
+
+    Phase 1b: response also carries an optional LLM-generated `narrative`
+    block ({ headline, sector_rotation, watch_items }). Generated on the
+    first cache-miss request per market and reused for the rest of the
+    60-min window. Returns null when `LLM_PROVIDER` is unset — frontend
+    falls back to the deterministic template in
+    `lib/market-pulse-narrative.ts`.
+
+    Pass bypass_cache=true to force recomputation (clears both pulse and
+    narrative caches).
     """
+    market = market.upper()
     try:
         if bypass_cache:
             _pulse_svc.invalidate_cache()
-        r = _pulse_svc.get_pulse(market.upper(), db)
+        r = _pulse_svc.get_pulse(market, db)
+
+        # Lazy narrative generation. Cached separately from pulse so a
+        # single LLM failure doesn't invalidate the (sync, deterministic)
+        # pulse data. Returns None when LLM_PROVIDER is unset — frontend
+        # falls back to the deterministic template.
+        narrative = _pulse_svc.get_cached_narrative(market)
+        if narrative is None:
+            from app.services.market_pulse_narrative_service import (
+                generate_narrative,
+            )
+            try:
+                narrative = await generate_narrative(r)
+            except Exception as exc:  # noqa: BLE001 — never fail the page
+                import logging
+                logging.getLogger("livermore.market_pulse").warning(
+                    "market_pulse narrative generation failed: %r", exc,
+                )
+                narrative = None
+            _pulse_svc.set_cached_narrative(market, narrative)
+
         return {
             "market": r.market,
             "as_of": r.as_of,
@@ -172,6 +202,7 @@ def get_market_pulse(
             "sectors": [vars(s) for s in r.sectors],
             "top_assets": [vars(a) for a in r.top_assets],
             "featured_etfs": [vars(a) for a in r.featured_etfs],
+            "narrative": narrative.model_dump() if narrative else None,
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
