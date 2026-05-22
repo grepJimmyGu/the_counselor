@@ -195,8 +195,10 @@ export function MarketPulsePage() {
 
         {/* Section 2 — Macro Pulse table (4 signals: Growth / Inflation /
             Rates / Stress with 1M / 1Y / 3Y trend toggle + takeaways).
-            Phase 1a is mock; Phase 1c wires real ISM/CPI/yields data. */}
-        <MacroPulseTable />
+            Phase 1c: real CPI + 10Y Treasury yield via Alpha Vantage;
+            Growth (ISM PMI) and Stress (HY OAS) remain mock pending
+            a FRED API key. Per-row pill flips between Live + Mock. */}
+        <MacroPulseTable signals={data?.macro_signals} />
 
         {/* Section 3 — Sector rotation (heatmap default, table on toggle).
             Sector tile click → inline ETF-vs-SPY comparison chart. */}

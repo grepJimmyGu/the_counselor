@@ -9,6 +9,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+import type { MacroSignal } from "@/lib/contracts";
 
 /**
  * Section 2 — Macro Pulse table.
@@ -22,10 +23,14 @@ import { cn } from "@/lib/utils";
  *     level (one toggle affects all 4 sparklines)
  *   - Plain-English takeaway per row + a metric explanation tooltip
  *
- * **Phase 0a status:** all data is HARDCODED MOCK so the layout is
- * reviewable. Phase 1 wires a backend service that pulls real ISM PMI,
- * Core CPI, 10Y yield, and HY OAS from FRED or AV's economic-indicator
- * API.
+ * **Phase 1c (2026-05-22):** the component now consumes a `signals`
+ * prop sourced from the backend's `MacroSignalsService` (Alpha Vantage
+ * for Rates + Inflation; mock pending FRED for Growth + Stress). The
+ * hardcoded `MOCK_MACRO` is preserved as a render-time fallback so the
+ * UI degrades gracefully when the backend hasn't shipped the field yet
+ * or the AV call fails entirely. The badge above the table flips
+ * between "Mixed · real + mock" (real signals present) and "Preview ·
+ * mock data" (no real signals).
  *
  * Layout: full table on `sm+`; stacked cards on mobile so the columns
  * don't have to horizontally scroll.
@@ -33,18 +38,10 @@ import { cn } from "@/lib/utils";
 
 type Range = "1M" | "1Y" | "3Y";
 
-interface MacroSignal {
-  category: "Growth" | "Inflation" | "Rates" | "Stress";
-  latestLabel: string;
-  trendDirection: "up" | "down" | "flat";
-  trendLabel: string;
-  takeaway: string;
-  explanation: string;
-  series1M: number[];
-  series1Y: number[];
-  series3Y: number[];
-}
-
+// Local fallback that matches the backend `MacroSignal` shape. Used when
+// the backend payload is absent (e.g. before Phase 1c rolls to prod) so
+// the page still renders something. `source: "mock_pending_fred"` makes
+// the per-row "Mock" pill render on every line.
 const MOCK_MACRO: MacroSignal[] = [
   {
     category: "Growth",
@@ -57,6 +54,7 @@ const MOCK_MACRO: MacroSignal[] = [
     series1M: [51.4, 51.7, 51.9, 52.1, 52.0, 52.0, 52.2, 52.0],
     series1Y: gen("growth-1y", 52, 4, 52, 0.3),
     series3Y: gen("growth-3y", 36, 4, 53, 0.4),
+    source: "mock_pending_fred",
   },
   {
     category: "Inflation",
@@ -69,6 +67,7 @@ const MOCK_MACRO: MacroSignal[] = [
     series1M: [3.6, 3.5, 3.5, 3.5, 3.4, 3.4, 3.4, 3.4],
     series1Y: gen("inflation-1y", 52, 6, 3.8, -0.02),
     series3Y: gen("inflation-3y", 36, 6, 5.5, -0.08),
+    source: "mock_pending_fred",
   },
   {
     category: "Rates",
@@ -81,6 +80,7 @@ const MOCK_MACRO: MacroSignal[] = [
     series1M: [4.15, 4.18, 4.22, 4.25, 4.27, 4.29, 4.30, 4.30],
     series1Y: gen("rates-1y", 52, 5, 4.1, 0.005),
     series3Y: gen("rates-3y", 36, 5, 3.5, 0.025),
+    source: "mock_pending_fred",
   },
   {
     category: "Stress",
@@ -93,11 +93,19 @@ const MOCK_MACRO: MacroSignal[] = [
     series1M: [3.35, 3.40, 3.42, 3.38, 3.40, 3.41, 3.40, 3.40],
     series1Y: gen("stress-1y", 52, 4, 3.6, -0.005),
     series3Y: gen("stress-3y", 36, 4, 4.2, -0.02),
+    source: "mock_pending_fred",
   },
 ];
 
-export function MacroPulseTable() {
+export function MacroPulseTable({ signals }: { signals?: MacroSignal[] }) {
   const [range, setRange] = useState<Range>("1Y");
+
+  // Use backend signals when present; fall back to MOCK_MACRO otherwise
+  // (kept so older API responses without the field still render).
+  const rows = signals && signals.length > 0 ? signals : MOCK_MACRO;
+  // Badge: "Mixed · real + mock" when at least one row has real data;
+  // "Preview · mock data" when none do (Phase 0a / API didn't ship signals).
+  const hasReal = rows.some((r) => r.source === "alpha_vantage");
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -114,9 +122,15 @@ export function MacroPulseTable() {
             >
               Macro Pulse
             </h2>
-            <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-900">
-              Preview · mock data
-            </span>
+            {hasReal ? (
+              <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-900">
+                Mixed · real + mock
+              </span>
+            ) : (
+              <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-900">
+                Preview · mock data
+              </span>
+            )}
           </div>
           <RangeTabs range={range} onChange={setRange} />
         </div>
@@ -139,7 +153,7 @@ export function MacroPulseTable() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border/60">
-              {MOCK_MACRO.map((m) => (
+              {rows.map((m) => (
                 <MacroRow key={m.category} signal={m} range={range} />
               ))}
             </tbody>
@@ -148,7 +162,7 @@ export function MacroPulseTable() {
 
         {/* Mobile — stacked cards */}
         <div className="sm:hidden space-y-2">
-          {MOCK_MACRO.map((m) => (
+          {rows.map((m) => (
             <MacroCardMobile key={m.category} signal={m} range={range} />
           ))}
         </div>
@@ -190,7 +204,12 @@ function MacroRow({ signal, range }: { signal: MacroSignal; range: Range }) {
   const series = pickSeries(signal, range);
   return (
     <tr>
-      <td className="px-3 py-3 font-semibold">{signal.category}</td>
+      <td className="px-3 py-3">
+        <div className="flex items-center gap-1.5">
+          <span className="font-semibold">{signal.category}</span>
+          <SourcePill source={signal.source} />
+        </div>
+      </td>
       <td className="px-3 py-3 font-mono tabular-nums">{signal.latestLabel}</td>
       <td className="px-3 py-3">
         <Sparkline data={series} direction={signal.trendDirection} />
@@ -209,6 +228,36 @@ function MacroRow({ signal, range }: { signal: MacroSignal; range: Range }) {
   );
 }
 
+/**
+ * Tiny pill that distinguishes real-data rows from mock rows. Only
+ * renders something for the two mock states; real data is the default
+ * so the absence of a pill = it's a Live AV signal.
+ */
+function SourcePill({ source }: { source: MacroSignal["source"] }) {
+  if (source === "alpha_vantage") {
+    return (
+      <span
+        className="rounded-sm border border-emerald-200 bg-emerald-50 px-1 py-0 text-[8px] font-semibold uppercase tracking-wider text-emerald-800"
+        title="Real data via Alpha Vantage"
+      >
+        Live
+      </span>
+    );
+  }
+  return (
+    <span
+      className="rounded-sm border border-amber-200 bg-amber-50 px-1 py-0 text-[8px] font-semibold uppercase tracking-wider text-amber-800"
+      title={
+        source === "mock_pending_fred"
+          ? "Mock — awaiting FRED API key"
+          : "Mock — Alpha Vantage call failed"
+      }
+    >
+      Mock
+    </span>
+  );
+}
+
 function MacroCardMobile({
   signal,
   range,
@@ -220,7 +269,10 @@ function MacroCardMobile({
   return (
     <div className="rounded-xl border border-border bg-white p-3 text-xs">
       <div className="flex items-baseline justify-between gap-2">
-        <span className="font-semibold">{signal.category}</span>
+        <div className="flex items-center gap-1.5">
+          <span className="font-semibold">{signal.category}</span>
+          <SourcePill source={signal.source} />
+        </div>
         <ExplanationIcon explanation={signal.explanation} />
       </div>
       <div className="mt-1 font-mono tabular-nums">{signal.latestLabel}</div>

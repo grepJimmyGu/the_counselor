@@ -1666,6 +1666,24 @@ export interface MarketNarrative {
   watch_items: string[];
 }
 
+/** Phase 1c — Macro Pulse table payload. 4 rows: Growth / Inflation /
+ * Rates / Stress. Rates + Inflation are real (Alpha Vantage); Growth +
+ * Stress are mock pending a FRED API key for ISM PMI and HY OAS. The
+ * `source` field tells the UI whether to show a "real data" or "mock
+ * data" hint inline. */
+export interface MacroSignal {
+  category: "Growth" | "Inflation" | "Rates" | "Stress";
+  latestLabel: string;
+  trendDirection: "up" | "down" | "flat";
+  trendLabel: string;
+  takeaway: string;
+  explanation: string;
+  series1M: number[];
+  series1Y: number[];
+  series3Y: number[];
+  source: "alpha_vantage" | "mock_pending_fred" | "mock_av_failed";
+}
+
 export interface MarketPulseResponse {
   market: string;               // "US" | "CN"
   as_of: string;
@@ -1675,6 +1693,7 @@ export interface MarketPulseResponse {
   top_assets: AssetCard[];      // top 10 by CMF from full universe
   featured_etfs: AssetCard[];
   narrative?: MarketNarrative | null;
+  macro_signals?: MacroSignal[];
 }
 
 // ── PRD-trend: Stock Trend types ──────────────────────────────────────────────
