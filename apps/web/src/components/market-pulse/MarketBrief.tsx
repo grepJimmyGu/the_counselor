@@ -107,53 +107,64 @@ export function MarketBrief({ data }: { data: MarketPulseResponse }) {
         </div>
       </div>
 
-      <div className="space-y-2">
-        {headlineSentences.map((sentence, i) => (
-          <p
-            key={i}
-            className={cn(
-              "text-lg md:text-xl leading-snug",
-              i === 0 ? "font-semibold text-foreground" : "text-foreground/80",
-            )}
-          >
-            {sentence}
-          </p>
-        ))}
-      </div>
-
-      {/* Pills only render from the deterministic path — LLM narrative
-          gets its own "watch_items" surface below. */}
-      {!isLlm && deterministic.pills.length > 0 && (
-        <div className="mt-5 flex flex-wrap gap-2">
-          {deterministic.pills.map((p) => (
-            <Pill key={p.label} pill={p} />
+      {/* Two-column layout — narrative on the left (2/3 width), takeaways
+          on the right (1/3). Stacks on mobile so narrative reads first.
+          (Phase 1b feedback 2026-05-22: card was too wide with empty
+          space on the right; news-sidebar version is queued as a
+          future-phase improvement in PROJECT_BACKLOG.md.) */}
+      <div className="grid gap-6 lg:grid-cols-3">
+        <div className="space-y-2 lg:col-span-2">
+          {headlineSentences.map((sentence, i) => (
+            <p
+              key={i}
+              className={cn(
+                "text-lg md:text-xl leading-snug",
+                i === 0
+                  ? "font-semibold text-foreground"
+                  : "text-foreground/80",
+              )}
+            >
+              {sentence}
+            </p>
           ))}
-        </div>
-      )}
-
-      {isLlm && llmNarrative.watch_items.length > 0 && (
-        <div className="mt-5 space-y-1.5">
-          <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-            What to watch
+          <div className="pt-2 text-[9px] text-muted-foreground/60">
+            {isLlm ? "Narrative generated hourly" : "Deterministic summary"}
           </div>
-          <ul className="space-y-1">
-            {llmNarrative.watch_items.map((item, i) => (
-              <li
-                key={i}
-                className="text-sm text-foreground/80 leading-snug flex gap-2"
-              >
-                <span className="text-primary mt-1.5 h-1 w-1 rounded-full bg-primary shrink-0" />
-                <span>{item}</span>
-              </li>
-            ))}
-          </ul>
         </div>
-      )}
 
-      {/* Small attribution chip telling the user whether they're seeing
-          the LLM read or the fallback. Subtle — only on hover via title. */}
-      <div className="mt-4 text-[9px] text-muted-foreground/60">
-        {isLlm ? "Narrative generated hourly" : "Deterministic summary"}
+        <aside className="lg:col-span-1 lg:border-l lg:border-border/40 lg:pl-6">
+          {isLlm && llmNarrative.watch_items.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                What to watch
+              </div>
+              <ul className="space-y-2">
+                {llmNarrative.watch_items.map((item, i) => (
+                  <li
+                    key={i}
+                    className="text-sm text-foreground/80 leading-snug flex gap-2"
+                  >
+                    <span className="mt-1.5 h-1 w-1 rounded-full bg-primary shrink-0" />
+                    <span>{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {!isLlm && deterministic.pills.length > 0 && (
+            <div className="space-y-2">
+              <div className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Key stats
+              </div>
+              <div className="flex flex-col gap-2">
+                {deterministic.pills.map((p) => (
+                  <Pill key={p.label} pill={p} />
+                ))}
+              </div>
+            </div>
+          )}
+        </aside>
       </div>
     </section>
   );
