@@ -4,11 +4,14 @@ import Link from "next/link";
 import type { Route } from "next";
 import {
   BrainCircuit,
+  Coins,
   Eye,
+  Gem,
   Lock,
   MessageSquareText,
   Newspaper,
   Rocket,
+  Star,
   TrendingUp,
   type LucideIcon,
 } from "lucide-react";
@@ -77,6 +80,36 @@ const SCREENS: ScreenCard[] = [
     tier: "scout",
   },
   {
+    slug: "top-rated",
+    title: "Top Rated Stocks",
+    description:
+      "Analyst consensus Strong Buy + Livermore quant rating in top decile.",
+    icon: Star,
+    resultCount: 22,
+    sampleTickers: ["NVDA", "MSFT", "AAPL", "GOOGL", "META"],
+    tier: "scout",
+  },
+  {
+    slug: "top-dividend",
+    title: "Top Dividend Stocks",
+    description:
+      "High dividend yield with growth + safety guardrails (>4% sustainable).",
+    icon: Coins,
+    resultCount: 31,
+    sampleTickers: ["JNJ", "XOM", "KO", "PFE", "VZ"],
+    tier: "scout",
+  },
+  {
+    slug: "top-value",
+    title: "Top Value Stocks",
+    description:
+      "Low P/E + high free-cash-flow yield, screened for trap avoidance.",
+    icon: Gem,
+    resultCount: 19,
+    sampleTickers: ["JPM", "BAC", "C", "WFC", "GS"],
+    tier: "scout",
+  },
+  {
     slug: "positive-catalyst",
     title: "Positive Catalyst Watchlist",
     description:
@@ -120,7 +153,7 @@ export function Screener() {
           id="screener-heading"
           className="text-sm font-semibold uppercase tracking-wide text-muted-foreground"
         >
-          Algorithmic stock screens
+          Stock Screener
         </h2>
         <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-900">
           Preview · mock data
