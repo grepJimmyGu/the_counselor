@@ -9,23 +9,24 @@
 
 ## Current Session
 
-**Status:** Live-quote system shipped (5 frontend surfaces) + Chat v2 Phase 1 tickets #1–#6 all landed on main + Market Pulse Phase 0 preview open (PR #41) + parallel-work protocol established
-**Active branch:** main (HEAD: `3710d9b` — Stage 7 ticket #6 anonymous chat endpoint)
+**Status:** Market Pulse v2 preview SIGNED OFF by Jimmy (Phase 0a complete) + Chat v2 widget shipped (PR #50 — chat now in workspace + stock detail pages) + 4 prior chat-v2 tickets shipped (#3/#4/#5/#6/#7/#9)
+**Active branch:** main (HEAD: `bc3f7d1` — Stage 7 ticket #7 chat widget)
 **Last stable tag:** `prd-14-complete` (2026-05-12) — no `stage-*` tags exist
-**Tests:** **~535 backend** all green (was ~426 → +109 across live-quote service, chat tools, chat endpoints, narrative deterministic templates) · frontend build clean
+**Tests:** **~535+ backend** all green; frontend build clean (PR #50 added 757 LoC of widget code)
 **Deployed:** Railway + Vercel both healthy
 - `GATING_ENABLED=true` (enforcement)
 - `POSTHOG_API_KEY` not set → analytics queue silently
 - `RESEND_API_KEY` not set → emails log `email_noop`
-- Live-quote cache (FMP `/stable/quote` fan-out) confirmed working in prod via curl
+- Live-quote cache (FMP `/stable/quote` fan-out) confirmed working in prod
+- CORS regex (`https://the-counselor-web-.*\.vercel\.app`) now permits Vercel preview deploys
 
 **Open work in flight:**
-- PR [#41](https://github.com/grepJimmyGu/the_counselor/pull/41) — Market Pulse Phase 0 preview at `/uiux/market-pulse-v2`. Awaiting Jimmy's browser review against the Vercel preview URL. Phase 1 (promote to `/stocks` + LLM narrative service) blocks on this.
-- `claude/feat/market-pulse-v2-preview` branch — preserved until #41 review concludes.
-- `codex/improve-chat-builder` branch — codex session's abandoned chat-builder work (3 commits not on main). Kept; rebase or drop is a separate per-branch decision.
+- PR [#41](https://github.com/grepJimmyGu/the_counselor/pull/41) — Market Pulse v2 preview at `/uiux/market-pulse-v2`. **Phase 0a sign-off received 2026-05-21.** Branch holds 12 commits; Phase 1 plan splits the promote-to-/stocks + backend wiring into 6 sub-phases (1a–1f).
+- `codex/improve-chat-builder` — abandoned codex work, 3 commits not on main. Kept; per-branch decision.
+- A new parallel session spun up its own worktree per Jimmy's note 2026-05-21 — branch + Active Sessions row not yet visible on origin.
 
 **Next action:**
-- Jimmy reviews `/uiux/market-pulse-v2` preview, lists changes → iterate or sign off → Phase 1 starts
+- Phase 1a — promote `/uiux/market-pulse-v2` → `/stocks` (lift-and-shift, mock data with badges stays); subsequent sub-phases (1b LLM narrative, 1c real macro data, 1d sector chart real data, 1e History Rhymes backend, 1f Screener preset filters) progressively replace mocks
 - Pre-launch env vars still owed:
 
 ```bash
@@ -97,6 +98,47 @@ See [docs/DEFERRED.md](../docs/DEFERRED.md) for the ~30 trigger-gated items spli
 ---
 
 ## Session History
+
+### 2026-05-21 (later still) — Market Pulse v2 preview iterated to sign-off, chat widget shipped
+
+**Market Pulse v2 preview — 11 iteration commits on top of the initial scaffold (PR #41 still open):**
+
+Three batches of revisions, each driven by Jimmy reviewing the Vercel preview:
+
+*Batch A — initial layout revisions:*
+- Rename Movers → Top Movers, drop commodities, attempt 2-line rows
+- IndicesHero removed; absorbed as inline 4-cell ticker inside MarketBrief
+- Sector heatmap → 2-row × 6+5 tiles, 5 metrics per tile
+- MacroStrip → themed panels (Rates / Vol / FX / Commodities) with interpretation chips
+- HistoryRhymes section added (was Phase 3 in v1 plan); sticky-nav updated
+
+*Batch B — feature additions Jimmy specifically asked for:*
+- Top Movers correctly redone as a 2-row card grid (had misread "two rows" as "two lines")
+- Sector tile click → inline ETF-vs-S&P 500 comparison chart with 1M/6M/YTD/1Y/3Y tabs
+- New Stock Screener section — 6 algorithm cards with tier-gate badges (Strategist/Quant)
+
+*Batch C — final polish round to sign-off:*
+- Market Brief ticker shows real index point values (Dow 38,234 etc.) not ETF proxy prices
+- Stock Screener: rename + 3 new cards (Top Rated, Top Dividend, Top Value); now 9 cards
+- Macro Pulse: themed panels → 4-row table layout (Growth / Inflation / Rates / Stress) with 1M/1Y/3Y sparkline toggle, takeaway column, per-row metric explanation tooltip
+
+Phase 0a signed off. Phase 1 starts next.
+
+**Chat v2 — 3 more tickets landed today:**
+- PR #43 — ticket #4 (4 heavier chat tools: backtest_execute, backtest_explain, stock_lookup, strategy_builder_iterate)
+- PR #44 — ticket #5 (authed chat endpoint with SSE + tool dispatch loop) — opened originally as #40, recovered after stacked-PR cascade auto-closure
+- PR #45 — ticket #6 (anonymous chat endpoint)
+- PR #48 — ticket #9 (chat guardrails)
+- PR #50 — ticket #7 (frontend chat widget; mounted on /workspace + /stocks/[ticker])
+
+Chat v2 Phase 1 backend + frontend widget now both shipped to main. Real-world chat usage starts when env vars / cache get exercised.
+
+**Process / infra PRs:**
+- PR #46 — docs polish (3 CLAUDE.md operational rules from stacked-PR + git-cherry learnings)
+- PR #47 — API_BASE_URL fallback fix (prod URL on non-localhost hosts; unblocks Vercel previews without env-var fiddling)
+- PR #49 — CORS regex for Vercel preview URLs (the actual root cause of the empty-data preview)
+
+**Phase 1 plan refined** with 6 sub-phases (1a–1f) given that Phase 0a added many new mock surfaces (real index values, real macro data, real sector chart, real history rhymes, real screener filters, plus the LLM narrative + the lift-to-/stocks). Total ~22–28h split into ship-able PRs. Sequence: 1a (promote) → 1b (LLM narrative) → 1c (macro data) → 1d/1e/1f (parallel).
 
 ### 2026-05-21 (continued) — Live quotes everywhere, Chat v2 Phase 1, agent-team protocol
 
