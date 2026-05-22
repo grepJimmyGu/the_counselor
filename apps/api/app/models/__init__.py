@@ -9,6 +9,9 @@ from app.models.price_bar import PriceBar
 from app.models.published_strategy import PublishedStrategy  # noqa: F401
 from app.models.robustness_job import RobustnessJob
 from app.models.saved_strategy import SavedStrategy  # noqa: F401
+from app.models.saved_strategy_signal_state import SavedStrategySignalState  # noqa: F401
+from app.models.signal_alert_subscription import SignalAlertSubscription  # noqa: F401
+from app.models.signal_event import SignalEvent  # noqa: F401
 from app.models.stripe_event import StripeEvent  # noqa: F401
 from app.models.stripe_invoice import StripeInvoice  # noqa: F401
 from app.models.symbol import SymbolCache
@@ -32,6 +35,9 @@ __all__ = [
     "PublishedStrategy",
     "RobustnessJob",
     "SavedStrategy",
+    "SavedStrategySignalState",
+    "SignalAlertSubscription",
+    "SignalEvent",
     "StripeEvent",
     "StripeInvoice",
     "SymbolCache",
