@@ -98,6 +98,7 @@ Either:
 |---|---|---|---|---|
 | **claude-main** (master merger) | `/Users/jimmygu/the_counselor` | rotating per-task | latest | Permanent — owns all `gh pr merge` to `main` |
 | claude-chat-v2-p2 | `/Users/jimmygu/the_counselor-chat-v2-p2` | `claude/feat/chat-v2-p1-2-adapter` | (this commit) | active — Stage 7 ticket #2 (LLM adapter + tool-calling + SSE) |
+| claude-signals-v0 | `/Users/jimmygu/the_counselor-signals-v0` | `claude/feat/signals-v0-backend` | (this commit) | paused awaiting PR #51 review — Stage 8 v0 Phase A (signals + alerts backend) |
 | codex-chatbuilder | `/private/tmp/the_counselor_chatbuilder_test` | `codex/improve-chat-builder` | `0932c75` | abandoned 2026-05-19; rebase or delete |
 
 When you start, **add a row.** When you finish, **delete it** (history is in git).
