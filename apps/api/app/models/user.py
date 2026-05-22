@@ -32,6 +32,13 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
+    # Stage 8 v0 — flips to True after the first-time signal-alert opt-in modal
+    # has been shown across any of this user's saved strategies. The cross-dialect
+    # ADD COLUMN lives in db/migrations.py::_run_stage8_isolated_ddl.
+    has_seen_signal_intro: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False
+    )
+
     plan: Mapped["Plan"] = relationship(back_populates="user", uselist=False, cascade="all, delete-orphan")
     usage: Mapped[List["MonthlyUsage"]] = relationship(back_populates="user", cascade="all, delete-orphan")
 

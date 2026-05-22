@@ -103,6 +103,24 @@ def _run_stage1_isolated_ddl(engine: Engine, is_sqlite: bool) -> None:
     except Exception:
         pass  # column already exists
 
+    # ── 3d. Stage 8 (signals v0): User.has_seen_signal_intro ──────────────────
+    # Tracks whether the first-time signal-alert opt-in modal has been shown —
+    # see build_specs/research_execution_v0_signals_and_alerts.md §10 #9.
+    try:
+        with engine.begin() as c:
+            if is_sqlite:
+                c.execute(text(
+                    "ALTER TABLE users "
+                    "ADD COLUMN has_seen_signal_intro BOOLEAN NOT NULL DEFAULT 0"
+                ))
+            else:
+                c.execute(text(
+                    "ALTER TABLE users "
+                    "ADD COLUMN IF NOT EXISTS has_seen_signal_intro BOOLEAN NOT NULL DEFAULT FALSE"
+                ))
+    except Exception:
+        pass  # column already exists
+
     # ── 4. Indexes that depend on columns added above ─────────────────────────
     # These live here (not in main conn) because IF NOT EXISTS still aborts a Postgres
     # transaction if the referenced COLUMN is missing — even though the INDEX might not exist.
