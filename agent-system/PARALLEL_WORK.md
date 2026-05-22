@@ -108,7 +108,9 @@ When you start, **add a row.** When you finish, **delete it** (history is in git
 
 These exist on origin but no session is actively working on them. Sometimes a PR was opened and the session moved on; sometimes the branch was abandoned. Keep this list short:
 
-- `claude/fix/chat-detached-session-in-streaming` — PR #53 open, awaiting claude-main review/merge (production hang fix)
+- `claude/feat/market-pulse-v2-preview` — PR [#41](https://github.com/grepJimmyGu/the_counselor/pull/41) open. **Phase 0a SIGNED OFF 2026-05-21.** Holds the full Market Pulse v2 redesign as a preview at `/uiux/market-pulse-v2`. Waiting on Phase 1a (claude-main will lift to `/stocks` and delete the preview route).
+
+A new session was reported spinning up its own worktree on 2026-05-21; Active Sessions row not yet visible on origin. Add row when first commit lands.
 
 ---
 
