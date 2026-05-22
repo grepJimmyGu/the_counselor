@@ -30,7 +30,7 @@ import { useLiveQuotes } from "@/lib/useLiveQuotes";
 import { buildNarrative } from "@/lib/market-pulse-narrative";
 
 import { MarketBrief } from "@/components/market-pulse/MarketBrief";
-import { MacroPanels } from "@/components/market-pulse/MacroPanels";
+import { MacroPulseTable } from "@/components/market-pulse/MacroPulseTable";
 import { SectorRotation } from "@/components/market-pulse/SectorRotation";
 import { HistoryRhymes } from "@/components/market-pulse/HistoryRhymes";
 import { TopMovers, type MoverItem } from "@/components/market-pulse/TopMovers";
@@ -195,15 +195,11 @@ export default function MarketPulseV2Preview() {
             absorbed from the removed IndicesHero section) */}
         {loading ? <BriefSkeleton /> : data && <MarketBrief data={applyLiveToData(data, withLive)} />}
 
-        {/* Section 2 — Macro Pulse themed panels (replaced
-            single-row MacroStrip per 2026-05-21 feedback) */}
-        {loading ? (
-          <MacroStripSkeleton />
-        ) : (
-          data && (
-            <MacroPanels macro={data.macro.map(withLive) as MacroCard[]} />
-          )
-        )}
+        {/* Section 2 — Macro Pulse table (4 signals: Growth / Inflation /
+            Rates / Stress with 1M-1Y-3Y trend toggle + takeaways per
+            2026-05-21 feedback). Doesn't depend on data.macro today —
+            Phase 0a is mock; Phase 1 wires real ISM/CPI/yields data. */}
+        <MacroPulseTable />
 
         {/* Section 3 — Sector rotation (heatmap default, table on toggle) */}
         {loading ? (
