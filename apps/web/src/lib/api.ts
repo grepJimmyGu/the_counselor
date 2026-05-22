@@ -406,6 +406,12 @@ export async function getSectorComparison(
   );
 }
 
+export async function getHistoryRhymes(
+  market: "US" | "CN" = "US",
+): Promise<import("@/lib/contracts").HistoryRhymesResponse> {
+  return fetchApi(`/api/market/history-rhymes?market=${market}`);
+}
+
 // ── PRD-07: Stock Screener ────────────────────────────────────────────────────
 
 export async function getScreenerFilters(): Promise<import("@/lib/contracts").ScreenerFiltersResponse> {
