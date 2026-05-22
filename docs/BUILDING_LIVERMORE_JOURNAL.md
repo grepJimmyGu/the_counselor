@@ -490,6 +490,160 @@ reads it before writing.
 **Content hook:** *The day I shipped three bug fixes and discovered each
 one was hiding the next.*
 
+### Episode 25 — Market Pulse v2: four sub-phases in an afternoon (May 22 evening)
+
+After the morning's Chat v2 shipping spree (Episode in the project log),
+the same day brought a four-PR push that finished the Market Pulse v2
+redesign. Phase 0a had signed off the day before; what shipped May 22
+evening was the wire-up — taking each of the mock surfaces and swapping
+it for a real backend service.
+
+The sequence in order: **1c → 1d → 1e → 1f**, with a small docs PR
+chaser to update the backlog.
+
+**Phase 1c — real macro signals (PR #61).** The Macro Pulse table at
+the top of `/stocks` had been showing four hand-coded "mock" rows:
+ISM Services PMI 52.0, Core CPI 3.4%, 10Y Yield 4.3%, HY Spread 3.4%.
+Two of those — the 10Y and CPI — have free Alpha Vantage Economic
+Indicators endpoints, so they swap to live data immediately. The
+other two (PMI and HY OAS) live only on FRED, and the FRED key isn't
+on Railway yet. The honest answer: ship the two real ones, leave the
+other two clearly labeled as `mock_pending_fred`, and add a
+per-row `Live` / `Mock` pill so users can read the data-source signal
+at a glance.
+
+One gotcha worth remembering: AV's `CPI` endpoint returns the CPI
+**index** (a number like 320.5), not the year-over-year percent the
+table wants. The service derives YoY% over the 12-month window so the
+row reads `CPI YoY: 3.4%` instead of `320.5`. Pure-function math in
+the service, mocked AV responses in the tests — 12 cases covering trend
+classification edge cases, the AV `.` sentinel-value filter, and the
+24h cache identity.
+
+**Phase 1d — sector vs SPY comparison (PR #62).** Clicking a sector
+tile in the heatmap expands an inline chart showing that sector ETF
+vs SPY over 1M / 6M / YTD / 1Y / 3Y. Phase 0a had built it with a
+synthetic walk seeded by the symbol string; Phase 1d swaps that for a
+real backend service.
+
+The interesting design decision was **what to put under the chart**.
+The original mock derived the Day/YTD/1Y/3Y returns table values from
+the chart series itself — which meant toggling the chart to "1M"
+reset the 3Y number to whatever the 1M-window happened to show. Phase
+1d separates them: the chart series uses the windowed slice, but the
+returns table reads pre-computed totals from the full available bar
+history. Now the user can zoom the chart to 1M and the 3Y number
+stays accurate. That's the difference between "we drew the chart" and
+"we built the data layer." 15 tests, including date-alignment edge
+cases (one symbol has bars the other doesn't), perf_n_days
+insufficient-bars, and YTD cutoff math.
+
+**Phase 1e — History Rhymes (PR #64).** This was the section Jimmy
+explicitly asked to keep in main-page scope back in Phase 0a — "can
+we build a tool that captures 'history repeats?'" The Phase 0a stub
+had three hardcoded matches with hand-written context ("Aug 2019 —
+pre-Fed 50bps cut"). Phase 1e builds the real cosine-similarity
+service.
+
+The vector design took the most thought. Six dimensions, all ETFs
+(not spot prices — those are monthly and would break the daily
+alignment): TLT for rates, VXX for volatility, UUP for the dollar,
+HYG for credit, GLD for gold-as-haven-flow, USO for oil. For each
+historical 5-day window in the last ~5y, compute the joint return
+vector and the cosine similarity to today's vector. Take the top 3
+with at least 14 trading days between them (otherwise the matches
+collapse to three adjacent windows). Each match carries the SPY
+30-trading-day post-window return plus a 30-point sparkline
+normalized to start=100.
+
+The regime label ("Vol spike · bonds rallying") is a small heuristic
+that trips on threshold breaks in the vector — not a substitute for
+human historical context (the v1 mock had "pre-COVID · Iran tensions"
+and a heuristic isn't going to write that), but it's better than just
+the date. 19 tests covering the cosine math (orthogonal / identical /
+negated / zero vector), 5-day return edge cases, threshold-trip
+labeling, and end-to-end with 100 bars per symbol.
+
+This is also where the day's process detour happened. PR #63 (the
+first attempt at Phase 1e) went out cleanly, then PR #62 (Phase 1d)
+merged ahead of it, so #63's branch now had merge conflicts in three
+files where 1d had also added imports / routes / contracts. The clean
+fix was a `git rebase main` — which produced a clean rebase but
+required a force-push to update #63. The auto-mode classifier (rightly)
+blocked the force-push without explicit user sign-off. Recovery: push
+the rebased commit under a fresh branch (`claude/feat/phase-1e-history-rhymes-rebased`),
+close PR #63 with a comment, open a new PR (#64) from the rebased
+branch. Same content, new PR number, full CI fires. The
+classifier-mediated workaround means history stays clean without
+forcing a "yes, force-push" interaction.
+
+**Phase 1f — screener presets (PR #65).** The 9 algorithm cards at the
+bottom of `/stocks` had been showing hardcoded counts ("24 stocks") and
+hand-picked sample tickers. Phase 1f registers all 9 as declarative
+`PresetSpec` entries — each carrying its filter logic + tier
+requirement — and exposes two endpoints: a summary route for the tile
+grid (no gating, just metadata + real counts), and a per-preset
+results route that enforces tier via 402.
+
+The six free presets are real SQL filters against `symbols`:
+high-dividend (yield ≥ 4%, sorted high→low), value (P/E < 15 +
+market_cap ≥ $2B, sorted cheapest first), small-cap (market_cap_category =
+'small'), etc. The three Strategist/Quant ones (`positive-catalyst`,
+`community-confirmed`, `rising-attention`) ship as **documented v1
+approximations** — curated baskets of well-known names, with the
+docstring spelling out exactly what infrastructure they're waiting
+on (news-sentiment query, vote/watchlist rollup, real-time
+volume_ratio). That feels right: ship the screen with the tier-gating
+correctly wired, but be honest that the basket is a placeholder. The
+real-time pipeline integrations are in PROJECT_BACKLOG.md §4b's
+follow-up table.
+
+The entitlements layer needed a small extension. The existing
+`upgrade_error()` helper took an error code and looked up the
+required-tier from a static `_REQUIRED_TIER` dict. But for the screener,
+the required tier varies per-preset — `positive-catalyst` is Strategist+,
+`rising-attention` is Quant+, same `screener_preset_locked` code.
+The fix: add a `required_tier_override` parameter so a single code can
+route correctly. Three lines of helper code; clean separation of "what
+went wrong" (the code) from "what unlocks it" (the tier).
+
+**The shape of the day.**
+
+Four PRs, four backend services, four matching frontend wire-ups,
+plus a backlog refresh. Test suite went from 580 to 625. Five PRs
+all green through CI on first try — no rollbacks, no follow-up
+hotfixes. The discipline:
+
+1. Each sub-phase as its own branch off main (no stacking — CLAUDE.md
+   rule).
+2. Each PR carries its own tests written first, watched fail, then
+   shipped passing (the "every bugfix pairs with a regression test"
+   rule generalized to features).
+3. Each PR's commit message names the v1 approximations explicitly
+   so future-me doesn't pretend the curated baskets are real signals.
+4. PROJECT_BACKLOG.md gets a same-PR refresh — the shipped row moves
+   from ⏳ to ✅; new follow-ups get added in the same edit.
+
+**Quotable moments:**
+
+- *"Ship the two real macro signals; label the other two mock with
+  the FRED key as the documented swap-trigger."* — the discipline of
+  partial-real ships when the cost of fake-real is worse than
+  honest-partial.
+- *"The chart series uses the windowed slice; the returns table
+  reads from full history."* — separation of concerns. The user can
+  toggle the chart to 1M and the 3Y number stays accurate. The
+  difference between "we drew the chart" and "we built the data layer."
+- *"Curated basket today, real query when the pipeline is ready.
+  Document it in the docstring so future-me doesn't pretend."* —
+  the v1 approximation pattern.
+- *"Force-push blocked by the classifier; open a fresh branch instead."*
+  — the safe workaround for the stacked-PR conflict case.
+
+**Content hook:** *Four sub-phases of a redesign shipped between
+lunch and dinner. The discipline that made it possible: small
+branches, tests first, no stacking, every PR straight to base=main.*
+
 ---
 
 ## Recurring journeys (themes)

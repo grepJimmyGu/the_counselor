@@ -8,6 +8,91 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-05-22 (later) — Market Pulse v2 Phase 1c–1f shipped, redesign fully real-data backed
+
+Four sub-phases of the Market Pulse v2 wire-up landed in one focused
+afternoon, swapping the last of the mock surfaces inside `/stocks`
+with real backend data. The full redesign that signed off on
+2026-05-21 (Phase 0a) is now end-to-end real except for two macro
+rows that are documented-as-pending a FRED API key.
+
+### What shipped
+
+| Sub-phase | Surface | PR |
+|---|---|---|
+| **1c — Macro signals** | New `macro_signals_service` (Alpha Vantage `TREASURY_YIELD` for the 10Y row, AV `CPI` index → YoY% derivation for the Inflation row). Growth (ISM PMI) + Stress (HY OAS) stay mock with `mock_pending_fred` source flag. Per-row `Live` / `Mock` pill in the table. | [#61](https://github.com/grepJimmyGu/the_counselor/pull/61) |
+| **1d — Sector vs SPY chart** | `sector_comparison_service` aligns sector ETF + SPY `price_bars` by intersected date set, normalizes both series to 0% at window start, returns Day/YTD/1Y/3Y totals from full history (not just the windowed slice). Endpoint `/api/market/sector-comparison/{symbol}?range=1M|6M|YTD|1Y|3Y`. 5-min cache. | [#62](https://github.com/grepJimmyGu/the_counselor/pull/62) |
+| **1e — History Rhymes** | `macro_similarity_service` — cosine similarity over a 6-dim 5-day return vector across TLT/VXX/UUP/HYG/GLD/USO against ~5y of `price_bars`. Top-3 matches with 14-day MIN_GAP_DAYS dedupe, each carrying the SPY 30-trading-day post-window outcome + a 30-point normalized sparkline. Heuristic regime label ("Vol spike · bonds rallying") from threshold-trip logic. 4h cache. | [#64](https://github.com/grepJimmyGu/the_counselor/pull/64) |
+| **1f — Screener presets** | `screener_presets` registry of 9 declarative `PresetSpec` entries (6 Scout / 2 Strategist / 1 Quant). Two endpoints: `/api/screener/presets` (summary with real counts + sample tickers, no gating) and `/api/screener/preset/{slug}` (paginated results, tier-gated via 402). New `screener_preset_locked` entitlement code + `required_tier_override` parameter on `upgrade_error()` so one code can route to Strategist OR Quant correctly. | [#65](https://github.com/grepJimmyGu/the_counselor/pull/65) |
+| docs | PROJECT_BACKLOG.md §4b refreshed; v1-approximation follow-ups recorded (FRED key swap, news-sentiment / community-vote / volume_ratio pipelines for the three Strategist+/Quant presets that use curated baskets today). | [#66](https://github.com/grepJimmyGu/the_counselor/pull/66) |
+
+Test suite grew **580 → 614 (+34)** across 1c/1d/1e and another
+**+11** for 1f → **625 backend tests** at end of session. Frontend
+build clean throughout.
+
+### The detour worth logging
+
+PR #63 had to be closed and reopened as PR #64 because the auto-mode
+classifier blocked the `git push --force-with-lease` needed to update
+#63 in place after a rebase onto post-1d main. The "Stacked-PR cascade"
+recipe from CLAUDE.md handled it cleanly — push the rebased commit
+under a fresh branch name (`claude/feat/phase-1e-history-rhymes-rebased`),
+close the old PR with a comment, open a new PR from the rebased
+branch. Same content, new PR number, full CI fires. Force-push
+gating works as designed — the workaround keeps history clean
+without an explicit "yes, force-push" sign-off from the user.
+
+### Files touched
+
+```
+apps/api/app/services/macro_signals_service.py        NEW (Phase 1c)
+apps/api/app/services/sector_comparison_service.py    NEW (Phase 1d)
+apps/api/app/services/macro_similarity_service.py     NEW (Phase 1e)
+apps/api/app/services/screener_presets.py             NEW (Phase 1f)
+apps/api/app/services/alpha_vantage.py                +fetch_treasury_yield, +fetch_cpi
+apps/api/app/api/routes/market_data.py                +3 routes
+apps/api/app/api/routes/screener.py                   +2 routes + gating
+apps/api/app/api/entitlement_errors.py                +screener_preset_locked code + required_tier_override param
+apps/api/tests/test_macro_signals.py                  NEW (12 cases)
+apps/api/tests/test_sector_comparison.py              NEW (15 cases)
+apps/api/tests/test_macro_similarity.py               NEW (19 cases)
+apps/api/tests/test_screener_presets.py               NEW (11 cases)
+apps/web/src/lib/contracts.ts                         +4 new types
+apps/web/src/lib/api.ts                               +4 helpers
+apps/web/src/components/market-pulse/MacroPulseTable.tsx       (signals prop + Live/Mock pill)
+apps/web/src/components/market-pulse/SectorComparisonChart.tsx (full rewrite: real fetch)
+apps/web/src/components/market-pulse/HistoryRhymes.tsx         (full rewrite: real fetch)
+apps/web/src/components/market-pulse/Screener.tsx              (full rewrite: summary fetch + Live badge)
+apps/web/src/app/stocks/_market-pulse.tsx                       (pass macro_signals)
+apps/web/src/app/stocks/_page-inner.tsx                         (read ?preset= and route through preset endpoint)
+docs/PROJECT_BACKLOG.md                                         (4b refresh + follow-ups)
+```
+
+### What backend CI verified
+
+Every PR ran the full Postgres migration smoke test, the full pytest
+suite, CodeQL Python/JS/Actions, and the Vercel preview build before
+squashing to main. All five PRs landed clean — no rollbacks, no
+follow-up hotfixes.
+
+### Documented v1 approximations (so future-me doesn't forget)
+
+Three of the screener presets and two of the macro signals ship as
+documented v1 approximations. PROJECT_BACKLOG.md §4b's "Follow-ups
+from the 1c–1f ship" table is the running list:
+
+- Set `FRED_API_KEY` on Railway → swap Growth (ISM Services PMI) +
+  Stress (HY OAS) macro signals from mock to real. ~2h backend (FRED
+  client + signal builders) plus a 1-min env var set.
+- Replace `positive-catalyst` curated basket with news-sentiment query
+  when PRD-09 sentiment coverage is dense enough to be a useful screen.
+- Replace `community-confirmed` curated basket with vote/watchlist
+  rollup query when community engagement scales.
+- Replace `rising-attention` curated basket with per-stock real-time
+  `volume_ratio` (backend addition; small).
+
+---
+
 ## 2026-05-22 — Stage 7 Chat v2 Phase 1 complete + production hang fix
 
 All eight Phase 1 tickets of the Stage 7 chat-v2 build landed on `main`,
