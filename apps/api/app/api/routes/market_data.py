@@ -148,6 +148,10 @@ from app.services.sector_comparison_service import (
     SectorComparisonResponse,
     get_comparison as _get_sector_comparison,
 )
+from app.services.macro_similarity_service import (
+    get_history_rhymes as _get_history_rhymes,
+    invalidate_cache as _invalidate_history_rhymes_cache,
+)
 
 _pulse_svc = MarketPulseService()
 
@@ -306,3 +310,37 @@ def _serialize_comparison(resp: SectorComparisonResponse) -> dict:
         "spy_1y": resp.spy_1y,
         "spy_3y": resp.spy_3y,
     }
+
+
+# ── Phase 1e: History Rhymes ────────────────────────────────────────────────
+
+
+@router.get("/market/history-rhymes")
+def get_history_rhymes(
+    market: str = Query(default="US", pattern="^(US|CN)$"),
+    bypass_cache: bool = Query(default=False),
+    db: Session = Depends(get_db),
+) -> dict:
+    """History Rhymes — cosine similarity of today's 5-day macro vector
+    against ~5y of historical 5-day windows. Returns the top 3
+    matches with their post-window 30-trading-day SPY outcome.
+
+    Macro basket: TLT (rates), VXX (vol), UUP (dollar), HYG (credit),
+    GLD (gold), USO (oil). All ETFs — full daily OHLCV in `price_bars`.
+
+    Cached 4h server-side. v1 supports `market=US` only; CN returns an
+    empty payload with a "v1 is US-only" caveat.
+    """
+    try:
+        if bypass_cache:
+            _invalidate_history_rhymes_cache()
+        resp = _get_history_rhymes(market, db)
+        return {
+            "market": resp.market,
+            "as_of": resp.as_of,
+            "today_vector": resp.today_vector,
+            "matches": [vars(m) for m in resp.matches],
+            "caveat": resp.caveat,
+        }
+    except Exception as exc:  # noqa: BLE001 — never crash the page
+        raise HTTPException(status_code=500, detail=str(exc)) from exc

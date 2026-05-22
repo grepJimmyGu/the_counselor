@@ -1,70 +1,61 @@
 "use client";
 
-import { TrendingDown, TrendingUp } from "lucide-react";
+import { useEffect, useState } from "react";
+import { Loader2, TrendingDown, TrendingUp } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { getHistoryRhymes } from "@/lib/api";
+import type {
+  HistoryRhymeMatch,
+  HistoryRhymesResponse,
+} from "@/lib/contracts";
 
 /**
- * Section 4 — History Rhymes (Phase 0a stub).
+ * Section 4 — History Rhymes.
  *
  * "Today's macro setup most resembles these historical 5-day windows."
- * Visualizes pattern-match against ~5 years of price_bars via cosine
- * similarity on normalized 5-day macro return vectors.
  *
- * **Phase 0a status:** this component renders **hardcoded mock data**
- * so Jimmy can review the layout. The real backend
- * (`apps/api/app/services/macro_similarity_service.py`) + endpoint
- * (`GET /api/market/history-rhymes`) ship in Phase 1.
+ * **Phase 1e (2026-05-22):** the component now fetches from
+ * `GET /api/market/history-rhymes` backed by
+ * `macro_similarity_service.py`. The service:
+ *
+ *   1. Builds today's normalized 5-day return vector across 6 macro
+ *      ETFs (TLT, VXX, UUP, HYG, GLD, USO)
+ *   2. Slides the same 5-day window over the last ~5 years of
+ *      `price_bars` and computes cosine similarity vs today's vector
+ *   3. Returns the top 3 matches (deduped to be at least 14 trading
+ *      days apart) with their post-window 30-day SPY outcome and a
+ *      30-bar normalized sparkline
  *
  * Per Jimmy's 2026-05-21 feedback ("lastly I thought we talked about
- * history rhyme section" — promoted from the deferred Phase 3 spot into
- * the main page).
+ * history rhyme section" — promoted from the deferred Phase 3 spot
+ * into the main page).
+ *
+ * The component degrades cleanly: any backend error renders a small
+ * notice + the caveat string, never an exception.
  */
 
-interface HistoryMatch {
-  label: string;
-  context: string;
-  similarity: number; // 0..1
-  postWindow30dReturn: number; // decimal, e.g. 0.012 = +1.2%
-  sampleSparkline: number[]; // 30 daily values, normalized so first = 100
-}
-
-const MOCK_MATCHES: HistoryMatch[] = [
-  {
-    label: "Aug 13–19, 2019",
-    context: "Pre-Fed 50bps cut · trade-war jitters",
-    similarity: 0.94,
-    postWindow30dReturn: 0.012,
-    sampleSparkline: [
-      100, 100.4, 99.8, 100.2, 100.6, 101.1, 100.7, 101.3, 101.0, 100.8,
-      101.4, 101.6, 101.2, 101.5, 101.0, 100.6, 101.1, 101.4, 101.2, 101.5,
-      101.3, 101.1, 101.4, 101.0, 100.8, 101.3, 101.5, 101.2, 101.0, 101.2,
-    ],
-  },
-  {
-    label: "Mar 2–6, 2022",
-    context: "Pre-rate-hike cycle · Ukraine invasion",
-    similarity: 0.87,
-    postWindow30dReturn: -0.082,
-    sampleSparkline: [
-      100, 100.2, 99.7, 98.9, 98.4, 97.5, 96.2, 95.4, 95.9, 94.7,
-      93.8, 93.1, 92.5, 91.9, 92.6, 92.1, 91.8, 92.4, 91.6, 91.3,
-      91.8, 91.2, 90.6, 91.4, 91.9, 92.3, 91.7, 91.4, 91.8, 91.8,
-    ],
-  },
-  {
-    label: "Jan 6–10, 2020",
-    context: "Pre-COVID · Iran tensions",
-    similarity: 0.81,
-    postWindow30dReturn: -0.052,
-    sampleSparkline: [
-      100, 99.8, 99.4, 99.7, 100.1, 99.5, 99.0, 99.4, 99.1, 98.5,
-      98.0, 97.7, 96.9, 96.2, 95.8, 95.3, 95.7, 95.1, 94.8, 95.0,
-      94.4, 94.0, 94.6, 94.9, 94.3, 94.8, 94.6, 94.2, 95.0, 94.8,
-    ],
-  },
-];
-
 export function HistoryRhymes() {
+  const [data, setData] = useState<HistoryRhymesResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    getHistoryRhymes("US")
+      .then((r) => {
+        if (!cancelled) setData(r);
+      })
+      .catch((e: Error) => {
+        if (!cancelled) setError(e.message || "Could not load history rhymes.");
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <section
       id="history"
@@ -78,28 +69,70 @@ export function HistoryRhymes() {
         >
           History rhymes
         </h2>
-        <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-900">
-          Preview · mock data
-        </span>
+        {loading ? (
+          <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/30 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
+            <Loader2 className="h-3 w-3 animate-spin" /> Loading
+          </span>
+        ) : error || !data || data.matches.length === 0 ? (
+          <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-900">
+            No matches
+          </span>
+        ) : (
+          <span className="rounded-full border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-900">
+            Live · cosine sim
+          </span>
+        )}
       </div>
       <p className="text-xs text-muted-foreground">
         Today&apos;s macro setup most resembles these historical 5-day
         windows. Cosine similarity across normalized 5-day return vectors
-        for rates, vol, dollar, gold &amp; oil. <em>Not a prediction</em> —
-        sample sizes are tiny; markets often don&apos;t rhyme.
+        for rates, vol, dollar, credit, gold &amp; oil. <em>Not a
+          prediction</em> — sample sizes are tiny; markets often
+        don&apos;t rhyme.
       </p>
 
-      <div className="grid gap-3 md:grid-cols-3">
-        {MOCK_MATCHES.map((m) => (
-          <MatchCard key={m.label} match={m} />
-        ))}
-      </div>
+      {error && (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+          {error}
+        </div>
+      )}
+
+      {/* Loading skeletons */}
+      {loading && (
+        <div className="grid gap-3 md:grid-cols-3">
+          {[0, 1, 2].map((i) => (
+            <div
+              key={i}
+              className="h-[180px] animate-pulse rounded-xl border border-border bg-muted/20"
+            />
+          ))}
+        </div>
+      )}
+
+      {!loading && data && data.matches.length === 0 && !error && (
+        <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+          {data.caveat || "No historical windows in the lookback range yet."}
+        </div>
+      )}
+
+      {!loading && data && data.matches.length > 0 && (
+        <>
+          <div className="grid gap-3 md:grid-cols-3">
+            {data.matches.map((m) => (
+              <MatchCard key={`${m.start_date}-${m.end_date}`} match={m} />
+            ))}
+          </div>
+          <div className="text-[10px] text-muted-foreground/70">
+            {data.caveat}
+          </div>
+        </>
+      )}
     </section>
   );
 }
 
-function MatchCard({ match }: { match: HistoryMatch }) {
-  const isUp = match.postWindow30dReturn >= 0;
+function MatchCard({ match }: { match: HistoryRhymeMatch }) {
+  const isUp = match.post_window_30d_return >= 0;
   const simPct = Math.round(match.similarity * 100);
 
   return (
@@ -124,7 +157,7 @@ function MatchCard({ match }: { match: HistoryMatch }) {
       </div>
 
       <div className="mt-3">
-        <Sparkline data={match.sampleSparkline} positive={isUp} />
+        <Sparkline data={match.sample_sparkline} positive={isUp} />
       </div>
 
       <div className="mt-2 flex items-baseline justify-between gap-2">
@@ -143,7 +176,7 @@ function MatchCard({ match }: { match: HistoryMatch }) {
             <TrendingDown className="h-3 w-3" />
           )}
           SPY {isUp ? "+" : ""}
-          {(match.postWindow30dReturn * 100).toFixed(1)}%
+          {(match.post_window_30d_return * 100).toFixed(1)}%
         </span>
       </div>
     </div>
