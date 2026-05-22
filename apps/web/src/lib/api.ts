@@ -397,6 +397,15 @@ export async function getMarketPulse(market: "US" | "CN" = "US", bypassCache = f
   return fetchApi(`/api/market/pulse?market=${market}${qs}`);
 }
 
+export async function getSectorComparison(
+  symbol: string,
+  range: "1M" | "6M" | "YTD" | "1Y" | "3Y" = "1Y",
+): Promise<import("@/lib/contracts").SectorComparisonResponse> {
+  return fetchApi(
+    `/api/market/sector-comparison/${encodeURIComponent(symbol)}?range=${range}`,
+  );
+}
+
 // ── PRD-07: Stock Screener ────────────────────────────────────────────────────
 
 export async function getScreenerFilters(): Promise<import("@/lib/contracts").ScreenerFiltersResponse> {

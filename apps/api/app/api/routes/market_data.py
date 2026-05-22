@@ -144,6 +144,10 @@ async def get_market_overview(
 # ── PRD-15: Market Pulse ──────────────────────────────────────────────────────
 
 from app.services.market_pulse_service import MarketPulseService
+from app.services.sector_comparison_service import (
+    SectorComparisonResponse,
+    get_comparison as _get_sector_comparison,
+)
 
 _pulse_svc = MarketPulseService()
 
@@ -229,3 +233,76 @@ async def get_market_pulse(
         }
     except Exception as exc:
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# ── Phase 1d: sector vs SPY comparison series ───────────────────────────────
+
+# 5-min TTL cache keyed by (symbol, range). Sector tile re-clicks within
+# the cache window skip the DB hit entirely.
+from datetime import datetime as _dt, timedelta as _td
+_SECTOR_COMPARISON_CACHE: dict[tuple[str, str], tuple[_dt, SectorComparisonResponse]] = {}
+_SECTOR_COMPARISON_TTL = _td(minutes=5)
+
+
+@router.get("/market/sector-comparison/{symbol}")
+def get_sector_comparison(
+    symbol: str,
+    range: str = Query(default="1Y", pattern="^(1M|6M|YTD|1Y|3Y)$"),
+    db: Session = Depends(get_db),
+) -> dict:
+    """Sector-ETF vs SPY cumulative-return comparison for the inline
+    chart that expands under each sector tile in Market Pulse.
+
+    Returns a {date, sector, spy} series normalized to 0% at series
+    start (so both lines render cleanly from the same y-axis origin),
+    plus pre-computed Day / YTD / 1Y / 3Y totals for the returns
+    table underneath the chart.
+
+    Cached 5 min per `(symbol, range)`. All data sourced from
+    `price_bars` — no external API calls.
+    """
+    sym = symbol.upper()
+    key = (sym, range)
+    now = _dt.utcnow()
+
+    cached = _SECTOR_COMPARISON_CACHE.get(key)
+    if cached:
+        cached_at, payload = cached
+        if (now - cached_at) < _SECTOR_COMPARISON_TTL:
+            return _serialize_comparison(payload)
+
+    try:
+        resp = _get_sector_comparison(db, sym, range)
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+    if not resp.series:
+        # No bars in window — fall back to whatever we can build over the
+        # full available history. Frontend shows a "Data loading" hint.
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No price history for {sym} in window {range}. "
+                "Load via /api/data/warmup."
+            ),
+        )
+
+    _SECTOR_COMPARISON_CACHE[key] = (now, resp)
+    return _serialize_comparison(resp)
+
+
+def _serialize_comparison(resp: SectorComparisonResponse) -> dict:
+    return {
+        "symbol": resp.symbol,
+        "sector_name": resp.sector_name,
+        "range": resp.range,
+        "series": [vars(p) for p in resp.series],
+        "sector_day": resp.sector_day,
+        "sector_ytd": resp.sector_ytd,
+        "sector_1y": resp.sector_1y,
+        "sector_3y": resp.sector_3y,
+        "spy_day": resp.spy_day,
+        "spy_ytd": resp.spy_ytd,
+        "spy_1y": resp.spy_1y,
+        "spy_3y": resp.spy_3y,
+    }
