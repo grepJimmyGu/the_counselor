@@ -270,7 +270,7 @@ def _sse(event_type: str, payload: dict) -> str:
 
 
 async def _run_tool_loop(
-    db: Session,
+    db: Session,  # legacy positional — see lifecycle note below
     conversation_id: str,
     messages: List[dict],
     max_iterations: int = 5,
@@ -284,9 +284,15 @@ async def _run_tool_loop(
 ) -> AsyncIterator[str]:
     """Core orchestration: call LLM, dispatch tool calls, re-invoke until done.
 
-    Yields SSE-formatted strings. Persists each assistant + tool message to
-    chat_messages as the loop progresses. Caps at `max_iterations` to prevent
-    a runaway tool-call chain (LLM accidentally calls the same tool in a loop).
+    **Session lifecycle (post-mortem 2026-05-22 / KNOWN_ISSUES.md):**
+    The `db` passed by the route is FastAPI-request-scoped — closed when
+    the route handler returns. StreamingResponse runs this generator AFTER
+    the handler returns, so `db` is already closed; any ORM op against it
+    raises DetachedInstanceError silently inside the ASGI exception handler
+    and the SSE body comes out empty (production symptom). We therefore
+    open a fresh SessionLocal here and ignore the passed-in `db`. The
+    parameter is kept for backwards compat with the existing call sites
+    and tests; the local `stream_db` is what actually executes.
 
     `tool_whitelist`: if provided, only tools whose names are in this set
     are exposed to the LLM AND honored by the dispatcher. The anonymous
@@ -298,6 +304,42 @@ async def _run_tool_loop(
     numeric_uncited log lines emitted from `_apply_guardrails`. The
     weekly digest job aggregates from those lines.
     """
+    from sqlalchemy.orm import sessionmaker  # local — keeps top-level imports clean
+
+    # Bind the new session to the SAME engine as the caller's `db`. Using
+    # `db.get_bind()` rather than the global SessionLocal means tests can
+    # drive this loop against their in-memory SQLite engine without any
+    # monkey-patching — they pass a Session from the test engine, and we
+    # spawn a sibling on the same engine.
+    StreamMaker = sessionmaker(bind=db.get_bind(), autoflush=False, autocommit=False, future=True)
+    stream_db = StreamMaker()
+    try:
+        async for frame in _run_tool_loop_inner(
+            stream_db, conversation_id, messages,
+            max_iterations=max_iterations,
+            tool_whitelist=tool_whitelist,
+            user_id=user_id, anon_session_id=anon_session_id,
+            tier=tier, user_message=user_message,
+        ):
+            yield frame
+    finally:
+        stream_db.close()
+
+
+async def _run_tool_loop_inner(
+    db: Session,
+    conversation_id: str,
+    messages: List[dict],
+    *,
+    max_iterations: int,
+    tool_whitelist: Optional[set],
+    user_id: Optional[str],
+    anon_session_id: Optional[str],
+    tier: str,
+    user_message: str,
+) -> AsyncIterator[str]:
+    """The original loop body. Wrapped in _run_tool_loop above so the
+    fresh-session bracket is enforced even when callers forget."""
     gateway = get_llm_gateway()
     all_specs = get_openai_tool_specs()
     if tool_whitelist is None:
@@ -615,15 +657,26 @@ async def post_message(
     messages: List[dict] = [{"role": "system", "content": _system_prompt()}] + history
 
     # 5. Stream.
+    #
+    # CRITICAL: snapshot ORM attribute values into plain locals BEFORE the
+    # generator yields. The FastAPI-injected `db` session closes when this
+    # route handler returns; the streaming generator runs AFTER that, so
+    # accessing `conv.id` / `user.id` / `user.plan.tier` inside the generator
+    # raises DetachedInstanceError. See KNOWN_ISSUES.md 2026-05-22.
+    conv_id_snap = conv.id
+    user_id_snap = user.id
+    tier_snap = user.plan.tier if user.plan else "unknown"
+    user_message_snap = body.content
+
     async def event_stream() -> AsyncIterator[str]:
         # `started` lets the frontend differentiate "request received" from
         # "first token" (which can be 2-3s on cold cache).
-        yield _sse("started", {"conversation_id": conv.id})
+        yield _sse("started", {"conversation_id": conv_id_snap})
         async for frame in _run_tool_loop(
-            db, conv.id, messages,
-            user_id=user.id,
-            tier=user.plan.tier if user.plan else "unknown",
-            user_message=body.content,
+            db, conv_id_snap, messages,
+            user_id=user_id_snap,
+            tier=tier_snap,
+            user_message=user_message_snap,
         ):
             yield frame
 
@@ -746,17 +799,28 @@ async def post_anonymous_message(
     messages: List[dict] = [{"role": "system", "content": _system_prompt()}] + history
 
     # 5. Stream — same as authed, but with the anon tool whitelist.
+    #
+    # CRITICAL: snapshot ORM values BEFORE the generator (see authed-route
+    # equivalent above + KNOWN_ISSUES.md 2026-05-22 — the request-scoped
+    # `db` is closed by the time event_stream() executes, so any ORM
+    # attribute read on `session` / `conv` raises DetachedInstanceError
+    # and the SSE body comes out empty).
+    conv_id_snap = conv.id
+    anon_turns_remaining_snap = ANON_TURN_CAP - session.chat_turns_used
+    anon_session_id_snap = session.id
+    user_message_snap = body.content
+
     async def event_stream() -> AsyncIterator[str]:
         yield _sse("started", {
-            "conversation_id": conv.id,
-            "anon_turns_remaining": ANON_TURN_CAP - session.chat_turns_used,
+            "conversation_id": conv_id_snap,
+            "anon_turns_remaining": anon_turns_remaining_snap,
         })
         async for frame in _run_tool_loop(
-            db, conv.id, messages,
+            db, conv_id_snap, messages,
             tool_whitelist=ANON_TOOL_WHITELIST,
-            anon_session_id=session.id,
+            anon_session_id=anon_session_id_snap,
             tier="anonymous",
-            user_message=body.content,
+            user_message=user_message_snap,
         ):
             yield frame
 

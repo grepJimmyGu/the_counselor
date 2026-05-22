@@ -83,6 +83,50 @@ async def _collect_frames(response) -> List[dict]:
 
 
 @pytest.mark.asyncio
+async def test_streaming_survives_request_session_close(db: Session, make_user):
+    """Regression for 2026-05-22 production bug (DetachedInstanceError).
+
+    In production, FastAPI's `Depends(get_db)` session is closed when the
+    route handler returns. StreamingResponse iterates `event_stream()`
+    AFTER that — any ORM attribute access on objects bound to the closed
+    session raises DetachedInstanceError, which ASGI silently absorbs.
+    Result: 200 OK with `content-type: text/event-stream` but ZERO body
+    bytes. The widget shows loading dots forever.
+
+    Fix: snapshot ORM values to plain locals BEFORE the generator yields
+    its first frame, and open a fresh SessionLocal inside _run_tool_loop.
+
+    Regression mechanic: simulate FastAPI's session-close after the route
+    returns, then iterate the StreamingResponse. If we still get a `done`
+    frame, the lifecycle bug is fixed."""
+    user = make_user(email="lifecycle@example.com", password="pw")
+
+    fake = _fake_gateway([[
+        ChatToken(text="ok"),
+        ChatDone(finish_reason="stop"),
+    ]])
+    body = ChatMessageRequest(content="lifecycle test")
+
+    with patch("app.api.routes.chat.get_llm_gateway", return_value=fake):
+        response = await post_message(
+            conversation_id="conv-lifecycle",
+            body=body,
+            user=user,
+            db=db,
+        )
+        # Simulate FastAPI closing the request-scoped session BEFORE the
+        # response body is iterated by the ASGI server.
+        db.close()
+        frames = await _collect_frames(response)
+
+    types = [f["type"] for f in frames]
+    # Bug symptom would be an empty `frames` list (no started/done at all).
+    assert "started" in types, f"started frame missing — lifecycle bug: {types}"
+    assert "done" in types, f"done frame missing — lifecycle bug: {types}"
+    assert types[-1] == "done"
+
+
+@pytest.mark.asyncio
 async def test_text_only_stream_persists_and_emits_events(db: Session, make_user):
     """Single LLM iteration with no tool calls: user msg → assistant text → done.
     Both messages are persisted; SSE emits started, tokens, done in order."""
