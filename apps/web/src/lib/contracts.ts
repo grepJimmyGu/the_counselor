@@ -1696,6 +1696,27 @@ export interface MarketPulseResponse {
   macro_signals?: MacroSignal[];
 }
 
+/** Phase 1e — History Rhymes / macro similarity match. One historical
+ * 5-day window that resembles today's normalized 5-day macro return
+ * vector, with the SPY 30-trading-day post-window outcome. */
+export interface HistoryRhymeMatch {
+  label: string;                       // "Aug 13–19, 2019"
+  start_date: string;                  // ISO date
+  end_date: string;                    // ISO date
+  context: string;                     // heuristic regime tag
+  similarity: number;                  // 0..1
+  post_window_30d_return: number;      // SPY return 30d after window
+  sample_sparkline: number[];          // 30 normalized SPY values (start=100)
+}
+
+export interface HistoryRhymesResponse {
+  market: string;
+  as_of: string;
+  today_vector: Record<string, number>;
+  matches: HistoryRhymeMatch[];
+  caveat: string;
+}
+
 // ── PRD-trend: Stock Trend types ──────────────────────────────────────────────
 
 export interface StockTrendData {
