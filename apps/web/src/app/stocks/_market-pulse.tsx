@@ -197,8 +197,14 @@ export function MarketPulsePage() {
             Rates / Stress with 1M / 1Y / 3Y trend toggle + takeaways).
             Phase 1c: real CPI + 10Y Treasury yield via Alpha Vantage;
             Growth (ISM PMI) and Stress (HY OAS) remain mock pending
-            a FRED API key. Per-row pill flips between Live + Mock. */}
-        <MacroPulseTable signals={data?.macro_signals} />
+            a FRED API key. Per-row pill flips between Live + Mock.
+
+            US-only: every signal in this table is a US macro indicator
+            (CPI, 10Y Treasury, ISM PMI, HY OAS). Hide on CN to avoid
+            misleading users into thinking these apply to A-share /
+            HK markets. CN-specific macro signals are a future-phase
+            ticket — see PROJECT_BACKLOG.md §4b follow-ups. */}
+        {market === "US" && <MacroPulseTable signals={data?.macro_signals} />}
 
         {/* Section 3 — Sector rotation (heatmap default, table on toggle).
             Sector tile click → inline ETF-vs-SPY comparison chart. */}
@@ -217,9 +223,13 @@ export function MarketPulsePage() {
           )
         )}
 
-        {/* Section 4 — History Rhymes (Phase 1a stub with mock data;
-            real macro_similarity_service backend ships in Phase 1e) */}
-        <HistoryRhymes />
+        {/* Section 4 — History Rhymes (Phase 1e wired backend).
+            US-only by design: the backend `macro_similarity_service`
+            returns an empty payload with a "US-only in v1" caveat for
+            CN, but rather than render the empty state inside the page,
+            we hide the section entirely on CN — cleaner visual + less
+            cognitive load. */}
+        {market === "US" && <HistoryRhymes />}
 
         {/* Section 5 — Top Movers (2-row × N-col card grid) */}
         {loading ? (
