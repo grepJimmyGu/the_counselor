@@ -301,6 +301,57 @@ async def test_lookup_stock_unknown_ticker_returns_error():
 
 
 @pytest.mark.asyncio
+async def test_lookup_stock_coerces_date_as_of_to_isoformat_string():
+    """Regression for 2026-05-23 production bug.
+
+    `CompanyOverviewResponse.as_of_date` is `datetime.date`, but
+    `StockLookupResponse.as_of` is `Optional[str]`. Pydantic v2 is strict
+    and won't auto-coerce date→str, so the entire tool call raised
+    "Input should be a valid string". The exception propagated up to the
+    dispatch loop's defensive `except Exception:`, which serialized as
+    `{"error": "Tool stock_lookup failed: ..."}` — the LLM read that as a
+    backend issue and apologized to the user. The user saw "It seems there
+    is a temporary issue retrieving the health and valuation metrics for
+    Apple Inc. (AAPL)" with two "Used stock_lookup" chips (LLM retried once).
+
+    Fix: coerce `as_of_date.isoformat()` at the seam. This test forces a
+    `date` instance and asserts the response field is the ISO string."""
+    fake_financial = MagicMock(
+        financial_validation_label="Neutral",
+        valuation_risk_score=50,
+        growth_summary=None, profitability_summary=None,
+        cash_flow_summary=None, balance_sheet_summary=None,
+        valuation_summary=None, warnings=[],
+    )
+    fake_business = MagicMock(one_line_summary=None)
+    fake_overview = MagicMock(
+        symbol="AAPL",
+        sector="Technology",
+        as_of_date=date(2026, 5, 23),  # the actual prod failure shape
+        financial_check=fake_financial,
+        business_map=fake_business,
+    )
+    fake_overview.name = "Apple Inc"
+
+    service_instance = MagicMock()
+    service_instance.get_overview = AsyncMock(return_value=fake_overview)
+
+    with patch(
+        "app.services.chat_tools.stock_lookup.CompanyOverviewService",
+        return_value=service_instance,
+    ):
+        response = await lookup_stock("AAPL")
+
+    # Before the fix this assertion never ran — the call raised.
+    assert response.success is True
+    # And the value must be a STRING (ISO format), not a date instance.
+    assert isinstance(response.as_of, str), (
+        f"as_of should be ISO string, got {type(response.as_of).__name__}"
+    )
+    assert response.as_of == "2026-05-23"
+
+
+@pytest.mark.asyncio
 async def test_lookup_stock_happy_path_returns_scorecard():
     """Successful overview → tool returns health/val/trend bundle.
 

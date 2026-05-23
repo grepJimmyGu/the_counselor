@@ -107,10 +107,25 @@ async def lookup_stock(ticker: str) -> StockLookupResponse:
                 error=f"No overview data for {sym}: {exc}",
             )
 
+        # CompanyOverviewService returns `as_of_date` as a `datetime.date`,
+        # but our chat-friendly response uses Optional[str] (since the LLM
+        # consumes the JSON serialization). Pydantic v2 is strict and won't
+        # coerce date → str on construction, so the whole tool call would
+        # raise "Input should be a valid string". Coerce here at the seam.
+        # Be defensive about the type — date instances expose isoformat(),
+        # str values already work, anything else gets str()'d.
+        as_of_raw = getattr(overview, "as_of_date", None)
+        if as_of_raw is None:
+            as_of_str = None
+        elif hasattr(as_of_raw, "isoformat"):
+            as_of_str = as_of_raw.isoformat()
+        else:
+            as_of_str = str(as_of_raw)
+
         return StockLookupResponse(
             success=True,
             ticker=overview.symbol,
-            as_of=getattr(overview, "as_of_date", None),
+            as_of=as_of_str,
             name=getattr(overview, "name", None),
             sector=getattr(overview, "sector", None),
             health=_section_from_financial_check(overview),

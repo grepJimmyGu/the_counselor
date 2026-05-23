@@ -266,6 +266,23 @@ def _sse(event_type: str, payload: dict) -> str:
     return f"data: {data}\n\n"
 
 
+def _propagate_cookies(src: Response, dst: StreamingResponse) -> None:
+    """Copy every Set-Cookie header from `src` (the FastAPI-injected Response)
+    onto `dst` (the StreamingResponse we're about to return).
+
+    Why: when a FastAPI route returns a Response (incl. StreamingResponse),
+    FastAPI DISCARDS the `Response` parameter that was injected as a
+    dependency — any cookies a dep helper set on it are silently dropped.
+    This helper is the explicit fix; see KNOWN_ISSUES.md 2026-05-23.
+
+    Iterates raw_headers (list of bytes-tuples) rather than the higher-level
+    `headers` MultiDict so multiple Set-Cookie values (one per cookie name)
+    are all preserved — `headers["set-cookie"]` would collapse them."""
+    for name_bytes, value_bytes in src.raw_headers:
+        if name_bytes.lower() == b"set-cookie":
+            dst.raw_headers.append((name_bytes, value_bytes))
+
+
 # ── Tool-dispatch loop ────────────────────────────────────────────────────────
 
 
@@ -680,6 +697,13 @@ async def post_message(
         ):
             yield frame
 
+    # Authed route doesn't mint cookies in the dep chain (unlike the anon
+    # route which calls `get_or_create_anonymous_session`), so no need to
+    # inject a `response: Response` parameter just to copy nothing. The
+    # cookie-propagation helper lives in the anon route below + is documented
+    # in KNOWN_ISSUES.md 2026-05-23. If a future authed dep starts setting
+    # cookies, add `response: Response` to this signature and call
+    # `_propagate_cookies(response, streaming)` here.
     return StreamingResponse(
         event_stream(),
         media_type="text/event-stream",
@@ -824,7 +848,7 @@ async def post_anonymous_message(
         ):
             yield frame
 
-    return StreamingResponse(
+    streaming = StreamingResponse(
         event_stream(),
         media_type="text/event-stream",
         headers={
@@ -832,3 +856,15 @@ async def post_anonymous_message(
             "X-Accel-Buffering": "no",
         },
     )
+    # CRITICAL: when a route returns a Response (incl. StreamingResponse),
+    # FastAPI DISCARDS the `Response` parameter that was injected as a
+    # dependency. `get_or_create_anonymous_session` set the
+    # `livermore_anon_id` cookie on that injected Response — without this
+    # copy, the browser never receives the cookie, every subsequent POST
+    # mints a fresh AnonymousSession, and the conversation ownership check
+    # in `_get_or_create_anon_conversation` returns 403 ("Conversation not
+    # found"). See KNOWN_ISSUES.md 2026-05-23. Same propagation done for
+    # the authed route below — that one currently has no cookies to copy
+    # but the helper keeps both routes shape-consistent.
+    _propagate_cookies(response, streaming)
+    return streaming
