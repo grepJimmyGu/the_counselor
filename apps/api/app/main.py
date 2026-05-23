@@ -276,6 +276,7 @@ def _start_scheduler() -> None:
         # grep-able alongside the existing `DEFERRED_TRIGGER:` lines.
         from app.jobs.qa_jobs import (
             audit_chat_responses_job,
+            audit_chat_tool_errors_job,
             chat_guardrails_digest_job,
             check_schema_drift_job,
         )
@@ -284,6 +285,13 @@ def _start_scheduler() -> None:
         # digest aggregates the week's refusals + uncited events on Sunday.
         scheduler.add_job(audit_chat_responses_job, "cron", hour=2, minute=0)
         scheduler.add_job(chat_guardrails_digest_job, "cron", day_of_week="sun", hour=9, minute=0)
+        # Chat-tool error auditor (2026-05-23) — sibling to the LLM-judge
+        # auditor above. Scans chat_messages.tool_results for the dispatch
+        # loop's `{"error": "Tool ... failed: ..."}` envelopes that would
+        # otherwise only surface as LLM-friendly apology copy to the user.
+        # Offset to 02:30 UTC so it doesn't race the 02:00 LLM auditor for
+        # DB connections.
+        scheduler.add_job(audit_chat_tool_errors_job, "cron", hour=2, minute=30)
         scheduler.start()
     except Exception as exc:
         logger.warning("APScheduler failed to start: %s", exc)

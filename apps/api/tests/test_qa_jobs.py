@@ -193,3 +193,142 @@ def test_extra_column_in_prod_is_info_only(tmp_path):
     code, violations = detect_schema_drift(url, metadata=model_meta)
     assert code == 0  # INFO doesn't bump exit code
     assert any(v.startswith("INFO") and "legacy_zombie" in v for v in violations), violations
+
+
+# ── audit_chat_tool_errors_job (2026-05-23) ──────────────────────────────────
+
+
+def test_audit_chat_tool_errors_job_aggregates_and_logs(db, caplog):
+    """The job scans the last 24h of chat_messages where role='tool', parses
+    each row's `{"error": "Tool <name> failed: ..."}` envelope (the dispatch
+    loop's defensive serialization), aggregates by (tool_name, normalized
+    error excerpt), and emits one CHAT_TOOL_ERROR log line per pair.
+
+    Regression mechanic: seed three rows — two stock_lookup failures with
+    the same error shape, one backtest_execute failure with a different
+    one. Run the job. Assert the aggregated log lines fire with the right
+    counts."""
+    import json as _json
+    import logging as _logging
+    from datetime import datetime, timezone
+
+    from app.jobs.qa_jobs import audit_chat_tool_errors_job
+    from app.models.chat import ChatConversation, ChatMessage
+
+    # Patch the SessionLocal the job opens internally to point at our test db.
+    from unittest.mock import patch
+
+    # Seed conversation + tool rows with prod-shape error envelopes.
+    conv = ChatConversation(
+        id="conv-tool-err",
+        user_id="u-1",
+        title="t",
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
+    )
+    db.add(conv)
+
+    # Same error twice — different input_value substring to verify the
+    # normalization collapses them into one bucket.
+    err_template = (
+        "Tool stock_lookup failed: 1 validation error for StockLookupResponse "
+        "as_of\\n  Input should be a valid string [type=string_type, "
+        "input_value=datetime.date(2026, 5, {day}), input_type=date]"
+    )
+    for day in (22, 23):
+        db.add(ChatMessage(
+            id=f"m-stock-{day}",
+            conversation_id=conv.id,
+            role="tool",
+            content=None,
+            tool_results={
+                "call_id": f"c{day}",
+                "name": "stock_lookup",
+                "content": _json.dumps({"error": err_template.format(day=day)}),
+            },
+            created_at=datetime.now(timezone.utc),
+        ))
+    # A different tool, different error — should land in its own bucket.
+    db.add(ChatMessage(
+        id="m-bt-1",
+        conversation_id=conv.id,
+        role="tool",
+        content=None,
+        tool_results={
+            "call_id": "cbt",
+            "name": "backtest_execute",
+            "content": _json.dumps({"error": "Tool backtest_execute failed: RuntimeError('engine blew up')"}),
+        },
+        created_at=datetime.now(timezone.utc),
+    ))
+    # A successful tool row (not a failure envelope) — must be ignored.
+    db.add(ChatMessage(
+        id="m-ok",
+        conversation_id=conv.id,
+        role="tool",
+        content=None,
+        tool_results={
+            "call_id": "cok",
+            "name": "concept_explainer",
+            "content": _json.dumps({"query": "Sharpe Ratio", "match": {"explanation": "..."}}),
+        },
+        created_at=datetime.now(timezone.utc),
+    ))
+    db.commit()
+
+    # Patch the job's SessionLocal to return our test session (instead of
+    # opening a prod one). The job's `finally: db.close()` is fine — our
+    # fixture session can be closed independently.
+    class _StaticSessionLocal:
+        def __init__(self, real_db): self._db = real_db
+        def __call__(self): return self._db
+
+    with patch(
+        "app.db.session.SessionLocal",
+        new=_StaticSessionLocal(db),
+    ):
+        with caplog.at_level(_logging.WARNING, logger="app.jobs.qa_jobs"):
+            audit_chat_tool_errors_job()
+
+    msgs = [r.getMessage() for r in caplog.records]
+    digest_line = next((m for m in msgs if "CHAT_TOOL_ERROR_DIGEST" in m), None)
+    assert digest_line is not None, f"expected DIGEST line, saw: {msgs}"
+    # 3 total tool errors (2 stock_lookup variants collapse into 1 bucket
+    # via input_value normalization, plus 1 backtest_execute = 2 unique).
+    assert "total=3" in digest_line
+    assert "unique=2" in digest_line
+
+    # One per-bucket line per (tool, excerpt). stock_lookup count=2 because
+    # the normalization collapses the input_value=date(...) variants.
+    stock_line = next((m for m in msgs if "tool=stock_lookup" in m and "count=2" in m), None)
+    assert stock_line is not None, f"expected stock_lookup count=2 line, saw: {msgs}"
+    assert "input_value=<…>" in stock_line, "normalization should collapse input_value"
+
+    bt_line = next((m for m in msgs if "tool=backtest_execute" in m and "count=1" in m), None)
+    assert bt_line is not None, f"expected backtest_execute count=1 line, saw: {msgs}"
+
+
+def test_audit_chat_tool_errors_job_empty_window_logs_zero(db, caplog):
+    """No tool failures in window → one DIGEST line with total=0 + no
+    per-bucket lines. The job should not surface a false alarm."""
+    import logging as _logging
+    from unittest.mock import patch
+
+    from app.jobs.qa_jobs import audit_chat_tool_errors_job
+
+    # No rows seeded — empty window.
+    class _StaticSessionLocal:
+        def __init__(self, real_db): self._db = real_db
+        def __call__(self): return self._db
+
+    with patch(
+        "app.db.session.SessionLocal",
+        new=_StaticSessionLocal(db),
+    ):
+        with caplog.at_level(_logging.INFO, logger="app.jobs.qa_jobs"):
+            audit_chat_tool_errors_job()
+
+    msgs = [r.getMessage() for r in caplog.records]
+    # Single info-level "no tool errors" line, no warnings.
+    assert any("total=0" in m and "no tool errors" in m for m in msgs), msgs
+    assert not any("CHAT_TOOL_ERROR tool=" in m for m in msgs), msgs
