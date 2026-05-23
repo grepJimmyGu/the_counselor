@@ -31,6 +31,165 @@ A running log of bugs encountered, root causes, and confirmed fixes. Add new ent
 
 ---
 
+### Top Movers "Top losers" sort surfaces +3.99% gainer as worst loser
+**Date:** 2026-05-23
+**Area:** backend / Market Pulse + frontend / TopMovers
+**Symptom:**
+On the production `/stocks` page, toggling the Top Movers sort
+dropdown to "Top losers" produced rows like AMD `+3.99%` at the top.
+The frontend sort comparator looked correct on inspection (ascending
+by `perf_1d`), but it was ordering the *least gainers* instead of
+real losers.
+
+**Root cause:**
+The backend `_build_top_assets()` in
+`apps/api/app/services/market_pulse_service.py` pre-sorted the
+candidate pool by `cmf_20` descending and limited to top-10. CMF
+descending = money flowing IN = gainer-biased. So the client-side
+"losers" sort was operating on a pool of only gainers.
+
+The frontend comparator was correct; the constraint was the
+upstream universe.
+
+**Fix:**
+Two-layer fix:
+  1. **Widen the pool** (PR #69) — backend stops pre-sorting; returns
+     a wider candidate pool (~50 by market_cap initially, then ~500
+     after PR #77 swap to `SP500_TICKERS`). Frontend client-side sort
+     comparators are unchanged.
+  2. **Use the SPX universe** (PR #77) — `_build_top_assets` now
+     filters `WHERE s.symbol IN SP500_TICKERS`. Final pool size: 497
+     after the operational backfill (PR #78). 145 of those are
+     losers on a typical day — plenty of variance for the sort to
+     surface real ones.
+
+**Files:**
+- `apps/api/app/services/market_pulse_service.py` — `_build_top_assets`
+- `apps/api/app/data/sp500_tickers.py` — canonical universe
+- `apps/api/tests/test_market_pulse_top_assets.py` — regression tests
+  (`test_pool_contains_both_gainers_and_losers` is the literal
+  codification of this bug)
+
+**Rule:** when the frontend's behavior is correct but the visible
+output looks wrong, suspect the upstream universe / candidate set.
+Pre-sorting on the backend constrains what the frontend can do.
+
+---
+
+### `510300.SH` (Shanghai A-share) leaking into US Top Movers
+**Date:** 2026-05-23
+**Area:** backend / Market Pulse
+**Symptom:**
+Jimmy's production review found a Chinese fund (`510300.SH`, Huatai
+PineBridge) in the Top Movers grid on `/stocks` (which has the US
+toggle selected). The market toggle was clearly "US."
+
+**Root cause:**
+`_build_top_assets()` had no positive region filter — it took the
+top-200 US-listed equities by market_cap. The `symbols.region`
+column was NULL for `510300.SH`, so the implicit "is it US?" check
+failed silently. The query saw a non-ETF with market_cap data and
+recent price_bars and let it through.
+
+**Fix:**
+PR #68 added defensive belt-and-suspenders filters:
+  - `region IS NULL OR region = 'US'`
+  - `symbol NOT LIKE '%.SH' / '%.SZ' / '%.HK'`
+
+PR #77 superseded this with a positive universe filter:
+`s.symbol IN SP500_TICKERS`. CN listings can never appear in the SPX
+set, so the leak is structurally impossible.
+
+**Files:**
+- `apps/api/app/services/market_pulse_service.py:_build_top_assets`
+- `apps/api/tests/test_market_pulse_top_assets.py:test_us_top_assets_excludes_cn_a_share_implicitly_via_sp500`
+
+**Rule:** prefer positive universe filters (whitelist) over negative
+exclusions (blacklist). A whitelist is a contract; a blacklist is a
+running tally of "things we noticed."
+
+---
+
+### Railway Postgres ran out of disk mid-backfill
+**Date:** 2026-05-23
+**Area:** infra / Postgres storage
+**Symptom:**
+The SP500 universe backfill script (`backfill_sp500_universe.py`)
+was running cleanly through ~370 of 525 symbols, then suddenly:
+```
+psycopg.errors.DiskFull: could not extend file "base/16384/16492":
+  No space left on device
+HINT:  Check free disk space.
+```
+~275 inserts in a single batch failed. Concurrently the production
+`/api/market/pulse?bypass_cache=true` started returning 500s; the
+60-min cache kept serving 130 names for a while but the page would
+have gone fully broken at cache rollover.
+
+**Root cause:**
+Railway Postgres had a finite volume size. The backfill ingested
+~395 symbols × ~750 daily bars + sparkline metadata = several
+hundred thousand new rows. Combined with existing data, the volume
+filled. Postgres failed every subsequent extent allocation, including
+the warmup jobs (commodity spot, gold spot all logged the same
+DiskFull error).
+
+**Fix:**
+1. Killed the running script (it was failing every insert)
+2. Jimmy expanded the Railway Postgres volume from the dashboard
+3. Re-ran the backfill (idempotent — already-loaded symbols skip
+   via `ensure_history()`'s cache check). Second pass: 517 loaded,
+   8 failed (delisted names like `ABC` → `COR`, no longer recoverable
+   via Alpha Vantage)
+
+**Prevention:** see [`apps/api/CLAUDE.md`](../apps/api/CLAUDE.md)
+rule #10 — check disk headroom on the Railway dashboard BEFORE
+running any backfill that touches >10k rows.
+
+**Files:**
+- `apps/api/scripts/backfill_sp500_universe.py` — the script (idempotent)
+- `apps/api/CLAUDE.md` — disk-headroom rule
+
+---
+
+### Sector comparison chart labeled "vs S&P 500" but data was SPY ETF
+**Date:** 2026-05-23
+**Area:** backend / sector_comparison_service
+**Symptom:**
+The MarketPulse sector heatmap's click-expansion chart was titled
+"TECHNOLOGY STOCKS VS. S&P 500" but `sector_comparison_service.py`
+read `price_bars WHERE symbol = 'SPY'` — the ETF tracking the index,
+not the index itself. The two diverge slightly (SPY pays dividends,
+the index doesn't; mechanical drag). The label was technically wrong
+even though the visual was close.
+
+**Root cause:**
+Original implementation (PR #62 / Phase 1d) hardcoded SPY because
+the codebase already had SPY bars in `price_bars` from the existing
+warmup pipeline; ^GSPC was never ingested.
+
+**Fix:**
+PR #73 + operational backfill (`apps/api/scripts/backfill_gspc.py`).
+The service now prefers `^GSPC` from `price_bars`; falls back
+transparently to SPY (with a WARN log) when ^GSPC has no bars. The
+backfill ran cleanly in production — ^GSPC now has 1004 bars (4y).
+SPY is still used for the `rs_vs_spy_5d` internal RS calculation
+and the strategy backtester benchmark — those are tradeable-asset
+comparators, not user-visible "vs S&P 500" claims.
+
+**Files:**
+- `apps/api/app/services/sector_comparison_service.py:_load_benchmark`
+- `apps/api/scripts/backfill_gspc.py`
+- `apps/api/app/services/fmp_client.py:get_historical_eod` (new
+  method to support the backfill)
+
+**Rule:** the *label* and the *data source* are independent
+artifacts — they can drift apart silently. Audit scripts should
+explicitly verify benchmark identity (see PR #75's audit script,
+"Benchmark identity" check).
+
+---
+
 ### StreamingResponse drops Set-Cookie from injected Response → anon chat fresh-session per turn → 403 "Conversation not found"
 **Date:** 2026-05-23
 **Area:** backend / streaming endpoints

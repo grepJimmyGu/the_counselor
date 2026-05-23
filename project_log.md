@@ -8,6 +8,86 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-05-23 — Market Pulse accuracy + latency sprint (9 PRs)
+
+Jimmy's first manual production review of the Market Pulse v2 redesign
+surfaced four data-accuracy bugs plus a missing transparency piece
+(narrative date stamp). Today shipped the bug fixes, the latency
+report, an audit script + Claude skill for ongoing verification, and
+an operational backfill that grew the Top Movers candidate pool from
+30 SPX names to 497.
+
+### Bugs Jimmy flagged + fixed
+
+| # | Bug | Fix | PR |
+|---|---|---|---|
+| 1 | `510300.SH` (Shanghai A-share fund) leaking into US Top Movers | Region filter + suffix exclusion; later superseded by SP500 universe filter (PR-8) | [#68](https://github.com/grepJimmyGu/the_counselor/pull/68) |
+| 2 | "Top losers" sort showing AMD +3.99% as worst loser | Widen candidate pool — backend stops pre-sorting by CMF, frontend client-side sorts the wider pool | [#69](https://github.com/grepJimmyGu/the_counselor/pull/69) |
+| 3 | Sector chart label "vs S&P 500" but data was SPY ETF | Swap to `^GSPC` index with transparent SPY fallback; operational FMP backfill ingests 4y of ^GSPC bars | [#73](https://github.com/grepJimmyGu/the_counselor/pull/73) |
+| 4 | CN toggle leaves US-only sections visible | Gate MacroPulseTable + HistoryRhymes on `market === "US"`; Screener stays visible | [#71](https://github.com/grepJimmyGu/the_counselor/pull/71) |
+
+Plus Jimmy's two explicit asks:
+
+| Ask | Fix | PR |
+|---|---|---|
+| "I suggest adding a date in the narrative section claiming which date it is summarizing" | Add `as_of` to MarketNarrative; render as newspaper-byline above the headline (was a 9px footer in the original PR-3 attempt — Jimmy couldn't see it) | [#70](https://github.com/grepJimmyGu/the_counselor/pull/70), [#77](https://github.com/grepJimmyGu/the_counselor/pull/77) |
+| "I suggest we build a data latency report" | `GET /api/market/data-latency` + `<DataFreshnessFooter />` with per-group breakdown | [#74](https://github.com/grepJimmyGu/the_counselor/pull/74) |
+| "Build an agent to check calculation accuracy + data latency" (the umbrella ask) | `apps/api/scripts/audit_market_pulse.py` + `.claude/skills/market-pulse-audit/SKILL.md` | [#75](https://github.com/grepJimmyGu/the_counselor/pull/75) |
+| "Top Movers pool should be the entire S&P 500 list" | Switch `_build_top_assets` to filter against `SP500_TICKERS` (~525); operational AV backfill ingests the missing ~470 SPX names | [#77](https://github.com/grepJimmyGu/the_counselor/pull/77), [#78](https://github.com/grepJimmyGu/the_counselor/pull/78) |
+
+### Plus two PRs from Jimmy's other Claude session
+
+| PR | Subject |
+|---|---|
+| [#72](https://github.com/grepJimmyGu/the_counselor/pull/72) | chat anon cookie propagation + stock_lookup date coercion |
+| [#79](https://github.com/grepJimmyGu/the_counselor/pull/79) (was #76) | chat-tool production-shape gate + nightly error auditor |
+
+#76 had to be closed + reopened as #79 because #72 shipped the exact
+same `stock_lookup.py` date-coercion fix in parallel — content-identical
+conflict. Used the fresh-branch rebase pattern from CLAUDE.md.
+
+### Test suite
+
+**Backend grew 630 → 696** across today's PRs (+38 from the Market
+Pulse sprint, +28 from the chat-side PRs).
+
+### Production state at end of day
+
+Final `/market-pulse-audit` against production: **11 OK · 0 WARN · 0 ERROR**:
+- All data groups fresh (oldest source: 2026-05-21)
+- US Top Movers: 497 SPX symbols, 349 gainers + 145 losers (the "Top
+  losers" sort now has real candidates to surface)
+- ^GSPC backfilled — sector chart benchmarks against the actual index
+- Inflation + Rates macro signals live via Alpha Vantage; Growth +
+  Stress remain `mock_pending_fred`
+- CN scope clean — no A-share leakage
+- Narrative date stamped as newspaper-byline ("Saturday, May 23, 2026")
+  above every LLM headline
+
+### Operational events worth logging
+
+- **`^GSPC` backfill (~1004 rows)** ran cleanly first try
+- **SP500 universe backfill (~525 rows × 3y of daily bars)** ran in
+  two passes: pass 1 loaded ~130 before Railway Postgres ran out of
+  disk space mid-fetch (`DiskFull: could not extend file`). Killed
+  the script; Jimmy expanded Railway storage from the dashboard;
+  pass 2 idempotently completed — 517 loaded, 8 failed (delisted /
+  renamed names like `ABC` → `COR`).
+- **Force-push blocked by auto-mode classifier** twice today (PR-1e
+  yesterday, PR-9-related rebase today). Both resolved via the
+  "fresh-branch rebase" pattern — push the rebased commit under a
+  `-rebased` suffix, close old PR with comment, open new PR. Codified
+  in CLAUDE.md.
+
+### New principle codified
+
+**The stock universe is a STANDARD — can be expanded, must not shrink.**
+Per Jimmy's end-of-day note. `SP500_TICKERS` is the canonical Top
+Movers universe; any future change should be additive. Documented
+in CLAUDE.md + the `sp500_tickers.py` docstring.
+
+---
+
 ## 2026-05-22 (later) — Market Pulse v2 Phase 1c–1f shipped, redesign fully real-data backed
 
 Four sub-phases of the Market Pulse v2 wire-up landed in one focused

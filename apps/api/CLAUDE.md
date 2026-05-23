@@ -161,6 +161,35 @@ guards the detection query. `apps/api/scripts/check_orphan_users.py` is
 the operational mirror — run before any auth-related change to confirm
 the production DB has no orphans.
 
+### 10. Check Railway Postgres disk headroom before any large backfill
+
+Backfills that ingest thousands of rows (e.g.
+`apps/api/scripts/backfill_sp500_universe.py` — 525 SPX × ~750 daily
+bars = ~395k new rows) can fill the database disk silently. The
+failure mode is **mid-script**: Postgres returns
+`psycopg.errors.DiskFull: could not extend file "base/.../...": No
+space left on device`. At that point every subsequent insert + every
+read on the affected table fails with a 500, including the public
+Market Pulse API. The 2026-05-23 SP500 backfill tripped this — the
+DB went into recovery mode for ~10 seconds and ~275 inserts failed.
+
+**Pattern (before any backfill >10k rows):**
+
+1. Check current usage via the Railway dashboard (Storage tab on the
+   Postgres service) — note free space
+2. Estimate row payload × row count for the planned ingest
+3. If estimated growth > 50% of free space, request a storage bump
+   FIRST, then run the backfill
+4. The backfill scripts (`backfill_gspc.py`, `backfill_sp500_universe.py`)
+   are intentionally idempotent — safe to re-run partial progress
+   after the disk is expanded; already-loaded rows are skipped via
+   `ensure_history()`'s cache check
+
+If a disk-full event DOES fire mid-run: kill the script, expand the
+volume, re-run. Do NOT delete the partial inserts — they're correct;
+the script's idempotent skip-fresh logic will pick up where you left
+off.
+
 ---
 
 ## Cross-dialect quick reference
