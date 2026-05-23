@@ -37,6 +37,7 @@ import { HistoryRhymes } from "@/components/market-pulse/HistoryRhymes";
 import { TopMovers, type MoverItem } from "@/components/market-pulse/TopMovers";
 import { Screener } from "@/components/market-pulse/Screener";
 import { StickySubNav } from "@/components/market-pulse/StickySubNav";
+import { DataFreshnessFooter } from "@/components/market-pulse/DataFreshnessFooter";
 import {
   BriefSkeleton,
   TopMoversSkeleton,
@@ -243,16 +244,16 @@ export function MarketPulsePage() {
         <Screener />
 
         {/* Footer */}
-        <footer className="border-t border-border/60 pt-4 text-[10px] text-muted-foreground">
+        <footer className="border-t border-border/60 pt-4 text-[10px] text-muted-foreground space-y-2">
           <div>
             Data via Alpha Vantage price history · CMF computed from OHLCV ·
             Live prices via FMP (30s cache) · Not financial advice.
           </div>
-          {data?.as_of && (
-            <div className="mt-1">
-              Snapshot as of {new Date(data.as_of).toLocaleString()}.
-            </div>
-          )}
+          {/* Phase 1g — per-source freshness report. Replaces the
+              previous one-line `Snapshot as of` since the new footer
+              already carries that information plus a hover-to-expand
+              per-source breakdown. */}
+          <DataFreshnessFooter />
         </footer>
       </div>
     </div>

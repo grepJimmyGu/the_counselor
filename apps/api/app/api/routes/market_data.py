@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -355,3 +355,110 @@ def get_history_rhymes(
         }
     except Exception as exc:  # noqa: BLE001 — never crash the page
         raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+# ── Phase 1g: data latency report ────────────────────────────────────────────
+
+
+from app.services.price_cache_service import PriceCacheService as _PriceCacheService
+_price_cache_svc = _PriceCacheService(_av_client)
+
+
+# Calendar-day thresholds applied to the freshest bar per source.
+# `fresh` accommodates weekends — the price feed naturally skips
+# Sat/Sun, so anything within 4 days is considered current. `stale`
+# is the warning zone; beyond that is `missing` / `very_stale`.
+_LATENCY_FRESH_DAYS = 4
+_LATENCY_STALE_DAYS = 10
+
+
+_LATENCY_SOURCES = [
+    # (group_label, [symbols], description shown in UI)
+    ("Benchmarks", ["SPY", "^GSPC"], "S&P 500 — ETF + index"),
+    ("Sector ETFs", [
+        "XLK", "XLC", "XLY", "XLP", "XLV",
+        "XLF", "XLI", "XLE", "XLB", "XLRE", "XLU",
+    ], "11 SPDR sector ETFs (oldest reported)"),
+    ("Macro basket", ["TLT", "VXX", "UUP", "HYG", "GLD", "USO"],
+     "Rates / vol / dollar / credit / gold / oil"),
+    ("CN proxies", ["FXI", "KWEB", "MCHI"], "China ETFs (used for CN view)"),
+]
+
+
+def _classify_latency(latest: Optional[date], today: date) -> tuple[str, Optional[int]]:
+    """Return (status, hours_stale). `hours_stale` measured at start of
+    today (UTC), since price_bars are EOD — granularity is days, not
+    minutes."""
+    if latest is None:
+        return "missing", None
+    delta_days = (today - latest).days
+    hours = delta_days * 24
+    if delta_days <= _LATENCY_FRESH_DAYS:
+        return "fresh", hours
+    if delta_days <= _LATENCY_STALE_DAYS:
+        return "stale", hours
+    return "very_stale", hours
+
+
+@router.get("/market/data-latency")
+def get_data_latency(db: Session = Depends(get_db)) -> dict:
+    """Per-data-source freshness report for the Market Pulse page.
+
+    Surfaces "is the website showing today's data or yesterday's
+    leftover?" The frontend `<DataFreshnessFooter />` consumes this
+    and renders a one-line summary + hover-to-expand source list.
+
+    For symbol *groups* (sector ETFs, macro basket, CN proxies) we
+    report the OLDEST `latest_date` across the group — the worst-case
+    is what matters for the freshness signal. Individual symbols
+    inside the group are still listed under `members`.
+    """
+    today = date.today()
+    sources_out: list[dict] = []
+
+    for group_label, symbols, description in _LATENCY_SOURCES:
+        members: list[dict] = []
+        oldest: Optional[date] = None
+        for sym in symbols:
+            latest = _price_cache_svc.get_latest_date(db, sym)
+            status, hours = _classify_latency(latest, today)
+            members.append({
+                "symbol": sym,
+                "latest_date": latest.isoformat() if latest else None,
+                "status": status,
+                "hours_stale": hours,
+            })
+            if latest is not None and (oldest is None or latest < oldest):
+                oldest = latest
+            elif latest is None and oldest is None:
+                # leave oldest as None — will reflect "missing"
+                pass
+
+        group_status, group_hours = _classify_latency(oldest, today)
+        sources_out.append({
+            "group": group_label,
+            "description": description,
+            "latest_date": oldest.isoformat() if oldest else None,
+            "status": group_status,
+            "hours_stale": group_hours,
+            "members": members,
+        })
+
+    # Roll-up: the page's "snapshot freshness" is the oldest among group
+    # latests (so a single stale source pulls the overall down).
+    rollup_latest: Optional[date] = None
+    for s in sources_out:
+        if s["latest_date"]:
+            ld = date.fromisoformat(s["latest_date"])
+            if rollup_latest is None or ld < rollup_latest:
+                rollup_latest = ld
+    overall_status, overall_hours = _classify_latency(rollup_latest, today)
+
+    return {
+        "as_of": datetime.utcnow().isoformat(),
+        "today": today.isoformat(),
+        "overall_status": overall_status,
+        "overall_hours_stale": overall_hours,
+        "overall_latest_date": rollup_latest.isoformat() if rollup_latest else None,
+        "sources": sources_out,
+    }
