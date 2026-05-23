@@ -1,8 +1,12 @@
-"""S&P 500 constituent set — used by Market Pulse gating in Stage 3.
+"""S&P 500 constituent set — used by Market Pulse gating in Stage 3
+and by the Top Movers candidate pool from PR-8 (2026-05-23) onwards.
 
 Scout tier can request per-ticker Market Pulse data (`/api/company/{symbol}/*`,
 `/api/stocks/{ticker}` etc.) for tickers in this set only. Strategist+ has
-unrestricted ticker scope.
+unrestricted ticker scope. `market_pulse_service._build_top_assets` uses
+this set as the positive universe filter for US Top Movers — anything
+outside the set is dropped (implicit no-CN-listing / no-ETF / no-foreign
+exclusions).
 
 Why the full S&P 500 (not "top 250"):
   - Cleaner mental model for users — "Scout: S&P 500 only" is recognizable.
@@ -10,10 +14,23 @@ Why the full S&P 500 (not "top 250"):
     that drifts daily.
   - Slightly more generous to Scouts (better conversion psychology).
 
+**Expand-only invariant (2026-05-23 per Jimmy's directive):**
+This set is a STANDARD — a contract with users that "Top Movers shows
+the S&P 500." Future PRs may ADD tickers (at quarterly reconstitution)
+but must NOT shrink it without an explicit product decision. The
+contract breaks the moment users see fewer names with no explanation.
+The principle is captured in root [CLAUDE.md](../../../../CLAUDE.md)
+"Product invariants" — see also `docs/KNOWN_ISSUES.md` for the
+2026-05-23 saga that prompted the rule.
+
 Refresh policy:
   - Manual. The S&P 500 reconstitutes ~quarterly; a couple of additions/removals
     each quarter. Maintain via PR when the index changes meaningfully.
   - As-of date noted below. Acceptable staleness: ~1 quarter.
+  - **Net size trends UP** over time. Index removals at reconstitution
+    are matched by additions — the resulting frozenset size should
+    never drop below the previous PR's size without explicit product
+    sign-off.
   - No automated refresh script for v1.
 """
 from __future__ import annotations

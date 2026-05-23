@@ -644,6 +644,148 @@ hotfixes. The discipline:
 lunch and dinner. The discipline that made it possible: small
 branches, tests first, no stacking, every PR straight to base=main.*
 
+### Episode 26 — The day after: nine PRs to fix what shipping yesterday revealed (May 23)
+
+Yesterday closed the Market Pulse v2 redesign with seven proud PRs. This
+morning Jimmy opened the production page on his phone and immediately
+saw four broken things. None of them were caught by 663 passing tests.
+
+The bugs:
+
+1. **A Shanghai A-share fund (`510300.SH`) sitting in the US Top Movers
+   grid.** The backend query had no `region` filter — it took top-200
+   by market_cap and a Chinese asset slipped in via NULL region.
+2. **The "Top losers" dropdown showing AMD at +3.99% as the worst
+   loser.** The frontend comparator was mathematically correct, but
+   the backend pre-sorted by CMF (gainer-biased), so the client-side
+   "losers" sort had no losers to rank — it produced "least gainers."
+3. **The sector chart labeled "VS. S&P 500" but actually plotting
+   vs SPY ETF.** Honest mislabel from yesterday — the data source and
+   the visual claim had drifted apart.
+4. **CN toggle left US-only sections visible.** Macro Pulse (US CPI,
+   ISM PMI, 10Y Treasury) and History Rhymes (US-only by design)
+   rendered "US context" under a "CN" toggle.
+
+Plus the explicit feature asks:
+
+5. The narrative didn't carry a date. PR-3 yesterday added an `as_of`
+   field but rendered it at 9px in a muted-color footer — Jimmy never
+   saw it.
+6. No way for users to tell whether the data was today's or
+   yesterday's leftover.
+
+And the umbrella ask, the one that justified the rest:
+
+> *"could you build an agent to check the calculation accuracy and
+> data latency, we want to ensure the data and analysis is accurate?"*
+
+**The shape of the day.**
+
+Nine PRs. Seven of mine, two of the other Claude session's. The first
+PR landed at ~2 AM (`fix(market-pulse): block CN listings from US
+Top Movers`); the last operational backfill completed at 11:02 PM
+with a production audit reporting 11 OK · 0 WARN · 0 ERROR.
+
+**The umbrella deliverable: an audit script + Claude skill.**
+
+`apps/api/scripts/audit_market_pulse.py` walks the live API + DB and
+emits a markdown report with seven independent checks: freshness,
+region integrity, sort sanity, math spot-check, macro signals reality,
+CN scope, benchmark identity. `.claude/skills/market-pulse-audit/SKILL.md`
+wraps it so any future Claude session can invoke "audit market pulse"
+and get the report back. The script ran against production at PR-7
+dev time and immediately surfaced two real problems (the data-latency
+endpoint not yet deployed, and ^GSPC missing from the database) —
+proving its value the moment it shipped.
+
+**The S&P 500 lesson.**
+
+When Jimmy reviewed the production page, the Top Movers list looked
+"thin" — about 30 names. PR-2 had widened the candidate pool to top-50
+by market_cap, but the underlying ingestion pipeline (`_TOP_US_STOCKS`
+in `apps/api/app/main.py`) only kept 30 hardcoded SPX tickers warm.
+The filter was working; the data behind it wasn't.
+
+Jimmy's instruction: *"the top movers candidate pool should be the
+entire S&P 500 list."* Clear and final.
+
+The fix turned out to be two layered changes:
+- **PR-8 (code)**: swap the backend filter from "top-N by market_cap"
+  to "`s.symbol IN SP500_TICKERS`" — using the canonical 525-entry
+  set already maintained at `apps/api/app/data/sp500_tickers.py`.
+- **PR-9 (operational)**: write a backfill script that idempotently
+  loads 3y of daily bars per SPX ticker from Alpha Vantage. Same
+  pattern as `backfill_gspc.py`.
+
+The backfill itself was the day's most operational moment. First run:
+loaded ~130 names before Railway Postgres ran out of disk space
+mid-fetch — `DiskFull: could not extend file`. Killed the script;
+Jimmy expanded storage from the Railway dashboard; second run
+idempotently completed: 517 loaded, 8 failed (delisted/renamed names
+like `ABC` → `COR`). Final pool size: 497 names. The "Top losers"
+sort now has 145 real candidates instead of zero.
+
+**The cross-session conflict.**
+
+Two PRs in flight from the other Claude session (#72 and #76) both
+arrived with the same `stock_lookup.py` date-coercion fix —
+independently discovered, content-identical code, slightly different
+comments. #72 merged cleanly; #76 conflicted on that one file.
+
+Resolution: the fresh-branch rebase pattern codified yesterday. Pull
+#76's branch, rebase onto main, keep the more production-grounded
+comment, push under a `-rebased` suffix, close #76 with a comment,
+open #79 from the rebased branch. Same content, new PR number, full
+CI fires. The pattern is now battle-tested.
+
+**The principle Jimmy named at the end of the day.**
+
+> *"the stock universe should be a standard, we may expand it but
+> should not shrink to smaller pool"*
+
+That's a real product principle, worth more than the bug fixes. The
+universe is a contract with users: they look at Top Movers expecting
+to see "the S&P 500 today," and that mental model breaks the moment
+the universe quietly contracts to 200 names. Future agents touching
+`SP500_TICKERS` or the Top Movers backend must treat the size as a
+floor.
+
+**The discipline that worked again today:**
+
+1. Read the production logs (the disk-full surfaced via `railway logs`
+   while audit kept failing — that's how I found it)
+2. Honest "this is broken right now" reports to the user with the
+   specific cause, not euphemisms
+3. Operational scripts that are idempotent (`backfill_gspc.py` and
+   `backfill_sp500_universe.py` both safe to re-run)
+4. One PR per concept, each opened with `base=main`, full CI per PR
+5. The audit script — once it exists, every future deploy gets
+   regression coverage automatically
+
+**Quotable moments:**
+
+- *"There's no narrative date in the byline"* — about a feature I'd
+  shipped yesterday. The lesson: rendering small + muted = not shipped.
+  PR-77's newspaper-byline (`SATURDAY, MAY 23, 2026` in 11px semibold
+  uppercase tracking-wider) is what Jimmy means when he says "add a
+  date."
+- *"The filter is correct; the data behind it isn't."* — diagnosing
+  PR-8's apparent failure (pool size 33 instead of ~500) until I
+  remembered the `_TOP_US_STOCKS` hardcoded warmup list. The filter
+  is a positive selector; without the data, the selector finds
+  nothing.
+- *"Postgres ran out of disk."* — the day's most operationally honest
+  sentence. Killed the backfill, asked Jimmy to expand storage,
+  resumed after his confirmation. No silent partial state, no glossy
+  summary.
+- *"The stock universe is a standard."* — the principle. Worth a
+  CLAUDE.md rule.
+
+**Content hook:** *Ship a redesign on Friday. Watch your user open the
+page on Saturday. Read the four things they spot in the first 30
+seconds. Spend the next 14 hours fixing them and building the audit
+that catches the next four.*
+
 ---
 
 ## Recurring journeys (themes)

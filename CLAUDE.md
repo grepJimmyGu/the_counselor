@@ -154,6 +154,62 @@ When `+` lines exist but the diff is only docs / session-slot bookkeeping,
 the branch is still effectively a shadow. Verify with
 `git diff main..origin/<branch> -- <key-files>`.
 
+### Force-push blocked by classifier → fresh-branch rebase
+
+The auto-mode classifier blocks `git push --force-with-lease` (and
+`--force`) without explicit user sign-off, because force-push rewrites
+remote history. The safe workaround is *never* to ask for the
+exception — open a fresh branch instead:
+
+1. Rebase the conflicted branch onto current `main` locally
+2. Push the rebased commit under a new branch name (`...-rebased`
+   suffix is the convention)
+3. Close the old PR with a comment pointing at the new PR
+4. Open a new PR from the rebased branch with `base=main`
+
+Same content, new PR number, full CI fires, no destructive op needed.
+Used twice in the 2026-05-22/23 sprint (Phase 1e PR #63→#64, and
+the chat-tools-qa PR #76→#79). Documented in
+[`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md).
+
+---
+
+## Product invariants
+
+These are product-level contracts with users — not API contracts, not
+DB schema, but how features behave at a UX level. Future agents must
+treat these as floors, never quietly violate them.
+
+### Stock universe is a STANDARD — expand only, never shrink
+
+The Market Pulse Top Movers universe is `SP500_TICKERS`
+(`apps/api/app/data/sp500_tickers.py`, ~525 entries). When the S&P
+500 reconstitutes quarterly, refresh the file — but the size must
+trend up over time, not down. The mental contract with users is
+"Top Movers shows me the S&P 500 today"; that breaks the moment the
+universe quietly contracts.
+
+Concrete rule: PRs that touch `SP500_TICKERS` should add (or
+swap-in-place at index reconstitution) entries, not remove without
+a corresponding add. PRs that change `_build_top_assets` to filter
+to a smaller universe (e.g. "top 50 by market cap" again) are
+regressions — see the 2026-05-23 saga that prompted this rule.
+
+Same principle for the sector ETF list (`US_SECTORS` in
+`market_pulse_service.py`) and the macro basket
+(`MACRO_BASKET` in `macro_similarity_service.py`) — they're
+universes, not snapshots.
+
+### Date stamps must be visible
+
+Anything with a calendar anchor — narrative `as_of`, last-refresh
+timestamps, data freshness — should be readable at a glance, not
+buried in 9px muted footer text. The newspaper-byline pattern
+(11px semibold uppercase tracking-wider, above the headline) is the
+canonical rendering. *Why:* PR-3 (2026-05-22) shipped the date
+field but rendered it invisibly; Jimmy didn't notice until PR-8
+moved it to the byline.
+
 ---
 
 ## Project context (Livermore)

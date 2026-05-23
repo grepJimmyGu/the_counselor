@@ -9,10 +9,10 @@
 
 ## Current Session
 
-**Status:** Market Pulse v2 redesign FULLY SHIPPED — all 6 sub-phases (1a/1b/1b-extra/1c/1d/1e/1f) live on `/stocks` with real backend data. Two macro rows + 3 Strategist+/Quant screener presets ship as documented v1 approximations pending FRED key + sentiment/community/volume pipelines.
-**Active branch:** main (HEAD: `8940a90` — docs backlog refresh after Phase 1f)
+**Status:** Market Pulse accuracy + latency sprint SHIPPED. 9 PRs landed (#68 / #69 / #70 / #71 / #73 / #74 / #75 / #77 / #78) plus 2 chat-side PRs from another Claude session (#72 / #79-was-#76). All 4 user-flagged accuracy bugs fixed; date stamp visible as newspaper-byline; data latency footer live; audit script + Claude skill (`/market-pulse-audit`) deployed; Top Movers pool grew from 30 → 497 SPX names after the operational backfill. Final production audit: **11 OK · 0 WARN · 0 ERROR**.
+**Active branch:** main (HEAD: `3d77184` — chat-tool QA gate after Market Pulse sprint)
 **Last stable tag:** `prd-14-complete` (2026-05-12) — no `stage-*` tags exist
-**Tests:** **625 backend** all green (was 580 pre-1c); frontend build clean across all 5 PRs
+**Tests:** **696 backend** all green (was 625 pre-sprint, +71); frontend build clean across all 9 PRs
 **Deployed:** Railway + Vercel both healthy
 - `GATING_ENABLED=true` (enforcement)
 - `POSTHOG_API_KEY` not set → analytics queue silently
@@ -20,21 +20,41 @@
 - `FRED_API_KEY` not set → Growth + Stress macro signals fall back to mock (labeled `mock_pending_fred` on the response)
 - Live-quote cache (FMP `/stable/quote` fan-out) confirmed working in prod
 - CORS regex (`https://the-counselor-web-.*\.vercel\.app`) now permits Vercel preview deploys
+- Railway Postgres storage expanded 2026-05-23 (Jimmy, via dashboard) after backfill hit `DiskFull`
+- `^GSPC` backfilled into `price_bars` (1004 rows, source=`backfill_gspc`)
+- `SP500_TICKERS` universe backfilled into `price_bars` (517 of 525; 8 failed = delisted/renamed names)
 
-**Recently shipped (2026-05-22 evening):**
-- PR [#61](https://github.com/grepJimmyGu/the_counselor/pull/61) — Phase 1c real macro signals (CPI YoY + 10Y Treasury via AV; Growth + Stress mock pending FRED)
-- PR [#62](https://github.com/grepJimmyGu/the_counselor/pull/62) — Phase 1d real sector vs SPY comparison series + endpoint `/api/market/sector-comparison/{symbol}`
-- PR [#64](https://github.com/grepJimmyGu/the_counselor/pull/64) — Phase 1e History Rhymes backend (`macro_similarity_service` + endpoint `/api/market/history-rhymes`)
-- PR [#65](https://github.com/grepJimmyGu/the_counselor/pull/65) — Phase 1f screener preset filter logic (9 presets, real counts, tier-gating via 402)
-- PR [#66](https://github.com/grepJimmyGu/the_counselor/pull/66) — Backlog refresh + documented v1-approximation follow-ups
+**Recently shipped (2026-05-23 — the accuracy + latency sprint):**
+- PR [#68](https://github.com/grepJimmyGu/the_counselor/pull/68) — block CN listings from US Top Movers + drop redundant sort
+- PR [#69](https://github.com/grepJimmyGu/the_counselor/pull/69) — widen Top Movers pool so 'Top losers' has losers
+- PR [#70](https://github.com/grepJimmyGu/the_counselor/pull/70) — narrative `as_of` field (initial render — was too subtle)
+- PR [#71](https://github.com/grepJimmyGu/the_counselor/pull/71) — hide US-only sections on CN toggle
+- PR [#73](https://github.com/grepJimmyGu/the_counselor/pull/73) — sector chart `^GSPC` swap + `backfill_gspc.py`
+- PR [#74](https://github.com/grepJimmyGu/the_counselor/pull/74) — data latency endpoint + `<DataFreshnessFooter />`
+- PR [#75](https://github.com/grepJimmyGu/the_counselor/pull/75) — `audit_market_pulse.py` + `/market-pulse-audit` Claude skill
+- PR [#77](https://github.com/grepJimmyGu/the_counselor/pull/77) — Top Movers pool = `SP500_TICKERS` + prominent newspaper-byline date
+- PR [#78](https://github.com/grepJimmyGu/the_counselor/pull/78) — `backfill_sp500_universe.py` + operational ingest of 517 SPX names
+
+**Parallel chat-side PRs (other Claude session):**
+- PR [#72](https://github.com/grepJimmyGu/the_counselor/pull/72) — chat anon cookie + stock_lookup date coercion
+- PR [#79](https://github.com/grepJimmyGu/the_counselor/pull/79) — chat-tool production-shape gate + nightly auditor (was #76; rebased after parallel-PR conflict with #72)
+
+**New product invariant codified:**
+
+> **The stock universe is a STANDARD — expand only, never shrink.**
+> `SP500_TICKERS` is the contract with users that "Top Movers shows the
+> S&P 500." Future PRs may add tickers; must not shrink without product
+> sign-off. Documented in root [CLAUDE.md](../CLAUDE.md) "Product
+> invariants" + `apps/api/app/data/sp500_tickers.py` docstring.
 
 **Open work in flight:**
 - None Market-Pulse-blocking. PROJECT_BACKLOG.md §4b carries the remaining items.
 
 **Next action (Market Pulse):**
-- **Phase 1g** — Top news sidebar in MarketBrief right column (replaces the temporary `watch_items` 2-col layout). ~4-5h backend (use `market-news-analyst` skill pattern or extend PRD-09 sentiment provider) + ~1-2h frontend.
+- **Phase 1g** — Top news sidebar in MarketBrief right column (replaces the temporary `watch_items` 2-col layout). ~4-5h backend + ~1-2h frontend.
 - **LLM prompt rewrite** — waiting on Jimmy to share the financial-news-summary prompt.
-- **Set `FRED_API_KEY` on Railway** → swap Growth (ISM PMI) + Stress (HY OAS) macro signals from `mock_pending_fred` to real. Backend service code already structured for the swap (`macro_signals_service.py`).
+- **Set `FRED_API_KEY` on Railway** → swap Growth (ISM PMI) + Stress (HY OAS) macro signals from `mock_pending_fred` to real. Backend service code already structured for the swap.
+- **Re-run `/market-pulse-audit` weekly** — surfaces drift before users do. The skill is invokable in any Claude session.
 
 **Pre-launch env vars still owed:**
 
@@ -107,6 +127,48 @@ See [docs/DEFERRED.md](../docs/DEFERRED.md) for the ~30 trigger-gated items spli
 ---
 
 ## Session History
+
+### 2026-05-23 — Market Pulse accuracy + latency sprint (9 PRs)
+
+Jimmy opened the production page in the morning and immediately spotted
+four data-accuracy bugs none of 663 passing tests had caught:
+- A Shanghai A-share (`510300.SH`) in the US Top Movers grid
+- "Top losers" sort surfacing AMD `+3.99%` as the worst loser
+- Sector chart labeled "vs S&P 500" but plotting against SPY ETF
+- CN toggle leaving US-only sections visible
+
+Plus two transparency asks (narrative date stamp; data freshness
+report) and one umbrella ask: *"build an agent to check the calculation
+accuracy and data latency."*
+
+| PR | Subject | Tests added |
+|---|---|---|
+| #68 | Block CN listings from US Top Movers + drop redundant sort | +5 |
+| #69 | Widen Top Movers pool so 'Top losers' has losers | +4 |
+| #70 | Narrative `as_of` field (rendered subtly initially) | +2 |
+| #71 | Hide US-only sections on CN toggle | — |
+| #73 | Sector chart `^GSPC` swap + `backfill_gspc.py` | +3 |
+| #74 | Data latency endpoint + `<DataFreshnessFooter />` | +9 |
+| #75 | `audit_market_pulse.py` + `/market-pulse-audit` skill | +15 |
+| #77 | Top Movers pool = `SP500_TICKERS` + prominent newspaper-byline date | +4 |
+| #78 | `backfill_sp500_universe.py` + operational ingest of 517 SPX names | — |
+
+Operational events worth logging:
+- **^GSPC backfill (~1004 rows)** ran cleanly first try via FMP
+- **SP500 universe backfill (~525 SPX × ~750 daily bars)** ran in two
+  passes — Railway Postgres hit `DiskFull` mid-pass-1 at ~370 symbols
+  loaded. Jimmy expanded storage from the dashboard; idempotent pass-2
+  loaded the remaining missing names. Final: 517 loaded, 8 failed
+  (delisted/renamed)
+- **Cross-session conflict** with another Claude's PR #76 — both PRs
+  carried the same `stock_lookup.py` date-coercion fix. Handled via
+  the fresh-branch rebase pattern from CLAUDE.md (PR #76 → PR #79)
+
+**Test suite: 630 → 696 (+66)**. Final production audit: 11 OK · 0
+WARN · 0 ERROR.
+
+New product invariant codified in CLAUDE.md: **stock universe is a
+standard — expand only, never shrink**.
 
 ### 2026-05-22 (evening) — Market Pulse v2 Phase 1c–1f shipped (4 PRs + docs PR)
 
