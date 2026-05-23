@@ -342,18 +342,33 @@ def _build_macro_card(symbol: str, label: str, db: Session) -> MacroCard:
     )
 
 
-def _build_top_assets(market: str, db: Session, limit: int = 10) -> list[AssetCard]:
+def _build_top_assets(market: str, db: Session, limit: int = 50) -> list[AssetCard]:
     """
-    Return top `limit` assets by CMF for the given market.
+    Return the Top Movers candidate pool for the given market.
 
-    US: equities from our warmed universe (ETFs excluded).
-    CN: CN market ETF proxies ranked by CMF (individual CN stocks are not
-        in our price_bars DB — ETF proxies are the best available signal).
+    **2026-05-22 redesign:** previously this returned the top-10 by CMF —
+    a CMF-biased pool. The frontend's client-side "Top losers" sort
+    orders that pool by `perf_1d` ascending, but every row had high
+    CMF (= money flowing IN = gainer-biased), so "Top losers"
+    surfaced the *least gainer*, not actual losers.
+
+    Now we return a wider universe (top ~50 by `market_cap`) with all
+    metric fields populated — `perf_1d`, `cmf_20`, `market_cap`. The
+    frontend's client-side sort comparators (gainers desc, losers asc
+    by perf_1d, CMF desc) operate over this richer pool and slice to
+    the top 10 for display, so each sort mode surfaces meaningfully
+    different rows.
+
+    US: equities from our warmed universe (ETFs excluded). Region
+    filter + CN suffix exclusion documented below.
+
+    CN: CN market ETF proxies (individual CN stocks aren't in our
+        price_bars DB — ETF proxies are the best available signal).
     """
     if market == "CN":
         return _build_cn_top_assets(db, limit)
 
-    # ── US: equities ranked by CMF ────────────────────────────────────────────
+    # ── US: equities sorted by market_cap (NOT pre-sorted by CMF) ──────────
     # Region filtering: the `symbols.region` column is populated for most
     # rows, but NOT every row — `510300.SH` (a Shanghai A-share fund) leaked
     # into the US Top Movers grid on 2026-05-22 with `region` IS NULL.
@@ -397,7 +412,11 @@ def _build_top_assets(market: str, db: Session, limit: int = 10) -> list[AssetCa
             continue
         cmf = _compute_cmf(bars)
         if cmf is None:
-            continue
+            # CMF needs 20 days; allow shorter-history names through with
+            # cmf_20=None so the frontend "Top losers" / "Top gainers"
+            # sort still sees them. Old behavior was to skip these
+            # entirely, which compounded the CMF-bias of the pool.
+            pass
         assets.append(AssetCard(
             symbol=sym, name=name or sym, sector=sector,
             price=float(bars[-1].close),
@@ -408,7 +427,13 @@ def _build_top_assets(market: str, db: Session, limit: int = 10) -> list[AssetCa
             is_stale=_is_stale(bars),
         ))
 
-    assets.sort(key=lambda a: a.cmf_20 or -99, reverse=True)
+    # Order by market_cap descending (not CMF) so the pool is
+    # representative — frontend client-side sort handles the per-mode
+    # ordering and final slice.
+    assets.sort(
+        key=lambda a: a.market_cap if a.market_cap is not None else -1.0,
+        reverse=True,
+    )
     return assets[:limit]
 
 
