@@ -129,6 +129,9 @@ export function MarketBrief({ data }: { data: MarketPulseResponse }) {
           ))}
           <div className="pt-2 text-[9px] text-muted-foreground/60">
             {isLlm ? "Narrative generated hourly" : "Deterministic summary"}
+            {isLlm && llmNarrative.as_of && (
+              <> &middot; as of {llmNarrative.as_of}</>
+            )}
           </div>
         </div>
 

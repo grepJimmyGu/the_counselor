@@ -4,6 +4,9 @@ Covers the three exit branches:
   1. LLM disabled → returns None
   2. LLM succeeds → returns MarketNarrative
   3. LLM raises → returns None (never blocks the page)
+
+Plus Phase 1g: `as_of` field exists on the model and defaults to None
+(the route layer populates it after generation).
 """
 from __future__ import annotations
 
@@ -18,6 +21,28 @@ from app.services.market_pulse_narrative_service import (
     MarketNarrative,
     generate_narrative,
 )
+
+
+def test_market_narrative_as_of_defaults_to_none():
+    """`MarketNarrative` instances default `as_of=None` so the LLM-call
+    code path can build one without thinking about the date — the
+    route fills it in afterward."""
+    n = MarketNarrative(
+        headline="Tech leads as the market grinds higher into the close.",
+        sector_rotation="Tech up; Energy down — growth-on rotation.",
+        watch_items=["10Y yield drift", "Fed minutes Wed"],
+    )
+    assert n.as_of is None
+
+
+def test_market_narrative_as_of_accepts_human_date():
+    n = MarketNarrative(
+        headline="Tech leads as the market grinds higher into the close.",
+        sector_rotation="Tech up; Energy down — growth-on rotation.",
+        watch_items=[],
+        as_of="Wednesday, May 22, 2026",
+    )
+    assert n.as_of == "Wednesday, May 22, 2026"
 
 
 @dataclass

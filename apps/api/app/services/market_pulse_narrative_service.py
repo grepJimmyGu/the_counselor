@@ -63,6 +63,15 @@ class MarketNarrative(BaseModel):
         ),
         max_length=3,
     )
+    as_of: Optional[str] = Field(
+        default=None,
+        description=(
+            "Human-readable date the narrative is summarizing, e.g. "
+            "'Wednesday, May 22, 2026'. Populated by the route layer "
+            "AFTER the LLM call so the LLM doesn't have to guess at the "
+            "calendar; not part of the LLM's response schema."
+        ),
+    )
 
 
 # ── Prompt construction ──────────────────────────────────────────────────────
