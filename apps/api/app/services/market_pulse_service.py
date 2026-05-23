@@ -342,25 +342,43 @@ def _build_macro_card(symbol: str, label: str, db: Session) -> MacroCard:
     )
 
 
-def _build_top_assets(market: str, db: Session, limit: int = 50) -> list[AssetCard]:
+def _build_top_assets(
+    market: str,
+    db: Session,
+    limit: int = 600,
+    universe_override: Optional[set] = None,
+) -> list[AssetCard]:
     """
     Return the Top Movers candidate pool for the given market.
 
-    **2026-05-22 redesign:** previously this returned the top-10 by CMF —
-    a CMF-biased pool. The frontend's client-side "Top losers" sort
-    orders that pool by `perf_1d` ascending, but every row had high
-    CMF (= money flowing IN = gainer-biased), so "Top losers"
-    surfaced the *least gainer*, not actual losers.
+    **2026-05-23 redesign — full S&P 500 universe.** Per Jimmy's review
+    feedback, the US candidate pool is now the entire S&P 500
+    constituent list (`app.data.sp500_tickers.SP500_TICKERS` —
+    ~531 tickers covering all SPX names + a few class-A/B duals).
+    Replaces the previous heuristic (top-50 by `market_cap` filtered
+    by region) which sometimes missed mid-cap SPX names like the worst
+    losers of the day. The S&P 500 list is the authoritative SPX
+    universe and is already the gating boundary for Scout-tier ticker
+    scope (`apps/api/app/data/sp500_tickers.py`).
 
-    Now we return a wider universe (top ~50 by `market_cap`) with all
-    metric fields populated — `perf_1d`, `cmf_20`, `market_cap`. The
-    frontend's client-side sort comparators (gainers desc, losers asc
-    by perf_1d, CMF desc) operate over this richer pool and slice to
-    the top 10 for display, so each sort mode surfaces meaningfully
-    different rows.
+    Implicit benefits of the SP500_TICKERS filter:
+      * No CN listings (`.SH`/`.SZ`/`.HK`) — none in the index
+      * No ETFs — none in the index (SPY, QQQ etc. are NOT
+        constituents of their underlying index)
+      * No foreign ADRs, no micro-caps — S&P scoping handles it
 
-    US: equities from our warmed universe (ETFs excluded). Region
-    filter + CN suffix exclusion documented below.
+    Frontend client-side sort comparators (gainers / losers / CMF)
+    operate over this ~500-name pool and slice to the visible 10 per
+    `.slice(0, 10)`. With this much variance, each sort mode produces
+    meaningfully different rows.
+
+    **Internal universe accessor:** `universe_override` lets tests
+    inject a small fake set in place of `SP500_TICKERS`. Production
+    callers must NOT pass this — the default is the single source of
+    truth.
+
+    US: S&P 500 equities. Symbols without price_bars history are
+    dropped (the existing pipeline keeps SPX names warm).
 
     CN: CN market ETF proxies (individual CN stocks aren't in our
         price_bars DB — ETF proxies are the best available signal).
@@ -368,20 +386,20 @@ def _build_top_assets(market: str, db: Session, limit: int = 50) -> list[AssetCa
     if market == "CN":
         return _build_cn_top_assets(db, limit)
 
-    # ── US: equities sorted by market_cap (NOT pre-sorted by CMF) ──────────
-    # Region filtering: the `symbols.region` column is populated for most
-    # rows, but NOT every row — `510300.SH` (a Shanghai A-share fund) leaked
-    # into the US Top Movers grid on 2026-05-22 with `region` IS NULL.
-    # Belt-and-suspenders:
-    #   1. Filter by `region IS NULL OR region = 'US'` (the future-proof rule)
-    #   2. Exclude symbol suffix patterns `.SH` / `.SZ` / `.HK` (the
-    #      defensive catch for orphan rows whose region didn't backfill)
+    # ── US: S&P 500 constituents ────────────────────────────────────────────
+    from app.data.sp500_tickers import SP500_TICKERS
+    universe = universe_override if universe_override is not None else SP500_TICKERS
+    if not universe:
+        return []
+
     try:
-        etf_list = list(ETF_SYMBOLS)
-        placeholders = ", ".join(f":e{i}" for i in range(len(etf_list)))
-        etf_params = {f"e{i}": sym for i, sym in enumerate(etf_list)}
         cutoff = (date.today() - timedelta(days=30)).isoformat()
-        etf_params["cutoff"] = cutoff
+        sp_list = list(universe)
+        # Bind-param placeholders for `WHERE symbol IN (...)` — keeps the
+        # query safe across SQLite + Postgres (no string interpolation).
+        sp_placeholders = ", ".join(f":s{i}" for i in range(len(sp_list)))
+        params: dict = {f"s{i}": sym for i, sym in enumerate(sp_list)}
+        params["cutoff"] = cutoff
 
         rows = db.execute(
             text(
@@ -390,15 +408,10 @@ def _build_top_assets(market: str, db: Session, limit: int = 50) -> list[AssetCa
                 "  SELECT 1 FROM price_bars pb WHERE pb.symbol = s.symbol "
                 "  AND pb.trading_date >= :cutoff"
                 ") AND s.name IS NOT NULL "
-                f"AND s.symbol NOT IN ({placeholders}) "
-                "AND (s.instrument_type IS NULL OR s.instrument_type != 'ETF') "
-                "AND (s.region IS NULL OR s.region = 'US') "
-                "AND s.symbol NOT LIKE '%.SH' "
-                "AND s.symbol NOT LIKE '%.SZ' "
-                "AND s.symbol NOT LIKE '%.HK' "
-                "ORDER BY s.market_cap DESC NULLS LAST LIMIT 200"
+                f"AND s.symbol IN ({sp_placeholders}) "
+                "ORDER BY s.market_cap DESC NULLS LAST"
             ),
-            etf_params,
+            params,
         ).fetchall()
     except Exception:
         logger.exception("_build_top_assets query failed")
