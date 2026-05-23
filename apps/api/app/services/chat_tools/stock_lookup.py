@@ -107,10 +107,27 @@ async def lookup_stock(ticker: str) -> StockLookupResponse:
                 error=f"No overview data for {sym}: {exc}",
             )
 
+        # Defensive date→str coercion at the seam. CompanyOverviewService
+        # returns `as_of_date` as a `datetime.date`, but this response model
+        # uses Optional[str] (LLM consumes JSON serialization). Pydantic v2
+        # is strict and won't coerce date → str on construction. Production
+        # symptom: every stock_lookup call raised ValidationError, swallowed
+        # by dispatch loop into {"error": "Tool stock_lookup failed: ..."},
+        # LLM apologized for "temporary issue". See KNOWN_ISSUES.md 2026-05-23
+        # + the parametrized prod-shape test at
+        # tests/test_chat_tools_production_shapes.py.
+        as_of_raw = getattr(overview, "as_of_date", None)
+        if as_of_raw is None:
+            as_of_str = None
+        elif hasattr(as_of_raw, "isoformat"):
+            as_of_str = as_of_raw.isoformat()
+        else:
+            as_of_str = str(as_of_raw)
+
         return StockLookupResponse(
             success=True,
             ticker=overview.symbol,
-            as_of=getattr(overview, "as_of_date", None),
+            as_of=as_of_str,
             name=getattr(overview, "name", None),
             sector=getattr(overview, "sector", None),
             health=_section_from_financial_check(overview),
