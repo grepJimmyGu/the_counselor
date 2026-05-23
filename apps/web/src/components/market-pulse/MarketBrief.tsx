@@ -114,6 +114,17 @@ export function MarketBrief({ data }: { data: MarketPulseResponse }) {
           future-phase improvement in PROJECT_BACKLOG.md.) */}
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="space-y-2 lg:col-span-2">
+          {/* Date byline — newspaper-style anchor for the narrative.
+              Surfaces the LLM-generated `as_of` (the calendar day the
+              read is summarizing) above the headline so users can't
+              miss which session they're reading. Per Jimmy's 2026-05-23
+              feedback (the previous 9px footer placement was too quiet
+              to be useful). */}
+          {isLlm && llmNarrative.as_of && (
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              {llmNarrative.as_of}
+            </div>
+          )}
           {headlineSentences.map((sentence, i) => (
             <p
               key={i}
@@ -129,9 +140,6 @@ export function MarketBrief({ data }: { data: MarketPulseResponse }) {
           ))}
           <div className="pt-2 text-[9px] text-muted-foreground/60">
             {isLlm ? "Narrative generated hourly" : "Deterministic summary"}
-            {isLlm && llmNarrative.as_of && (
-              <> &middot; as of {llmNarrative.as_of}</>
-            )}
           </div>
         </div>
 
