@@ -14,9 +14,11 @@ import { MoverRow, type MoverRowProps } from "./MoverRow";
  * · ETFs.
  *
  * Sort defaults to "Top gainers" (most-natural retail framing per Yahoo
- * / Robinhood). "Most active" still sorts by `cmf_20` today as a stand-in;
- * Phase 2 will add `volume_ratio` to `AssetCard` for a true volume-based
- * sort.
+ * / Robinhood). The 2026-05-22 review surfaced that the previous "Most
+ * active (CMF flow)" option sorted identically to "CMF flow" — both
+ * comparators returned `cmf_20` descending. Dropped "Most active" here
+ * until per-stock `volume_ratio` ships (Phase 2 ticket in PROJECT_BACKLOG.md
+ * §4b follow-ups).
  */
 
 export interface MoverItem {
@@ -26,7 +28,7 @@ export interface MoverItem {
 }
 
 type Filter = "all" | "stock" | "etf";
-type Sort = "gainers" | "losers" | "active" | "cmf";
+type Sort = "gainers" | "losers" | "cmf";
 
 export function TopMovers({ items }: { items: MoverItem[] }) {
   const [filter, setFilter] = useState<Filter>("all");
@@ -63,7 +65,6 @@ export function TopMovers({ items }: { items: MoverItem[] }) {
         >
           <option value="gainers">Sort: Top gainers</option>
           <option value="losers">Sort: Top losers</option>
-          <option value="active">Sort: Most active (CMF flow)</option>
           <option value="cmf">Sort: CMF flow</option>
         </select>
       </div>
@@ -158,10 +159,7 @@ function sortItems(items: MoverItem[], sort: Sort): MoverItem[] {
       (a, b) => (a.card.perf_1d ?? Infinity) - (b.card.perf_1d ?? Infinity),
     );
   }
-  // active + cmf both sort by cmf_20 descending — until `volume_ratio` is
-  // surfaced for assets (Phase 2) we use CMF as the proxy for "money
-  // flowing here." The dropdown copy distinguishes them so we can split
-  // logic later without changing the UI.
+  // sort === "cmf" — money-flow proxy until `volume_ratio` lands for stocks.
   return arr.sort(
     (a, b) => (b.card.cmf_20 ?? -Infinity) - (a.card.cmf_20 ?? -Infinity),
   );

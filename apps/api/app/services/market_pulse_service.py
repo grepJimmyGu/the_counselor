@@ -354,6 +354,13 @@ def _build_top_assets(market: str, db: Session, limit: int = 10) -> list[AssetCa
         return _build_cn_top_assets(db, limit)
 
     # ── US: equities ranked by CMF ────────────────────────────────────────────
+    # Region filtering: the `symbols.region` column is populated for most
+    # rows, but NOT every row — `510300.SH` (a Shanghai A-share fund) leaked
+    # into the US Top Movers grid on 2026-05-22 with `region` IS NULL.
+    # Belt-and-suspenders:
+    #   1. Filter by `region IS NULL OR region = 'US'` (the future-proof rule)
+    #   2. Exclude symbol suffix patterns `.SH` / `.SZ` / `.HK` (the
+    #      defensive catch for orphan rows whose region didn't backfill)
     try:
         etf_list = list(ETF_SYMBOLS)
         placeholders = ", ".join(f":e{i}" for i in range(len(etf_list)))
@@ -370,6 +377,10 @@ def _build_top_assets(market: str, db: Session, limit: int = 10) -> list[AssetCa
                 ") AND s.name IS NOT NULL "
                 f"AND s.symbol NOT IN ({placeholders}) "
                 "AND (s.instrument_type IS NULL OR s.instrument_type != 'ETF') "
+                "AND (s.region IS NULL OR s.region = 'US') "
+                "AND s.symbol NOT LIKE '%.SH' "
+                "AND s.symbol NOT LIKE '%.SZ' "
+                "AND s.symbol NOT LIKE '%.HK' "
                 "ORDER BY s.market_cap DESC NULLS LAST LIMIT 200"
             ),
             etf_params,
