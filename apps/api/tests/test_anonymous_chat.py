@@ -376,3 +376,64 @@ async def test_started_frame_shows_anon_turns_remaining(db: Session):
     started = next(f for f in frames if f["type"] == "started")
     # Was 2, now 3 used → 5 - 3 = 2 remaining
     assert started["anon_turns_remaining"] == 2
+
+
+# ── Cookie propagation regression (2026-05-23) ────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_anon_session_cookie_set_on_streaming_response(db: Session):
+    """Regression: FastAPI discards the injected `Response` when the route
+    returns a `StreamingResponse`. Any `Set-Cookie` set on the injected
+    Response by `get_or_create_anonymous_session` is silently dropped,
+    every subsequent POST mints a fresh AnonymousSession, conversation
+    ownership check returns 403 "Conversation not found."
+
+    Fix: `_propagate_cookies` copies raw Set-Cookie headers from the
+    injected Response onto the StreamingResponse before returning.
+
+    Regression mechanic: send a FRESH request (no cookie). The injected
+    Response should get its Set-Cookie populated, and after our fix, the
+    StreamingResponse we return must carry that cookie too."""
+    # No existing session — force creation
+    fresh_request_scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/anonymous/chat/conversations/conv-fresh/messages",
+        "headers": [
+            (b"user-agent", b"pytest"),
+            (b"accept-language", b"en"),
+        ],
+        "client": ("127.0.0.1", 12345),
+    }
+    fresh_request = Request(fresh_request_scope)
+    fresh_response = Response()
+
+    fake = _fake_gateway([[ChatToken(text="ok"), ChatDone(finish_reason="stop")]])
+    with patch("app.api.routes.chat.get_llm_gateway", return_value=fake):
+        streaming = await post_anonymous_message(
+            conversation_id="conv-fresh-cookie",
+            body=ChatMessageRequest(content="hi"),
+            request=fresh_request,
+            response=fresh_response,
+            db=db,
+        )
+
+    # The injected `fresh_response` should have a Set-Cookie for the new
+    # anon session (proves get_or_create_anonymous_session ran).
+    injected_cookies = [
+        v for k, v in fresh_response.raw_headers if k.lower() == b"set-cookie"
+    ]
+    assert len(injected_cookies) >= 1, "anon session helper didn't set a cookie"
+    assert b"livermore_anon_id=" in injected_cookies[0]
+
+    # CRITICAL: that Set-Cookie must also be on the StreamingResponse the
+    # browser actually receives. Without _propagate_cookies this list is empty.
+    streaming_cookies = [
+        v for k, v in streaming.raw_headers if k.lower() == b"set-cookie"
+    ]
+    assert len(streaming_cookies) >= 1, (
+        "StreamingResponse missing Set-Cookie — cookie propagation regressed. "
+        "Browser will mint fresh anon session each turn → 403 on turn 2."
+    )
+    assert b"livermore_anon_id=" in streaming_cookies[0]

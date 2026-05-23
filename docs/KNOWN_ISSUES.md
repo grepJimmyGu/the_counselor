@@ -31,6 +31,100 @@ A running log of bugs encountered, root causes, and confirmed fixes. Add new ent
 
 ---
 
+### StreamingResponse drops Set-Cookie from injected Response → anon chat fresh-session per turn → 403 "Conversation not found"
+**Date:** 2026-05-23
+**Area:** backend / streaming endpoints
+**Symptom:**
+```
+POST /api/anonymous/chat/conversations/<id>/messages → 200 OK  (first POST)
+POST /api/anonymous/chat/conversations/<id>/messages → 403 Forbidden
+POST /api/anonymous/chat/conversations/<id>/messages → 403 Forbidden
+```
+Same conversation UUID, first POST works, every subsequent POST 403s with detail "Conversation not found." Frontend symptom: widget responds once, then every follow-up message displays a red "Conversation not found" error banner.
+
+**Root cause:**
+The anonymous endpoint depends on `get_or_create_anonymous_session(request, response, db)`, which calls `response.set_cookie("livermore_anon_id", ...)` on the **injected** `Response` parameter to set the cookie that identifies the anon session across requests.
+
+But when the route handler returns a `StreamingResponse` (the SSE body), **FastAPI discards the injected Response entirely** — the actual response sent to the client is the StreamingResponse, and the cookie set on the injected Response never reaches the browser.
+
+Consequence: every POST is treated as a fresh visit. `get_or_create_anonymous_session` finds no cookie, creates a new `AnonymousSession` with a new UUID, sets the cookie on the injected Response (which is then discarded again). The conversation row created on POST #1 has `anon_session_id = OLD_UUID`. POST #2 arrives with NEW_UUID; `_get_or_create_anon_conversation` finds the existing row but `existing.anon_session_id != anon_session_id` → raises 403.
+
+This is the second variant of "StreamingResponse drops state the route handler set" in two days (the first was the 2026-05-22 `DetachedInstanceError` entry below). Same family: any side effect the route handler performs on the injected Response is lost when returning a Response instance directly.
+
+**Fix:**
+Introduce `_propagate_cookies(src: Response, dst: StreamingResponse)` in `apps/api/app/api/routes/chat.py`. After building the StreamingResponse, copy every `Set-Cookie` header from the injected Response onto it:
+
+```python
+def _propagate_cookies(src: Response, dst: StreamingResponse) -> None:
+    for name_bytes, value_bytes in src.raw_headers:
+        if name_bytes.lower() == b"set-cookie":
+            dst.raw_headers.append((name_bytes, value_bytes))
+
+# In the anon route, just before return:
+streaming = StreamingResponse(event_stream(), media_type="text/event-stream", headers={...})
+_propagate_cookies(response, streaming)
+return streaming
+```
+
+Uses `raw_headers` (a list of bytes-tuples) rather than the higher-level `headers` MultiDict so multiple Set-Cookie headers (one per cookie name) are all preserved — `headers["set-cookie"]` would collapse them.
+
+The authed route doesn't currently mint cookies in its dep chain, so it doesn't need the call yet. Documented inline so a future cookie-setting dep doesn't reintroduce the bug.
+
+**Regression test:**
+`tests/test_anonymous_chat.py::test_anon_session_cookie_set_on_streaming_response` — sends a fresh request (no cookie), asserts the injected Response has a `Set-Cookie` for `livermore_anon_id=...`, then asserts the StreamingResponse we returned also carries that header. Before the fix the second assertion fails with an empty list.
+
+**Files:** `apps/api/app/api/routes/chat.py`, `apps/api/tests/test_anonymous_chat.py`.
+
+**Rule:**
+**Any FastAPI route that returns a `Response` (incl. `StreamingResponse`) AND uses a dependency that sets cookies on the injected `Response` parameter MUST copy those cookies onto the returned Response before returning.** FastAPI discards the injected Response; cookies set on it never reach the browser. Pair with the lifecycle rule from the 2026-05-22 entry below — together they form the canonical pre-flight checklist for any streaming endpoint.
+
+---
+
+### stock_lookup chat tool always failed for real prod data — Pydantic v2 won't coerce date → str
+**Date:** 2026-05-23
+**Area:** backend / chat tools / schemas
+**Symptom:**
+User asks the chat widget any stock-specific question ("what's AAPL health valuation"). LLM picks `stock_lookup`, calls it twice (retry after first failure), then composes a graceful apology to the user:
+> "It seems there is a temporary issue retrieving the health and valuation metrics for Apple Inc. (AAPL). I recommend checking back later..."
+
+Persisted tool message in `chat_messages.tool_results`:
+```json
+{"error": "Tool stock_lookup failed: 1 validation error for StockLookupResponse
+as_of  Input should be a valid string [type=string_type, input_value=datetime.date(2026, 5, 23), input_type=date]"}
+```
+
+**Root cause:**
+`CompanyOverviewService.get_overview()` returns a `CompanyOverviewResponse` whose `as_of_date` field is a `datetime.date` instance. My `stock_lookup` tool projects that response into `StockLookupResponse`, which has `as_of: Optional[str] = None`. Pydantic v2 is strict — it refuses to coerce `date → str` on construction.
+
+The `ValidationError` raised inside `lookup_stock()`. It propagated up to `dispatch_tool_call()`, then to the dispatch loop in `_run_tool_loop_inner` which has a defensive `except Exception:` that serializes the exception as `{"error": "Tool {name} failed: {exc!r}"}`. The LLM consumed that JSON as the tool result, interpreted it as a transient backend issue, retried once (got the same error), then apologized.
+
+Existing pytest mock used `as_of_date="2026-05-21"` (already-a-string) — Pydantic accepts strings, so the test passed. The bug only surfaced in production where the underlying service returns real `date` instances.
+
+**Fix:**
+Coerce at the seam in `lookup_stock()`. Defensive about the input type so the existing string-passing tests and the production date-passing path both work:
+
+```python
+as_of_raw = getattr(overview, "as_of_date", None)
+if as_of_raw is None:
+    as_of_str = None
+elif hasattr(as_of_raw, "isoformat"):
+    as_of_str = as_of_raw.isoformat()
+else:
+    as_of_str = str(as_of_raw)
+```
+
+**Regression test:**
+`tests/test_chat_tools_heavy.py::test_lookup_stock_coerces_date_as_of_to_isoformat_string` — explicitly constructs the MagicMock overview with `as_of_date=date(2026, 5, 23)` (the actual production shape) and asserts the response's `as_of` is the string `"2026-05-23"`. Before the fix this test would raise the same `ValidationError` the production code did.
+
+**Files:** `apps/api/app/services/chat_tools/stock_lookup.py`, `apps/api/tests/test_chat_tools_heavy.py`.
+
+**Rule:**
+**When a Pydantic v2 response model field is typed as a primitive (e.g. `Optional[str]`) and the producing service returns a richer type (e.g. `datetime.date`), coerce at the seam.** Pydantic v2 deliberately doesn't auto-coerce non-string scalars into strings — it surfaces type drift instead of hiding it. The defensive `if hasattr(..., "isoformat") else str(...)` pattern handles both date instances and pre-formatted strings, keeping any old test fixtures green.
+
+A related catch: the dispatch loop's defensive `except Exception:` swallows the underlying Pydantic error into a generic `{"error": "Tool failed: ..."}` payload that the LLM interprets as a runtime backend issue — the user never sees the real cause. Worth considering a separate `ValidationError` branch in the dispatch loop that logs a specific `tool_schema_mismatch` event so these don't disappear into LLM-friendly apology copy.
+
+---
+
 ### Chat SSE returns 200 + empty body — DetachedInstanceError inside StreamingResponse
 **Date:** 2026-05-22
 **Area:** backend / streaming endpoints
