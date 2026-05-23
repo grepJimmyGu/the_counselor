@@ -412,6 +412,10 @@ export async function getHistoryRhymes(
   return fetchApi(`/api/market/history-rhymes?market=${market}`);
 }
 
+export async function getDataLatency(): Promise<import("@/lib/contracts").DataLatencyResponse> {
+  return fetchApi(`/api/market/data-latency`);
+}
+
 // ── PRD-07: Stock Screener ────────────────────────────────────────────────────
 
 export async function getScreenerFilters(): Promise<import("@/lib/contracts").ScreenerFiltersResponse> {

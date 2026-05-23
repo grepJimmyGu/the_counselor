@@ -1764,6 +1764,36 @@ export interface HistoryRhymesResponse {
   caveat: string;
 }
 
+/** Phase 1g — per-source freshness report. Powers `<DataFreshnessFooter />`
+ * at the foot of `/stocks` so users can tell whether they're looking at
+ * today's data or yesterday's leftover cache. */
+export type DataLatencyStatus = "fresh" | "stale" | "very_stale" | "missing";
+
+export interface DataLatencyMember {
+  symbol: string;
+  latest_date: string | null;
+  status: DataLatencyStatus;
+  hours_stale: number | null;
+}
+
+export interface DataLatencySource {
+  group: string;
+  description: string;
+  latest_date: string | null;
+  status: DataLatencyStatus;
+  hours_stale: number | null;
+  members: DataLatencyMember[];
+}
+
+export interface DataLatencyResponse {
+  as_of: string;       // server timestamp
+  today: string;       // server's "today" (ISO date)
+  overall_status: DataLatencyStatus;
+  overall_hours_stale: number | null;
+  overall_latest_date: string | null;
+  sources: DataLatencySource[];
+}
+
 // ── PRD-trend: Stock Trend types ──────────────────────────────────────────────
 
 export interface StockTrendData {
