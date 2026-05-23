@@ -209,6 +209,17 @@ async def get_market_pulse(
                 narrative = None
             _pulse_svc.set_cached_narrative(market, narrative)
 
+        # Phase 1g — narrative date anchor. Set on the cached narrative
+        # so subsequent cache hits within the 60-min TTL stamp the same
+        # date string. The narrative cache invalidates daily via the
+        # natural TTL roll, so the date stays correct in normal use; if
+        # the cache survives across midnight UTC, the next refresh will
+        # update it. Cheap: just a .strftime() call per request.
+        if narrative is not None:
+            # %A = weekday, %B = full month, %-d = day no leading zero
+            # (POSIX; on Windows %#d). Railway runs Linux so %-d is fine.
+            narrative.as_of = date.today().strftime("%A, %B %-d, %Y")
+
         # Phase 1c — macro signals (Growth / Inflation / Rates / Stress).
         # The service has its own 24h cache; calling it here is cheap.
         # Defensive: any failure falls back to an empty list so the page

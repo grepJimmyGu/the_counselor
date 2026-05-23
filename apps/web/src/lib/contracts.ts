@@ -1675,11 +1675,17 @@ export interface AssetCard {
 
 /** Phase 1b — LLM-generated narrative block. Null when LLM_PROVIDER is
  * unset or the backend's narrative generation fails. Frontend falls back
- * to the deterministic template in `lib/market-pulse-narrative.ts`. */
+ * to the deterministic template in `lib/market-pulse-narrative.ts`.
+ *
+ * Phase 1g (2026-05-22) — `as_of` anchors the narrative to a specific
+ * calendar date so users can tell at a glance whether they're reading
+ * today's read or yesterday's leftover cache. Populated by the route
+ * layer, not the LLM. */
 export interface MarketNarrative {
   headline: string;
   sector_rotation: string;
   watch_items: string[];
+  as_of?: string | null;
 }
 
 /** Phase 1c — Macro Pulse table payload. 4 rows: Growth / Inflation /
