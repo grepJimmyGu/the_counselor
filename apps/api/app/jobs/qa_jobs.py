@@ -351,3 +351,128 @@ def chat_guardrails_digest_job() -> None:
 def _today_iso() -> str:
     from datetime import date
     return date.today().isoformat()
+
+
+# ── Chat-tool error auditor (2026-05-23) ──────────────────────────────────────
+
+
+_TOOL_ERROR_LOG_PREFIX = "CHAT_TOOL_ERROR"
+
+
+def audit_chat_tool_errors_job() -> None:
+    """Nightly scan of the last 24h of `chat_messages` for tool-failure rows
+    matching the dispatch-loop's `{"error": "Tool <name> failed: ..."}` shape.
+
+    Motivation: the 2026-05-23 `stock_lookup` Pydantic-coercion bug was
+    silently happening for every real user call. The error landed in
+    `chat_messages.tool_results.content` as that exact JSON envelope, and
+    the LLM apologized for a "temporary issue" — the user never saw a stack
+    trace, and we only found it by manually grepping prod DB.
+
+    This job aggregates the same row pattern, by (tool_name, error excerpt),
+    and emits one `CHAT_TOOL_ERROR_DIGEST` log line per (tool, excerpt) pair.
+    Operator workflow:
+
+        railway logs --service the_counselor | grep CHAT_TOOL_ERROR_DIGEST
+
+    Sibling to the LLM-judge auditor above. Reads only; no DB mutation.
+    Safe to call repeatedly. Cost: zero (no LLM, no external calls — pure
+    DB scan).
+
+    Registered in `_start_scheduler` to run nightly (mirrors the LLM-judge
+    schedule but a few minutes offset to avoid concurrent DB reads).
+    """
+    import json as _json
+    import re as _re
+    from collections import Counter as _Counter
+    from datetime import datetime, timedelta
+
+    from app.db.session import SessionLocal
+    from app.models.chat import ChatMessage
+
+    WINDOW_HOURS = 24
+    # Matches the dispatch loop's serialization in routes/chat.py:
+    #     json.dumps({"error": f"Tool {tc.name} failed: {exc!r}"})
+    # We extract the tool name + a stable error excerpt (first line, up to
+    # 120 chars, so similar Pydantic errors aggregate even with different
+    # field values).
+    _TOOL_FAIL_RE = _re.compile(r"^Tool (?P<name>[a-z_][a-z0-9_]*) failed: (?P<err>.+)$", _re.DOTALL)
+
+    cutoff = datetime.utcnow() - timedelta(hours=WINDOW_HOURS)
+    db = SessionLocal()
+    try:
+        rows = (
+            db.query(ChatMessage)
+            .filter(
+                ChatMessage.role == "tool",
+                ChatMessage.created_at >= cutoff,
+            )
+            .order_by(ChatMessage.created_at.desc())
+            .all()
+        )
+
+        # Aggregate by (tool_name, normalized_error_excerpt). The error
+        # excerpt is the first 120 chars of the error message (post-Tool-X-
+        # failed prefix), with field-value substrings collapsed so different
+        # ValidationError instances over the same field land in the same bucket.
+        agg: _Counter = _Counter()
+        sample_by_key: dict = {}
+
+        for r in rows:
+            content = (r.tool_results or {}).get("content")
+            if not isinstance(content, str):
+                continue
+            # The dispatch loop writes `{"error": "Tool ... failed: ..."}`.
+            # Parse the JSON envelope first.
+            try:
+                payload = _json.loads(content)
+            except (TypeError, ValueError):
+                continue
+            err_text = payload.get("error") if isinstance(payload, dict) else None
+            if not isinstance(err_text, str):
+                continue
+            m = _TOOL_FAIL_RE.match(err_text)
+            if not m:
+                continue
+            tool_name = m.group("name")
+            # Normalize for aggregation: collapse `input_value=...` style
+            # variable bits so identical Pydantic errors across calls cluster.
+            excerpt = m.group("err")[:200]
+            # Collapse `input_value=...` substrings before truncation. Pydantic
+            # serializes the offending value with possibly nested commas/parens
+            # (e.g. `input_value=datetime.date(2026, 5, 23)`), so a non-greedy
+            # `[^,)]+` would stop at the first comma and leave the date variant
+            # distinct, defeating the bucket-aggregation. Match through the
+            # nearest balanced `]` instead (Pydantic's error suffix is always
+            # `..., input_type=X]`).
+            excerpt = _re.sub(r"input_value=.+?, input_type=", "input_value=<…>, input_type=", excerpt)
+            excerpt = _re.sub(r"id=0x[0-9a-fA-F]+", "id=0x<…>", excerpt)
+            key = (tool_name, excerpt)
+            agg[key] += 1
+            sample_by_key.setdefault(key, err_text[:300])
+
+        if not agg:
+            logger.info(
+                "%s_DIGEST window_hours=%d total=0 — no tool errors in window",
+                _TOOL_ERROR_LOG_PREFIX, WINDOW_HOURS,
+            )
+            return
+
+        total = sum(agg.values())
+        logger.warning(
+            "%s_DIGEST window_hours=%d total=%d unique=%d",
+            _TOOL_ERROR_LOG_PREFIX, WINDOW_HOURS, total, len(agg),
+        )
+        # One log line per (tool, error excerpt) pair so claude-main can
+        # quickly see what to investigate.
+        for (tool_name, excerpt), count in agg.most_common():
+            logger.warning(
+                "%s tool=%s count=%d excerpt=%r sample=%r",
+                _TOOL_ERROR_LOG_PREFIX,
+                tool_name,
+                count,
+                excerpt,
+                sample_by_key[(tool_name, excerpt)],
+            )
+    finally:
+        db.close()
