@@ -17,6 +17,7 @@ quick succession (sector tile re-click) doesn't re-query the DB.
 """
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from datetime import date, timedelta
 from typing import Optional
@@ -25,6 +26,19 @@ from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
 from app.models.price_bar import PriceBar
+
+_log = logging.getLogger("livermore.sector_comparison")
+
+# **2026-05-22 — index-vs-index benchmark.** The chart label reads "VS.
+# S&P 500"; previously we paired the sector ETF against SPY (the ETF
+# tracking the index). Now we benchmark against ^GSPC (the actual
+# index). If ^GSPC isn't backfilled yet (`price_bars` has zero rows in
+# the requested window), we transparently fall back to SPY + log a
+# WARN so the chart never breaks. Run `apps/api/scripts/backfill_gspc.py`
+# to populate the price_bars table from FMP's historical EOD endpoint
+# and the fallback path stops firing.
+_BENCHMARK_PRIMARY = "^GSPC"
+_BENCHMARK_FALLBACK = "SPY"
 
 
 # Trading-day approximations for the supported windows. Calendar-day
@@ -168,6 +182,30 @@ _SECTOR_NAMES: dict[str, str] = {
 }
 
 
+def _load_benchmark(
+    db: Session, cutoff: date
+) -> tuple[str, list[tuple[date, float]]]:
+    """Return `(symbol, bars)` for the S&P 500 benchmark series.
+
+    Tries `^GSPC` first (the actual index) and falls back to `SPY` (the
+    ETF proxy) if ^GSPC has no bars in the window. Logs at WARN on
+    fallback so the operator knows the backfill script hasn't been run
+    yet.
+    """
+    bars = _fetch_series(db, _BENCHMARK_PRIMARY, cutoff)
+    if bars:
+        return _BENCHMARK_PRIMARY, bars
+    bars = _fetch_series(db, _BENCHMARK_FALLBACK, cutoff)
+    if bars:
+        _log.warning(
+            "sector_comparison: %s has no bars in window cutoff=%s; "
+            "falling back to %s. Run apps/api/scripts/backfill_gspc.py "
+            "to populate the index series.",
+            _BENCHMARK_PRIMARY, cutoff.isoformat(), _BENCHMARK_FALLBACK,
+        )
+    return _BENCHMARK_FALLBACK, bars
+
+
 def get_comparison(
     db: Session, symbol: str, range_: str
 ) -> SectorComparisonResponse:
@@ -185,11 +223,11 @@ def get_comparison(
     cutoff = _cutoff_for_range(range_, today)
 
     sector_bars = _fetch_series(db, sym, cutoff)
-    spy_bars = _fetch_series(db, "SPY", cutoff)
+    benchmark_sym, benchmark_bars = _load_benchmark(db, cutoff)
 
     # Align: only keep dates present in BOTH series so the indices line up.
     sector_by_date = {d: p for d, p in sector_bars}
-    spy_by_date = {d: p for d, p in spy_bars}
+    spy_by_date = {d: p for d, p in benchmark_bars}
     shared_dates = sorted(set(sector_by_date) & set(spy_by_date))
 
     sector_prices = [sector_by_date[d] for d in shared_dates]
@@ -207,7 +245,7 @@ def get_comparison(
     # the returns table shows accurate Day / YTD / 1Y / 3Y regardless of
     # which window the chart is currently zoomed into.
     full_sector = _fetch_series(db, sym, date(today.year - 4, 1, 1))
-    full_spy = _fetch_series(db, "SPY", date(today.year - 4, 1, 1))
+    _, full_spy = _load_benchmark(db, date(today.year - 4, 1, 1))
 
     s_dates = [d for d, _ in full_sector]
     s_prices = [p for _, p in full_sector]

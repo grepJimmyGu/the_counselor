@@ -161,3 +161,78 @@ def test_get_comparison_unknown_symbol_falls_back_to_symbol(db):
     _insert_price_bars(db, "SPY", [(today - timedelta(days=1), 400.0)])
     resp = svc.get_comparison(db, "UNKN", "1M")
     assert resp.sector_name == "UNKN"
+
+
+# ── PR-5: ^GSPC index benchmark ─────────────────────────────────────────────
+
+
+def test_get_comparison_prefers_gspc_when_bars_present(db):
+    """When ^GSPC bars exist, the benchmark series should be ^GSPC's
+    cumulative return, NOT SPY's."""
+    today = date.today()
+    # XLK gains 10% in 5 days
+    _insert_price_bars(db, "XLK", [
+        (today - timedelta(days=5), 100.0),
+        (today - timedelta(days=1), 110.0),
+    ])
+    # ^GSPC gains 5% in the same window
+    _insert_price_bars(db, "^GSPC", [
+        (today - timedelta(days=5), 5000.0),
+        (today - timedelta(days=1), 5250.0),
+    ])
+    # SPY moves a different amount (3%) — to prove we're NOT using SPY
+    _insert_price_bars(db, "SPY", [
+        (today - timedelta(days=5), 500.0),
+        (today - timedelta(days=1), 515.0),
+    ])
+
+    resp = svc.get_comparison(db, "XLK", "1M")
+    # Last benchmark point should be ^GSPC's 5%, not SPY's 3%
+    assert resp.series[-1].spy == pytest.approx(0.05)
+    # Sector unchanged
+    assert resp.series[-1].sector == pytest.approx(0.10)
+
+
+def test_get_comparison_falls_back_to_spy_when_gspc_missing(db):
+    """If ^GSPC isn't backfilled yet (zero bars), the service should
+    transparently use SPY so the chart never breaks. Verified via the
+    benchmark math matching SPY's 3% return rather than producing an
+    empty series."""
+    today = date.today()
+    _insert_price_bars(db, "XLK", [
+        (today - timedelta(days=5), 100.0),
+        (today - timedelta(days=1), 110.0),
+    ])
+    _insert_price_bars(db, "SPY", [
+        (today - timedelta(days=5), 500.0),
+        (today - timedelta(days=1), 515.0),
+    ])
+    # No ^GSPC bars inserted — service must fall back to SPY
+
+    resp = svc.get_comparison(db, "XLK", "1M")
+    assert len(resp.series) > 0, "Service returned empty series instead of SPY fallback"
+    # spy field should equal SPY's 3% return
+    assert resp.series[-1].spy == pytest.approx(0.03)
+
+
+def test_load_benchmark_returns_symbol_used(db):
+    """`_load_benchmark` returns the symbol it loaded — so callers (and
+    the future audit script) can tell whether the chart is reading
+    ^GSPC or the SPY fallback."""
+    today = date.today()
+    cutoff = today - timedelta(days=30)
+    # No ^GSPC, no SPY → empty
+    sym, bars = svc._load_benchmark(db, cutoff)
+    assert sym == svc._BENCHMARK_FALLBACK  # falls through to SPY name
+    assert bars == []
+
+    # Insert SPY only — should fall back to SPY
+    _insert_price_bars(db, "SPY", [(today - timedelta(days=1), 500.0)])
+    sym, bars = svc._load_benchmark(db, cutoff)
+    assert sym == "SPY"
+    assert len(bars) == 1
+
+    # Insert ^GSPC — should prefer ^GSPC over SPY
+    _insert_price_bars(db, "^GSPC", [(today - timedelta(days=1), 5000.0)])
+    sym, bars = svc._load_benchmark(db, cutoff)
+    assert sym == "^GSPC"

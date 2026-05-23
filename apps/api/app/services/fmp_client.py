@@ -128,6 +128,32 @@ class FMPClient:
             pass
         return None
 
+    async def get_historical_eod(
+        self,
+        symbol: str,
+        from_date: str,
+        to_date: str,
+    ) -> list[dict]:
+        """End-of-day historical OHLCV bars for `symbol` between
+        `from_date` and `to_date` (both ISO YYYY-MM-DD strings, inclusive).
+
+        Supports `^`-prefixed index symbols like `^GSPC` / `^DJI` /
+        `^IXIC` — the same symbols `get_quote` accepts. Used by the
+        ^GSPC backfill script (`apps/api/scripts/backfill_gspc.py`).
+
+        Returns a list of dicts with keys: `symbol`, `date`, `open`,
+        `high`, `low`, `close`, `volume`, `change`, `changePercent`,
+        `vwap`. Empty list if FMP returns nothing (bad symbol, gap in
+        the date range, etc.).
+        """
+        data = await self._get(
+            "/historical-price-eod/full",
+            {"symbol": symbol.upper(), "from": from_date, "to": to_date},
+        )
+        if isinstance(data, list):
+            return data
+        return []
+
     async def get_quotes_batch(self, symbols: list[str]) -> list[dict]:
         """Live quotes for N symbols. Fans out to N parallel `get_quote(symbol)`
         calls via asyncio.gather. Drops the comma-separated batch optimization
