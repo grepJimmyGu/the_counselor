@@ -64,12 +64,28 @@ def get_or_create_anonymous_session(
     db.commit()
     db.refresh(session)
 
+    # SameSite policy (see KNOWN_ISSUES.md 2026-05-24):
+    #   - Production: `none` + Secure so the browser sends the cookie on
+    #     cross-site POSTs from livermorealpha.com (or any Vercel preview)
+    #     to thecounselor-production.up.railway.app. Without this, every
+    #     anonymous request creates a fresh AnonymousSession — silently
+    #     bypassing the 1-backtest cap (Stage 1a) and surfacing as
+    #     "Conversation not found" after turn 1 of anonymous chat
+    #     (ticket #6). PR #72 fixed the StreamingResponse propagation so
+    #     Set-Cookie reaches the browser; this fix makes the browser
+    #     actually send it back on cross-site fetches. SameSite=None
+    #     requires Secure=True — fine because production is HTTPS-only.
+    #   - Local dev: `lax` + Secure=False so the cookie still rides on
+    #     same-origin localhost fetches. SameSite=None with Secure=False
+    #     is rejected by every modern browser, which would break local
+    #     dev entirely.
+    is_prod = _is_production()
     response.set_cookie(
         COOKIE_NAME,
         sid,
         httponly=True,
-        secure=_is_production(),
-        samesite="lax",
+        secure=is_prod,
+        samesite="none" if is_prod else "lax",
         max_age=COOKIE_MAX_AGE,
     )
     return session
