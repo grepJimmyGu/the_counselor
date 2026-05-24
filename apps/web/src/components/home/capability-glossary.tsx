@@ -103,11 +103,33 @@ function StrategyCard({ name, desc, params, examples }: typeof SUPPORTED_STRATEG
 interface CapabilityGlossaryProps {
   /** When true, renders as a compact collapsible sidebar panel */
   compact?: boolean;
+  /** When true, shows only a summary with an expand toggle (homepage mode) */
+  collapsed?: boolean;
 }
 
-export function CapabilityGlossary({ compact = false }: CapabilityGlossaryProps) {
+export function CapabilityGlossary({ compact = false, collapsed = false }: CapabilityGlossaryProps) {
   const [notSupportedOpen, setNotSupportedOpen] = useState(false);
   const [open, setOpen] = useState(!compact);
+  const [expanded, setExpanded] = useState(false);
+
+  // ── Collapsed homepage mode ────────────────────────────────────────────────
+  if (collapsed && !expanded) {
+    return (
+      <section className="rounded-2xl border border-border bg-white/80 backdrop-blur-sm p-6 text-center">
+        <h2 className="font-heading text-xl font-semibold">What You Can Build</h2>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Livermore supports 6 price-based strategy types across US equities, ETFs, commodities, bonds, and China A-shares.
+        </p>
+        <button
+          type="button"
+          onClick={() => setExpanded(true)}
+          className="mt-3 inline-flex cursor-pointer items-center gap-1 text-sm font-medium text-primary transition-colors hover:underline"
+        >
+          See all 6 strategy types + full asset universe <ChevronRight className="h-4 w-4" />
+        </button>
+      </section>
+    );
+  }
 
   if (compact) {
     return (
