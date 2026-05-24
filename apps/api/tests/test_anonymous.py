@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from sqlalchemy.orm import Session
 
@@ -35,8 +35,15 @@ def _stub_response() -> MagicMock:
 
 
 def test_session_creates_on_first_request_and_sets_cookie(db: Session) -> None:
+    """Dev/test path: APP_ENV != production → SameSite=Lax + Secure=False
+    so local HTTP fetches across same-origin localhost still send the
+    cookie back. Browsers reject SameSite=None when Secure=False, so we
+    must NOT set None in dev — would break local development entirely."""
     req, resp = _stub_request(), _stub_response()
-    session = get_or_create_anonymous_session(req, resp, db)
+    with patch(
+        "app.services.anonymous_service._is_production", return_value=False,
+    ):
+        session = get_or_create_anonymous_session(req, resp, db)
 
     assert session.id is not None
     assert session.runs_used == 0
@@ -47,6 +54,35 @@ def test_session_creates_on_first_request_and_sets_cookie(db: Session) -> None:
     assert args[1] == session.id
     assert kwargs["httponly"] is True
     assert kwargs["samesite"] == "lax"
+    assert kwargs["secure"] is False
+
+
+def test_session_cookie_uses_samesite_none_in_production(db: Session) -> None:
+    """Production path (KNOWN_ISSUES 2026-05-24): SameSite=None + Secure=True
+    so the browser sends the anonymous cookie on cross-site POSTs from
+    livermorealpha.com (or any Vercel preview origin) to
+    thecounselor-production.up.railway.app. Without this, every anonymous
+    request creates a fresh AnonymousSession — silently bypassing the
+    1-backtest cap (Stage 1a) AND surfacing as "Conversation not found"
+    after turn 1 of anonymous chat (ticket #6). PR #72 fixed the
+    Set-Cookie propagation through StreamingResponse; this test guards
+    the SameSite/Secure pair that makes the browser echo it back."""
+    req, resp = _stub_request(), _stub_response()
+    with patch(
+        "app.services.anonymous_service._is_production", return_value=True,
+    ):
+        get_or_create_anonymous_session(req, resp, db)
+
+    resp.set_cookie.assert_called_once()
+    _args, kwargs = resp.set_cookie.call_args
+    assert kwargs["samesite"] == "none", (
+        "Production must use SameSite=None so cookies round-trip across the "
+        "frontend↔backend origin boundary."
+    )
+    assert kwargs["secure"] is True, (
+        "SameSite=None requires Secure=True — every modern browser rejects "
+        "the cookie otherwise. Production is HTTPS-only so Secure is fine."
+    )
 
 
 def test_session_reused_on_second_request(db: Session) -> None:
