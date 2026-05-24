@@ -15,13 +15,12 @@ import {
 import type { Route } from "next";
 import { Button } from "@/components/ui/button";
 import { MarketSnapshot } from "@/components/home/market-snapshot";
-import { AssetSearch } from "@/components/home/asset-search";
 import { StrategyTeaser } from "@/components/home/strategy-teaser";
 import { CapabilityGlossary } from "@/components/home/capability-glossary";
 import { researchTemplates, type ResearchTemplate } from "@/lib/contracts";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
 
-// ── Three main pillars ────────────────────────────────────────────────────────
+// ── Three main pillars (simplified — no feature bullet lists) ──────────────────
 
 const PILLARS = [
   {
@@ -30,10 +29,9 @@ const PILLARS = [
     color: "text-blue-500",
     bg: "bg-blue-50 border-blue-200",
     description:
-      "Track sector capital flow via Chaikin Money Flow, monitor index performance, and drill into any stock, ETF, or commodity with Health · Valuation · Trend scores.",
+      "Track sector capital flow, monitor index performance, and drill into any stock, ETF, or commodity with Health · Valuation · Trend scores.",
     cta: "Open Market Pulse",
     href: "/stocks",
-    features: ["Sector capital flow (CMF-20)", "Health · Valuation · Trend scores", "ETF sector rotation view", "Commodities & macro signals"],
   },
   {
     icon: Users,
@@ -44,7 +42,6 @@ const PILLARS = [
       "Discover strategies from other researchers, fork what fits your thesis, and share your backtests. Community leaderboards rank by risk-adjusted returns.",
     cta: "View Community",
     href: "/community",
-    features: ["Strategy sharing & forking", "Performance leaderboards", "Discussion & commentary", "Follow top researchers"],
   },
   {
     icon: Bot,
@@ -54,37 +51,36 @@ const PILLARS = [
     description:
       "Choose from 11 pre-built quant templates or describe a trading idea in plain language. The AI parser converts it to a validated backtest — no coding required.",
     cta: "Open Strategy Builder",
-    href: "/templates",
-    features: ["11 quant strategy templates", "Natural language → strategy JSON", "Deterministic backtester", "Evidence-tier classification"],
+    href: null, // triggers onClick
   },
 ];
 
-// ── How it works ─────────────────────────────────────────────────────────────
+// ── How it works — timeline steps ──────────────────────────────────────────────
 
 const HOW_IT_WORKS = [
   {
     icon: BarChart2,
     step: "01",
     title: "Screen with Market Pulse",
-    desc: "Track sector capital flow, evaluate any stock across Health, Valuation, and Trend, and spot macro shifts with ETF and commodity signals.",
+    desc: "Track sector flow, evaluate Health/Valuation/Trend, spot macro shifts.",
   },
   {
     icon: Newspaper,
     step: "02",
     title: "Read the News Signals",
-    desc: "AI extracts catalyst type, sentiment trend, and signal quality from recent news. See what's driving attention and whether it's material.",
+    desc: "AI extracts catalyst type, sentiment trend, and signal quality from recent news.",
   },
   {
     icon: Users,
     step: "03",
     title: "Discover & Fork Strategies",
-    desc: "Browse community strategies, fork ones that match your thesis, and see what's working for other researchers in real backtests.",
+    desc: "Browse community strategies and fork ones that match your thesis.",
   },
   {
     icon: Bot,
     step: "04",
     title: "Build & Stress-Test",
-    desc: "Choose a quant template or describe a trading idea in plain English. Run a deterministic backtest, then review metrics and equity curve.",
+    desc: "Choose a quant template or describe an idea in plain English. Run a deterministic backtest.",
   },
 ];
 
@@ -121,25 +117,39 @@ export default function HomePage() {
       />
 
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
-      <section className="relative overflow-hidden border-b border-border bg-gradient-to-br from-primary/5 via-background to-background">
-        <div className="mx-auto max-w-[1200px] px-6 py-20 lg:py-28">
+      <section className="relative overflow-hidden border-b border-border bg-gradient-to-br from-primary/10 via-primary/5 to-background">
+        {/* Decorative grid pattern */}
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.03]"
+          style={{
+            backgroundImage: `radial-gradient(circle, var(--color-primary) 1px, transparent 1px)`,
+            backgroundSize: "24px 24px",
+          }}
+          aria-hidden="true"
+        />
+
+        <div className="relative mx-auto max-w-[1200px] px-6 pb-20 pt-24 lg:pb-28 lg:pt-32">
           <div className="mx-auto max-w-3xl text-center">
-            <div className="mb-4 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/8 px-4 py-1.5 text-xs font-semibold uppercase tracking-widest text-primary">
+            {/* Pill badge */}
+            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/8 px-4 py-1.5 text-xs font-semibold uppercase tracking-widest text-primary">
               <TrendingUp className="h-3.5 w-3.5" />
               Investment Research Platform
             </div>
-            <h1 className="font-heading mt-4 text-4xl font-bold leading-tight tracking-tight lg:text-5xl">
+
+            <h1 className="font-heading text-5xl font-bold leading-[1.1] tracking-tight lg:text-6xl">
               Market Pulse.{" "}
               <span className="text-primary">Community.</span>
               <br />
               Strategy Builder.
             </h1>
-            <p className="mt-5 text-lg leading-relaxed text-muted-foreground">
+
+            <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-muted-foreground">
               One platform for market research, collaborative strategy discovery, and rules-based
               backtesting. No live trading, no AI recommendations — just data-driven tools.
             </p>
+
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-              <Button asChild size="lg" className="rounded-xl px-6">
+              <Button asChild size="lg" className="rounded-xl px-6 shadow-lg shadow-primary/10">
                 <Link href={"/stocks" as Route}>
                   Market Pulse <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
@@ -151,10 +161,13 @@ export default function HomePage() {
                 </Link>
               </Button>
               <Button variant="outline" size="lg" className="rounded-xl px-6" onClick={() => openBuilder()}>
+                <Zap className="mr-2 h-4 w-4" />
                 Strategy Builder
               </Button>
             </div>
-            <div className="mt-8 flex flex-wrap justify-center gap-x-6 gap-y-2 text-xs text-muted-foreground">
+
+            {/* Trust chips — compact inline row */}
+            <div className="mt-8 flex flex-wrap justify-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
               {[
                 "No live trading",
                 "End-of-day prices",
@@ -171,42 +184,38 @@ export default function HomePage() {
         </div>
       </section>
 
-      <div className="mx-auto max-w-[1200px] space-y-12 px-6 py-10">
+      {/* ── Page body ────────────────────────────────────────────────────── */}
+      <div className="mx-auto max-w-[1200px] space-y-16 px-6 py-12">
 
-        {/* ── Three Research Pillars ────────────────────────────────────── */}
-        <section className="space-y-6">
+        {/* ── Market Snapshot ────────────────────────────────────────────── */}
+        <MarketSnapshot />
+
+        {/* ── Three Research Pillars ─────────────────────────────────────── */}
+        <section className="space-y-8">
           <div className="text-center">
             <h2 className="font-heading text-2xl font-bold">Three Ways to Research</h2>
             <p className="mt-2 text-muted-foreground">Each pillar answers a different question before you invest</p>
           </div>
           <div className="grid gap-5 lg:grid-cols-3">
-            {PILLARS.map(({ icon: Icon, label, color, bg, description, cta, href, features }) => (
+            {PILLARS.map(({ icon: Icon, label, color, bg, description, cta, href }) => (
               <div
                 key={label}
-                className="flex flex-col rounded-xl border border-border bg-white p-6 shadow-sm transition-all duration-200 hover:border-primary/30 hover:shadow-md"
+                className="group flex flex-col rounded-2xl border border-border/60 bg-white/80 backdrop-blur-sm p-6 shadow-sm transition-all duration-200 hover:border-primary/30 hover:shadow-lg"
               >
-                <div className={`mb-4 inline-flex h-10 w-10 items-center justify-center rounded-lg border ${bg}`}>
-                  <Icon className={`h-5 w-5 ${color}`} />
+                <div className={`mb-5 inline-flex h-12 w-12 items-center justify-center rounded-xl border ${bg}`}>
+                  <Icon className={`h-6 w-6 ${color}`} />
                 </div>
-                <h3 className="font-heading text-base font-semibold">{label}</h3>
+                <h3 className="font-heading text-lg font-semibold">{label}</h3>
                 <p className="mt-2 flex-1 text-sm leading-relaxed text-muted-foreground">{description}</p>
-                <ul className="mt-4 space-y-1.5">
-                  {features.map((f) => (
-                    <li key={f} className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${color.replace("text-", "bg-")}`} />
-                      {f}
-                    </li>
-                  ))}
-                </ul>
-                {label === "Strategy Builder" ? (
-                  <Button variant="outline" size="sm" className="mt-5" onClick={() => openBuilder()}>
-                    {cta} <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-                  </Button>
-                ) : (
-                  <Button asChild variant="outline" size="sm" className="mt-5">
+                {href ? (
+                  <Button asChild variant="outline" size="sm" className="mt-6 w-fit">
                     <Link href={href as Route}>
                       {cta} <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
                     </Link>
+                  </Button>
+                ) : (
+                  <Button variant="outline" size="sm" className="mt-6 w-fit" onClick={() => openBuilder()}>
+                    {cta} <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
                   </Button>
                 )}
               </div>
@@ -214,103 +223,101 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* ── Market Snapshot ───────────────────────────────────────────── */}
-        <MarketSnapshot />
-
-        {/* ── Asset Explorer ────────────────────────────────────────────── */}
-        <AssetSearch onBuildStrategyPrompt={openBuilder} />
-
-        {/* ── Strategy Builder Teaser ───────────────────────────────────── */}
+        {/* ── Strategy Builder Teaser ────────────────────────────────────── */}
         <StrategyTeaser onOpenBuilder={openBuilder} />
 
-        {/* ── Capability Glossary ───────────────────────────────────────── */}
-        <CapabilityGlossary />
+        {/* ── Capability Glossary (collapsed by default) ─────────────────── */}
+        <CapabilityGlossary compact collapsed />
 
-        {/* ── How It Works ──────────────────────────────────────────────── */}
+        {/* ── How It Works — visual timeline ─────────────────────────────── */}
         <section className="space-y-8">
           <div className="text-center">
             <h2 className="font-heading text-2xl font-bold">How It Works</h2>
             <p className="mt-2 text-muted-foreground">From discovery to stress-tested strategy — four steps</p>
           </div>
-          <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
+
+          {/* Desktop: horizontal timeline */}
+          <div className="relative hidden gap-0 sm:grid sm:grid-cols-4">
+            {/* Connecting line */}
+            <div className="absolute left-[12.5%] right-[12.5%] top-8 h-px bg-border" aria-hidden="true" />
+
             {HOW_IT_WORKS.map(({ icon: Icon, step, title, desc }) => (
-              <div key={step} className="rounded-xl border border-border bg-white p-5 shadow-sm">
-                <div className="mb-3 flex items-center gap-3">
-                  <span className="font-mono text-3xl font-bold text-primary/20">{step}</span>
-                  <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-primary/8">
-                    <Icon className="h-4 w-4 text-primary" />
-                  </div>
+              <div key={step} className="relative flex flex-col items-center text-center">
+                {/* Step circle */}
+                <div className="relative z-10 flex h-16 w-16 items-center justify-center rounded-2xl border-2 border-border bg-white shadow-sm">
+                  <Icon className="h-6 w-6 text-primary" />
                 </div>
-                <h3 className="font-heading text-sm font-semibold">{title}</h3>
-                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">{desc}</p>
+                <span className="mt-3 font-mono text-xs font-bold text-primary/30">{step}</span>
+                <h3 className="mt-1 font-heading text-sm font-semibold">{title}</h3>
+                <p className="mt-1 max-w-[180px] text-xs leading-relaxed text-muted-foreground">{desc}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* Mobile: vertical stack */}
+          <div className="flex flex-col gap-0 sm:hidden">
+            {HOW_IT_WORKS.map(({ icon: Icon, step, title, desc }, i) => (
+              <div key={step} className="flex gap-4">
+                {/* Left rail */}
+                <div className="flex flex-col items-center">
+                  <div className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-border bg-white shadow-sm">
+                    <Icon className="h-5 w-5 text-primary" />
+                  </div>
+                  {i < HOW_IT_WORKS.length - 1 && (
+                    <div className="mt-1 w-px flex-1 bg-border" aria-hidden="true" />
+                  )}
+                </div>
+                {/* Content */}
+                <div className="pb-8">
+                  <span className="font-mono text-xs font-bold text-primary/30">{step}</span>
+                  <h3 className="font-heading text-sm font-semibold">{title}</h3>
+                  <p className="mt-0.5 text-sm leading-relaxed text-muted-foreground">{desc}</p>
+                </div>
               </div>
             ))}
           </div>
         </section>
 
-        {/* ── Research Templates Preview ────────────────────────────────── */}
-        <section className="space-y-6">
-          <div className="flex items-end justify-between">
-            <div>
-              <h2 className="font-heading text-2xl font-bold">Strategy Templates</h2>
-              <p className="mt-1 text-muted-foreground">Pre-built frameworks — click to run instantly</p>
-            </div>
-            <Link
-              href={"/templates" as Route}
-              className="text-sm font-medium text-primary transition-colors hover:underline"
+        {/* ── Templates — compact row ────────────────────────────────────── */}
+        <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-muted/30 px-6 py-4">
+          <span className="text-sm font-semibold text-foreground">Popular templates:</span>
+          {featuredTemplates.map((tmpl) => (
+            <button
+              key={tmpl.id}
+              type="button"
+              onClick={() => openTemplate(tmpl)}
+              className="cursor-pointer rounded-full border border-border bg-white px-3 py-1.5 text-xs font-medium text-foreground transition-colors duration-200 hover:border-primary/40 hover:bg-primary/5 hover:text-primary"
             >
-              View all →
-            </Link>
-          </div>
-          <div className="grid gap-5 sm:grid-cols-3">
-            {featuredTemplates.map((tmpl) => (
-              <div
-                key={tmpl.id}
-                className="flex flex-col rounded-xl border border-border bg-white p-5 shadow-sm transition-all duration-200 hover:border-primary/30 hover:shadow-md"
-              >
-                <div className="flex items-start justify-between gap-2">
-                  <div className="rounded-md border border-border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-                    {tmpl.category}
-                  </div>
-                  <FileSearch className="h-4 w-4 shrink-0 text-muted-foreground" />
-                </div>
-                <h3 className="font-heading mt-3 text-sm font-semibold">{tmpl.name}</h3>
-                <p className="mt-1.5 flex-1 text-xs leading-relaxed text-muted-foreground">{tmpl.description}</p>
-                <button
-                  type="button"
-                  onClick={() => openTemplate(tmpl)}
-                  className="mt-4 cursor-pointer text-left text-xs font-medium text-primary hover:underline"
-                >
-                  Use this template →
-                </button>
-              </div>
-            ))}
-          </div>
+              {tmpl.name}
+            </button>
+          ))}
+          <Link
+            href={"/templates" as Route}
+            className="ml-auto text-xs font-medium text-primary transition-colors hover:underline"
+          >
+            View all →
+          </Link>
         </section>
 
-        {/* ── Footer CTA ────────────────────────────────────────────────── */}
-        <section className="rounded-2xl border border-primary/20 bg-primary/5 p-10">
+        {/* ── Bottom CTA ─────────────────────────────────────────────────── */}
+        <section className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/5 to-primary/[0.02] p-10">
           <div className="mx-auto max-w-2xl text-center">
             <h2 className="font-heading text-2xl font-bold">Ready to start researching?</h2>
             <p className="mt-3 text-muted-foreground">
               Screen the market, discover community strategies, then build and backtest your own.
             </p>
-            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
-              <Button asChild size="lg" className="rounded-xl px-8">
+            <div className="mt-6 flex items-center justify-center gap-4">
+              <Button asChild size="lg" className="rounded-xl px-8 shadow-lg shadow-primary/10">
                 <Link href={"/stocks" as Route}>
-                  Market Pulse <ArrowRight className="ml-2 h-4 w-4" />
+                  Open Market Pulse <ArrowRight className="ml-2 h-4 w-4" />
                 </Link>
               </Button>
-              <Button asChild variant="outline" size="lg" className="rounded-xl px-6">
-                <Link href={"/community" as Route}>
-                  <Users className="mr-2 h-4 w-4" />
-                  Community
-                </Link>
-              </Button>
-              <Button variant="outline" size="lg" className="rounded-xl px-6" onClick={() => setBuilderOpen(true)}>
-                <Zap className="mr-2 h-4 w-4" />
-                Strategy Builder
-              </Button>
+              <Link
+                href={"/community" as Route}
+                className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+              >
+                Browse Community →
+              </Link>
             </div>
           </div>
         </section>

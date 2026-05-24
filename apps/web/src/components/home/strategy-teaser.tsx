@@ -14,10 +14,13 @@ const IDEA_STARTERS = [
 
 export function StrategyTeaser({ onOpenBuilder }: { onOpenBuilder: (idea?: string) => void }) {
   return (
-    <section className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/5 via-background to-background p-8">
-      <div className="mx-auto max-w-2xl space-y-5 text-center">
+    <section className="rounded-2xl border border-primary/20 bg-gradient-to-br from-primary/[0.08] via-primary/[0.03] to-background p-10">
+      <div className="mx-auto max-w-2xl space-y-6 text-center">
         <div className="flex items-center justify-center gap-2">
-          <WandSparkles className="h-5 w-5 text-primary" />
+          <div className="relative">
+            <WandSparkles className="h-5 w-5 text-primary" />
+            <span className="absolute inset-0 animate-ping rounded-full bg-primary/20" aria-hidden="true" style={{ animationDuration: "2s" }} />
+          </div>
           <span className="text-xs font-semibold uppercase tracking-widest text-primary">Strategy Builder</span>
         </div>
         <h2 className="font-heading text-2xl font-bold">Describe Your Strategy, We Handle the Rest</h2>
@@ -26,7 +29,7 @@ export function StrategyTeaser({ onOpenBuilder }: { onOpenBuilder: (idea?: strin
           The builder turns it into structured backtest settings before anything runs.
         </p>
 
-        <Button onClick={() => onOpenBuilder()} className="gap-2">
+        <Button onClick={() => onOpenBuilder()} size="lg" className="gap-2 rounded-xl px-8 shadow-lg shadow-primary/10">
           Open Strategy Builder <ArrowRight className="h-4 w-4" />
         </Button>
 
@@ -37,8 +40,8 @@ export function StrategyTeaser({ onOpenBuilder }: { onOpenBuilder: (idea?: strin
               type="button"
               onClick={() => onOpenBuilder(chip)}
               className={cn(
-                "cursor-pointer rounded-full border border-border bg-white px-3 py-1.5 text-xs text-muted-foreground",
-                "transition-colors duration-200 hover:border-primary/40 hover:bg-primary/5 hover:text-foreground",
+                "cursor-pointer rounded-full border border-border bg-white px-4 py-2 text-sm text-muted-foreground",
+                "transition-all duration-200 hover:border-primary/40 hover:bg-primary/5 hover:text-foreground hover:shadow-sm",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               )}
             >
