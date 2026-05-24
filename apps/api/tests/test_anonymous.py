@@ -85,6 +85,40 @@ def test_session_cookie_uses_samesite_none_in_production(db: Session) -> None:
     )
 
 
+def test_is_production_falls_back_to_railway_env_var(monkeypatch) -> None:
+    """The fallback path added 2026-05-24 after PR #82 silently failed
+    on Railway. `_is_production()` reads `settings.app_env` first
+    (documented contract), but if that's still the default
+    "development" — which Railway will silently allow because the
+    `APP_ENV` env var was never set — it should fall back to Railway's
+    native `RAILWAY_ENVIRONMENT=production` signal so the production
+    cookie branch fires. Without this, PR #82's SameSite=None branch
+    silently never fires in production."""
+    from app.services import anonymous_service as svc
+    # Force settings.app_env to the dev default so the primary check
+    # returns False. (Settings is a cached Pydantic singleton; we mock
+    # `get_settings()` itself rather than mutating its return value.)
+    mock_settings = type("S", (), {"app_env": "development"})()
+    monkeypatch.setattr(svc, "get_settings", lambda: mock_settings)
+
+    # Without the Railway signal: should be False
+    monkeypatch.delenv("RAILWAY_ENVIRONMENT", raising=False)
+    assert svc._is_production() is False
+
+    # With RAILWAY_ENVIRONMENT=production: should be True (fallback fires)
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT", "production")
+    assert svc._is_production() is True, (
+        "Fallback path broken — Railway-deployed services would never "
+        "be detected as production unless APP_ENV is also set, "
+        "silently breaking PR #82's SameSite=None cookie branch."
+    )
+
+    # Other RAILWAY_ENVIRONMENT values (staging, preview, etc.) should NOT
+    # trigger the production branch
+    monkeypatch.setenv("RAILWAY_ENVIRONMENT", "staging")
+    assert svc._is_production() is False
+
+
 def test_session_reused_on_second_request(db: Session) -> None:
     req1, resp1 = _stub_request(), _stub_response()
     first = get_or_create_anonymous_session(req1, resp1, db)
