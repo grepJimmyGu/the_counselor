@@ -12,6 +12,7 @@ Cookie semantics:
 """
 from __future__ import annotations
 
+import os
 from datetime import datetime
 from typing import Optional
 from uuid import uuid4
@@ -28,7 +29,26 @@ COOKIE_MAX_AGE = 60 * 60 * 24 * 90  # 90 days
 
 
 def _is_production() -> bool:
-    return get_settings().app_env == "production"
+    """True when running in production.
+
+    Reads `settings.app_env` first (the documented contract — set via
+    `APP_ENV=production` env var). Falls back to Railway's native
+    `RAILWAY_ENVIRONMENT=production` signal so the production branch
+    fires even if the operator forgets to set `APP_ENV` explicitly.
+
+    The fallback was added 2026-05-24 after PR #82 silently failed to
+    take effect on Railway because `APP_ENV` had never been set there
+    — `settings.app_env` defaulted to `"development"` and the prod
+    `SameSite=None` branch never fired, leaving the anonymous cookie
+    broken on cross-site fetches for ~2 hours post-merge. See
+    `docs/KNOWN_ISSUES.md` 2026-05-24 entry.
+    """
+    if get_settings().app_env == "production":
+        return True
+    # Railway-native fallback. Other hosts (Render, Fly, etc.) would
+    # need their own override — for now Railway is the only deploy
+    # target so this is sufficient.
+    return os.environ.get("RAILWAY_ENVIRONMENT") == "production"
 
 
 def get_or_create_anonymous_session(
