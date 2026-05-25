@@ -1,0 +1,972 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Retail Strategy Picker &mdash; Which Livermore Template Fits My Asset?</title>
+<style>
+  :root {
+    --bg: #0a0f1f; --panel: #131a30; --panel-2: #1a2240; --panel-3: #20284a;
+    --ink: #e8ecf7; --ink-dim: #aab2cc;
+    --accent: #6ea8ff; --accent-2: #8ef0c2; --accent-3: #c9a3ff;
+    --warn: #ffd166; --danger: #ff7676;
+    --border: #2a3357; --code-bg: #0f1530;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: linear-gradient(180deg, #0a0f1f 0%, #0b1228 100%);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.6; font-size: 16px;
+  }
+  .wrap { max-width: 1180px; margin: 0 auto; padding: 28px 22px 96px; }
+  header.hero {
+    background: radial-gradient(1200px 400px at 20% -10%, rgba(110,168,255,0.25), transparent 60%),
+                radial-gradient(800px 300px at 90% 10%, rgba(142,240,194,0.18), transparent 60%),
+                var(--panel);
+    border: 1px solid var(--border); border-radius: 18px;
+    padding: 32px 28px; margin-bottom: 22px;
+  }
+  header .eyebrow { color: var(--accent); font-size: 12px; letter-spacing: 2px; text-transform: uppercase; }
+  header h1 { margin: 6px 0 8px; font-size: 28px; line-height: 1.2; }
+  header .subtitle { color: var(--ink-dim); max-width: 880px; }
+  .meta-pills { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 14px; }
+  .pill { background: var(--panel-2); border: 1px solid var(--border); padding: 6px 12px; border-radius: 999px; font-size: 13px; color: var(--ink-dim); }
+  .pill strong { color: var(--ink); }
+  nav.toc { position: sticky; top: 12px; background: rgba(19,26,48,0.92); border: 1px solid var(--border); border-radius: 14px; padding: 12px 16px; margin-bottom: 22px; z-index: 10; backdrop-filter: blur(10px); }
+  nav.toc ol { margin: 0; padding-left: 18px; display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 4px 24px; }
+  nav.toc li { font-size: 14px; }
+  nav.toc a { color: var(--ink-dim); text-decoration: none; }
+  nav.toc a:hover { color: var(--accent); }
+  nav.toc .toc-title { color: var(--ink); font-weight: 600; margin-bottom: 6px; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; }
+  section.card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 24px 26px; margin-bottom: 18px; }
+  section.card h2 { margin-top: 0; font-size: 22px; border-bottom: 1px dashed var(--border); padding-bottom: 10px; }
+  section.card h3 { margin-top: 22px; font-size: 17px; color: var(--accent-2); }
+  section.card h4 { margin: 14px 0 6px; color: var(--ink); }
+  p, li { color: var(--ink); }
+  .dim { color: var(--ink-dim); } .small { font-size: 13px; }
+  a { color: var(--accent); } a:hover { color: var(--accent-2); }
+  .grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 14px; }
+  .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 14px; }
+  .grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0,1fr)); gap: 12px; }
+  @media (max-width: 820px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; } nav.toc ol { grid-template-columns: 1fr; } }
+  .tile { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 14px; }
+  .tile h4 { margin: 0 0 4px; font-size: 14px; }
+  .tile p { margin: 0; color: var(--ink-dim); font-size: 13px; }
+  table { width: 100%; border-collapse: collapse; font-size: 13.5px; margin-top: 10px; }
+  th, td { padding: 8px 10px; text-align: left; border-bottom: 1px solid var(--border); vertical-align: top; }
+  th { color: var(--accent); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+  tr:hover td { background: rgba(110,168,255,0.04); }
+  code, pre { font-family: "SF Mono", Menlo, Consolas, monospace; background: var(--code-bg); border-radius: 8px; }
+  code { padding: 2px 6px; font-size: 12.5px; color: var(--accent-2); }
+  pre { padding: 12px 14px; overflow: auto; border: 1px solid var(--border); font-size: 12.5px; line-height: 1.55; }
+  pre code { background: transparent; padding: 0; color: var(--ink); }
+  .callout { border-left: 3px solid var(--accent); background: rgba(110,168,255,0.06); padding: 10px 14px; border-radius: 0 10px 10px 0; margin: 12px 0; }
+  .callout.warn { border-left-color: var(--warn); background: rgba(255,209,102,0.06); }
+  .callout.good { border-left-color: var(--accent-2); background: rgba(142,240,194,0.06); }
+
+  /* WIZARD STYLES */
+  .wizard { background: linear-gradient(180deg, var(--panel-2) 0%, var(--panel) 100%); border: 1px solid var(--border); border-radius: 16px; padding: 24px 26px; }
+  .wizard .progress { display: flex; gap: 6px; margin-bottom: 18px; }
+  .wizard .progress .dot { flex: 1; height: 4px; background: var(--panel-3); border-radius: 4px; transition: background 0.2s; }
+  .wizard .progress .dot.active { background: var(--accent); }
+  .wizard .progress .dot.done { background: var(--accent-2); }
+  .wizard h3.q-title { font-size: 20px; color: var(--ink); margin: 0 0 6px; }
+  .wizard .q-sub { color: var(--ink-dim); font-size: 14px; margin: 0 0 16px; }
+  .wizard .options { display: grid; gap: 8px; }
+  .wizard .opt {
+    display: flex; align-items: flex-start; gap: 12px;
+    background: var(--panel-3); border: 1px solid var(--border); border-radius: 10px;
+    padding: 12px 14px; cursor: pointer; transition: all 0.15s;
+    text-align: left; color: var(--ink); font: inherit; width: 100%;
+  }
+  .wizard .opt:hover { border-color: var(--accent); background: rgba(110,168,255,0.08); }
+  .wizard .opt.selected { border-color: var(--accent); background: rgba(110,168,255,0.15); box-shadow: 0 0 0 1px var(--accent) inset; }
+  .wizard .opt .bullet { width: 18px; height: 18px; border-radius: 999px; border: 2px solid var(--ink-dim); flex-shrink: 0; margin-top: 2px; position: relative; }
+  .wizard .opt.selected .bullet { border-color: var(--accent); }
+  .wizard .opt.selected .bullet::after { content: ""; position: absolute; inset: 3px; background: var(--accent); border-radius: 999px; }
+  .wizard .opt .label { font-weight: 600; font-size: 14.5px; }
+  .wizard .opt .desc { color: var(--ink-dim); font-size: 13px; margin-top: 2px; }
+  .wizard .controls { display: flex; justify-content: space-between; margin-top: 18px; gap: 10px; }
+  .wizard .btn {
+    background: var(--accent); color: #0a0f1f; border: none; padding: 10px 22px; border-radius: 10px;
+    font: inherit; font-weight: 600; cursor: pointer; font-size: 14px;
+  }
+  .wizard .btn:disabled { background: var(--panel-3); color: var(--ink-dim); cursor: not-allowed; }
+  .wizard .btn.secondary { background: var(--panel-3); color: var(--ink); border: 1px solid var(--border); }
+  .wizard .btn.secondary:hover:not(:disabled) { border-color: var(--accent); }
+
+  /* RESULTS */
+  .results { display: none; }
+  .results.show { display: block; }
+  .results .summary { background: rgba(142,240,194,0.06); border: 1px solid rgba(142,240,194,0.25); border-radius: 12px; padding: 14px 16px; margin-bottom: 18px; }
+  .results .summary h4 { color: var(--accent-2); margin: 0 0 6px; font-size: 15px; }
+  .results .rec { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 16px 18px; margin-bottom: 12px; }
+  .results .rec.top { border-left: 4px solid var(--accent-2); }
+  .results .rec.alt { border-left: 4px solid var(--accent); }
+  .results .rec .rank { display: inline-block; background: var(--panel-3); color: var(--accent); padding: 3px 10px; border-radius: 999px; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; }
+  .results .rec h4 { margin: 8px 0 4px; font-size: 17px; }
+  .results .rec .blurb { color: var(--ink); font-size: 14px; margin-bottom: 8px; }
+  .results .rec .why { color: var(--ink-dim); font-size: 13px; padding-left: 14px; border-left: 2px solid var(--border); margin: 8px 0; }
+  .results .rec .ex { font-size: 13px; color: var(--ink); background: rgba(110,168,255,0.06); padding: 8px 12px; border-radius: 8px; margin: 8px 0; }
+  .results .rec .tags { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .tag { font-size: 11px; padding: 3px 8px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel-3); color: var(--ink-dim); white-space: nowrap; }
+  .tag.a { color: var(--accent-2); border-color: rgba(142,240,194,0.4); background: rgba(142,240,194,0.10); }
+  .tag.b { color: var(--accent); border-color: rgba(110,168,255,0.4); background: rgba(110,168,255,0.10); }
+  .tag.c { color: var(--warn); border-color: rgba(255,209,102,0.4); background: rgba(255,209,102,0.10); }
+
+  /* FIT MATRIX */
+  .fitmatrix { font-size: 12.5px; }
+  .fitmatrix .row { display: grid; grid-template-columns: 200px repeat(7, 1fr); gap: 3px; align-items: center; margin-bottom: 3px; }
+  .fitmatrix .hdr { color: var(--accent); font-weight: 600; font-size: 11px; padding: 6px 4px; text-align: center; letter-spacing: 0.5px; }
+  .fitmatrix .asset-label { background: var(--panel-3); border-radius: 6px; padding: 8px 10px; font-weight: 600; font-size: 12.5px; }
+  .fitmatrix .asset-label .ex { display: block; color: var(--ink-dim); font-weight: 400; font-size: 11px; margin-top: 2px; }
+  .fitmatrix .cell { padding: 8px 4px; border-radius: 6px; text-align: center; font-size: 11px; line-height: 1.2; }
+  .fitmatrix .cell.good { background: rgba(142,240,194,0.15); color: var(--accent-2); border: 1px solid rgba(142,240,194,0.30); }
+  .fitmatrix .cell.ok { background: rgba(110,168,255,0.10); color: var(--accent); border: 1px solid rgba(110,168,255,0.25); }
+  .fitmatrix .cell.weak { background: rgba(255,209,102,0.08); color: var(--warn); border: 1px solid rgba(255,209,102,0.20); }
+  .fitmatrix .cell.no { background: rgba(255,118,118,0.06); color: var(--ink-dim); border: 1px solid rgba(255,118,118,0.15); text-decoration: line-through; }
+  @media (max-width: 820px) {
+    .fitmatrix .row { grid-template-columns: 110px repeat(7, 1fr); font-size: 10px; }
+    .fitmatrix .asset-label { font-size: 11px; padding: 6px; }
+    .fitmatrix .cell { padding: 5px 2px; font-size: 9.5px; }
+  }
+
+  /* BUILD-YOUR-OWN BLOCKS */
+  .blocks { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-top: 14px; }
+  @media (max-width: 820px) { .blocks { grid-template-columns: 1fr; } }
+  .block { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px; padding: 16px; position: relative; }
+  .block.b1 { border-top: 3px solid var(--accent-2); }
+  .block.b2 { border-top: 3px solid var(--accent); }
+  .block.b3 { border-top: 3px solid var(--accent-3); }
+  .block.b4 { border-top: 3px solid var(--warn); }
+  .block .num { font-size: 24px; font-weight: 700; color: var(--accent); line-height: 1; }
+  .block .title { font-weight: 700; font-size: 15px; margin: 4px 0 2px; }
+  .block .sub { color: var(--ink-dim); font-size: 12.5px; margin-bottom: 10px; }
+  .block ul { margin: 0; padding-left: 18px; }
+  .block li { font-size: 13px; margin-bottom: 4px; }
+
+  footer { margin-top: 26px; color: var(--ink-dim); font-size: 13px; text-align: center; }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 12px; color: var(--ink-dim); margin-top: 10px; }
+  .legend .sw { display: inline-block; width: 12px; height: 12px; border-radius: 3px; margin-right: 4px; vertical-align: middle; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">Livermore AI &middot; Retail Picker Framework</div>
+  <h1>Which Strategy Fits My Asset? A Picker Framework for Retail Investors</h1>
+  <p class="subtitle">
+    The Livermore library has 20+ strategy templates. This page tells you which one fits the asset you want to trade. Answer 5 plain-English questions in the wizard below and get 2&ndash;3 recommendations with the reasons spelled out. The reference sections below explain the fit matrix, how to break ties between similar strategies, and a simplified 4-block model for building your own custom strategy.
+  </p>
+  <div class="meta-pills">
+    <span class="pill">Audience: <strong>Retail investors</strong></span>
+    <span class="pill">Asset classes: <strong>Stocks &amp; commodities</strong></span>
+    <span class="pill">Questions to answer: <strong>5</strong></span>
+    <span class="pill">Build-your-own: <strong>4 blocks</strong></span>
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="toc-title">Contents</div>
+  <ol>
+    <li><a href="#wizard">1. The 5-question wizard</a></li>
+    <li><a href="#fitmatrix">2. Strategy fit matrix</a></li>
+    <li><a href="#commodities">3. Commodities vs stocks</a></li>
+    <li><a href="#tiebreak">4. Tie-breakers</a></li>
+    <li><a href="#byo">5. Build your own (4-block model)</a></li>
+    <li><a href="#designer">6. Notes for the Livermore product team</a></li>
+  </ol>
+</nav>
+
+<section class="card" id="wizard">
+  <h2>1. The 5-Question Wizard</h2>
+  <p class="dim small">Click an answer for each question. After question 5 you'll see your top 2&ndash;3 strategy matches with the reasoning. Everything stays in your browser; no data is sent anywhere.</p>
+
+  <div class="wizard" id="wizard-root">
+    <div class="progress" id="progress">
+      <div class="dot active"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div><div class="dot"></div>
+    </div>
+    <div id="question-area"></div>
+    <div class="controls">
+      <button class="btn secondary" id="btn-back" disabled>&larr; Back</button>
+      <button class="btn" id="btn-next" disabled>Next &rarr;</button>
+    </div>
+  </div>
+
+  <div class="results" id="results"></div>
+</section>
+
+<section class="card" id="fitmatrix">
+  <h2>2. Strategy Fit Matrix &mdash; What Works on What Asset</h2>
+  <p class="dim small">A condensed map. Rows are asset categories with named examples; columns are strategy families. <span style="color:var(--accent-2)">Green</span> = strong fit. <span style="color:var(--accent)">Blue</span> = works but not first choice. <span style="color:var(--warn)">Yellow</span> = weak / use with care. Red strikethrough = does not apply (e.g. no fundamentals on commodities).</p>
+
+  <div class="fitmatrix" style="margin-top:14px;">
+    <div class="row">
+      <div></div>
+      <div class="hdr">Trend / MA</div>
+      <div class="hdr">Momentum</div>
+      <div class="hdr">Mean Rev.</div>
+      <div class="hdr">Breakout</div>
+      <div class="hdr">Pairs</div>
+      <div class="hdr">Value/Quality</div>
+      <div class="hdr">News/Insider</div>
+    </div>
+
+    <div class="row">
+      <div class="asset-label">Large-cap growth stocks<span class="ex">AAPL, NVDA, MSFT</span></div>
+      <div class="cell good">Good</div>
+      <div class="cell good">Great</div>
+      <div class="cell weak">Use w/ care</div>
+      <div class="cell good">Good</div>
+      <div class="cell ok">OK (paired)</div>
+      <div class="cell weak">Often overvalued</div>
+      <div class="cell good">Strong news cycle</div>
+    </div>
+
+    <div class="row">
+      <div class="asset-label">Mature defensive stocks<span class="ex">KO, JNJ, PG</span></div>
+      <div class="cell ok">OK</div>
+      <div class="cell weak">Range-bound</div>
+      <div class="cell good">Great</div>
+      <div class="cell weak">Weak</div>
+      <div class="cell good">Pair w/ peers</div>
+      <div class="cell good">Value/Quality fits</div>
+      <div class="cell ok">OK</div>
+    </div>
+
+    <div class="row">
+      <div class="asset-label">Small-cap value stocks<span class="ex">F-Score &gt; 7</span></div>
+      <div class="cell ok">OK</div>
+      <div class="cell ok">Subject to crashes</div>
+      <div class="cell good">Great</div>
+      <div class="cell ok">OK</div>
+      <div class="cell weak">Hard to pair</div>
+      <div class="cell good">Best home for Piotroski</div>
+      <div class="cell weak">Sparse coverage</div>
+    </div>
+
+    <div class="row">
+      <div class="asset-label">Broad-market ETFs<span class="ex">SPY, QQQ, VTI</span></div>
+      <div class="cell good">Great (defensive)</div>
+      <div class="cell ok">Time-series momentum</div>
+      <div class="cell weak">Lower edge</div>
+      <div class="cell ok">OK</div>
+      <div class="cell no">N/A</div>
+      <div class="cell no">Embedded</div>
+      <div class="cell weak">Index-level only</div>
+    </div>
+
+    <div class="row">
+      <div class="asset-label">Sector ETFs<span class="ex">XLE, XLF, XLK</span></div>
+      <div class="cell good">Good</div>
+      <div class="cell good">Sector rotation</div>
+      <div class="cell ok">OK</div>
+      <div class="cell good">Good</div>
+      <div class="cell ok">XLE vs XOP, etc.</div>
+      <div class="cell no">N/A</div>
+      <div class="cell weak">Coarse</div>
+    </div>
+
+    <div class="row">
+      <div class="asset-label">Precious metals<span class="ex">GLD, SLV, gold futures</span></div>
+      <div class="cell good">Great</div>
+      <div class="cell good">Strong trends</div>
+      <div class="cell good">Range markets</div>
+      <div class="cell good">Great</div>
+      <div class="cell good">Gold/silver classic</div>
+      <div class="cell no">No fundamentals</div>
+      <div class="cell weak">Macro-driven</div>
+    </div>
+
+    <div class="row">
+      <div class="asset-label">Energy commodities<span class="ex">USO, UNG, oil futures</span></div>
+      <div class="cell good">Great</div>
+      <div class="cell good">Strong trends</div>
+      <div class="cell ok">Mean-revert in range</div>
+      <div class="cell good">Great</div>
+      <div class="cell ok">USO vs XLE</div>
+      <div class="cell no">No fundamentals</div>
+      <div class="cell ok">News-sensitive</div>
+    </div>
+
+    <div class="row">
+      <div class="asset-label">Industrial commodities<span class="ex">DBB, copper, DBA</span></div>
+      <div class="cell good">Good</div>
+      <div class="cell good">Good</div>
+      <div class="cell ok">OK</div>
+      <div class="cell good">Good</div>
+      <div class="cell weak">Limited universe</div>
+      <div class="cell no">No fundamentals</div>
+      <div class="cell weak">Sparse</div>
+    </div>
+
+    <div class="row">
+      <div class="asset-label">Bonds / rates ETFs<span class="ex">TLT, IEF, BND</span></div>
+      <div class="cell good">Good (defensive)</div>
+      <div class="cell weak">Slow moves</div>
+      <div class="cell good">Yield range</div>
+      <div class="cell weak">Rare</div>
+      <div class="cell ok">TLT vs IEF</div>
+      <div class="cell no">N/A</div>
+      <div class="cell weak">Fed-driven</div>
+    </div>
+  </div>
+
+  <div class="legend" style="margin-top:12px;">
+    <span><span class="sw" style="background:rgba(142,240,194,0.30)"></span>Strong fit</span>
+    <span><span class="sw" style="background:rgba(110,168,255,0.30)"></span>Works, not first choice</span>
+    <span><span class="sw" style="background:rgba(255,209,102,0.30)"></span>Weak / use with care</span>
+    <span><span class="sw" style="background:rgba(255,118,118,0.30)"></span>Does not apply</span>
+  </div>
+</section>
+
+<section class="card" id="commodities">
+  <h2>3. Commodities vs Stocks &mdash; The Key Differences</h2>
+  <p>If your asset is a commodity (gold, oil, copper, or commodity ETFs like GLD/USO/DBC), a big slice of the library doesn't apply. Knowing why up front saves time.</p>
+
+  <div class="grid-2">
+    <div class="tile">
+      <h4>Why fundamental strategies <strong>don't</strong> work on commodities</h4>
+      <p>Gold doesn't have earnings. There's no balance sheet, no P/E, no buyback yield, no analyst revisions. Strategies that rank by fundamentals (Value Composite, Piotroski Quality, Buyback Yield, PEAD, Earnings Revisions) are mechanically incompatible. The wizard skips them automatically for commodities.</p>
+    </div>
+    <div class="tile">
+      <h4>Why trend / breakout strategies <strong>shine</strong> on commodities</h4>
+      <p>Supply shocks (OPEC, droughts, mining outages) and macro narratives (inflation, dollar weakness) create persistent trends. Time-series momentum and Donchian breakout have been profitable on commodities for decades &mdash; this is the CTA / managed-futures playbook applied to single names.</p>
+    </div>
+    <div class="tile">
+      <h4>Why mean-reversion <strong>can</strong> work on commodities</h4>
+      <p>When inventories are well-supplied and there's no shock, commodities trade in ranges. Bollinger Bands and RSI work, especially on industrial metals and ag commodities. Don't combine with high leverage &mdash; the regime can flip violently to trend mode.</p>
+    </div>
+    <div class="tile">
+      <h4>Why news sentiment is <strong>noisier</strong></h4>
+      <p>Commodity news is heavily macro-driven (Fed, OPEC, China growth). Single-commodity sentiment scores from NLP models are less precise than for individual stocks. If you use it, combine with a trend co-signal.</p>
+    </div>
+  </div>
+
+  <div class="callout warn"><strong>Practical commodity stack for retail.</strong> Most retail-friendly commodity strategies on Livermore: Moving Average Filter, Time-Series Momentum, Breakout, Bollinger Mean-Reversion. Add the Vol-Target overlay to keep position sizes reasonable when realized volatility spikes.</div>
+</section>
+
+<section class="card" id="tiebreak">
+  <h2>4. Tie-Breakers &mdash; When Two Strategies Look Equally Good</h2>
+  <p>The wizard will sometimes return three strategies with similar scores. Use these five questions, in this order, to pick:</p>
+
+  <table>
+    <thead><tr><th>#</th><th>Question</th><th>Why it matters</th><th>How to act</th></tr></thead>
+    <tbody>
+      <tr><td>1</td><td>Which has more historical evidence?</td><td>Tier A (decades of replication) beats Tier B (recent / capacity-limited) beats Tier C (mixed).</td><td>Prefer Tier A unless the asset is exotic.</td></tr>
+      <tr><td>2</td><td>Does your monitoring rhythm match?</td><td>A monthly-rebalance strategy run by someone who checks daily creates noise; a daily strategy run by someone who checks monthly creates missed exits.</td><td>Pick the strategy whose natural cadence matches your check-in habit.</td></tr>
+      <tr><td>3</td><td>What's the tax footprint?</td><td>High-turnover strategies (Short-Term Reversal, News Sentiment) realize short-term gains, taxed as income.</td><td>In a taxable account, prefer lower-turnover strategies. In an IRA / 401(k), ignore.</td></tr>
+      <tr><td>4</td><td>Sleep test &mdash; how big a drop can you sit through?</td><td>Cross-Sectional Momentum has had &minus;30% drawdowns in months. Low-Volatility has had &minus;10%. Same return doesn't mean same comfort.</td><td>If &gt; 20% peak-to-trough drawdown ruins your sleep, prefer the lower-DD option.</td></tr>
+      <tr><td>5</td><td>Are you trying to learn, or to deploy?</td><td>Simpler templates (MA Filter, Breakout) teach you about price; composite templates (Multi-Factor) are black-boxier.</td><td>If learning, prefer the simplest of the three. If deploying, prefer the most robust.</td></tr>
+    </tbody>
+  </table>
+
+  <div class="callout">If after all five tie-breakers you still can't decide, the answer is "run both small &mdash; on paper or with $1k each &mdash; for one cycle, then double-down on the one that feels right." Forced comparison teaches more than analysis.</div>
+</section>
+
+<section class="card" id="byo">
+  <h2>5. Build Your Own &mdash; The Simplified 4-Block Model</h2>
+  <p>Every strategy in the Livermore library is a combination of <strong>four building blocks</strong>. Once you see this, the library isn't 20+ separate things; it's a handful of choices stacked together. You can mix-and-match to build your own.</p>
+
+  <div class="blocks">
+    <div class="block b1">
+      <div class="num">1</div>
+      <div class="title">WHAT</div>
+      <div class="sub">The asset(s) you'll trade</div>
+      <ul>
+        <li>Just one ticker (e.g. AAPL)</li>
+        <li>A small basket (5&ndash;15 names)</li>
+        <li>A pair of related assets</li>
+        <li>Sector ETFs (the 11 SPDRs)</li>
+        <li>A broad market ETF (SPY, VTI)</li>
+      </ul>
+    </div>
+
+    <div class="block b2">
+      <div class="num">2</div>
+      <div class="title">WHEN IN</div>
+      <div class="sub">What triggers you to buy</div>
+      <ul>
+        <li>Trend filter (price &gt; moving average)</li>
+        <li>Momentum (top of basket by N-month return)</li>
+        <li>Mean reversion (RSI &lt; 30, or below lower band)</li>
+        <li>Breakout (new N-day high)</li>
+        <li>Fundamental (top decile of factor score)</li>
+        <li>Signal (insider buying, sentiment turn)</li>
+      </ul>
+    </div>
+
+    <div class="block b3">
+      <div class="num">3</div>
+      <div class="title">HOW MUCH</div>
+      <div class="sub">Position sizing &amp; risk</div>
+      <ul>
+        <li>Full position (one ticker)</li>
+        <li>Equal weight across selected names</li>
+        <li>Vol target (auto-scale to 10% annual vol)</li>
+        <li>Hard stop at &minus;X% from entry</li>
+        <li>Combined: equal-weight + per-name stop</li>
+      </ul>
+    </div>
+
+    <div class="block b4">
+      <div class="num">4</div>
+      <div class="title">WHEN OUT</div>
+      <div class="sub">What triggers you to sell</div>
+      <ul>
+        <li>Entry signal flips (symmetric)</li>
+        <li>Mean-reversion target (RSI &gt; 70, back to MA)</li>
+        <li>Fixed holding period (5d, 1m, 1q)</li>
+        <li>Hit stop loss</li>
+        <li>Periodic rebalance (re-rank monthly)</li>
+      </ul>
+    </div>
+  </div>
+
+  <h3>Worked examples &mdash; how library templates assemble from 4 blocks</h3>
+  <table>
+    <thead><tr><th>Template</th><th>WHAT</th><th>WHEN IN</th><th>HOW MUCH</th><th>WHEN OUT</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><strong>Moving Average Filter</strong></td>
+        <td>One ticker</td>
+        <td>Price &gt; 200-day MA</td>
+        <td>Full position</td>
+        <td>Signal flips</td>
+      </tr>
+      <tr>
+        <td><strong>Sector Rotation</strong></td>
+        <td>11 SPDR sector ETFs</td>
+        <td>Top-3 by 6-month return</td>
+        <td>Equal-weight, 1/3 each</td>
+        <td>Monthly re-rank</td>
+      </tr>
+      <tr>
+        <td><strong>RSI Mean-Reversion</strong></td>
+        <td>One ticker</td>
+        <td>RSI &lt; 30</td>
+        <td>Full position</td>
+        <td>RSI &gt; 60 or stop &minus;7%</td>
+      </tr>
+      <tr>
+        <td><strong>Pairs Trading</strong></td>
+        <td>Pair (e.g. KO &amp; PEP)</td>
+        <td>Spread z-score &lt; &minus;2</td>
+        <td>Full leg on the cheaper</td>
+        <td>Spread reverts to 0 or z &lt; &minus;3.5 stop</td>
+      </tr>
+      <tr>
+        <td><strong>Multi-Factor Composite</strong></td>
+        <td>Basket of 100+ stocks</td>
+        <td>Top-decile composite score (Value+Mom+Quality+LowVol)</td>
+        <td>Equal-weight, 10 names</td>
+        <td>Monthly re-rank</td>
+      </tr>
+      <tr>
+        <td><strong>Trend on Gold</strong></td>
+        <td>GLD</td>
+        <td>Price &gt; 200-day MA AND 12-month return &gt; 0</td>
+        <td>Vol-target 10%</td>
+        <td>Either signal flips</td>
+      </tr>
+    </tbody>
+  </table>
+
+  <div class="callout good">Building your own = pick one option from each of the four blocks. Most retail-friendly custom strategies are just a small twist on a library template &mdash; e.g. "Sector Rotation, but with the Vol-Target overlay" or "Pairs Trading, but on commodity ETFs (GLD/SLV instead of stock pairs)".</div>
+
+  <h3>Three retail-friendly custom recipes to try</h3>
+  <div class="grid-3">
+    <div class="tile">
+      <h4>Recipe A: "Buy SPY when it's safe"</h4>
+      <p><strong>WHAT</strong>: SPY only. <strong>IN</strong>: Price &gt; 200-day MA. <strong>SIZE</strong>: Full. <strong>OUT</strong>: Price &lt; 200-day MA. <em>Sidesteps 2008 / 2022-style bear markets.</em></p>
+    </div>
+    <div class="tile">
+      <h4>Recipe B: "Defensive Gold Trend"</h4>
+      <p><strong>WHAT</strong>: GLD. <strong>IN</strong>: 12-month return &gt; 0 AND price &gt; 200-day MA. <strong>SIZE</strong>: Vol-target 10%. <strong>OUT</strong>: Either signal flips. <em>Catches gold rallies, exits during chops.</em></p>
+    </div>
+    <div class="tile">
+      <h4>Recipe C: "Sector Top-3"</h4>
+      <p><strong>WHAT</strong>: 11 SPDR sector ETFs. <strong>IN</strong>: Top-3 by 6-month return. <strong>SIZE</strong>: Equal-weight 1/3 each. <strong>OUT</strong>: Monthly re-rank. <em>Robust default for prosumer users.</em></p>
+    </div>
+  </div>
+</section>
+
+<section class="card" id="designer">
+  <h2>6. Notes for the Livermore Product Team</h2>
+  <p class="dim small">How to wire this picker into the actual product.</p>
+
+  <h3>6.1 Where this lives in the user journey</h3>
+  <ul>
+    <li><strong>Onboarding</strong> — new user lands on the template gallery and sees a "Not sure where to start? Try the picker." CTA that opens this wizard.</li>
+    <li><strong>Stuck-user assist</strong> — if a user has run the chat builder for 5+ minutes without converging on a strategy, offer the wizard.</li>
+    <li><strong>Education tab</strong> — link this page from any tooltip that says "what kind of strategy is this?"</li>
+  </ul>
+
+  <h3>6.2 Wizard implementation in Livermore</h3>
+  <p>The wizard is pure HTML+JS and self-contained. To embed in the Next.js app:</p>
+  <ol>
+    <li>Port the question/strategy data structure into <code>apps/web/src/lib/strategy-picker/data.ts</code>.</li>
+    <li>Build a React component <code>StrategyPicker</code> at <code>apps/web/src/components/strategy-picker/</code>.</li>
+    <li>Recommendations link directly to the existing template gallery cards by <code>livermore_strategy_type</code>.</li>
+    <li>Track <code>picker_started</code>, <code>picker_completed</code>, <code>picker_template_selected</code> in <code>template_usage_events</code> so the quarterly cycle can see which questions are most predictive.</li>
+  </ol>
+
+  <h3>6.3 What this enables</h3>
+  <p>This picker is the bridge from the <em>universe</em> of strategies (the Strategy Library) to the <em>specific recommendation</em> the user actually clicks. It also gives retail users a mental model of how the templates relate so they can graduate to the chat builder or the 4-block custom builder when ready.</p>
+
+  <h3>6.4 Telemetry to add to the next quarterly cycle</h3>
+  <ul>
+    <li>Picker completion rate (% who answer all 5 questions)</li>
+    <li>Most common answer combinations</li>
+    <li>Click-through rate from recommendation &rarr; backtest</li>
+    <li>Which recommendations are <em>never</em> selected (candidates for removal from the wizard pool)</li>
+  </ul>
+</section>
+
+<footer>
+  <p>Companion files: <a href="Livermore_Library_Iteration_Framework.html">Iteration Framework</a> &middot; <a href="quarterly-runbook.md">Runbook</a> &middot; <a href="../Quant Strategy building/Livermore_Strategy_Library_v2.html">Strategy Library v2</a></p>
+</footer>
+
+</div>
+
+<!-- =========================== WIZARD LOGIC =========================== -->
+<script>
+(function() {
+  'use strict';
+
+  // -------- Question definitions --------
+  const QUESTIONS = [
+    {
+      key: 'goal',
+      title: "What are you trying to do with this asset?",
+      sub: "There are no wrong answers. Just pick the one that's closest to your intent.",
+      options: [
+        { val: 'growth',  label: 'Grow money over years',   desc: 'You want compounding wealth. Time horizon: months to years.' },
+        { val: 'defense', label: 'Protect from big drops',  desc: "You're worried about a 2008-style year. You'll accept lower returns for fewer scary moments." },
+        { val: 'alpha',   label: 'Beat the market',         desc: "You want better risk-adjusted returns than just buying SPY." },
+        { val: 'learn',   label: 'Trade actively and learn',desc: "You enjoy watching markets and want hands-on signals to act on." },
+        { val: 'hedge',   label: 'Hedge an existing position', desc: "You already own something and want a paired/neutral strategy to offset risk." }
+      ]
+    },
+    {
+      key: 'cadence',
+      title: "How often will you actually check the strategy?",
+      sub: "Be honest. A strategy run at the wrong cadence creates noise.",
+      options: [
+        { val: 'daily',     label: 'Every day',     desc: "You're an active trader; you check before and after market open." },
+        { val: 'weekly',    label: 'Once a week',   desc: "Weekend or Monday check-in. Most retail prosumers." },
+        { val: 'monthly',   label: 'Once a month',  desc: "Calendar-driven rebalance. Low effort." },
+        { val: 'quarterly', label: 'Once a quarter', desc: "Slow, deliberate. Earnings-season aligned." },
+        { val: 'yearly',    label: 'Once a year',   desc: "Set and forget for tax-advantaged accounts." }
+      ]
+    },
+    {
+      key: 'asset',
+      title: "What's the shape of your asset?",
+      sub: "This filters which strategies even make sense.",
+      options: [
+        { val: 'single_stock',     label: 'A single stock',           desc: "AAPL, NVDA, KO, etc. — one name you have a view on." },
+        { val: 'single_commodity', label: 'A single commodity',       desc: "Gold (GLD), oil (USO), copper, etc. — one commodity or its proxy ETF." },
+        { val: 'stock_basket',     label: 'A basket of stocks',       desc: "S&P 500 names, sector members, or your own picked list of 10+ stocks." },
+        { val: 'sector_etf',       label: 'Sector ETFs',              desc: "The 11 SPDR sector ETFs (XLE, XLF, XLK, …) or industry ETFs." },
+        { val: 'broad_etf',        label: 'A broad market ETF',       desc: "SPY, QQQ, VTI — one diversified index ETF." },
+        { val: 'pair',             label: 'A pair of related assets', desc: "Two names that move together (KO/PEP, gold/silver, oil/gas, two banks)." }
+      ]
+    },
+    {
+      key: 'behavior',
+      title: "How does your asset usually behave?",
+      sub: "Pick the closest. If unsure, use the third option — it's safe.",
+      options: [
+        { val: 'trend',   label: 'Strongly trending',           desc: "Stretches of one direction (commodities in supply shocks, growth stocks in bull cycles, gold in inflation)." },
+        { val: 'mean',    label: 'Range-bound / mean-reverts',  desc: "Bounces between levels (utilities, mature defensives, bonds when rates are stable)." },
+        { val: 'unknown', label: "Mixed / I don't know",        desc: "It does both, or you haven't watched it long enough. Default to balanced strategies." }
+      ]
+    },
+    {
+      key: 'dd',
+      title: "How big a temporary drop can you sit through without panicking?",
+      sub: "Honest answer beats aspirational answer. This filters out high-drawdown strategies.",
+      options: [
+        { val: 'low',    label: 'Under 15% (sleep-easy mode)',  desc: "You'll quit a strategy if it goes &minus;20%. You want defensive templates." },
+        { val: 'medium', label: 'Up to 25%',                    desc: "You can stomach typical bear-market pain if you understand the strategy." },
+        { val: 'high',   label: '40%+ for higher returns',      desc: "You're playing for long-run compounding and won't quit during a momentum crash." }
+      ]
+    }
+  ];
+
+  // -------- Strategy profiles --------
+  // For each strategy, define how well it fits each answer-value (0=poor, 1=ok, 2=good).
+  // drawdown = typical historical max drawdown bucket. requiresFundamentals = excludes from commodities.
+  const STRATEGIES = [
+    {
+      slug: 'moving_average_filter',
+      name: 'Moving Average Filter',
+      blurb: "Hold the asset only when its price is above a long moving average. The rest of the time, sit in cash. Avoids most of the pain of bear markets.",
+      goals: { growth: 2, defense: 2, alpha: 1, learn: 2, hedge: 0 },
+      cadence: { daily: 1, weekly: 2, monthly: 2, quarterly: 1, yearly: 0 },
+      asset: { single_stock: 2, single_commodity: 2, stock_basket: 1, sector_etf: 1, broad_etf: 2, pair: 0 },
+      behavior: { trend: 2, mean: 0, unknown: 1 },
+      drawdown: 'low', evidence: 'A', cap: 'Retail',
+      example: "SPY: hold when price > 200-day MA, else cash. Sidestepped most of 2008 and 2022."
+    },
+    {
+      slug: 'moving_average_crossover',
+      name: 'Moving Average Crossover',
+      blurb: "The classic SMA-50 vs SMA-200 trend rule. Long when fast MA is above slow MA, else cash.",
+      goals: { growth: 2, defense: 1, alpha: 1, learn: 2, hedge: 0 },
+      cadence: { daily: 1, weekly: 2, monthly: 2, quarterly: 1, yearly: 0 },
+      asset: { single_stock: 2, single_commodity: 2, stock_basket: 1, sector_etf: 1, broad_etf: 2, pair: 0 },
+      behavior: { trend: 2, mean: 0, unknown: 1 },
+      drawdown: 'medium', evidence: 'A', cap: 'Retail',
+      example: "Gold (GLD): long when SMA(50) > SMA(200). Caught the 2019–2020 rally."
+    },
+    {
+      slug: 'time_series_momentum',
+      name: 'Time-Series Momentum',
+      blurb: "Long when the asset's own past 12-month return is positive. Trend at its simplest.",
+      goals: { growth: 2, defense: 1, alpha: 2, learn: 1, hedge: 0 },
+      cadence: { daily: 0, weekly: 1, monthly: 2, quarterly: 2, yearly: 1 },
+      asset: { single_stock: 2, single_commodity: 2, stock_basket: 1, sector_etf: 2, broad_etf: 2, pair: 0 },
+      behavior: { trend: 2, mean: 0, unknown: 1 },
+      drawdown: 'medium', evidence: 'A', cap: 'Retail',
+      example: "Hold oil (USO) only when its trailing 12-month return is > 0. Otherwise cash."
+    },
+    {
+      slug: 'cross_sectional_momentum',
+      name: 'Cross-Sectional Momentum (12-1)',
+      blurb: "Rank a basket of stocks by their 12-month return (skip last month). Hold the top decile. Replicated for 30+ years.",
+      goals: { growth: 2, defense: 0, alpha: 2, learn: 1, hedge: 0 },
+      cadence: { daily: 0, weekly: 1, monthly: 2, quarterly: 1, yearly: 0 },
+      asset: { single_stock: 0, single_commodity: 0, stock_basket: 2, sector_etf: 1, broad_etf: 0, pair: 0 },
+      behavior: { trend: 2, mean: 0, unknown: 1 },
+      drawdown: 'high', evidence: 'A', cap: 'Prosumer',
+      example: "Universe: S&P 500. Each month, hold the top 50 names by 12-month return (skip last month)."
+    },
+    {
+      slug: 'sector_rotation',
+      name: 'Sector Rotation (SPDR)',
+      blurb: "Each month, hold the top-3 of 11 sector ETFs by their 6-month return. A retail favorite — strong evidence, modest turnover.",
+      goals: { growth: 2, defense: 1, alpha: 2, learn: 2, hedge: 0 },
+      cadence: { daily: 0, weekly: 1, monthly: 2, quarterly: 1, yearly: 0 },
+      asset: { single_stock: 0, single_commodity: 0, stock_basket: 0, sector_etf: 2, broad_etf: 0, pair: 0 },
+      behavior: { trend: 2, mean: 0, unknown: 1 },
+      drawdown: 'medium', evidence: 'B', cap: 'Retail',
+      example: "XLE/XLF/XLK/XLV/XLY/XLP/XLU/XLI/XLB/XLRE/XLC — hold top 3 each month."
+    },
+    {
+      slug: 'dual_momentum',
+      name: 'Dual Momentum (Antonacci)',
+      blurb: "Combines cross-sectional and absolute momentum: pick the top of a small set by 12-month return; if it's negative, go to bonds/cash. Famous retail strategy.",
+      goals: { growth: 2, defense: 2, alpha: 1, learn: 2, hedge: 0 },
+      cadence: { daily: 0, weekly: 0, monthly: 2, quarterly: 1, yearly: 0 },
+      asset: { single_stock: 0, single_commodity: 0, stock_basket: 1, sector_etf: 2, broad_etf: 1, pair: 0 },
+      behavior: { trend: 2, mean: 0, unknown: 1 },
+      drawdown: 'low', evidence: 'B', cap: 'Retail',
+      example: "Pick best of (SPY, EFA, AGG) by 12-month return. If best is negative, go 100% to BIL."
+    },
+    {
+      slug: 'low_volatility',
+      name: 'Low-Volatility Tilt',
+      blurb: "Hold a basket of the lowest-volatility names in a universe. The defensive premium — lower risk has historically not meant lower return.",
+      goals: { growth: 1, defense: 2, alpha: 2, learn: 1, hedge: 0 },
+      cadence: { daily: 0, weekly: 0, monthly: 1, quarterly: 2, yearly: 1 },
+      asset: { single_stock: 0, single_commodity: 0, stock_basket: 2, sector_etf: 1, broad_etf: 0, pair: 0 },
+      behavior: { trend: 1, mean: 1, unknown: 2 },
+      drawdown: 'low', evidence: 'A', cap: 'Retail',
+      example: "S&P 500 universe. Hold the 50 stocks with the lowest 252-day volatility, rebalance quarterly."
+    },
+    {
+      slug: 'rsi_mean_reversion',
+      name: 'RSI Mean Reversion',
+      blurb: "Buy when RSI(14) < 30, sell when RSI > 60. A classic retail mean-reversion swing trade.",
+      goals: { growth: 1, defense: 0, alpha: 1, learn: 2, hedge: 0 },
+      cadence: { daily: 2, weekly: 2, monthly: 0, quarterly: 0, yearly: 0 },
+      asset: { single_stock: 2, single_commodity: 2, stock_basket: 0, sector_etf: 1, broad_etf: 1, pair: 0 },
+      behavior: { trend: 0, mean: 2, unknown: 1 },
+      drawdown: 'medium', evidence: 'B', cap: 'Retail',
+      example: "Hold KO when its RSI(14) drops below 30; exit when RSI crosses above 60."
+    },
+    {
+      slug: 'bollinger_mean_reversion',
+      name: 'Bollinger Mean Reversion',
+      blurb: "Buy when price drops below the lower Bollinger band (mean − 2σ), exit when it returns to the mean. Mirror of RSI for traders who prefer price levels.",
+      goals: { growth: 1, defense: 0, alpha: 1, learn: 2, hedge: 0 },
+      cadence: { daily: 2, weekly: 2, monthly: 0, quarterly: 0, yearly: 0 },
+      asset: { single_stock: 2, single_commodity: 2, stock_basket: 0, sector_etf: 1, broad_etf: 1, pair: 0 },
+      behavior: { trend: 0, mean: 2, unknown: 1 },
+      drawdown: 'medium', evidence: 'B', cap: 'Retail',
+      example: "Copper futures: buy on close < (SMA(20) − 2σ), exit on close > SMA(20)."
+    },
+    {
+      slug: 'breakout',
+      name: 'Breakout (Donchian)',
+      blurb: "Long when price closes above its N-day high. Exit when it closes below its M-day low. The Turtle Traders' rule.",
+      goals: { growth: 2, defense: 0, alpha: 2, learn: 2, hedge: 0 },
+      cadence: { daily: 1, weekly: 2, monthly: 1, quarterly: 0, yearly: 0 },
+      asset: { single_stock: 2, single_commodity: 2, stock_basket: 1, sector_etf: 1, broad_etf: 1, pair: 0 },
+      behavior: { trend: 2, mean: 0, unknown: 1 },
+      drawdown: 'high', evidence: 'A', cap: 'Retail',
+      example: "GLD: long on 60-day high breakout, exit on 20-day low."
+    },
+    {
+      slug: 'pairs_trading',
+      name: 'Pairs Trading (Z-score)',
+      blurb: "Long the cheaper of a cointegrated pair, exit when the spread normalizes. The market-neutral retail strategy.",
+      goals: { growth: 1, defense: 1, alpha: 2, learn: 2, hedge: 2 },
+      cadence: { daily: 2, weekly: 2, monthly: 0, quarterly: 0, yearly: 0 },
+      asset: { single_stock: 0, single_commodity: 0, stock_basket: 0, sector_etf: 0, broad_etf: 0, pair: 2 },
+      behavior: { trend: 0, mean: 2, unknown: 1 },
+      drawdown: 'medium', evidence: 'B', cap: 'Prosumer',
+      example: "KO/PEP: long KO when spread z-score < −2; exit at z = 0; stop at z < −3.5."
+    },
+    {
+      slug: 'short_term_reversal',
+      name: 'Short-Term Reversal (1-week)',
+      blurb: "Buy last-week losers, sell next week. High turnover; only profitable with low costs.",
+      goals: { growth: 1, defense: 0, alpha: 2, learn: 1, hedge: 0 },
+      cadence: { daily: 2, weekly: 2, monthly: 0, quarterly: 0, yearly: 0 },
+      asset: { single_stock: 0, single_commodity: 0, stock_basket: 2, sector_etf: 0, broad_etf: 0, pair: 0 },
+      behavior: { trend: 0, mean: 2, unknown: 0 },
+      drawdown: 'medium', evidence: 'B', cap: 'Prosumer',
+      example: "Each Monday, buy bottom 10 names by previous week's return. Hold for 5 days."
+    },
+    {
+      slug: 'static_allocation',
+      name: 'Static Allocation',
+      blurb: "Fixed weights, rebalance once a year (e.g. 60/40 SPY/AGG). The benchmark every active strategy is measured against.",
+      goals: { growth: 2, defense: 2, alpha: 0, learn: 0, hedge: 0 },
+      cadence: { daily: 0, weekly: 0, monthly: 0, quarterly: 1, yearly: 2 },
+      asset: { single_stock: 0, single_commodity: 0, stock_basket: 1, sector_etf: 1, broad_etf: 2, pair: 0 },
+      behavior: { trend: 1, mean: 1, unknown: 2 },
+      drawdown: 'medium', evidence: 'A', cap: 'Retail',
+      example: "Hold 60% VTI / 40% BND; rebalance once a year."
+    },
+    {
+      slug: 'multi_factor_composite',
+      name: 'Multi-Factor Composite',
+      blurb: "Combines value, momentum, quality, and low-vol scores into one rank. The defensible Pro template for long-only equity alpha.",
+      goals: { growth: 2, defense: 1, alpha: 2, learn: 0, hedge: 0 },
+      cadence: { daily: 0, weekly: 0, monthly: 1, quarterly: 2, yearly: 0 },
+      asset: { single_stock: 0, single_commodity: 0, stock_basket: 2, sector_etf: 0, broad_etf: 0, pair: 0 },
+      behavior: { trend: 1, mean: 1, unknown: 2 },
+      drawdown: 'medium', evidence: 'A', cap: 'Prosumer',
+      requiresFundamentals: true,
+      example: "S&P 500 universe. Z-score Value/Momentum/Quality/LowVol; average; hold top decile."
+    },
+    {
+      slug: 'quality_piotroski',
+      name: 'Quality (Piotroski F-Score)',
+      blurb: "Hold stocks with high financial-strength scores (F-Score ≥ 8). Best on small-cap value, but works broadly.",
+      goals: { growth: 2, defense: 1, alpha: 2, learn: 1, hedge: 0 },
+      cadence: { daily: 0, weekly: 0, monthly: 0, quarterly: 2, yearly: 1 },
+      asset: { single_stock: 0, single_commodity: 0, stock_basket: 2, sector_etf: 0, broad_etf: 0, pair: 0 },
+      behavior: { trend: 0, mean: 1, unknown: 1 },
+      drawdown: 'medium', evidence: 'A', cap: 'Prosumer',
+      requiresFundamentals: true,
+      example: "Universe: small-cap value. Hold names with F-Score ≥ 8; rebalance quarterly."
+    },
+    {
+      slug: 'value_composite',
+      name: 'Value Composite',
+      blurb: "Z-score Free-Cash-Flow yield + Book/Market + EBITDA/EV; hold the top decile. Modern multi-metric value.",
+      goals: { growth: 2, defense: 1, alpha: 2, learn: 0, hedge: 0 },
+      cadence: { daily: 0, weekly: 0, monthly: 1, quarterly: 2, yearly: 0 },
+      asset: { single_stock: 0, single_commodity: 0, stock_basket: 2, sector_etf: 0, broad_etf: 0, pair: 0 },
+      behavior: { trend: 0, mean: 1, unknown: 1 },
+      drawdown: 'medium', evidence: 'A', cap: 'Prosumer',
+      requiresFundamentals: true,
+      example: "S&P 1500 universe. Quarterly rebalance into top-decile of value composite."
+    },
+    {
+      slug: 'buyback_yield',
+      name: 'Buyback Yield',
+      blurb: "Hold companies in the top decile of net share repurchases. Particularly strong when combined with value.",
+      goals: { growth: 2, defense: 0, alpha: 2, learn: 0, hedge: 0 },
+      cadence: { daily: 0, weekly: 0, monthly: 0, quarterly: 2, yearly: 1 },
+      asset: { single_stock: 0, single_commodity: 0, stock_basket: 2, sector_etf: 0, broad_etf: 0, pair: 0 },
+      behavior: { trend: 1, mean: 1, unknown: 1 },
+      drawdown: 'medium', evidence: 'A', cap: 'Prosumer',
+      requiresFundamentals: true,
+      example: "S&P 500 universe. Quarterly rebalance into the top 50 by trailing 12-month net buyback yield."
+    },
+    {
+      slug: 'pead_drift',
+      name: 'Post-Earnings Drift (PEAD)',
+      blurb: "After an earnings beat, the stock keeps drifting up for ~60 trading days. Hold positive-surprise names through that drift.",
+      goals: { growth: 1, defense: 0, alpha: 2, learn: 1, hedge: 0 },
+      cadence: { daily: 1, weekly: 2, monthly: 1, quarterly: 0, yearly: 0 },
+      asset: { single_stock: 1, single_commodity: 0, stock_basket: 2, sector_etf: 0, broad_etf: 0, pair: 0 },
+      behavior: { trend: 1, mean: 0, unknown: 1 },
+      drawdown: 'medium', evidence: 'A', cap: 'Prosumer',
+      requiresFundamentals: true,
+      example: "Each day, hold any name whose latest earnings SUE is top-decile, for 60 trading days."
+    },
+    {
+      slug: 'news_sentiment_momentum',
+      name: 'News Sentiment Momentum',
+      blurb: "Buy names with the most positive 30-day news sentiment. Mixed evidence — best combined with a price-trend co-signal.",
+      goals: { growth: 1, defense: 0, alpha: 1, learn: 1, hedge: 0 },
+      cadence: { daily: 1, weekly: 2, monthly: 1, quarterly: 0, yearly: 0 },
+      asset: { single_stock: 1, single_commodity: 0, stock_basket: 2, sector_etf: 0, broad_etf: 0, pair: 0 },
+      behavior: { trend: 1, mean: 0, unknown: 1 },
+      drawdown: 'medium', evidence: 'C', cap: 'Prosumer',
+      example: "S&P 500 universe. Hold top decile of 30-day FinBERT sentiment; combine with 200-day MA filter."
+    }
+  ];
+
+  // -------- Scoring --------
+  function scoreStrategy(s, ans) {
+    // Hard disqualifiers
+    if ((ans.asset === 'single_commodity' || ans.asset === 'pair') && s.requiresFundamentals) return -1;
+    if (ans.dd === 'low' && s.drawdown === 'high') return -1;
+    if (s.asset[ans.asset] === 0) return -1; // asset incompatible
+
+    let score = 0;
+    score += 2 * (s.asset[ans.asset]   || 0); // asset weighted strongly
+    score += 1.5 * (s.behavior[ans.behavior] || 0);
+    score += 1 * (s.goals[ans.goal]    || 0);
+    score += 1 * (s.cadence[ans.cadence] || 0);
+
+    // DD soft adjustment
+    if (ans.dd === 'low' && s.drawdown === 'medium') score -= 0.5;
+    if (ans.dd === 'high' && s.drawdown === 'low')   score -= 0.3;
+    return score;
+  }
+
+  function recommend(ans) {
+    return STRATEGIES.map(s => Object.assign({}, s, { _score: scoreStrategy(s, ans) }))
+      .filter(s => s._score >= 0)
+      .sort((a, b) => b._score - a._score)
+      .slice(0, 3);
+  }
+
+  function buildWhy(s, ans) {
+    const reasons = [];
+    if (s.asset[ans.asset] === 2) reasons.push("Strong fit for your asset type");
+    else if (s.asset[ans.asset] === 1) reasons.push("Works on your asset, though not its first choice");
+    if (s.behavior[ans.behavior] === 2) reasons.push("Designed for assets that " + (ans.behavior === 'trend' ? 'trend' : ans.behavior === 'mean' ? 'mean-revert' : 'have mixed behavior'));
+    if (s.goals[ans.goal] === 2) reasons.push("Matches your goal");
+    if (s.cadence[ans.cadence] === 2) reasons.push("Fits your check-in rhythm");
+    if (s.drawdown === 'low' && ans.dd === 'low') reasons.push("Historically modest drawdowns — sleep-friendly");
+    if (s.evidence === 'A') reasons.push("Tier-A evidence (decades of replication)");
+    return reasons;
+  }
+
+  // -------- Render --------
+  let state = { step: 0, answers: {} };
+  const qArea = document.getElementById('question-area');
+  const btnNext = document.getElementById('btn-next');
+  const btnBack = document.getElementById('btn-back');
+  const progress = document.getElementById('progress');
+  const resultsEl = document.getElementById('results');
+
+  function renderQuestion() {
+    resultsEl.classList.remove('show');
+    const q = QUESTIONS[state.step];
+    const sel = state.answers[q.key];
+    const optsHtml = q.options.map(o =>
+      '<button class="opt' + (sel === o.val ? ' selected' : '') + '" data-val="' + o.val + '">' +
+        '<div class="bullet"></div>' +
+        '<div><div class="label">' + o.label + '</div><div class="desc">' + o.desc + '</div></div>' +
+      '</button>'
+    ).join('');
+    qArea.innerHTML =
+      '<h3 class="q-title">' + (state.step + 1) + '. ' + q.title + '</h3>' +
+      '<p class="q-sub">' + q.sub + '</p>' +
+      '<div class="options">' + optsHtml + '</div>';
+
+    Array.prototype.forEach.call(qArea.querySelectorAll('.opt'), function(btn) {
+      btn.addEventListener('click', function() {
+        state.answers[q.key] = btn.getAttribute('data-val');
+        renderQuestion();
+      });
+    });
+
+    // Progress dots
+    Array.prototype.forEach.call(progress.children, function(dot, i) {
+      dot.className = 'dot' +
+        (i < state.step ? ' done' : '') +
+        (i === state.step ? ' active' : '');
+    });
+
+    btnBack.disabled = state.step === 0;
+    btnNext.disabled = !state.answers[q.key];
+    btnNext.textContent = (state.step === QUESTIONS.length - 1) ? 'See my matches →' : 'Next →';
+  }
+
+  function renderResults() {
+    const recs = recommend(state.answers);
+    progress.style.display = 'none';
+    qArea.innerHTML = '';
+    btnBack.disabled = false;
+    btnNext.disabled = true;
+    btnNext.style.display = 'none';
+    btnBack.textContent = '← Start over';
+
+    let html = '<div class="summary">' +
+      '<h4>Your answers</h4>' +
+      '<div class="dim small">' +
+        QUESTIONS.map(function(q) {
+          const o = q.options.find(function(x){ return x.val === state.answers[q.key]; });
+          return '<strong>' + q.title.split('?')[0] + ':</strong> ' + (o ? o.label : '—');
+        }).join(' &middot; ') +
+      '</div></div>';
+
+    if (recs.length === 0) {
+      html += '<div class="rec"><h4>No clean match</h4>' +
+        '<p class="blurb">Your answers (especially the asset shape combined with the drawdown tolerance) leave no template that fits cleanly. Try widening one constraint, or build a custom strategy using the 4-block model below.</p></div>';
+    } else {
+      recs.forEach(function(s, i) {
+        const reasons = buildWhy(s, state.answers);
+        html += '<div class="rec ' + (i === 0 ? 'top' : 'alt') + '">' +
+          '<div class="rank">' + (i === 0 ? 'Top match' : 'Alternative ' + i) + '</div>' +
+          '<h4>' + s.name + '</h4>' +
+          '<div class="blurb">' + s.blurb + '</div>' +
+          (reasons.length > 0 ? '<div class="why">Why: ' + reasons.join('. ') + '.</div>' : '') +
+          '<div class="ex"><strong>Example:</strong> ' + s.example + '</div>' +
+          '<div class="tags">' +
+            '<span class="tag ' + s.evidence.toLowerCase() + '">Evidence ' + s.evidence + '</span>' +
+            '<span class="tag">' + s.cap + '</span>' +
+            '<span class="tag">Typical drawdown: ' + s.drawdown + '</span>' +
+          '</div></div>';
+      });
+    }
+
+    html += '<div class="callout" style="margin-top:14px;">Three close matches? See the <a href="#tiebreak">tie-breaker section</a>. Want to combine ideas? See the <a href="#byo">4-block model</a>.</div>';
+    resultsEl.innerHTML = html;
+    resultsEl.classList.add('show');
+  }
+
+  btnNext.addEventListener('click', function() {
+    if (state.step < QUESTIONS.length - 1) {
+      state.step++;
+      renderQuestion();
+    } else {
+      renderResults();
+    }
+  });
+
+  btnBack.addEventListener('click', function() {
+    if (resultsEl.classList.contains('show')) {
+      // From results — start over
+      state = { step: 0, answers: {} };
+      progress.style.display = '';
+      btnNext.style.display = '';
+      btnBack.textContent = '← Back';
+      renderQuestion();
+    } else if (state.step > 0) {
+      state.step--;
+      renderQuestion();
+    }
+  });
+
+  renderQuestion();
+})();
+</script>
+
+</body>
+</html>
