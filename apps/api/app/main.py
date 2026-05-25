@@ -38,6 +38,7 @@ from app.api.routes.community_publish import (
 )
 from app.api.routes.email import prefs_router as email_prefs_router, unsub_router as email_unsub_router
 from app.api.routes.saved_strategies import router as saved_strategies_router
+from app.api.routes.signals import router as signals_router
 from app.core.config import get_settings
 from app.db.migrations import run_startup_migrations
 from app.db.session import Base, engine
@@ -369,6 +370,11 @@ app.include_router(community_publish_router)  # Stage 4a
 app.include_router(attribution_router)  # Stage 4a
 app.include_router(email_prefs_router)  # Stage 6a
 app.include_router(email_unsub_router)  # Stage 6a
+# Stage 8 v0 — signals & alerts. Gated on settings.signal_alerts_enabled so the
+# endpoints remain absent (→ 404) in production until lawyer review of the
+# disclaimer copy is complete (build_specs/research_execution_v0_signals_and_alerts.md §11).
+if get_settings().signal_alerts_enabled:
+    app.include_router(signals_router)
 
 
 @app.get("/health")

@@ -33,6 +33,12 @@ class Settings(BaseSettings):
     # 402s but allow the request). Flip to True in production after observing
     # shadow-mode telemetry for ~24h. Stage 6 will replace this with a PostHog flag.
     gating_enabled: bool = False
+    # Stage 8 v0 — signals & alerts feature flag. Defaults to False. Gates the
+    # /api/saved-strategies/{id}/signal endpoints AND the daily recompute cron
+    # (Phase B). Must remain False in production until the disclaimer copy has
+    # been blessed by a securities attorney — see
+    # build_specs/research_execution_v0_signals_and_alerts.md §11, §15.
+    signal_alerts_enabled: bool = False
     # Stage 6a — analytics + email. All empty defaults so the no-op wrappers
     # silently skip when keys aren't configured (local dev, CI, pre-launch).
     posthog_api_key: str = ""
