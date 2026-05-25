@@ -16,6 +16,8 @@ import {
   type RebalanceFrequency,
 } from "@/lib/contracts";
 import { cn } from "@/lib/utils";
+import { StrategyWizard } from "./wizard/strategy-wizard";
+import type { AssetAnswer, WizardAnswers, WizardStrategy } from "./wizard/strategy-wizard-data";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -324,6 +326,43 @@ export function StrategyBuilderModal({
     setStep("template-brief");
   }
 
+  // ── Wizard pick handlers (PR-B / 2026-05-24) ─────────────────────────────
+  // The new 5-question wizard replaces the launch screen. Its picks drop
+  // into the same downstream flows as the legacy launch screen: a
+  // mapped template lands on `template-brief`; an unmapped one falls
+  // through to the custom-2 free-text + matching flow.
+  function handleWizardPickTemplate(payload: { template: ResearchTemplate; answers: WizardAnswers; strategy: WizardStrategy }) {
+    // Pre-fill custom universe with the wizard's ticker context when
+    // entering from a stock-detail page (initialIdea seeded with a
+    // ticker; templateTickers becomes the first chip).
+    const tickerHint = initialCustomTickers?.trim() || templateTickers || payload.template.defaultTickers.join(", ");
+    setSelectedTemplate(payload.template);
+    setTemplateTickers(tickerHint);
+    setCustomConfig(DEFAULT_CUSTOM);
+    setStep("template-brief");
+  }
+
+  function handleWizardPickCustom(_strategy: WizardStrategy, _answers: WizardAnswers) {
+    // The strategy slug didn't map to a researchTemplate — drop the
+    // user into the custom-2 free-text flow (`Describe my idea`) so
+    // they can refine the framework's suggestion themselves.
+    setSelectedTemplate(null);
+    setCustomConfig(DEFAULT_CUSTOM);
+    setStep("custom-2");
+  }
+
+  function handleWizardDescribeIdea() {
+    setStep("custom-2");
+  }
+
+  /** Derive the asset answer from the seeded initialIdea (when the
+   *  user lands here from a stock detail page, the idea is "Backtest
+   *  a strategy on AAPL"). Returns undefined for any other entry. */
+  const wizardInitialAsset: AssetAnswer | undefined =
+    initialIdea && /^Backtest a strategy on \S+/i.test(initialIdea)
+      ? "single_stock"
+      : undefined;
+
   function handleBriefContinue() {
     setStep("template-universe");
   }
@@ -429,59 +468,14 @@ export function StrategyBuilderModal({
       {/* Content area */}
       <div className="flex-1 overflow-y-auto">
 
-        {/* ── LAUNCH ────────────────────────────────────────────────────── */}
+        {/* ── LAUNCH (now the 5-question wizard — PR-B / 2026-05-24) ─────── */}
         {step === "launch" && (
-          <div className="mx-auto flex min-h-full max-w-2xl flex-col items-center justify-center gap-10 px-6 py-16">
-            <div className="text-center space-y-2">
-              <div className="inline-flex items-center gap-2 rounded-full border border-primary/30 bg-primary/8 px-3 py-1 text-xs font-semibold uppercase tracking-widest text-primary">
-                Strategy Builder
-              </div>
-              <h2 className="font-heading text-3xl font-bold tracking-tight">Build a strategy</h2>
-              <p className="text-muted-foreground">Start from a proven template or describe your own idea step by step.</p>
-            </div>
-
-            <div className="grid w-full gap-4 sm:grid-cols-2">
-              {/* Template card */}
-              <button
-                type="button"
-                onClick={() => setStep("template-pick")}
-                className="cursor-pointer group relative overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-primary/5 via-card to-card p-6 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              >
-                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-primary/40 to-transparent" />
-                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl border border-primary/20 bg-primary/10 transition-colors duration-200 group-hover:bg-primary/15">
-                  <BookOpenIcon className="h-5 w-5 text-primary" />
-                </div>
-                <h3 className="font-heading text-lg font-semibold">Use a Template</h3>
-                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-                  Start from a proven quant framework with full academic context and evidence ratings.
-                </p>
-                <div className="mt-5 flex items-center gap-1.5 text-sm font-medium text-primary">
-                  Browse templates
-                  <ChevronRight className="h-4 w-4 transition-transform duration-150 group-hover:translate-x-0.5" aria-hidden="true" />
-                </div>
-              </button>
-
-              {/* Custom card */}
-              <button
-                type="button"
-                onClick={() => setStep("custom-1")}
-                className="cursor-pointer group relative overflow-hidden rounded-2xl border border-border bg-gradient-to-br from-muted/40 via-card to-card p-6 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
-              >
-                <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-border to-transparent" />
-                <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl border border-border bg-muted/50 transition-colors duration-200 group-hover:border-primary/20 group-hover:bg-primary/8">
-                  <PencilIcon className="h-5 w-5 text-muted-foreground transition-colors duration-200 group-hover:text-primary" />
-                </div>
-                <h3 className="font-heading text-lg font-semibold">Describe My Idea</h3>
-                <p className="mt-1.5 text-sm leading-relaxed text-muted-foreground">
-                  Walk through 5 guided steps — we&apos;ll map your idea to the right strategy type and parameters.
-                </p>
-                <div className="mt-5 flex items-center gap-1.5 text-sm font-medium text-muted-foreground group-hover:text-primary transition-colors duration-150">
-                  Start building
-                  <ChevronRight className="h-4 w-4 transition-transform duration-150 group-hover:translate-x-0.5" aria-hidden="true" />
-                </div>
-              </button>
-            </div>
-          </div>
+          <StrategyWizard
+            initialAsset={wizardInitialAsset}
+            onPickTemplate={handleWizardPickTemplate}
+            onPickCustom={handleWizardPickCustom}
+            onDescribeIdea={handleWizardDescribeIdea}
+          />
         )}
 
         {/* ── TEMPLATE PICK ─────────────────────────────────────────────── */}
