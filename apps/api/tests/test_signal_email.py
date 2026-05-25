@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from datetime import date
 from types import SimpleNamespace
+from typing import Optional
 
 from app.emails.signal_alert import CAN_SPAM_ADDRESS, render_signal_alert
 
@@ -24,11 +25,11 @@ def _mk_strategy(title: str = "200-day MA on NVDA") -> SimpleNamespace:
 def _mk_event(
     *,
     change_type: str,
-    previous_signal: dict | None,
-    previous_display: str | None,
+    previous_signal: Optional[dict],
+    previous_display: Optional[str],
     new_signal: dict,
     new_display: str,
-    prices: dict | None = None,
+    prices: Optional[dict] = None,
     as_of: date = date(2026, 5, 25),
 ) -> SimpleNamespace:
     return SimpleNamespace(
