@@ -71,6 +71,14 @@ not improvise rules from training-data assumptions.
 - **Python 3.9 compat** for backend — use `Optional[X]`, not `X | None`,
   because the CI runs on 3.9 even though Railway runs 3.13. The discrepancy
   is documented in `apps/api/CLAUDE.md`.
+- **Avoid `until <cond>; do sleep N; done` in `run_in_background`.** The
+  shape leaves orphaned entries in the harness's "Background tasks" panel
+  even after the underlying process dies — the user has to manually click
+  Stop to clear each one. Prefer a bounded `for i in $(seq 1 N); do …;
+  done` with an explicit max iteration count, or just poll from the
+  foreground. *Why:* 2026-05-24 — a SameSite=None deploy poll sat in the
+  "Running" list for 128 minutes after its condition was met because the
+  harness never received the success signal from the dead OS process.
 
 ---
 
