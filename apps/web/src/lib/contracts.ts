@@ -248,6 +248,16 @@ export interface ResearchTemplate {
   academicRef?: { citation: string; note: string };
   /** Indicative historical performance context shown in the Strategy Brief card. */
   perfContext?: { returnRange: string; sharpeRange: string; worstStretch: string };
+  /** Plain-English entry signal — shown in the WHEN IN section of the
+   *  4-block summary step (PR-C, 2026-05-24). E.g.
+   *  "Hold when price is above the 200-day moving average".
+   *  Optional; falls back to a derived description when absent. */
+  whenInCopy?: string;
+  /** Plain-English exit signal — shown in the WHEN OUT section of the
+   *  4-block summary step (PR-C, 2026-05-24). E.g.
+   *  "Sell when price drops back below the 200-day moving average".
+   *  Optional; falls back to a derived description when absent. */
+  whenOutCopy?: string;
 }
 
 export interface StrategyRule {

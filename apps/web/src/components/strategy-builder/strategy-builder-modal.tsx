@@ -17,7 +17,8 @@ import {
 } from "@/lib/contracts";
 import { cn } from "@/lib/utils";
 import { StrategyWizard } from "./wizard/strategy-wizard";
-import type { AssetAnswer, WizardAnswers, WizardStrategy } from "./wizard/strategy-wizard-data";
+import type { AssetAnswer, DrawdownAnswer, WizardAnswers, WizardStrategy } from "./wizard/strategy-wizard-data";
+import { SummaryStep, type SummaryStepConfig, type RiskPreset } from "./summary-step";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -27,6 +28,7 @@ type Step =
   | "template-brief"
   | "template-universe"
   | "custom-1" | "custom-2" | "custom-3" | "custom-4" | "custom-5"
+  | "summary"
   | "preview";
 
 interface CustomConfig {
@@ -37,7 +39,6 @@ interface CustomConfig {
   stopLossEnabled: boolean;
   stopLossPct: number;
   holdPeriod: RebalanceFrequency;
-  minAdv: number;
   dateRange: "3Y" | "5Y" | "10Y";
   capital: number;
   costBps: number;
@@ -51,7 +52,6 @@ const DEFAULT_CUSTOM: CustomConfig = {
   stopLossEnabled: false,
   stopLossPct: 8,
   holdPeriod: "monthly",
-  minAdv: 5000000,
   dateRange: "5Y",
   capital: 100000,
   costBps: 10,
@@ -229,6 +229,11 @@ export function StrategyBuilderModal({
   const [categoryFilter, setCategoryFilter] = useState<string>("All");
   const [searchQuery, setSearchQuery] = useState("");
   const nameInputRef = useRef<HTMLInputElement>(null);
+  // PR-C: state for the new summary step (4-block model). Populated by
+  // `handleWizardPickTemplate`; consumed by `<SummaryStep />`.
+  const [wizardStrategy, setWizardStrategy] = useState<WizardStrategy | null>(null);
+  const [summaryRiskPreset, setSummaryRiskPreset] = useState<RiskPreset>("medium");
+  const [summaryConfig, setSummaryConfig] = useState<SummaryStepConfig | null>(null);
 
   // Reset when opened
   useEffect(() => {
@@ -288,6 +293,16 @@ export function StrategyBuilderModal({
     return true;
   });
 
+  /** Pull the ticker out of "Backtest a strategy on AAPL" so the
+   *  summary step can pre-fill its WHAT field with just that ticker
+   *  instead of the template's default basket. Returns undefined for
+   *  any other initialIdea shape. */
+  function extractTickerFromIdea(idea: string | undefined): string | undefined {
+    if (!idea) return undefined;
+    const m = idea.match(/^Backtest a strategy on (\S+)/i);
+    return m ? m[1].toUpperCase() : undefined;
+  }
+
   function autoName(tmpl: ResearchTemplate, tickers: string): string {
     const tickerList = tickers.split(",").map(s => s.trim()).filter(Boolean);
     const suffix = tickerList.length > 0
@@ -307,11 +322,16 @@ export function StrategyBuilderModal({
       "template-brief": "template-pick",
       "template-universe": "template-brief",
       "custom-1": "launch",
-      "custom-2": "custom-1",
+      "custom-2": "launch",
       "custom-3": "custom-2",
       "custom-4": "custom-3",
       "custom-5": "custom-4",
-      "preview": selectedTemplate ? "template-universe" : "custom-5",
+      "summary": "launch",
+      "preview": summaryConfig
+        ? "summary"
+        : selectedTemplate
+          ? "template-universe"
+          : "custom-5",
     };
     // If we opened with an initialTemplate, back from brief → close
     if (step === "template-brief" && initialTemplate) { onClose(); return; }
@@ -332,14 +352,18 @@ export function StrategyBuilderModal({
   // mapped template lands on `template-brief`; an unmapped one falls
   // through to the custom-2 free-text + matching flow.
   function handleWizardPickTemplate(payload: { template: ResearchTemplate; answers: WizardAnswers; strategy: WizardStrategy }) {
-    // Pre-fill custom universe with the wizard's ticker context when
-    // entering from a stock-detail page (initialIdea seeded with a
-    // ticker; templateTickers becomes the first chip).
-    const tickerHint = initialCustomTickers?.trim() || templateTickers || payload.template.defaultTickers.join(", ");
+    // Pre-fill ticker hint: stock-detail entry sets `initialCustomTickers`
+    // to the symbol; otherwise default to the template's own tickers.
+    const tickerHint = initialCustomTickers?.trim() || extractTickerFromIdea(initialIdea) || payload.template.defaultTickers.join(", ");
     setSelectedTemplate(payload.template);
+    setWizardStrategy(payload.strategy);
     setTemplateTickers(tickerHint);
+    // Seed the risk preset from the wizard's `dd` answer per the
+    // risk_control_prompt.md mapping. PR-D wires the StrategyJSON
+    // mutation; PR-C just stores the preset choice.
+    setSummaryRiskPreset(payload.answers.dd ?? "medium");
     setCustomConfig(DEFAULT_CUSTOM);
-    setStep("template-brief");
+    setStep("summary");
   }
 
   function handleWizardPickCustom(_strategy: WizardStrategy, _answers: WizardAnswers) {
@@ -362,6 +386,20 @@ export function StrategyBuilderModal({
     initialIdea && /^Backtest a strategy on \S+/i.test(initialIdea)
       ? "single_stock"
       : undefined;
+
+  /** Summary step's "Preview strategy" handler: persist the config,
+   *  derive the strategy name, transition to the existing preview
+   *  step (which already wraps StrategyBriefCard + the "Run backtest"
+   *  CTA). PR-D will hook `applyRiskLevel` into the StrategyJSON
+   *  build at run time. */
+  function handleSummaryContinue(config: SummaryStepConfig): void {
+    setSummaryConfig(config);
+    if (selectedTemplate) {
+      setTemplateTickers(config.tickers);
+      setStrategyName(autoName(selectedTemplate, config.tickers));
+    }
+    setStep("preview");
+  }
 
   function handleBriefContinue() {
     setStep("template-universe");
@@ -412,7 +450,7 @@ export function StrategyBuilderModal({
   // ── Custom step dot count ──────────────────────────────────────────────────
   const customStepNum: Record<Step, number> = {
     "custom-1": 1, "custom-2": 2, "custom-3": 3, "custom-4": 4, "custom-5": 5,
-    launch: 0, "template-pick": 0, "template-brief": 0, "template-universe": 0, preview: 0,
+    launch: 0, "template-pick": 0, "template-brief": 0, "template-universe": 0, summary: 0, preview: 0,
   };
   const currentCustomStep = customStepNum[step] ?? 0;
 
@@ -475,6 +513,17 @@ export function StrategyBuilderModal({
             onPickTemplate={handleWizardPickTemplate}
             onPickCustom={handleWizardPickCustom}
             onDescribeIdea={handleWizardDescribeIdea}
+          />
+        )}
+
+        {/* ── SUMMARY — 4-block model (PR-C / 2026-05-24) ───────────────── */}
+        {step === "summary" && selectedTemplate && (
+          <SummaryStep
+            template={selectedTemplate}
+            wizardStrategy={wizardStrategy ?? undefined}
+            initialRiskPreset={summaryRiskPreset}
+            initialTickers={templateTickers}
+            onContinue={handleSummaryContinue}
           />
         )}
 
@@ -781,14 +830,6 @@ export function StrategyBuilderModal({
                 </button>
                 );
               })}
-            </div>
-            <div className="mt-6">
-              <NumberInput
-                label="Minimum daily trading volume per stock"
-                value={customConfig.minAdv / 1_000_000}
-                onChange={v => setCustomConfig(c => ({ ...c, minAdv: v * 1_000_000 }))}
-                min={0} max={100} step={0.5} suffix="M/day"
-              />
             </div>
             <div className="mt-8">
               <Button onClick={() => setStep("custom-5")} className="gap-2">
