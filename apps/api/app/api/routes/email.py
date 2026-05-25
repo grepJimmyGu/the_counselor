@@ -17,7 +17,11 @@ from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.email_preference import EmailPreference
 from app.models.user import User
-from app.services.email_service import get_or_create_prefs, verify_unsub_token
+from app.services.email_service import (
+    get_or_create_prefs,
+    verify_signal_unsub_token,
+    verify_unsub_token,
+)
 
 prefs_router = APIRouter(prefix="/api/me/email-preferences", tags=["email"])
 unsub_router = APIRouter(prefix="/api/email", tags=["email"])
@@ -136,6 +140,55 @@ def unsubscribe(
         msg = "You won't receive creator-program emails anymore."
     else:
         msg = "The link has expired or is invalid."
+
+    db.commit()
+    return Response(
+        content=_UNSUB_PAGE_HTML.format(message=msg),
+        media_type="text/html",
+        status_code=200,
+    )
+
+
+@unsub_router.get("/signal-unsub", response_class=Response)
+def signal_unsubscribe(
+    token: str = Query(..., min_length=10, max_length=200),
+    db: Session = Depends(get_db),
+) -> Response:
+    """CAN-SPAM one-click signal-alert unsub (Stage 8 v0).
+
+    Token is HMAC-signed `user_id + scope + saved_strategy_id`. Always returns
+    a friendly HTML page (200) — never reveals whether the token was valid
+    (matches the existing /api/email/unsub anti-enumeration posture).
+
+    Scope semantics:
+      - "single" → delete the (user_id, saved_strategy_id) subscription row
+      - "all"    → delete every signal subscription owned by the user
+    """
+    # Local import: avoids a circular dependency between email + signals modules
+    # at startup, since the SignalAlertSubscription model is only needed here.
+    from app.models.signal_alert_subscription import SignalAlertSubscription
+
+    parsed = verify_signal_unsub_token(token)
+    if parsed is None:
+        return Response(
+            content=_UNSUB_PAGE_HTML.format(message="The link has expired or is invalid."),
+            media_type="text/html",
+            status_code=200,
+        )
+    user_id, scope, saved_strategy_id = parsed
+
+    if scope == "all":
+        db.query(SignalAlertSubscription).filter(
+            SignalAlertSubscription.user_id == user_id
+        ).delete(synchronize_session=False)
+        msg = "You won't receive any more signal alerts. Re-enable per-strategy from /account/saved."
+    else:
+        # scope == "single"; saved_strategy_id is non-None per verify_signal_unsub_token.
+        db.query(SignalAlertSubscription).filter(
+            SignalAlertSubscription.user_id == user_id,
+            SignalAlertSubscription.saved_strategy_id == saved_strategy_id,
+        ).delete(synchronize_session=False)
+        msg = "You won't receive alerts for this strategy. Re-enable from the strategy detail page."
 
     db.commit()
     return Response(
