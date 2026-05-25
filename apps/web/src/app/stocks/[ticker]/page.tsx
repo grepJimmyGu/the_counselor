@@ -21,6 +21,7 @@ import { WatchlistButton } from "@/components/community/watchlist-button";
 import { VoteBar } from "@/components/community/vote-bar";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
 import { useLiveQuotes } from "@/lib/useLiveQuotes";
+import { dispatchChatSeed } from "@/lib/chat-widget-event-bus";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -196,9 +197,18 @@ function CompanyPageInner() {
               onClick={() => {
                 setBuilderIdea(`Backtest a strategy on ${data.symbol}`);
                 setBuilderOpen(true);
+                // Auto-open the chat widget with a contextual greeting
+                // so the user has an active research-partner alongside
+                // the builder. See chat-widget-event-bus.ts.
+                dispatchChatSeed({
+                  greeting:
+                    `Got it — I'll help you build a strategy on ${data.symbol}. ` +
+                    `Pick a template from the wizard, or tell me what you're trying to capture and I'll suggest one.`,
+                  contextHint: data.symbol,
+                });
               }}
             >
-              Run Backtest on {data.symbol}
+              Apply a Strategy
             </Button>
             <WatchlistButton symbol={data.symbol} />
           </div>

@@ -21,6 +21,7 @@
  * produced the number.
  */
 import { useMemo, useRef, useState, useEffect } from "react";
+import { subscribeChatSeed } from "@/lib/chat-widget-event-bus";
 import { usePathname } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { MessageSquare, X, Send, AlertCircle } from "lucide-react";
@@ -56,6 +57,18 @@ export function ChatWidget() {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState("");
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Seed greeting injected via `dispatchChatSeed()` (e.g. from the
+  // stock-detail "Apply a Strategy" click). Rendered as the first
+  // assistant turn so the user opens to a chat in progress, not a
+  // blank input. No backend round-trip — purely display-side.
+  const [seedGreeting, setSeedGreeting] = useState<string | null>(null);
+
+  useEffect(() => {
+    return subscribeChatSeed(({ greeting }) => {
+      setSeedGreeting(greeting);
+      setOpen(true);
+    });
+  }, []);
 
   // Stable conversation id per widget mount. React 19's purity rule
   // disallows Date.now / Math.random inside render, so we lazily init
@@ -141,10 +154,19 @@ export function ChatWidget() {
         ref={scrollRef}
         className="flex-1 space-y-3 overflow-y-auto px-4 py-3 text-sm"
       >
-        {messages.length === 0 && (
+        {messages.length === 0 && !seedGreeting && (
           <p className="text-muted-foreground">
             Ask me to build a strategy, research a stock, or explain a concept.
           </p>
+        )}
+        {seedGreeting && (
+          <MessageRow
+            message={{
+              id: "__seed__",
+              role: "assistant",
+              content: seedGreeting,
+            }}
+          />
         )}
         {messages.map((m) => (
           <MessageRow key={m.id} message={m} />
