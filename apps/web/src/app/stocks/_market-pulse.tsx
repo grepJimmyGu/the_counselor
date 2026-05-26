@@ -20,13 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2, RefreshCw } from "lucide-react";
 
 import { getMarketPulse } from "@/lib/api";
-import type {
-  IndexCard,
-  MacroCard,
-  MarketPulseResponse,
-  SectorCard,
-} from "@/lib/contracts";
-import { useLiveQuotes } from "@/lib/useLiveQuotes";
+import type { MarketPulseResponse, SectorCard } from "@/lib/contracts";
 import { buildNarrative } from "@/lib/market-pulse-narrative";
 
 import { MarketBrief } from "@/components/market-pulse/MarketBrief";
@@ -74,29 +68,6 @@ export function MarketPulsePage() {
     return () => window.clearTimeout(id);
   }, [market, load]);
 
-  // ── Live-quote overrides ─────────────────────────────────────────────────────
-  // Page-level live quotes are for the small index/macro surface only.
-  // Top Movers has a ~500-name S&P candidate pool, so it fetches live quotes
-  // after filter/sort/slice in `TopMovers` to stay under the backend cap.
-  const liveSymbols = useMemo(() => {
-    if (!data) return [];
-    return Array.from(
-      new Set([
-        ...data.indices.map((c) => c.symbol),
-        ...data.macro.map((c) => c.symbol),
-      ]),
-    );
-  }, [data]);
-  const { quotes: liveQuotes } = useLiveQuotes(liveSymbols);
-
-  function withLive<
-    T extends { symbol: string; price: number | null; perf_1d: number | null },
-  >(c: T): T {
-    const lq = liveQuotes[c.symbol.toUpperCase()];
-    if (!lq) return c;
-    return { ...c, price: lq.price, perf_1d: lq.change_percent / 100 };
-  }
-
   // ── Top Movers list assembly ────────────────────────────────────────────────
   // Merge top_assets (stocks) + featured_etfs (ETFs). Commodities dropped
   // per 2026-05-21 feedback. De-dup by symbol.
@@ -128,9 +99,8 @@ export function MarketPulsePage() {
 
   // ── Narrative (Phase 1a — deterministic Layer A; LLM ships in Phase 1b) ─────
   const narrative = useMemo(
-    () => (data ? buildNarrative(applyLiveToData(data, withLive)) : null),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    [data, liveQuotes],
+    () => (data ? buildNarrative(data) : null),
+    [data],
   );
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -190,7 +160,7 @@ export function MarketPulsePage() {
         {loading ? (
           <BriefSkeleton />
         ) : (
-          data && <MarketBrief data={applyLiveToData(data, withLive)} />
+          data && <MarketBrief data={data} />
         )}
 
         {/* Section 2 — Macro Pulse table (4 signals: Growth / Inflation /
@@ -245,8 +215,8 @@ export function MarketPulsePage() {
         {/* Footer */}
         <footer className="border-t border-border/60 pt-4 text-[10px] text-muted-foreground space-y-2">
           <div>
-            EOD history via Alpha Vantage powers CMF, rankings, and freshness ·
-            visible prices update via FMP live quotes (30s cache) · Not financial advice.
+            Live FMP snapshot powers rankings and prices · EOD history powers
+            5D context and freshness details · Not financial advice.
           </div>
           {/* Phase 1g — per-source freshness report. Replaces the
               previous one-line `Snapshot as of` since the new footer
@@ -257,29 +227,4 @@ export function MarketPulsePage() {
       </div>
     </div>
   );
-}
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-/**
- * Apply withLive() across every card-shaped field in the response so the
- * narrative + sector rotation read off live prices, not just card surfaces.
- * Top Movers applies live quotes separately after it knows the visible cards.
- */
-function applyLiveToData(
-  data: MarketPulseResponse,
-  withLive: <
-    T extends { symbol: string; price: number | null; perf_1d: number | null },
-  >(
-    c: T,
-  ) => T,
-): MarketPulseResponse {
-  return {
-    ...data,
-    indices: data.indices.map(withLive) as IndexCard[],
-    macro: data.macro.map(withLive) as MacroCard[],
-    sectors: data.sectors as SectorCard[],
-    top_assets: data.top_assets,
-    featured_etfs: data.featured_etfs,
-  };
 }

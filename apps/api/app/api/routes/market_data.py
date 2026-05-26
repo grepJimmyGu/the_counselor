@@ -164,8 +164,9 @@ async def get_market_pulse(
 ) -> dict:
     """
     Market Pulse: index ETF performance, macro chips, sector capital flow signals
-    (Chaikin Money Flow 20d), and dynamic top 10 assets by CMF.
-    All data from price_bars — no FMP calls at request time. 1h cache.
+    (Chaikin Money Flow 20d), and the full Top Movers candidate universe.
+    The base snapshot comes from price_bars; an FMP live-quote overlay updates
+    prices, 1D moves, and live-current CMF before the frontend ranks/render.
 
     Phase 1b: response also carries an optional LLM-generated `narrative`
     block ({ headline, sector_rotation, watch_items }). Generated on the
@@ -188,7 +189,7 @@ async def get_market_pulse(
     try:
         if bypass_cache:
             _pulse_svc.invalidate_cache()
-        r = _pulse_svc.get_pulse(market, db)
+        r = await _pulse_svc.get_live_pulse(market, db)
 
         # Lazy narrative generation. Cached separately from pulse so a
         # single LLM failure doesn't invalidate the (sync, deterministic)

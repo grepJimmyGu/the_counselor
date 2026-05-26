@@ -1,5 +1,5 @@
 /**
- * Unit tests for Top Movers live-quote selection.
+ * Unit tests for Top Movers visible-card selection.
  *
  * Run directly with Node 24's TypeScript stripping:
  *
@@ -11,7 +11,6 @@
 import { strict as assert } from "node:assert";
 import type { AssetCard } from "@/lib/contracts";
 import {
-  liveSymbolsForMoverItems,
   selectVisibleMoverItems,
   type MoverItem,
 } from "./top-movers-selection.ts";
@@ -59,16 +58,15 @@ function test(name: string, fn: () => void): void {
 
 console.log("top-movers-selection\n");
 
-test("500 stock items request live quotes for only the visible 10", () => {
+test("500 stock items render only the visible 10 after ranking", () => {
   const items = Array.from({ length: 500 }, (_, i) =>
     stock(`S${i}`, i / 1000),
   );
 
   const visible = selectVisibleMoverItems(items, "all", "gainers");
-  const symbols = liveSymbolsForMoverItems(visible);
 
   assert.equal(visible.length, 10);
-  assert.deepEqual(symbols, [
+  assert.deepEqual(visible.map((item) => item.card.symbol), [
     "S499",
     "S498",
     "S497",
@@ -82,25 +80,23 @@ test("500 stock items request live quotes for only the visible 10", () => {
   ]);
 });
 
-test("changing sort changes the requested live symbols", () => {
+test("changing sort changes the visible symbols", () => {
   const items = [
     stock("LOWEST", -0.05),
     stock("MIDDLE", 0.01),
     stock("HIGHEST", 0.08),
   ];
 
-  const gainers = liveSymbolsForMoverItems(
-    selectVisibleMoverItems(items, "all", "gainers", 2),
-  );
-  const losers = liveSymbolsForMoverItems(
-    selectVisibleMoverItems(items, "all", "losers", 2),
-  );
+  const gainers = selectVisibleMoverItems(items, "all", "gainers", 2)
+    .map((item) => item.card.symbol);
+  const losers = selectVisibleMoverItems(items, "all", "losers", 2)
+    .map((item) => item.card.symbol);
 
   assert.deepEqual(gainers, ["HIGHEST", "MIDDLE"]);
   assert.deepEqual(losers, ["LOWEST", "MIDDLE"]);
 });
 
-test("ETF filter still requests live quotes for visible ETF cards", () => {
+test("ETF filter still returns visible ETF cards", () => {
   const items = [
     stock("AAPL", 0.10),
     stock("MSFT", 0.08),
@@ -108,9 +104,8 @@ test("ETF filter still requests live quotes for visible ETF cards", () => {
     etf("QQQ", 0.02),
   ];
 
-  const symbols = liveSymbolsForMoverItems(
-    selectVisibleMoverItems(items, "etf", "gainers"),
-  );
+  const symbols = selectVisibleMoverItems(items, "etf", "gainers")
+    .map((item) => item.card.symbol);
 
   assert.deepEqual(symbols, ["QQQ", "SPY"]);
 });

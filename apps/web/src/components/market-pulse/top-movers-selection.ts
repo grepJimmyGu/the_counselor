@@ -1,5 +1,4 @@
 import type { AssetCard } from "@/lib/contracts";
-import type { LiveQuote } from "@/lib/useLiveQuotes";
 
 export const TOP_MOVERS_VISIBLE_LIMIT = 10;
 
@@ -23,26 +22,6 @@ export function selectVisibleMoverItems(
       ? items
       : items.filter((i) => i.category.toLowerCase() === filter);
   return sortMoverItems(byCat, sort).slice(0, limit);
-}
-
-export function liveSymbolsForMoverItems(items: MoverItem[]): string[] {
-  return Array.from(new Set(items.map((i) => i.card.symbol.toUpperCase())));
-}
-
-export function applyLiveQuoteToMoverItem(
-  item: MoverItem,
-  quotes: Record<string, LiveQuote>,
-): MoverItem {
-  const live = quotes[item.card.symbol.toUpperCase()];
-  if (!live) return item;
-  return {
-    ...item,
-    card: {
-      ...item.card,
-      price: live.price,
-      perf_1d: live.change_percent / 100,
-    },
-  };
 }
 
 export function countMoverItemsByCategory(
