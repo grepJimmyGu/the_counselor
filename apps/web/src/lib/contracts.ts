@@ -820,6 +820,10 @@ export const researchTemplates: ResearchTemplate[] = [
       "I want to build a trend following strategy for {ticker}. Tell me your rules — breakout window, exit window, or stop type.",
     academicRef: { citation: "Donchian (1970s) · Covel — Trend Following (2004) · Hurst, Ooi & Pedersen (2017)", note: "Price trend-following is one of the oldest systematic strategies — documented in live CTA fund returns for 50+ years across asset classes." },
     perfContext: { returnRange: "+3% to +12% annual (varies widely by asset and lookback)", sharpeRange: "Sharpe ~0.5 – 1.0", worstStretch: "−20% to −35% in choppy, mean-reverting markets" },
+    whenInCopy:
+      "Each trading day, watch the trailing 20-day price high. Enter long on the first daily close that prints above that high — a classic Donchian breakout. The 20-day window is the shortest 'trend confirmation' lookback that filters routine intraday noise; the breakout itself is the only entry trigger (no oscillator, no fundamental filter). Position size is full notional on this single-asset template.",
+    whenOutCopy:
+      "Exit on the first daily close below the trailing 10-day price low (the trend has failed) OR if the position is down 8% from entry (the stop-loss has triggered), whichever happens first. The asymmetric 20-up / 10-down windows deliberately give trends room to develop while cutting losers fast — the original Turtle Trader heuristic. After exit the strategy sits in cash until the next 20-day high prints.",
   },
   {
     id: "cross-sectional-momentum",
@@ -855,6 +859,10 @@ export const researchTemplates: ResearchTemplate[] = [
       "I want to build a cross-sectional momentum strategy. My universe is {tickers}. Tell me: how many top performers to hold, and what lookback period to rank by.",
     academicRef: { citation: "Jegadeesh & Titman (1993, JF) · Carhart (1997) · AQR Capital Research", note: "Cross-sectional momentum is one of the most replicated anomalies in finance — documented across equities, bonds, commodities, and currencies." },
     perfContext: { returnRange: "+4% to +12% annual alpha over benchmark", sharpeRange: "Sharpe ~0.8 – 1.3", worstStretch: "−25% to −40% in momentum crashes (2009, 2020)" },
+    whenInCopy:
+      "At each month-end, rank every asset in your universe by trailing 126-day (6-month) total return. Buy the top 2 ranked names, equal-weighted. The ranking is purely relative — what matters is each asset's return versus its peers in the universe, not whether the return is positive in absolute terms. You'll always be holding the two strongest performers, regardless of whether the broader market is trending up or down.",
+    whenOutCopy:
+      "At each monthly rebalance, re-rank the universe and rebuild the portfolio from the new top 2. Names that have dropped out of the top 2 are sold; the new entrants are bought. There are no stops or take-profits — the monthly rebalance IS the entire exit mechanism, so a name can be held one month, sold the next, and bought back two months later if its relative momentum recovers.",
   },
   {
     id: "etf-rotation",
@@ -997,6 +1005,10 @@ export const researchTemplates: ResearchTemplate[] = [
     },
     chatSeed:
       "I want to build a news sentiment momentum strategy. My universe is {tickers}. Tell me: how to rank by sentiment, what lookback window to use, and how to combine with a second signal.",
+    whenInCopy:
+      "At each month-end, compute the trailing 30-day mean sentiment score for every stock in your universe (sentiment comes from an NLP model like FinBERT, scored per news article in the window). Buy the top decile by mean sentiment, sized equal-weight. The 30-day window smooths day-to-day noise so the signal reflects persistent positive coverage rather than a single bullish headline.",
+    whenOutCopy:
+      "At each monthly rebalance, re-compute 30-day mean sentiment across the universe and rebuild from the new top decile. Names whose sentiment has cooled out of the top 10% are sold; the new sentiment leaders are bought. Sentiment-only alpha has mixed empirical support — evidence is stronger when paired with a price-trend co-signal (e.g. require the stock to also trade above its 200-day moving average) layered on top of the sentiment ranking.",
   },
   {
     id: "insider-buying",
@@ -1081,6 +1093,10 @@ export const researchTemplates: ResearchTemplate[] = [
     },
     chatSeed:
       "I want to build a multi-factor composite strategy. My universe is {tickers}. Tell me: how to weight each factor, whether to tilt toward value or momentum, and how to handle factor timing.",
+    whenInCopy:
+      "At each month-end, compute four factor scores per stock: Value (composite of FCF yield + book-to-market + EV/EBITDA), Momentum (12-1 trailing return), Quality (Piotroski F-Score), and Low Volatility (inverse of 63-day realised vol). Cross-sectionally z-score each factor, average the four equally (25% weight each by default), then buy the top decile by composite score. Factor weights are user-tunable for value or momentum tilts.",
+    whenOutCopy:
+      "At each monthly rebalance, re-score the universe and rebuild the portfolio from the new top-decile composite. Stocks whose composite ranking has fallen out of the top 10% are sold; new top-decile entrants are bought, equal-weighted. The four-factor diversification means the portfolio rarely turns over completely — typically 30–50% of holdings change per rebalance, which is much more manageable than single-factor strategies that can turn over 100%+ per quarter.",
   },
   // ── Phase A: 8 new engine-backed templates ────────────────────────────────
 
@@ -1130,6 +1146,10 @@ export const researchTemplates: ResearchTemplate[] = [
       "I want to build a 12-1 cross-sectional momentum strategy. My universe is {tickers}. Tell me: what lookback, whether to skip the most recent month, and how many names to hold.",
     academicRef: { citation: "Jegadeesh & Titman (1993, JF) · Fama & French (2012) · AQR Capital (live since 1994)", note: "The 12-1 specification is the single most-replicated momentum variant — documented in 40+ markets and 200+ years of return data." },
     perfContext: { returnRange: "+4% to +16% annual alpha over benchmark", sharpeRange: "Sharpe ~1.0 – 1.5", worstStretch: "−30% to −50% in momentum crashes (March 2009, COVID recovery 2020)" },
+    whenInCopy:
+      "At each month-end, for every stock in your universe, compute the trailing 12-month return from t-252 days to t-21 days — explicitly skipping the most recent month. Rank the universe by that 12-1 return and buy the top quintile (20%), equal-weighted. The 1-month skip is the load-bearing detail: without it, short-term reversal contaminates the signal and the strategy loses most of its documented alpha (Jegadeesh & Titman 1993; replicated across 40+ markets).",
+    whenOutCopy:
+      "At each monthly rebalance, re-rank the entire universe on the same 12-1 window and rebuild the portfolio from the new top quintile. Names that have fallen out of the top 20% are sold; new top-quintile entrants are bought. There are no stops or take-profits — the rebalance IS the exit. Turnover is roughly 100% per year, which is why transaction costs (10+ bps assumed) materially affect the realised vs. paper return.",
   },
   {
     id: "time-series-momentum",
@@ -1176,6 +1196,10 @@ export const researchTemplates: ResearchTemplate[] = [
       "I want to build a time-series momentum strategy. My universe is {tickers}. Tell me: what lookback is optimal, and whether to scale position sizes by signal strength.",
     academicRef: { citation: "Moskowitz, Ooi & Pedersen (2012, JFE) · AQR White Paper — TSMOM", note: "Time-series momentum has been documented across 58 liquid futures markets over 25 years — and provides a natural bear-market hedge by moving to cash during downtrends." },
     perfContext: { returnRange: "+3% to +10% annual alpha, with lower drawdowns than equity buy-and-hold", sharpeRange: "Sharpe ~0.7 – 1.3", worstStretch: "−15% to −25% in rapid trend-reversal environments" },
+    whenInCopy:
+      "At each month-end, for every asset in your universe, compute the trailing 252-day (12-month) total return. Buy any asset whose 12-month return is positive, sized equal-weight across all qualifying names. The 'absolute' part is critical — there's no peer comparison, no ranking. Each asset stands on its own trend, so during broad bear markets when no asset has positive 12M momentum, the portfolio is held entirely in cash (Moskowitz, Ooi & Pedersen 2012).",
+    whenOutCopy:
+      "At the next monthly rebalance, re-check the 252-day return for every held position. Any asset whose 12-month return has turned negative is sold and the capital moves to cash — no replacement asset is bought from outside the eligibility list. This is how the strategy provides its built-in bear-market hedge: when most assets are in downtrends the portfolio sits mostly or fully in cash, rather than chasing a 'least-bad' alternative.",
   },
   {
     id: "short-term-reversal",
@@ -1222,6 +1246,10 @@ export const researchTemplates: ResearchTemplate[] = [
       "I want to build a short-term reversal strategy. My universe is {tickers}. Tell me: what reversal lookback and how to handle the transaction cost drag.",
     academicRef: { citation: "Jegadeesh (1990, JF) · Lehmann (1990, JF) · Lo & MacKinlay (1990)", note: "Short-term reversal is well-documented in academic literature but profitable mainly at institutional scale — retail transaction costs typically erode most of the alpha." },
     perfContext: { returnRange: "+2% to +8% gross (near-zero after typical retail costs)", sharpeRange: "Sharpe ~0.5 – 1.0 before costs", worstStretch: "−10% to −20%; cost drag creates persistent headwind" },
+    whenInCopy:
+      "At each weekly rebalance, rank every asset in your universe by its trailing 5-day (1-week) total return and buy the bottom 20% — the worst recent performers. The thesis (Lehmann 1990; refreshed in 2025 research on MAX-effect stocks) is that short-horizon selling pressure from liquidity-demanding sellers creates transient mispricings, and the strategy effectively gets paid to provide the liquidity those sellers needed. The bottom-quintile cut is the standard academic specification.",
+    whenOutCopy:
+      "At the next weekly rebalance, re-rank the universe and rebuild the portfolio from the new bottom-quintile losers. Last week's losers are sold (whether they bounced or not) and this week's losers are bought. Turnover runs ~5,000% annually — which is why transaction costs are decisive: at retail commission rates and spreads, much of the documented gross alpha is consumed before it ever reaches the portfolio, and the strategy is mainly viable for institutional desks.",
   },
   {
     id: "pairs-trading-long-only",
@@ -1268,6 +1296,10 @@ export const researchTemplates: ResearchTemplate[] = [
       "I want to build a long-only pairs trading strategy between {tickers}. Tell me: what z-score to use for entry and exit, and how to set the stop-loss.",
     academicRef: { citation: "Gatev, Goetzmann & Rouwenhorst (2006, RFS) · Vidyamurthy (2004) — Pairs Trading", note: "Pairs trading has been practiced by quantitative desks since the 1980s. Academic evidence is solid for the full long-short variant; long-only captures half the opportunity." },
     perfContext: { returnRange: "+2% to +8% annual (long-only variant)", sharpeRange: "Sharpe ~0.5 – 1.0", worstStretch: "−15% to −25% if spread diverges instead of reverting" },
+    whenInCopy:
+      "Each day, compute the log-price spread between your two correlated assets and its trailing 60-day z-score (how many standard deviations the spread is from its 60-day rolling mean). Enter long the relatively-cheaper asset when the z-score reaches −2.0 or worse — meaning the cheap leg is at least 2 standard deviations undervalued versus its historical relationship with the other leg. Hedge ratio defaults to 1.0 (equal notional on the long leg).",
+    whenOutCopy:
+      "Exit when the z-score recovers back to within ±0.5 of the mean — the spread has reverted to fair value. A hard stop-loss fires if the z-score widens to −3.0 (the cheap leg becomes even cheaper instead of reverting), which prevents a permanent regime break — Nokia/Ericsson-style cointegration breakdowns — from sinking the portfolio. This long-only template captures only half of a classic pair trade because it doesn't short the expensive leg.",
   },
   {
     id: "sector-rotation-spdr",
@@ -1314,6 +1346,10 @@ export const researchTemplates: ResearchTemplate[] = [
       "I want to build a sector rotation strategy using {tickers}. Tell me: what lookback period works best and how many sectors to hold simultaneously.",
     academicRef: { citation: "Moskowitz & Grinblatt (1999, JF) · Faber (2007) · Blitz & Van Vliet (2008)", note: "Sector momentum is well-documented — industry-level price momentum is a significant driver of individual stock momentum returns." },
     perfContext: { returnRange: "+2% to +8% annual alpha vs SPY", sharpeRange: "Sharpe ~0.6 – 1.1", worstStretch: "−25% to −40% in broad market crashes (sector rotation does not hedge market beta)" },
+    whenInCopy:
+      "At each month-end, rank the 11 SPDR sector ETFs (XLK, XLF, XLE, XLV, XLI, XLP, XLU, XLY, XLB, XLRE, XLC) by their trailing 126-day (6-month) total return. Buy the top 3 by relative strength, equal-weighted. This rotates capital toward whichever sectors are leading the current business cycle — technology in 2020–21, energy in 2022, defensives (staples + healthcare + utilities) during late-cycle slowdowns.",
+    whenOutCopy:
+      "At each monthly rebalance, re-rank all 11 sectors and rebuild the portfolio from the new top 3. Sectors that have fallen out of the top 3 are sold; the new entrants are bought, equal-weight. The strategy is always fully invested in sector ETFs — there is no cash position even in broad market downturns, which is exactly why sector rotation does not hedge overall market beta and still draws down meaningfully in broad crashes.",
   },
   {
     id: "dual-momentum",
@@ -1360,6 +1396,10 @@ export const researchTemplates: ResearchTemplate[] = [
       "I want to build a dual momentum strategy across {tickers}. Tell me: how to incorporate an absolute momentum filter against a cash return proxy.",
     academicRef: { citation: "Antonacci — Dual Momentum Investing (2014) · Faber — GTAA (2007)", note: "The dual-filter approach (absolute + relative momentum) has demonstrated significantly lower drawdowns than buy-and-hold with comparable long-run returns across live strategy data." },
     perfContext: { returnRange: "+2% to +7% annual vs buy-and-hold with materially lower drawdowns", sharpeRange: "Sharpe ~0.8 – 1.3", worstStretch: "−10% to −20% (vs −50%+ for buy-and-hold in 2008)" },
+    whenInCopy:
+      "At each month-end, run two filters in sequence (Antonacci 2014). First (absolute momentum): is the US-equity ETF's trailing 252-day return above the risk-free rate? If no → hold 100% bonds. If yes → apply relative momentum: is the US-equity 12-month return higher than the international-equity 12-month return? Whichever wins is held 100%. The dual filter is what removes the biggest equity bear-market drawdowns.",
+    whenOutCopy:
+      "At each monthly rebalance, re-run both filters and switch holdings only if the signal changes. The strategy makes typically just 1–2 switches per year, keeping turnover and frictions low. The 'exit' is automatic: when the absolute-momentum filter fails (US-equity 12M return drops below cash), the strategy moves 100% to bonds — providing the built-in bear-market protection that defines the framework and historically clipped drawdowns to ~20% versus 50%+ for buy-and-hold.",
   },
   {
     id: "low-volatility",
@@ -1406,6 +1446,10 @@ export const researchTemplates: ResearchTemplate[] = [
       "I want to build a low volatility strategy. My universe is {tickers}. Tell me: what vol lookback to use and whether to add a minimum-variance optimiser.",
     academicRef: { citation: "Baker, Bradley & Wurgler (2011, FAJ) · Frazzini & Pedersen (2014, JFE) — Betting Against Beta", note: "The low-volatility anomaly is one of the most persistent puzzles in finance — lower-risk stocks earn higher risk-adjusted returns, contradicting CAPM predictions." },
     perfContext: { returnRange: "+2% to +8% annual risk-adjusted alpha", sharpeRange: "Sharpe ~0.8 – 1.5 (superior Sharpe is the core claim)", worstStretch: "−20% to −35% in sharp drawdowns (still lower than equal-weight market)" },
+    whenInCopy:
+      "At each month-end, compute the trailing 63-day (3-month) realised volatility — the standard deviation of daily returns, annualised — for every asset in your universe. Buy the bottom quintile (lowest 20% by vol), sized equal-weight. The low-vol anomaly (Baker-Bradley-Wurgler 2011; Frazzini-Pedersen 2014) says these 'boring' names earn superior Sharpe ratios because investors systematically overpay for high-volatility lottery-like stocks and underweight stable defensives.",
+    whenOutCopy:
+      "At each monthly rebalance, re-measure 63-day volatility across the universe and rebuild the portfolio from the new low-vol quintile. Names whose volatility has risen out of the bottom 20% are sold; new low-vol entrants are bought. The strategy is always fully invested — it doesn't hedge market beta, just tilts toward lower-volatility names within whatever the broader market is doing. The portfolio typically overweights utilities, staples, and healthcare, so monitor sector concentration.",
   },
   {
     id: "bollinger-mean-reversion",
@@ -1451,6 +1495,10 @@ export const researchTemplates: ResearchTemplate[] = [
       "I want to build a Bollinger Band mean-reversion strategy on {ticker}. Tell me: what window and standard-deviation threshold to use.",
     academicRef: { citation: "Bollinger — Bollinger on Bollinger Bands (2002) · Connors & Alvarez (2009) — Short-Term Strategies", note: "Bollinger Band mean reversion is a widely used practitioner technique. Academic evidence is mixed — results are highly parameter-sensitive and regime-dependent." },
     perfContext: { returnRange: "+2% to +10% annual (highly sensitive to asset and parameters)", sharpeRange: "Sharpe ~0.5 – 1.2", worstStretch: "−20% to −40% in sustained trending markets where price walks along the band" },
+    whenInCopy:
+      "Each day, compute the 20-day simple moving average of price plus two-standard-deviation bands around it (Bollinger Bands). Enter long on the first daily close below the lower band — i.e. when price is at least 2 standard deviations below the 20-day mean. The standard-deviation scaling makes the threshold adaptive: it widens automatically in high-volatility regimes and tightens in calm markets, so the 'oversold' signal is always calibrated to the asset's own recent volatility.",
+    whenOutCopy:
+      "Exit on the first daily close back above the middle band (the 20-day SMA itself). The mean — not the upper band — is the exit, because the trade is targeting reversion to fair value, not a full overshoot to the upside. If the signal never reverts and price simply walks along the lower band (typical in a strong sustained downtrend), the position sits underwater until the close finally crosses back through the mean — which is the regime risk this template carries.",
   },
 
   // ── Phase B / C — Coming soon ─────────────────────────────────────────────
@@ -1477,6 +1525,10 @@ export const researchTemplates: ResearchTemplate[] = [
     dataGapReason: "Requires FCF yield, book-to-market, and EV/EBITDA data — coming in Phase B.",
     strategy: { strategy_name: "Value Composite", strategy_type: "value_composite", universe: ["AAPL"], benchmark: "SPY", start_date: fiveYearsAgo, end_date: today, initial_capital: 100000, rebalance_frequency: "monthly" as const, transaction_cost_bps: 10, slippage_bps: 10, rules: [{ top_pct: 0.1 }], position_sizing: { method: "equal_weight" as const }, risk_management: {}, cash_management: { hold_cash_when_no_signal: true } },
     chatSeed: "",
+    whenInCopy:
+      "At each month-end, compute three value metrics for every stock in your universe: Free-Cash-Flow Yield (FCF / EV), Book-to-Market ratio, and Enterprise Value / EBITDA. Cross-sectionally z-score each metric so they're on the same scale, average them with equal weight, then buy the cheapest 10% by composite score. Multi-metric value avoids the single-metric trap — a stock that scores cheap on one measure but expensive on the other two is filtered out.",
+    whenOutCopy:
+      "At each monthly rebalance, re-score the universe with the latest fundamentals (FCF, book value, EBITDA) and rebuild from the new cheapest decile. Stocks that have re-rated upward and fallen out of the top decile are sold; newly-cheap entrants are bought, equal-weighted. The strategy is designed for 12–36 month payoff horizons — monthly rebalancing keeps the portfolio fresh, but individual positions are typically held for many months while the re-rating thesis plays out.",
   },
   {
     id: "quality-piotroski-cs",
@@ -1500,6 +1552,10 @@ export const researchTemplates: ResearchTemplate[] = [
     dataGapReason: "Requires annual financial statement data — coming in Phase B.",
     strategy: { strategy_name: "Quality Piotroski F-Score", strategy_type: "quality_piotroski", universe: ["AAPL"], benchmark: "SPY", start_date: fiveYearsAgo, end_date: today, initial_capital: 100000, rebalance_frequency: "monthly" as const, transaction_cost_bps: 10, slippage_bps: 10, rules: [{ top_pct: 0.3 }], position_sizing: { method: "equal_weight" as const }, risk_management: {}, cash_management: { hold_cash_when_no_signal: true } },
     chatSeed: "",
+    whenInCopy:
+      "At each month-end, compute the Piotroski F-Score (a 9-point composite of profitability, leverage, and operating efficiency signals from the most recent annual filing) for every stock in your universe. Buy the top 30% by F-Score — typically stocks scoring 8 or 9 out of 9 — sized equal-weight. Piotroski's original 2000 research showed these high-F-Score names outperform precisely because their improving fundamentals are slow to be repriced by the market.",
+    whenOutCopy:
+      "At each monthly rebalance, re-compute F-Scores using any updated annual data and rebuild from the new top 30%. Names whose F-Score has dropped out of the top tercile are sold; new high-quality entrants are bought. Because F-Scores update annually (when 10-K filings drop), portfolio turnover is modest — most months only the marginal names change, with the major rotation happening 2–3 months after the bulk of fiscal-year filing season.",
   },
   {
     id: "pead-drift-cs",
@@ -1523,6 +1579,10 @@ export const researchTemplates: ResearchTemplate[] = [
     dataGapReason: "Requires quarterly EPS and analyst estimate data — coming in Phase B.",
     strategy: { strategy_name: "Post-Earnings Announcement Drift", strategy_type: "pead_drift", universe: ["AAPL"], benchmark: "SPY", start_date: fiveYearsAgo, end_date: today, initial_capital: 100000, rebalance_frequency: "weekly" as const, transaction_cost_bps: 10, slippage_bps: 10, rules: [{ holding_window_days: 60, top_pct: 0.1 }], position_sizing: { method: "equal_weight" as const }, risk_management: {}, cash_management: { hold_cash_when_no_signal: true } },
     chatSeed: "",
+    whenInCopy:
+      "Each week, scan for stocks that reported earnings in the previous 5 trading days. Compute the standardized earnings surprise (SUE — earnings minus consensus estimate, scaled by historical surprise volatility) for each report and buy the top decile of positive surprises. The thesis (Bernard & Thomas 1989; UCLA Anderson 2024) is that markets under-react to large surprises, so the stock keeps drifting up for weeks after announcement and systematic buyers can earn the drift.",
+    whenOutCopy:
+      "Each position is held for exactly 60 trading days (about 3 months) from the earnings-announcement date, regardless of intervening price action — that's the documented drift window. After 60 days the position is sold and the capital recycles into newer surprise-decile names. There are no stops or take-profits — the time-based exit IS the entire risk-management mechanism, which means individual positions can drawdown significantly without triggering an early exit.",
   },
 ];
 
