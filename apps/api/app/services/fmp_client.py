@@ -157,56 +157,25 @@ class FMPClient:
         return []
 
     async def get_quotes_batch(self, symbols: list[str]) -> list[dict]:
-        """Live quotes for N symbols using FMP's real batch endpoints.
+        """Live quotes for N symbols via FMP /stable/quote.
 
-        The old implementation fanned out to one `/quote` call per symbol,
-        which is acceptable for a 10-name watchlist but too slow for Market
-        Pulse's full S&P universe. The stable docs expose dedicated batch
-        endpoints for stocks, ETFs, and indexes, so we try those first and
-        only fall back to individual quotes for a small residual set.
+        /stable/quote accepts a comma-separated `symbol` parameter and returns
+        a list covering stocks, ETFs, and indices uniformly — no separate
+        batch-etf or batch-index endpoints needed.  Requests are chunked at
+        BATCH_SYMBOL_LIMIT (100) and fired concurrently so the full S&P 500
+        universe (~500 names) completes in 5 parallel round-trips.
         """
         if not symbols:
             return []
         pending = list(dict.fromkeys(s.upper() for s in symbols if s))
         collected: dict[str, dict] = {}
 
-        await self._merge_batch_quotes("/batch-quote", pending, collected)
-
-        missing = [s for s in pending if s not in collected]
-        if missing:
-            await self._merge_batch_quotes("/batch-etf-quotes", missing, collected)
-
-        missing = [s for s in pending if s not in collected]
-        if missing:
-            await self._merge_batch_quotes("/batch-index-quotes", missing, collected)
-
-        missing = [s for s in pending if s not in collected]
-        if missing and len(missing) <= self.SINGLE_QUOTE_FALLBACK_LIMIT:
-            results = await asyncio.gather(
-                *(self.get_quote(sym) for sym in missing),
-                return_exceptions=False,
-            )
-            for item in results:
-                if not item or not item.get("symbol"):
-                    continue
-                collected[str(item["symbol"]).upper()] = item
-
-        return [collected[s] for s in pending if s in collected]
-
-    async def _merge_batch_quotes(
-        self,
-        path: str,
-        symbols: list[str],
-        collected: dict[str, dict],
-    ) -> None:
-        if not symbols:
-            return
         chunks = [
-            symbols[i:i + self.BATCH_SYMBOL_LIMIT]
-            for i in range(0, len(symbols), self.BATCH_SYMBOL_LIMIT)
+            pending[i:i + self.BATCH_SYMBOL_LIMIT]
+            for i in range(0, len(pending), self.BATCH_SYMBOL_LIMIT)
         ]
         results = await asyncio.gather(
-            *(self._get_batch_chunk(path, chunk) for chunk in chunks),
+            *(self._get_quote_chunk(chunk) for chunk in chunks),
             return_exceptions=True,
         )
         for result in results:
@@ -220,8 +189,11 @@ class FMPClient:
                     continue
                 collected[str(sym).upper()] = item
 
-    async def _get_batch_chunk(self, path: str, symbols: list[str]) -> list[dict]:
-        data = await self._get(path, {"symbols": ",".join(symbols)})
+        return [collected[s] for s in pending if s in collected]
+
+    async def _get_quote_chunk(self, symbols: list[str]) -> list[dict]:
+        """Fetch one chunk of up to BATCH_SYMBOL_LIMIT symbols from /stable/quote."""
+        data = await self._get("/quote", {"symbol": ",".join(symbols)})
         return data if isinstance(data, list) else []
 
     async def get_revenue_segments(self, symbol: str, limit: int = 5) -> list[dict]:
