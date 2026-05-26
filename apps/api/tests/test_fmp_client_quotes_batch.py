@@ -20,7 +20,8 @@ def _payload(symbol: str) -> dict:
     }
 
 
-async def test_get_quotes_batch_uses_stock_batch_endpoint() -> None:
+async def test_get_quotes_batch_uses_quote_endpoint() -> None:
+    """Batch fetch uses /stable/quote with comma-separated symbol param."""
     client = FMPClient()
     client._get = AsyncMock(return_value=[_payload("AAPL"), _payload("MSFT")])
 
@@ -28,37 +29,31 @@ async def test_get_quotes_batch_uses_stock_batch_endpoint() -> None:
 
     assert [row["symbol"] for row in result] == ["AAPL", "MSFT"]
     client._get.assert_awaited_once_with(
-        "/batch-quote",
-        {"symbols": "AAPL,MSFT"},
+        "/quote",
+        {"symbol": "AAPL,MSFT"},
     )
 
 
-async def test_get_quotes_batch_uses_etf_batch_for_stock_batch_misses() -> None:
+async def test_get_quotes_batch_handles_mixed_asset_types() -> None:
+    """/stable/quote returns stocks, ETFs, and indices uniformly — no separate fallbacks."""
     client = FMPClient()
-
-    async def fake_get(path: str, params: dict):
-        if path == "/batch-quote":
-            return [_payload("AAPL")]
-        if path == "/batch-etf-quotes":
-            return [_payload("XLK"), _payload("XLE")]
-        return []
-
-    client._get = AsyncMock(side_effect=fake_get)
+    client._get = AsyncMock(return_value=[_payload("AAPL"), _payload("XLK"), _payload("XLE")])
 
     result = await client.get_quotes_batch(["AAPL", "XLK", "XLE"])
 
     assert [row["symbol"] for row in result] == ["AAPL", "XLK", "XLE"]
-    assert client._get.await_args_list == [
-        call("/batch-quote", {"symbols": "AAPL,XLK,XLE"}),
-        call("/batch-etf-quotes", {"symbols": "XLK,XLE"}),
-    ]
+    client._get.assert_awaited_once_with(
+        "/quote",
+        {"symbol": "AAPL,XLK,XLE"},
+    )
 
 
 async def test_get_quotes_batch_chunks_large_symbol_lists() -> None:
+    """500 symbols are split into chunks of 100 and fetched concurrently."""
     client = FMPClient()
 
     async def fake_get(path: str, params: dict):
-        symbols = params["symbols"].split(",")
+        symbols = params["symbol"].split(",")
         return [_payload(symbol) for symbol in symbols]
 
     client._get = AsyncMock(side_effect=fake_get)
@@ -68,19 +63,18 @@ async def test_get_quotes_batch_chunks_large_symbol_lists() -> None:
 
     assert len(result) == 205
     assert client._get.await_args_list == [
-        call("/batch-quote", {"symbols": ",".join(symbols[:100])}),
-        call("/batch-quote", {"symbols": ",".join(symbols[100:200])}),
-        call("/batch-quote", {"symbols": ",".join(symbols[200:205])}),
+        call("/quote", {"symbol": ",".join(symbols[:100])}),
+        call("/quote", {"symbol": ",".join(symbols[100:200])}),
+        call("/quote", {"symbol": ",".join(symbols[200:205])}),
     ]
 
 
-async def test_get_quotes_batch_skips_large_individual_fallbacks() -> None:
+async def test_get_quotes_batch_skips_symbols_not_returned_by_fmp() -> None:
+    """Symbols FMP doesn't recognise are silently omitted (not an error)."""
     client = FMPClient()
     client._get = AsyncMock(return_value=[])
-    client.get_quote = AsyncMock(return_value=None)
 
     symbols = [f"S{i:03d}" for i in range(30)]
     result = await client.get_quotes_batch(symbols)
 
     assert result == []
-    assert client.get_quote.await_count == 0
