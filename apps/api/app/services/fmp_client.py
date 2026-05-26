@@ -23,6 +23,8 @@ class FMPNotConfiguredError(FMPError):
 class FMPClient:
     # FMP deprecated /api/v3 for new subscribers after Aug 2025; all calls now use /stable
     BASE_URL = "https://financialmodelingprep.com/stable"
+    BATCH_SYMBOL_LIMIT = 100
+    SINGLE_QUOTE_FALLBACK_LIMIT = 25
 
     def __init__(self) -> None:
         self.settings = get_settings()
@@ -155,23 +157,72 @@ class FMPClient:
         return []
 
     async def get_quotes_batch(self, symbols: list[str]) -> list[dict]:
-        """Live quotes for N symbols. Fans out to N parallel `get_quote(symbol)`
-        calls via asyncio.gather. Drops the comma-separated batch optimization
-        because FMP's /stable/quote treats `?symbol=A,B,C` as a single literal
-        ticker rather than a list (verified 2026-05-21 — endpoint returned `{}`).
+        """Live quotes for N symbols using FMP's real batch endpoints.
 
-        Cost note: at the design point (~11 ticker-bar symbols polled every
-        30s when all stale), this is ~22 calls/min steady-state — well
-        under FMP starter's ~300/min limit.
+        The old implementation fanned out to one `/quote` call per symbol,
+        which is acceptable for a 10-name watchlist but too slow for Market
+        Pulse's full S&P universe. The stable docs expose dedicated batch
+        endpoints for stocks, ETFs, and indexes, so we try those first and
+        only fall back to individual quotes for a small residual set.
         """
         if not symbols:
             return []
-        upper = [s.upper() for s in symbols]
+        pending = list(dict.fromkeys(s.upper() for s in symbols if s))
+        collected: dict[str, dict] = {}
+
+        await self._merge_batch_quotes("/batch-quote", pending, collected)
+
+        missing = [s for s in pending if s not in collected]
+        if missing:
+            await self._merge_batch_quotes("/batch-etf-quotes", missing, collected)
+
+        missing = [s for s in pending if s not in collected]
+        if missing:
+            await self._merge_batch_quotes("/batch-index-quotes", missing, collected)
+
+        missing = [s for s in pending if s not in collected]
+        if missing and len(missing) <= self.SINGLE_QUOTE_FALLBACK_LIMIT:
+            results = await asyncio.gather(
+                *(self.get_quote(sym) for sym in missing),
+                return_exceptions=False,
+            )
+            for item in results:
+                if not item or not item.get("symbol"):
+                    continue
+                collected[str(item["symbol"]).upper()] = item
+
+        return [collected[s] for s in pending if s in collected]
+
+    async def _merge_batch_quotes(
+        self,
+        path: str,
+        symbols: list[str],
+        collected: dict[str, dict],
+    ) -> None:
+        if not symbols:
+            return
+        chunks = [
+            symbols[i:i + self.BATCH_SYMBOL_LIMIT]
+            for i in range(0, len(symbols), self.BATCH_SYMBOL_LIMIT)
+        ]
         results = await asyncio.gather(
-            *(self.get_quote(sym) for sym in upper),
-            return_exceptions=False,
+            *(self._get_batch_chunk(path, chunk) for chunk in chunks),
+            return_exceptions=True,
         )
-        return [r for r in results if r is not None]
+        for result in results:
+            if isinstance(result, Exception):
+                continue
+            for item in result:
+                if not isinstance(item, dict):
+                    continue
+                sym = item.get("symbol")
+                if not sym:
+                    continue
+                collected[str(sym).upper()] = item
+
+    async def _get_batch_chunk(self, path: str, symbols: list[str]) -> list[dict]:
+        data = await self._get(path, {"symbols": ",".join(symbols)})
+        return data if isinstance(data, list) else []
 
     async def get_revenue_segments(self, symbol: str, limit: int = 5) -> list[dict]:
         """Annual product/business revenue segmentation (last N years)."""
