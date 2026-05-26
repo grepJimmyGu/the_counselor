@@ -130,6 +130,16 @@ export function ResearchWorkspace() {
   const [explanation, setExplanation] = useState<ExplanationResponse | null>(null);
   const [sandboxReview, setSandboxReview] = useState<SandboxReviewResponse | null>(null);
   const [isRunning, setIsRunning] = useState(false);
+  // PR-I (2026-05-26): the LLM-driven explanation + sandbox-review calls
+  // run AFTER the backtest itself returns, and historically blocked the
+  // "Running" spinner from clearing — so a user whose backtest finished in
+  // 4s but whose LLM calls took 25s saw "Generating report…" stuck for
+  // 25s. These flags let the result UI render the moment the backtest
+  // returns, while the analysis panels handle their own "generating…"
+  // skeletons. Default true at run start so the Review tab shows the
+  // skeleton instead of "Run a backtest first" during the gap.
+  const [isExplaining, setIsExplaining] = useState(false);
+  const [isReviewing, setIsReviewing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState("metrics");
   const [runHistory, setRunHistory] = useState<RunHistoryEntry[]>([]);
@@ -231,8 +241,13 @@ export function ResearchWorkspace() {
     setBacktestResult(null);
     setExplanation(null);
     setSandboxReview(null);
+    setIsExplaining(false);
+    setIsReviewing(false);
+
+    // ── Step 1: actually run the backtest ──────────────────────────────
+    let result;
     try {
-      const result = isAnonymous
+      result = isAnonymous
         ? await anonymousBacktestRun({
             // Anonymous endpoint requires a non-empty template_id (Pydantic
             // min_length=1). Use the active template's id when known so
@@ -251,29 +266,66 @@ export function ResearchWorkspace() {
             // "templates always unlimited" copy.
             templateId: activeTemplate?.id,
           });
-      setBacktestResult(result);
-      const [explainerPayload, reviewerPayload] = await Promise.all([
-        explainStrategy(strat, result, "en"),
-        reviewSandbox(strat, result, [], "en", 1),
-      ]);
-      setExplanation(explainerPayload);
-      setSandboxReview(reviewerPayload);
+    } catch (err) {
+      setErrorMessage(err instanceof Error ? err.message : t.errorBacktest);
+      setIsRunning(false);
+      return;
+    }
+
+    // ── Step 2: surface results immediately ─────────────────────────────
+    // PR-I (2026-05-26): historically we awaited the explain + review LLM
+    // calls *before* flipping isRunning false, which stranded the user on
+    // the "Generating report…" spinner for the full LLM round-trip (often
+    // 20-30 seconds). The backtest itself is what the user is waiting on
+    // — render it now and let the analysis catch up in the background.
+    setBacktestResult(result);
+    setIsRunning(false);
+    setIsExplaining(true);
+    setIsReviewing(true);
+
+    // ── Step 3: fire LLM analysis in parallel, in the background ────────
+    // Independent try/catch per call so one failure doesn't kill the
+    // other; both update their own state and the run-history entry waits
+    // until both settle (so a saved entry has whatever analyses succeeded
+    // attached, never partial mid-flight payloads).
+    const explainPromise = explainStrategy(strat, result, "en")
+      .then((payload) => {
+        setExplanation(payload);
+        return payload;
+      })
+      .catch((err) => {
+        console.warn("explainStrategy failed:", err);
+        return null;
+      })
+      .finally(() => setIsExplaining(false));
+
+    const reviewPromise = reviewSandbox(strat, result, [], "en", 1)
+      .then((payload) => {
+        setSandboxReview(payload);
+        return payload;
+      })
+      .catch((err) => {
+        console.warn("reviewSandbox failed:", err);
+        return null;
+      })
+      .finally(() => setIsReviewing(false));
+
+    void Promise.all([explainPromise, reviewPromise]).then(([explainerPayload, reviewerPayload]) => {
       const entry: RunHistoryEntry = {
         id: result.backtest_id, runAt: new Date().toISOString(),
         strategyName: strat.strategy_name, universe: strat.universe,
         startDate: strat.start_date, endDate: strat.end_date,
-        strategy: strat, result, explanation: explainerPayload, sandboxReview: reviewerPayload,
+        strategy: strat,
+        result,
+        explanation: explainerPayload,
+        sandboxReview: reviewerPayload,
       };
       setRunHistory(prev => {
         const updated = [entry, ...prev].slice(0, 20);
         localStorage.setItem(RUN_HISTORY_KEY, JSON.stringify(updated));
         return updated;
       });
-    } catch (err) {
-      setErrorMessage(err instanceof Error ? err.message : t.errorBacktest);
-    } finally {
-      setIsRunning(false);
-    }
+    });
   }
 
   async function handleRunBacktest() {
@@ -783,7 +835,21 @@ export function ResearchWorkspace() {
               {/* Review */}
               <TabsContent value="review" className="mt-6">
                 {!explanation && !sandboxReview ? (
-                  <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">{t.reviewRunFirst}</div>
+                  isExplaining || isReviewing ? (
+                    // PR-I: LLM analysis is still in flight after the
+                    // backtest finished. Show a clear "generating…" state
+                    // instead of "Run a backtest first" — the user did
+                    // already run it; the analysis is just slow.
+                    <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">
+                      <Loader2 className="mx-auto mb-2 h-5 w-5 animate-spin text-primary" aria-hidden="true" />
+                      <p className="font-medium text-foreground/80">Generating analysis…</p>
+                      <p className="mt-1 text-xs">
+                        Backtest is done — preparing the strategy explanation + sandbox review (typically 10–30 seconds).
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-dashed border-border p-10 text-center text-sm text-muted-foreground">{t.reviewRunFirst}</div>
+                  )
                 ) : (
                   <div className="grid gap-4 lg:grid-cols-2">
                     <section className="rounded-xl border border-border bg-card shadow-sm">
