@@ -190,6 +190,82 @@ volume, re-run. Do NOT delete the partial inserts — they're correct;
 the script's idempotent skip-fresh logic will pick up where you left
 off.
 
+### 11. Production hangs at "Waiting for application startup." → restart Postgres add-on
+
+**Symptom:** Railway deploy succeeds the build phase but the container
+log freezes after exactly three lines:
+
+```
+Starting Container
+INFO:     Started server process [1]
+INFO:     Waiting for application startup.
+```
+
+No "Application startup complete" line ever appears. Healthcheck times
+out at the 2-minute mark and Railway marks the deploy failed. The
+PREVIOUS deploy stays "Online" but `/health` returns HTTP 000 (curl
+timeout).
+
+**Root cause:** The lifespan hook is hanging on its first synchronous
+Postgres call — `Base.metadata.create_all(bind=engine)` (`main.py:316`).
+Postgres can be "fine" from the dashboard's perspective (queries return
+instantly, `pg_stat_activity` shows 0 conns) AND still refuse new app
+connections, because its process-level socket queue / TCP accounting is
+wedged. The dashboard's connection goes through a different internal
+route than app containers do.
+
+**Diagnostic procedure:**
+
+1. Latest failed deployment's logs:
+   ```bash
+   railway deployment list | head -3
+   railway logs --deployment <latest-id> | tail -20
+   ```
+   If you see only the three "Starting Container / Started server / Waiting"
+   lines and nothing else, you're in this trap.
+
+2. Open Railway → Postgres service → Data tab. Run:
+   ```sql
+   SELECT state, count(*) FROM pg_stat_activity
+   WHERE pid <> pg_backend_pid()
+   GROUP BY state;
+   ```
+   - If many `idle in transaction` rows → kill them first:
+     ```sql
+     SELECT pg_terminate_backend(pid) FROM pg_stat_activity
+     WHERE pid <> pg_backend_pid()
+       AND state ILIKE 'idle%'
+       AND application_name NOT ILIKE '%postgres%';
+     ```
+     Then retry deploy. If it succeeds, you're done.
+   - If query returns 0 rows AND the new container still hangs →
+     the Postgres process itself is wedged. Continue to step 3.
+
+3. **Restart the Postgres add-on from the Railway dashboard.** Postgres
+   → Deployments tab → three-dot menu → Restart. Takes ~15s.
+
+4. After Postgres restart: `railway redeploy --from-source --yes`. The
+   new container should hit "Application startup complete" within ~30s
+   and pass healthcheck.
+
+**The amplifier (real underlying bug):** `dunning_expiry_job` in
+`apps/api/app/jobs/billing_jobs.py` calls `cancel_subscription()` (a
+Stripe API call) inside an open DB transaction. Every slow Stripe
+request leaks one idle-in-tx connection. Over weeks of hourly runs, the
+pool drains. Fix in progress — move the Stripe call outside the
+transaction so the conn is released before the external HTTP wait.
+
+**Don't:** assume the symptom-time hash is a git commit. The
+``11686d26`` reference in the 2026-05-26 incident turned out to be a
+Railway *deployment* ID, not a git SHA. Three hours of unnecessary
+reverts later, the actual fix was a 15-second dashboard restart. Always
+disambiguate first with `git cat-file -t <sha>` (errors → not a git
+object → probably a Railway deploy ID; verify with `railway deployment
+list`).
+
+Full post-mortem: `docs/KNOWN_ISSUES.md` (entry dated 2026-05-26,
+"Production wedged 16h — FastAPI lifespan hung on Base.metadata.create_all").
+
 ---
 
 ## Cross-dialect quick reference

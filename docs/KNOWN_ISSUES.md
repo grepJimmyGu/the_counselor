@@ -31,6 +31,98 @@ A running log of bugs encountered, root causes, and confirmed fixes. Add new ent
 
 ---
 
+### Production wedged 16h — FastAPI `lifespan` hung on `Base.metadata.create_all` even though `pg_stat_activity` was empty
+**Date:** 2026-05-26
+**Area:** infra / backend startup
+
+**Symptom:**
+Every Railway deploy from 20:15 PT May 25 onward failed healthcheck at the
+2-minute mark. Live `/health` returned HTTP 000 (curl timeout, 10s+). The
+container log showed exactly three lines and then nothing:
+```
+Starting Container
+INFO:     Started server process [1]
+INFO:     Waiting for application startup.
+```
+No exception, no traceback, no `Application startup complete.` line. The
+hang is INSIDE the FastAPI `lifespan` context manager — specifically the
+first synchronous Postgres operation (`Base.metadata.create_all(bind=engine)`).
+
+Earlier in the runtime of the last-good deploy (`b7f50bb1`), Railway logs
+showed accumulating SQLAlchemy pool errors:
+```
+sqlalchemy.exc.TimeoutError: QueuePool limit of size 5 overflow 10 reached,
+  connection timed out, timeout 30.00
+expire_trials_job failed: QueuePool limit of size 5 overflow 10 reached...
+dunning_expiry_job failed: QueuePool limit of size 5 overflow 10 reached...
+```
+But by the time the outage was diagnosed, `pg_stat_activity` showed **zero
+non-system connections to Postgres**, and a query run via Railway's
+Postgres dashboard returned instantly. The DB itself was answering — but
+new app connections silently hung.
+
+**Root cause:**
+The Postgres process state was wedged at the connection-handling layer
+(socket queue / TCP stack inside the Postgres container), NOT the
+database itself. The dashboard's connection went through a separate
+internal path that happened to still work, while new app-container
+connections hung indefinitely.
+
+The original *trigger* (what got us to that state) is harder to pin down
+precisely, but the chain of events maps cleanly to:
+1. `dunning_expiry_job` (`apps/api/app/jobs/billing_jobs.py:83`) calls
+   `cancel_subscription(row.stripe_subscription_id)` **inside an open DB
+   transaction**. The Stripe API call holds the DB connection during the
+   external HTTP round-trip.
+2. If Stripe is slow / hung at any point, the DB conn sits idle-in-tx
+   in the pool.
+3. Repeat 14×/day (hourly) for weeks → idle-in-tx conns accumulate.
+4. Eventually the SQLAlchemy pool drains, every new request times out
+   waiting 30s for a conn from the pool, and the container hits a state
+   where its Postgres TCP socket queue is full of broken/half-open conns.
+5. Railway's healthcheck times out → Railway tries to deploy a new
+   container → new container can't open new connections to Postgres
+   because the Postgres process is itself wedged on socket accounting.
+
+**Fix:**
+Click **Restart** on the Postgres service in Railway's dashboard.
+~15 seconds of downtime, Postgres comes back with a fresh process and
+clean socket state. Next app redeploy passed healthcheck in 26 seconds.
+
+**Diagnostic discipline (added this incident):**
+When troubleshooting "container hangs at `Waiting for application
+startup.`":
+1. Check Railway's logs for the LATEST deployment ID (`railway logs
+   --deployment <id>`). If you see only "Started server process" and
+   no "Application startup complete", the lifespan hook is wedging.
+2. Open Railway's Postgres → Data tab. Run:
+   ```sql
+   SELECT state, count(*) FROM pg_stat_activity
+   WHERE pid <> pg_backend_pid()
+   GROUP BY state;
+   ```
+3. If this query returns 0 rows but a fresh container still can't
+   connect → **Postgres process is wedged; restart from the dashboard**.
+4. If you see lots of `idle in transaction` rows → kill them with
+   `SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE state
+   ILIKE 'idle%' AND application_name NOT ILIKE '%postgres%';`.
+
+**False trails chased (cost ~3 hours):**
+A Railway *deployment ID* (`11686d26`) was misread as a git commit SHA,
+which led to a series of unnecessary reverts (PRs #99, #100, #88, #97).
+The reverts didn't fix anything — the issue was always on the Postgres
+side. **When debugging a Railway outage, always cross-check whether a
+SHA-looking string is a git commit (`git cat-file -t <sha>`) or a
+Railway deployment ID (`railway deployment list`).**
+
+**Files:**
+- Post-mortem: this entry
+- Underlying bug (Stripe call inside DB tx): `apps/api/app/jobs/billing_jobs.py`
+  lines 83-107. Tracked separately for a follow-up PR.
+- Diagnostic guidance also added to `apps/api/CLAUDE.md` as trap #11.
+
+---
+
 ### Top Movers "Top losers" sort surfaces +3.99% gainer as worst loser
 **Date:** 2026-05-23
 **Area:** backend / Market Pulse + frontend / TopMovers
