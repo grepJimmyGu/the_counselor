@@ -590,6 +590,39 @@ export async function deleteSavedStrategy(
   });
 }
 
+// ── Signal alerts (PR #83 endpoints, wired into UI by PR-E) ──────────────────
+// All three require `SIGNAL_ALERTS_ENABLED=true` on Railway. Without it,
+// the routes 404.
+
+export interface SignalSubscriptionStatus {
+  subscription_active: boolean;
+}
+
+/** Opt the current user into email alerts for a saved strategy.
+ *  Idempotent: re-calling flips `email_enabled` back to true if the
+ *  row exists but was disabled. Returns 401 if anonymous (caller
+ *  handles via SoftPaywall). */
+export async function subscribeSignalAlert(
+  strategyId: string,
+  backendToken: string,
+): Promise<SignalSubscriptionStatus> {
+  return fetchApi(`/api/saved-strategies/${strategyId}/signal/subscribe`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${backendToken}` },
+  });
+}
+
+/** Opt out — deletes the subscription row. Idempotent. */
+export async function unsubscribeSignalAlert(
+  strategyId: string,
+  backendToken: string,
+): Promise<void> {
+  await fetchApi(`/api/saved-strategies/${strategyId}/signal/subscribe`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${backendToken}` },
+  });
+}
+
 // ── Community publish (Stage 4a) ──────────────────────────────────────────────
 
 export async function publishStrategy(

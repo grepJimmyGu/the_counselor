@@ -43,6 +43,8 @@ import { DrawdownChart, EquityCurveChart } from "@/components/workspace/charts";
 import { MonthlyHeatmap } from "@/components/workspace/monthly-heatmap";
 import { BacktestLoading } from "@/components/strategy-builder/backtest-loading";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
+import { ResultsDisclaimer } from "@/components/strategy-builder/results-disclaimer";
+import { SignalAlertCTA } from "@/components/strategy-builder/signal-alert-cta";
 import { PublishModal } from "@/components/PublishModal";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -540,6 +542,11 @@ export function ResearchWorkspace() {
         {/* ── Results — top section ────────────────────────────────────── */}
         {backtestResult && !isRunning && (
           <>
+            {/* PR-E (2026-05-24): non-prediction disclaimer above the metrics.
+                `legalText` left undefined until Jimmy provides the legal copy
+                — when added, pass it as a prop and it renders as a
+                <details> expandable below the plain-English banner. */}
+            <ResultsDisclaimer />
             {/* Metric cards — semantic left-border accent */}
             <div className="grid gap-3 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-6">
               {[
@@ -1003,6 +1010,12 @@ export function ResearchWorkspace() {
                 )}
               </TabsContent>
             </Tabs>
+
+            {/* PR-E (2026-05-24): post-results signal-alert opt-in.
+                Renders only after the user saves the strategy (savedSlug
+                set). Anonymous users see a sign-in CTA; the component
+                handles the SIGNAL_ALERTS_ENABLED feature-flag fallback. */}
+            <SignalAlertCTA strategyId={savedSlug} />
           </>
         )}
       </div>

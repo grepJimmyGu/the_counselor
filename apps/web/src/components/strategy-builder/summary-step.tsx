@@ -7,6 +7,7 @@ import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { ResearchTemplate } from "@/lib/contracts";
 import type { WizardStrategy } from "./wizard/strategy-wizard-data";
+import { ResultsDisclaimer } from "./results-disclaimer";
 
 /**
  * Summary step — 4-block model: WHAT / WHEN IN / HOW MUCH / WHEN OUT.
@@ -351,6 +352,12 @@ export function SummaryStep({
       >
         <p className="text-sm leading-relaxed text-foreground/85">{whenOut}</p>
       </Section>
+
+      {/* PR-E (2026-05-24): inline disclaimer at the commit point —
+          the user is about to run a backtest; remind them what the
+          result actually means. The full banner appears on the
+          results screen; here we use the compact inline variant. */}
+      <ResultsDisclaimer variant="inline" className="pt-2" />
 
       {/* CTA */}
       <div className="flex justify-end pt-2">
