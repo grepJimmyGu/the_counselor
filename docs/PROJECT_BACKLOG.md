@@ -71,7 +71,8 @@ actively blocking development; all are gates on going-live activities.
 | Item | Trigger | Where it lives | Effort |
 |---|---|---|---|
 | Set `EMAIL_UNSUB_SIGNING_KEY` on Railway | Before first real email send | `openssl rand -hex 32` → Railway env var | 1 min |
-| Set `CAN_SPAM_ADDRESS` on Railway | Before scaling marketing past ~100 users | Railway env var, plain text address | 1 min |
+| Set `CAN_SPAM_ADDRESS` on Railway | Before the daily signal-alert cron first fires with any active subscriber (signal-alert email body interpolates this string — sharper trigger than the original "scaling past ~100 marketing users") | Railway env var, plain text address | 1 min |
+| Ship Stage 8 v0 Phase C — `/account/saved/[id]` route | Before `SIGNAL_ALERTS_ENABLED=true` lets the cron actually dispatch an email. The all-scope unsub message in `apps/api/app/api/routes/email.py:184` tells users to "Re-enable per-strategy from /account/saved" — that route is Phase C work. Ship Phase C before the first signal email goes out or the link 404s. | Phase C frontend (`SignalPanel`, `SignalIntroModal`) | ~4-6h |
 | `POSTHOG_API_KEY` + `NEXT_PUBLIC_POSTHOG_KEY` | When ready to collect analytics | Railway (backend) + Vercel (frontend) | 5 min |
 | `RESEND_API_KEY` | When ready to send welcome email | Railway env var; safe no-op until set | 1 min |
 | Verify `GATING_ENABLED=true` was intentional | Now (one-off) | Railway env var; confirmed 2026-05-21 ✓ | done |
@@ -85,6 +86,7 @@ actively blocking development; all are gates on going-live activities.
 | Stale `railway/fix-deploy-b1c14b` on remote | Auto-PR from Railway, merged but not deleted | Delete: `gh api -X DELETE repos/grepJimmyGu/the_counselor/git/refs/heads/railway/fix-deploy-b1c14b` |
 | Stale `railway/fix-deploy-bce8d1` on remote | Same | Same |
 | `codex/improve-chat-builder` branch (local worktree) | Codex agent's parallel chat-builder work from May 19-20 (Episode 17), never merged | Decide: merge, rebase + merge, or close. Likely superseded by [build_specs/research_chat_v2.md](../build_specs/research_chat_v2.md) — review before discarding. |
+| Dormant `the_counselor-signals-v0` worktree | Phase A landed via PR #83; Phase B (PR #88) moved to `-signals-v0-phase-b`. The original worktree is no longer referenced by any session. | `git worktree remove ../the_counselor-signals-v0 --force` once PR #88 lands. |
 
 ---
 
@@ -139,6 +141,7 @@ Phase 1 is essentially done — only 1g and the LLM prompt rewrite remain.
 | Market snapshot staleness bug | `fix/market-snapshot-staleness` branch (does it still exist?) | Unknown | Low priority |
 | Remove diagnostic console.log in `research-workspace.tsx` | PR #7 cleanup | done in PR #9 ✓ | — |
 | Postgres migration smoke test in CI for Stage 4/5/6 tables | DEFERRED.md | ~30 min | Stage 4 OR 5 OR 6 production deploy regresses |
+| HTML-escape user-controlled strings in email templates | `apps/api/app/emails/welcome.py` and `apps/api/app/emails/signal_alert.py` interpolate `user.display_name` and `saved_strategy.title` directly into the HTML body. Risk is bounded (modern mail clients sanitize XSS) but a malicious title could break layout. Surfaced by PR #88 master-merger review. | ~30 min for `html.escape()` wrappers, or systemic when the React Email migration happens | When template count grows past ~5 OR any rendered-email regression report |
 
 ---
 
