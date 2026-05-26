@@ -14,6 +14,12 @@ class Settings(BaseSettings):
     app_env: str = "development"
     alpha_vantage_api_key: str = ""
     financial_modeling_prep_api_key: str = ""
+    # FRED (Federal Reserve Economic Data) — free API used by Macro Pulse to
+    # source Growth (Chicago Fed National Activity Index — CFNAI) and Stress
+    # (ICE BofA HY OAS — BAMLH0A0HYM2) signals. Falls back to mock data when
+    # unset so the page never breaks. Register key at
+    # https://fred.stlouisfed.org/docs/api/api_key.html (free, instant).
+    fred_api_key: str = ""
     reddit_client_id: str = ""
     reddit_client_secret: str = ""
     reddit_user_agent: str = "livermore-research/1.0"

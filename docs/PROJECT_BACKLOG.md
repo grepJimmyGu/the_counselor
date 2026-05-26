@@ -125,7 +125,7 @@ Phase 1 is essentially done — only 1g and the LLM prompt rewrite remain.
 
 | Item | Trigger | Effort |
 |---|---|---|
-| Set `FRED_API_KEY` on Railway → swap Growth (ISM Services PMI) + Stress (HY OAS) macro signals to real FRED data | When you want to drop the last two `Mock` pills in the Macro Pulse table | 1 min env var + ~2h backend (FRED client + signal builders) |
+| ~~Set `FRED_API_KEY` on Railway → swap Growth + Stress macro signals to real FRED data~~ | ✅ Shipped — `FRED_API_KEY` env var set on Railway; `FREDClient` + builders for CFNAI (Growth, since ISM PMI is no longer FRED-hosted post-2017 licensing) and BAMLH0A0HYM2 (Stress / HY OAS) in `apps/api/app/services/`. Mock fallback preserved when key missing or FRED unreachable. | Done |
 | Replace `positive-catalyst` curated basket with news-sentiment query | When PRD-09 sentiment coverage is dense enough to be a useful screen | ~2-3h |
 | Replace `community-confirmed` curated basket with vote/watchlist rollup query | When community engagement hits scale | ~2-3h |
 | Replace `rising-attention` curated basket with real volume_ratio across the stocks universe | Backend addition; small | ~3-4h |
