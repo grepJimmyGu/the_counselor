@@ -27,6 +27,11 @@ class FMPClient:
     # returns a list, same as the v3 /quote/{symbols} convention preserved in stable.
     # 100 is the proven FMP chunk size — splits 500 S&P 500 names into 5 concurrent calls.
     BATCH_SYMBOL_LIMIT = 100
+    # Max concurrent path-batch chunks. Firing all 5 (500-symbol pulse) at once
+    # tripped FMP's burst limiter and 80% of the late-alphabet chunks returned
+    # 429-after-retries. 2 concurrent keeps us comfortably under the burst cap
+    # while still completing 500 names in ~3 rounds (~1.5s total).
+    BATCH_CONCURRENT_CHUNKS = 2
     # Conservative bound for the individual-call fallback path: 10 concurrent requests
     # keeps the worst case (path-batch entirely broken) safely under FMP rate limits.
     CONCURRENT_QUOTE_LIMIT = 10
@@ -191,13 +196,19 @@ class FMPClient:
         pending = list(dict.fromkeys(s.upper() for s in symbols if s))
         collected: dict[str, dict] = {}
 
-        # Phase 1: path-based batch
+        # Phase 1: path-based batch — throttled to avoid FMP burst rate limit
         chunks = [
             pending[i:i + self.BATCH_SYMBOL_LIMIT]
             for i in range(0, len(pending), self.BATCH_SYMBOL_LIMIT)
         ]
+        batch_sem = asyncio.Semaphore(self.BATCH_CONCURRENT_CHUNKS)
+
+        async def _throttled_batch(chunk: list[str]) -> list[dict]:
+            async with batch_sem:
+                return await self._get_quote_batch_path(chunk)
+
         batch_results = await asyncio.gather(
-            *(self._get_quote_batch_path(chunk) for chunk in chunks),
+            *(_throttled_batch(chunk) for chunk in chunks),
             return_exceptions=True,
         )
         for result in batch_results:
