@@ -123,19 +123,26 @@ export function StrategyWizard({
 
   function handlePick(strategy: WizardStrategy): void {
     if (pickedSlug) return;
+    // Guard: an unavailable template would land on the summary step but
+    // crash on Run (backend can't execute it without the fundamental /
+    // sentiment data that isn't wired yet). Render the card locked
+    // instead — see the `isLocked` derivation below.
+    const template = strategy.templateId
+      ? researchTemplates.find((t) => t.id === strategy.templateId)
+      : null;
+    if (strategy.templateId === null || !template) {
+      // No template mapping at all — fall through to the custom flow.
+      setPickedSlug(strategy.slug);
+      setTimeout(() => onPickCustom(strategy, answers), 400);
+      return;
+    }
+    if (template.availability !== "ready") {
+      // Template exists but isn't runnable yet — no-op (the button is
+      // disabled in render too; this is the belt-and-braces guard).
+      return;
+    }
     setPickedSlug(strategy.slug);
-    setTimeout(() => {
-      if (strategy.templateId === null) {
-        onPickCustom(strategy, answers);
-        return;
-      }
-      const template = researchTemplates.find((t) => t.id === strategy.templateId);
-      if (!template) {
-        onPickCustom(strategy, answers);
-        return;
-      }
-      onPickTemplate({ template, answers, strategy });
-    }, 400);
+    setTimeout(() => onPickTemplate({ template, answers, strategy }), 400);
   }
 
   return (
@@ -308,11 +315,17 @@ export function StrategyWizard({
           <div className="mt-3 space-y-3">
             {recs.map((s, i) => {
               const reasons = buildWhy(s, answers);
-              const isLocked = s.templateId === null;
+              const template = s.templateId ? researchTemplates.find((t) => t.id === s.templateId) : null;
+              // A card is "locked" when the user can't actually backtest it:
+              // either no template mapping exists (`templateId === null`),
+              // OR the mapped template is shipped in the UI but isn't
+              // runnable yet (e.g. fundamentals/sentiment templates whose
+              // backend providers are not wired). PR-H, 2026-05-26.
+              const isUnavailable = template != null && template.availability !== "ready";
+              const isLocked = s.templateId === null || isUnavailable;
               const isExpanded = expandedSlugs.has(s.slug);
               const isPicked = pickedSlug === s.slug;
               const isFading = pickedSlug !== null && !isPicked;
-              const template = s.templateId ? researchTemplates.find((t) => t.id === s.templateId) : null;
               return (
                 <div
                   key={s.slug}
@@ -388,7 +401,17 @@ export function StrategyWizard({
                     {isExpanded && (
                       <div className="mt-3 animate-in fade-in slide-in-from-top-1 duration-200">
                         {template ? (
-                          <StrategyBriefCard template={template} />
+                          <>
+                            {isUnavailable && (
+                              <div className="mb-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                                <span className="font-semibold">Backtest unavailable —</span>{" "}
+                                this strategy needs data we haven&apos;t wired yet
+                                (fundamentals or news sentiment). The strategy brief below is
+                                accurate; running it is disabled until the data source ships.
+                              </div>
+                            )}
+                            <StrategyBriefCard template={template} />
+                          </>
                         ) : (
                           <div className="rounded-xl border border-dashed border-border bg-muted/20 px-4 py-6 text-center text-sm text-muted-foreground">
                             <Lock className="mx-auto h-4 w-4 text-muted-foreground/60" aria-hidden="true" />
@@ -408,11 +431,13 @@ export function StrategyWizard({
                       <button
                         type="button"
                         onClick={() => handlePick(s)}
-                        disabled={pickedSlug !== null}
+                        disabled={pickedSlug !== null || isUnavailable}
                         className="inline-flex items-center gap-1.5 rounded-lg border border-border bg-muted/40 px-3 py-1.5 text-xs font-medium text-muted-foreground disabled:cursor-not-allowed"
                       >
                         <Lock className="h-3 w-3" aria-hidden="true" />
-                        Template pending — use the custom flow
+                        {isUnavailable
+                          ? "Coming soon — backtest disabled until data ships"
+                          : "Template pending — use the custom flow"}
                         <ArrowRight className="h-3 w-3" aria-hidden="true" />
                       </button>
                     ) : (

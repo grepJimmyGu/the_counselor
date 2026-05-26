@@ -388,18 +388,20 @@ export function StrategyBuilderModal({
       ? "single_stock"
       : undefined;
 
-  /** Summary step's "Preview strategy" handler: persist the config,
-   *  derive the strategy name, transition to the existing preview
-   *  step (which already wraps StrategyBriefCard + the "Run backtest"
-   *  CTA). PR-D will hook `applyRiskLevel` into the StrategyJSON
-   *  build at run time. */
+  /** Summary step's "Run backtest" handler. PR-H (2026-05-26) skips
+   *  the preview step entirely — once the user has finished "How much"
+   *  in the summary, fire the backtest directly. The legacy preview
+   *  step is still mounted for the custom flow (custom-1..custom-5)
+   *  where the user wants to verify the JSON before running. */
   function handleSummaryContinue(config: SummaryStepConfig): void {
     setSummaryConfig(config);
-    if (selectedTemplate) {
-      setTemplateTickers(config.tickers);
-      setStrategyName(autoName(selectedTemplate, config.tickers));
-    }
-    setStep("preview");
+    if (!selectedTemplate) return;
+    const finalName = autoName(selectedTemplate, config.tickers);
+    setTemplateTickers(config.tickers);
+    setStrategyName(finalName);
+    // Skip preview — go straight to the workspace autorun. Pass config
+    // + name as explicit overrides so we don't race React's state flush.
+    runBacktest(config, finalName);
   }
 
   function handleBriefContinue() {
@@ -433,25 +435,31 @@ export function StrategyBuilderModal({
     setStep("preview");
   }
 
-  function handleRunBacktest() {
+  function runBacktest(configOverride?: SummaryStepConfig, nameOverride?: string) {
     const template = selectedTemplate ?? customConfig.selectedTemplate;
-    const finalName = strategyName.trim() || template?.name || "Untitled Strategy";
+    const finalName = (nameOverride ?? strategyName).trim() || template?.name || "Untitled Strategy";
+    // The summary flow can pass `configOverride` to avoid waiting on
+    // React's state flush after setSummaryConfig() — see
+    // handleSummaryContinue (PR-H). Legacy custom flow calls runBacktest()
+    // with no args and reads `summaryConfig` from state (which is null
+    // on the custom path, so the `else if (selectedTemplate)` branch runs).
+    const activeConfig = configOverride ?? summaryConfig;
     let strategyJson: StrategyJson | null;
 
-    if (summaryConfig && selectedTemplate) {
+    if (activeConfig && selectedTemplate) {
       // PR-D path: wizard → summary step. Build the JSON from the
       // user's WHAT (tickers) + HOW MUCH (risk preset, capital,
       // weights, transaction-cost opt-in). Then apply the risk
       // preset to mutate position_sizing + risk_management per the
       // risk_control_prompt.md mapping table.
-      const tickerList = summaryConfig.tickers
+      const tickerList = activeConfig.tickers
         .split(/[,\s]+/)
         .map((s) => s.trim().toUpperCase())
         .filter(Boolean);
       const weights =
-        summaryConfig.weightMode === "custom" && Object.keys(summaryConfig.customWeights).length > 0
+        activeConfig.weightMode === "custom" && Object.keys(activeConfig.customWeights).length > 0
           ? Object.fromEntries(
-              Object.entries(summaryConfig.customWeights).map(([k, v]) => [k, v / 100]),
+              Object.entries(activeConfig.customWeights).map(([k, v]) => [k, v / 100]),
             )
           : undefined;
       const base: StrategyJson = {
@@ -460,14 +468,14 @@ export function StrategyBuilderModal({
         universe: tickerList.length > 0 ? tickerList : selectedTemplate.defaultTickers,
         start_date: dateRangeToStartDate(templateDateRange),
         end_date: today,
-        initial_capital: summaryConfig.capital,
-        transaction_cost_bps: summaryConfig.costEnabled ? summaryConfig.costBps : 0,
-        slippage_bps: summaryConfig.costEnabled ? summaryConfig.costBps : 0,
+        initial_capital: activeConfig.capital,
+        transaction_cost_bps: activeConfig.costEnabled ? activeConfig.costBps : 0,
+        slippage_bps: activeConfig.costEnabled ? activeConfig.costBps : 0,
         position_sizing: weights
           ? { method: "fixed_weight", weights }
           : { ...selectedTemplate.strategy.position_sizing },
       };
-      strategyJson = applyRiskLevel(base, summaryConfig.riskPreset);
+      strategyJson = applyRiskLevel(base, activeConfig.riskPreset);
     } else if (selectedTemplate) {
       strategyJson = buildStrategyFromTemplate(selectedTemplate, resolvedTickers(), templateDateRange, finalName);
     } else {
@@ -946,7 +954,7 @@ export function StrategyBuilderModal({
               ? (selectedTemplate.strategy.position_sizing.max_positions ? Math.round(100 / selectedTemplate.strategy.position_sizing.max_positions) : 5)
               : customConfig.maxPositionPct}
             onEdit={goBack}
-            onRunBacktest={handleRunBacktest}
+            onRunBacktest={() => runBacktest()}
           />
         )}
 
