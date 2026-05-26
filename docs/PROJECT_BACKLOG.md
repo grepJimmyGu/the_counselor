@@ -86,7 +86,6 @@ actively blocking development; all are gates on going-live activities.
 | Stale `railway/fix-deploy-b1c14b` on remote | Auto-PR from Railway, merged but not deleted | Delete: `gh api -X DELETE repos/grepJimmyGu/the_counselor/git/refs/heads/railway/fix-deploy-b1c14b` |
 | Stale `railway/fix-deploy-bce8d1` on remote | Same | Same |
 | `codex/improve-chat-builder` branch (local worktree) | Codex agent's parallel chat-builder work from May 19-20 (Episode 17), never merged | Decide: merge, rebase + merge, or close. Likely superseded by [build_specs/research_chat_v2.md](../build_specs/research_chat_v2.md) — review before discarding. |
-| Dormant `the_counselor-signals-v0` worktree | Phase A landed via PR #83; Phase B (PR #88) moved to `-signals-v0-phase-b`. The original worktree is no longer referenced by any session. | `git worktree remove ../the_counselor-signals-v0 --force` once PR #88 lands. |
 
 ---
 
