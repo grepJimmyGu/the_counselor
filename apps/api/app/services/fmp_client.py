@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from typing import Any
+from typing import Any, Optional
 
 import httpx
 
@@ -23,8 +23,9 @@ class FMPNotConfiguredError(FMPError):
 class FMPClient:
     # FMP deprecated /api/v3 for new subscribers after Aug 2025; all calls now use /stable
     BASE_URL = "https://financialmodelingprep.com/stable"
-    BATCH_SYMBOL_LIMIT = 100
-    SINGLE_QUOTE_FALLBACK_LIMIT = 25
+    BATCH_SYMBOL_LIMIT = 100  # kept for reference; no longer used for batch-quote
+    # Max concurrent individual /stable/quote calls. 50 is conservative for FMP Starter.
+    CONCURRENT_QUOTE_LIMIT = 50
 
     def __init__(self) -> None:
         self.settings = get_settings()
@@ -157,44 +158,33 @@ class FMPClient:
         return []
 
     async def get_quotes_batch(self, symbols: list[str]) -> list[dict]:
-        """Live quotes for N symbols via FMP /stable/quote.
+        """Live quotes for N symbols via concurrent individual FMP /stable/quote calls.
 
-        /stable/quote accepts a comma-separated `symbol` parameter and returns
-        a list covering stocks, ETFs, and indices uniformly — no separate
-        batch-etf or batch-index endpoints needed.  Requests are chunked at
-        BATCH_SYMBOL_LIMIT (100) and fired concurrently so the full S&P 500
-        universe (~500 names) completes in 5 parallel round-trips.
+        FMP's /stable/quote only supports one symbol per request (comma-separated
+        multi-symbol queries silently return empty or just the first match).
+        We work around this by firing individual requests concurrently, bounded
+        by CONCURRENT_QUOTE_LIMIT to stay within FMP's rate limits.
+
+        At 50 concurrent requests and ~200ms per call, 500 S&P 500 symbols
+        resolve in ~2 seconds — acceptable for the 5-minute market-pulse cache.
         """
         if not symbols:
             return []
         pending = list(dict.fromkeys(s.upper() for s in symbols if s))
-        collected: dict[str, dict] = {}
+        sem = asyncio.Semaphore(self.CONCURRENT_QUOTE_LIMIT)
 
-        chunks = [
-            pending[i:i + self.BATCH_SYMBOL_LIMIT]
-            for i in range(0, len(pending), self.BATCH_SYMBOL_LIMIT)
-        ]
+        async def _fetch_one(sym: str) -> Optional[dict]:
+            async with sem:
+                return await self.get_quote(sym)
+
         results = await asyncio.gather(
-            *(self._get_quote_chunk(chunk) for chunk in chunks),
+            *(_fetch_one(sym) for sym in pending),
             return_exceptions=True,
         )
-        for result in results:
-            if isinstance(result, Exception):
-                continue
-            for item in result:
-                if not isinstance(item, dict):
-                    continue
-                sym = item.get("symbol")
-                if not sym:
-                    continue
-                collected[str(sym).upper()] = item
-
-        return [collected[s] for s in pending if s in collected]
-
-    async def _get_quote_chunk(self, symbols: list[str]) -> list[dict]:
-        """Fetch one chunk of up to BATCH_SYMBOL_LIMIT symbols from /stable/quote."""
-        data = await self._get("/quote", {"symbol": ",".join(symbols)})
-        return data if isinstance(data, list) else []
+        return [
+            r for r in results
+            if isinstance(r, dict) and r.get("symbol")
+        ]
 
     async def get_revenue_segments(self, symbol: str, limit: int = 5) -> list[dict]:
         """Annual product/business revenue segmentation (last N years)."""
