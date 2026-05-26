@@ -144,12 +144,15 @@ def _save_cache(symbol: str, result: SegmentRankings, db: Session) -> None:
                 {"sym": symbol, "seg": result.segment, "exp": expires, "data": data},
             )
         else:
+            # CAST(:data AS jsonb) — NOT `:data::jsonb`. See the matching
+            # comment in revenue_segment_service.py for the SQLAlchemy
+            # bind-regex pitfall this avoids.
             db.execute(
                 text(
                     "INSERT INTO competitor_revenue_cache (symbol, segment, expires_at, rankings)"
-                    " VALUES (:sym, :seg, :exp, :data::jsonb)"
+                    " VALUES (:sym, :seg, :exp, CAST(:data AS jsonb))"
                     " ON CONFLICT (symbol, segment) DO UPDATE SET"
-                    "  expires_at=:exp, rankings=:data::jsonb, computed_at=now()"
+                    "  expires_at=:exp, rankings=CAST(:data AS jsonb), computed_at=now()"
                 ),
                 {"sym": symbol, "seg": result.segment, "exp": expires, "data": data},
             )
