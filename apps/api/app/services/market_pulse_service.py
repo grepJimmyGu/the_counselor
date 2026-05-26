@@ -22,7 +22,7 @@ Results are cached in-memory for 1 hour to avoid re-querying on every request.
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
 from typing import Optional
 
@@ -30,6 +30,7 @@ from sqlalchemy import desc, select, text
 from sqlalchemy.orm import Session
 
 from app.models.price_bar import PriceBar
+from app.services.live_quote_service import LiveQuote, live_quote_service
 
 logger = logging.getLogger(__name__)
 
@@ -193,6 +194,16 @@ class MarketPulseResponse:
     sectors: list[SectorCard]
     top_assets: list[AssetCard]     # dynamic top 10 by CMF
     featured_etfs: list[AssetCard]
+
+
+@dataclass
+class _LiveBar:
+    """PriceBar-shaped current-day bar synthesized from an FMP live quote."""
+    trading_date: date
+    high: float
+    low: float
+    close: float
+    volume: int
 
 
 # ── CMF computation ───────────────────────────────────────────────────────────
@@ -530,6 +541,12 @@ def _build_featured_etfs(market: str, db: Session) -> list[AssetCard]:
 _CACHE: dict[str, tuple[datetime, MarketPulseResponse]] = {}
 _CACHE_TTL_MINUTES = 60
 
+# Live overlays are intentionally cached longer than the generic quote cache.
+# A full US Market Pulse refresh touches the whole S&P 500 universe; 5 minutes
+# keeps the page current without firing hundreds of quote calls per visitor.
+_LIVE_CACHE: dict[str, tuple[datetime, MarketPulseResponse]] = {}
+_LIVE_CACHE_TTL_SECONDS = 300
+
 # Phase 1b — narrative cache parallel to the pulse cache. Same TTL.
 # Held separately so the route layer can decide whether to lazily fill it
 # without forcing every `get_pulse()` caller through the LLM path.
@@ -552,6 +569,41 @@ class MarketPulseService:
         result = self._compute(key, db, now)
         _CACHE[key] = (now, result)
         return result
+
+    async def get_live_pulse(self, market: str, db: Session) -> MarketPulseResponse:
+        """Return Market Pulse with live quotes applied before ranking/display.
+
+        The base pulse remains the EOD price_bars snapshot. This overlay fetches
+        FMP live quotes for the exact response universe, then recalculates the
+        fields users read as "today" (price, 1D move, CMF where quote OHLCV is
+        available, sector relative strength). If FMP is unavailable or partial,
+        missing symbols keep their EOD values.
+        """
+        key = market.upper()
+        now = datetime.utcnow()
+
+        cached_at, cached_resp = _LIVE_CACHE.get(key, (None, None))
+        if (
+            cached_at
+            and cached_resp
+            and (now - cached_at) < timedelta(seconds=_LIVE_CACHE_TTL_SECONDS)
+        ):
+            return cached_resp
+
+        base = self.get_pulse(key, db)
+        symbols = _live_quote_symbols(base)
+        if not symbols:
+            return base
+
+        try:
+            quotes = await live_quote_service.get_quotes(symbols)
+        except Exception:
+            logger.exception("market_pulse live quote overlay failed")
+            return base
+
+        live = _apply_live_quotes_to_pulse(base, quotes, db, now)
+        _LIVE_CACHE[key] = (now, live)
+        return live
 
     def _compute(self, market: str, db: Session, now: datetime) -> MarketPulseResponse:
         is_cn = market == "CN"
@@ -599,6 +651,7 @@ class MarketPulseService:
 
     def invalidate_cache(self) -> None:
         _CACHE.clear()
+        _LIVE_CACHE.clear()
         _NARRATIVE_CACHE.clear()
 
     # ── Narrative cache (Phase 1b) ─────────────────────────────────────────
@@ -625,3 +678,192 @@ class MarketPulseService:
         skip retrying within the TTL window after a known LLM-disabled or
         failure path."""
         _NARRATIVE_CACHE[market.upper()] = (datetime.utcnow(), narrative)
+
+
+# ── Live overlay helpers ─────────────────────────────────────────────────────
+
+def _live_quote_symbols(resp: MarketPulseResponse) -> list[str]:
+    """Every real market symbol whose displayed value can be live-overlaid."""
+    symbols: list[str] = []
+    cards = [
+        *resp.indices,
+        *resp.macro,
+        *resp.sectors,
+        *resp.top_assets,
+        *resp.featured_etfs,
+    ]
+    for card in cards:
+        sym = getattr(card, "symbol", "")
+        if not sym or sym in _SPOT_SYMBOLS:
+            continue
+        symbols.append(sym.upper())
+    return sorted(set(symbols))
+
+
+def _apply_live_quotes_to_pulse(
+    resp: MarketPulseResponse,
+    quotes: dict[str, LiveQuote],
+    db: Session,
+    now: datetime,
+) -> MarketPulseResponse:
+    """Return a new response with live quotes merged into all card surfaces."""
+    spy_bars = _load_bars_with_live("SPY", db, quotes.get("SPY"), limit=10)
+
+    sectors = [
+        _apply_live_to_sector(card, quotes.get(card.symbol.upper()), spy_bars, db)
+        for card in resp.sectors
+    ]
+    sectors.sort(
+        key=lambda s: s.cmf_20 if s.cmf_20 is not None else -99,
+        reverse=True,
+    )
+
+    return replace(
+        resp,
+        as_of=now.isoformat(),
+        indices=[
+            _apply_live_to_index(card, quotes.get(card.symbol.upper()), db)
+            for card in resp.indices
+        ],
+        macro=[
+            _apply_live_to_macro(card, quotes.get(card.symbol.upper()))
+            for card in resp.macro
+        ],
+        sectors=sectors,
+        top_assets=[
+            _apply_live_to_asset(card, quotes.get(card.symbol.upper()), db)
+            for card in resp.top_assets
+        ],
+        featured_etfs=[
+            _apply_live_to_asset(card, quotes.get(card.symbol.upper()), db)
+            for card in resp.featured_etfs
+        ],
+    )
+
+
+def _apply_live_to_index(
+    card: IndexCard,
+    quote: Optional[LiveQuote],
+    db: Session,
+) -> IndexCard:
+    if quote is None:
+        return card
+    bars = _load_bars_with_live(card.symbol, db, quote, limit=10)
+    return replace(
+        card,
+        price=round(quote.price, 2),
+        perf_1d=_quote_perf_1d(quote),
+        perf_5d=_compute_perf(bars, 5) if bars else card.perf_5d,
+        sparkline_5d=(
+            [float(b.close) for b in bars[-5:]]
+            if bars
+            else card.sparkline_5d
+        ),
+        latest_date=date.today().isoformat(),
+        is_stale=False,
+    )
+
+
+def _apply_live_to_macro(
+    card: MacroCard,
+    quote: Optional[LiveQuote],
+) -> MacroCard:
+    if quote is None:
+        return card
+    return replace(
+        card,
+        price=round(quote.price, 2),
+        perf_1d=_quote_perf_1d(quote),
+        latest_date=date.today().isoformat(),
+        is_stale=False,
+    )
+
+
+def _apply_live_to_sector(
+    card: SectorCard,
+    quote: Optional[LiveQuote],
+    spy_bars: list,
+    db: Session,
+) -> SectorCard:
+    if quote is None:
+        return card
+    bars = _load_bars_with_live(card.symbol, db, quote)
+    perf_5d = _compute_perf(bars, RS_PERIOD) if bars else card.perf_5d
+    spy_5d = _compute_perf(spy_bars, RS_PERIOD) if spy_bars else None
+    rs = (
+        round(perf_5d - spy_5d, 4)
+        if perf_5d is not None and spy_5d is not None
+        else card.rs_vs_spy_5d
+    )
+    return replace(
+        card,
+        price=round(quote.price, 2),
+        perf_1d=_quote_perf_1d(quote),
+        perf_5d=perf_5d,
+        rs_vs_spy_5d=rs,
+        cmf_20=_compute_cmf(bars) if bars else card.cmf_20,
+        volume_ratio=_volume_ratio(bars) if bars else card.volume_ratio,
+        latest_date=date.today().isoformat(),
+        is_stale=False,
+    )
+
+
+def _apply_live_to_asset(
+    card: AssetCard,
+    quote: Optional[LiveQuote],
+    db: Session,
+) -> AssetCard:
+    if quote is None:
+        return card
+    bars = _load_bars_with_live(card.symbol, db, quote)
+    return replace(
+        card,
+        price=round(quote.price, 2),
+        perf_1d=_quote_perf_1d(quote),
+        cmf_20=_compute_cmf(bars) if bars else card.cmf_20,
+        market_cap=quote.market_cap if quote.market_cap is not None else card.market_cap,
+        latest_date=date.today().isoformat(),
+        is_stale=False,
+    )
+
+
+def _load_bars_with_live(
+    symbol: str,
+    db: Session,
+    quote: Optional[LiveQuote],
+    limit: int = 25,
+) -> list:
+    bars = _load_bars(symbol, db, limit=limit)
+    if quote is None:
+        return bars
+
+    live_bar = _live_bar_from_quote(quote)
+    if live_bar is None:
+        return bars
+
+    if bars:
+        latest = bars[-1].trading_date
+        latest_date = (
+            latest if isinstance(latest, date) else date.fromisoformat(str(latest))
+        )
+        if latest_date == live_bar.trading_date:
+            return [*bars[:-1], live_bar]
+    return [*bars, live_bar]
+
+
+def _live_bar_from_quote(quote: LiveQuote) -> Optional[_LiveBar]:
+    if quote.day_high is None or quote.day_low is None or quote.volume is None:
+        return None
+    high = max(float(quote.day_high), quote.price)
+    low = min(float(quote.day_low), quote.price)
+    return _LiveBar(
+        trading_date=date.today(),
+        high=high,
+        low=low,
+        close=float(quote.price),
+        volume=int(quote.volume),
+    )
+
+
+def _quote_perf_1d(quote: LiveQuote) -> float:
+    return round(float(quote.change_percent) / 100.0, 6)

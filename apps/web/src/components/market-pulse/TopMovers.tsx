@@ -2,12 +2,9 @@
 
 import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
-import { useLiveQuotes } from "@/lib/useLiveQuotes";
 import { MoverRow, type MoverRowProps } from "./MoverRow";
 import {
-  applyLiveQuoteToMoverItem,
   countMoverItemsByCategory,
-  liveSymbolsForMoverItems,
   selectVisibleMoverItems,
   type MoverFilter,
   type MoverItem,
@@ -39,16 +36,6 @@ export function TopMovers({ items }: { items: MoverItem[] }) {
   const visibleItems = useMemo(() => {
     return selectVisibleMoverItems(items, filter, sort);
   }, [items, filter, sort]);
-
-  const liveSymbols = useMemo(
-    () => liveSymbolsForMoverItems(visibleItems),
-    [visibleItems],
-  );
-  const { quotes: liveQuotes } = useLiveQuotes(liveSymbols);
-
-  const visibleItemsWithLive = useMemo(() => {
-    return visibleItems.map((item) => applyLiveQuoteToMoverItem(item, liveQuotes));
-  }, [visibleItems, liveQuotes]);
 
   const counts = useMemo(() => countMoverItemsByCategory(items), [items]);
 
@@ -105,7 +92,7 @@ export function TopMovers({ items }: { items: MoverItem[] }) {
         // wrapping. Mobile: 2 cols × 5 rows keeps the same cards reachable
         // without horizontal scroll.
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
-          {visibleItemsWithLive.map(({ card, category, href }) => (
+          {visibleItems.map(({ card, category, href }) => (
             <MoverRow
               key={`${category}-${card.symbol}`}
               card={card}
