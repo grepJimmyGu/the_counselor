@@ -115,6 +115,49 @@ def verify_unsub_token(token: str) -> Optional[tuple[str, str]]:
     return (user_id, category)
 
 
+def make_signal_unsub_token(
+    user_id: str,
+    saved_strategy_id: Optional[str],
+    scope: str,
+) -> str:
+    """HMAC-signed token for one-click signal-alert unsubscribe (Stage 8 v0).
+
+    Deliberately uses a different 4-part format than `make_unsub_token` (which
+    is `user_id.category.sig`) so the `/api/email/unsub` and `/api/email/signal-unsub`
+    handlers never collide. `scope ∈ {"single", "all"}`; `saved_strategy_id` is
+    required when `scope == "single"` and ignored otherwise (we render `-` in
+    the all-scope token to keep parsing trivial).
+
+    Format: `<user_id>.<scope>.<strategy_id_or_dash>.<hmac_hex16>`
+    """
+    if scope not in {"single", "all"}:
+        raise ValueError(f"unknown signal-unsub scope: {scope!r}")
+    sid = saved_strategy_id if scope == "single" else "-"
+    if scope == "single" and not saved_strategy_id:
+        raise ValueError("scope='single' requires a saved_strategy_id")
+    key = get_settings().email_unsub_signing_key or "dev-only-not-secret"
+    msg = f"{user_id}.{scope}.{sid}".encode()
+    sig = hmac.new(key.encode(), msg, hashlib.sha256).hexdigest()[:16]
+    return f"{user_id}.{scope}.{sid}.{sig}"
+
+
+def verify_signal_unsub_token(token: str) -> Optional[tuple[str, str, Optional[str]]]:
+    """Verify a signal-unsub token. Returns (user_id, scope, saved_strategy_id)
+    on success — `saved_strategy_id` is None when scope is "all"."""
+    parts = token.split(".")
+    if len(parts) != 4:
+        return None
+    user_id, scope, sid, _sig = parts
+    if scope not in {"single", "all"}:
+        return None
+    expected = make_signal_unsub_token(
+        user_id, sid if scope == "single" else None, scope
+    )
+    if not hmac.compare_digest(expected, token):
+        return None
+    return (user_id, scope, sid if scope == "single" else None)
+
+
 def send_email(
     db: Session,
     user: User,
