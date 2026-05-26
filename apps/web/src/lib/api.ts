@@ -1,5 +1,4 @@
 import type {
-  AssetBehaviorFingerprint,
   BacktestResult,
   CompanyProfile,
   DataQualityReport,
@@ -229,14 +228,6 @@ export async function getDataStatus(symbol: string): Promise<DataStatusResponse>
 
 export async function getDataQuality(symbol: string): Promise<DataQualityReport> {
   return fetchApi<DataQualityReport>(`/api/data/quality/${symbol}`);
-}
-
-/** Module 2 — fetch the Asset Behavior Fingerprint for a single ticker.
- *  Backend route: `GET /api/assets/{symbol}/behavior` (no auth required). */
-export async function getAssetBehavior(symbol: string): Promise<AssetBehaviorFingerprint> {
-  return fetchApi<AssetBehaviorFingerprint>(
-    `/api/assets/${encodeURIComponent(symbol.toUpperCase())}/behavior`,
-  );
 }
 
 export async function warmupSymbols(
