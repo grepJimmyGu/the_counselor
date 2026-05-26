@@ -92,6 +92,42 @@ async def test_get_quotes_batch_deduplicates_symbols() -> None:
     client._get.assert_awaited_once_with("/quote/AAPL", {})
 
 
+async def test_get_quotes_batch_normalizes_brk_dot_b_to_brk_dash_b() -> None:
+    """BRK.B (caller convention) → BRK-B for FMP; response remapped back to BRK.B."""
+    client = FMPClient()
+
+    async def fake_get(path: str, params: dict):
+        # Confirm we sent the FMP-style hyphenated symbol
+        assert "BRK-B" in path
+        assert "BRK.B" not in path
+        return [{"symbol": "BRK-B", "price": 483.57, "change": -2.81, "changesPercentage": -0.58}]
+
+    client._get = AsyncMock(side_effect=fake_get)
+
+    result = await client.get_quotes_batch(["BRK.B"])
+
+    assert len(result) == 1
+    # Response symbol should be remapped back to caller's dot convention
+    assert result[0]["symbol"] == "BRK.B"
+
+
+async def test_get_quote_normalizes_brk_dot_b_to_brk_dash_b() -> None:
+    """Single get_quote applies the same dot→hyphen translation for class shares."""
+    client = FMPClient()
+
+    async def fake_get(path: str, params: dict):
+        assert params["symbol"] == "BRK-B"
+        return [{"symbol": "BRK-B", "price": 483.57}]
+
+    client._get = AsyncMock(side_effect=fake_get)
+
+    result = await client.get_quote("BRK.B")
+
+    assert result is not None
+    assert result["symbol"] == "BRK.B"
+    assert result["price"] == 483.57
+
+
 async def test_get_quotes_batch_empty_input() -> None:
     client = FMPClient()
     client._get = AsyncMock()

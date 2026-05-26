@@ -124,13 +124,24 @@ class FMPClient:
             return []
 
     async def get_quote(self, symbol: str) -> dict | None:
-        """Live quote — price, change, volume. Never cached. Extremely fast."""
+        """Live quote — price, change, volume. Never cached. Extremely fast.
+
+        Normalises class-share dot notation to FMP's hyphen convention on the
+        way out (BRK.B → BRK-B), then maps the response symbol back to the
+        caller's convention so downstream lookups by `BRK.B` continue to work.
+        """
+        original = symbol.upper()
+        fmp_sym = original.replace(".", "-")
         try:
-            data = await self._get("/quote", {"symbol": symbol.upper()})
+            data = await self._get("/quote", {"symbol": fmp_sym})
+            row = None
             if isinstance(data, list) and data:
-                return data[0]
-            if isinstance(data, dict) and data.get("price"):
-                return data
+                row = data[0]
+            elif isinstance(data, dict) and data.get("price"):
+                row = data
+            if row is not None:
+                row["symbol"] = original
+                return row
         except Exception:
             pass
         return None
@@ -220,12 +231,30 @@ class FMPClient:
         return [collected[s] for s in pending if s in collected]
 
     async def _get_quote_batch_path(self, symbols: list[str]) -> list[dict]:
-        """Fetch one chunk via /stable/quote/SYM1,SYM2,...,SYMN (path-based)."""
+        """Fetch one chunk via /stable/quote/SYM1,SYM2,...,SYMN (path-based).
+
+        FMP normalises class-share tickers to the hyphen convention
+        (BRK-B, not BRK.B). We translate on the way out and reverse-map the
+        response symbols back to the caller's convention so the rest of the
+        codebase can look up `BRK.B` directly.
+        """
         if not symbols:
             return []
-        joined = ",".join(symbols)
-        data = await self._get(f"/quote/{joined}", {})
-        return data if isinstance(data, list) else []
+        # Caller convention (dot) ↔ FMP convention (hyphen)
+        to_caller = {s.replace(".", "-"): s for s in symbols}
+        fmp_syms = list(to_caller.keys())
+        data = await self._get(f"/quote/{','.join(fmp_syms)}", {})
+        if not isinstance(data, list):
+            return []
+        out: list[dict] = []
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            fmp_sym = str(item.get("symbol", "")).upper()
+            caller_sym = to_caller.get(fmp_sym, fmp_sym)
+            item["symbol"] = caller_sym
+            out.append(item)
+        return out
 
     async def get_revenue_segments(self, symbol: str, limit: int = 5) -> list[dict]:
         """Annual product/business revenue segmentation (last N years)."""
