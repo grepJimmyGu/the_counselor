@@ -294,19 +294,6 @@ def _start_scheduler() -> None:
         # Offset to 02:30 UTC so it doesn't race the 02:00 LLM auditor for
         # DB connections.
         scheduler.add_job(audit_chat_tool_errors_job, "cron", hour=2, minute=30)
-        # Stage 8 v0 — daily signal recompute at 22:00 UTC (after US market close
-        # + Alpha Vantage daily refresh window). Gated on the same flag as the
-        # signals router so behavior toggles atomically.
-        if get_settings().signal_alerts_enabled:
-            from app.jobs.signal_jobs import recompute_signals_job
-            scheduler.add_job(
-                recompute_signals_job,
-                "cron",
-                hour=22,
-                minute=0,
-                id="signal_recompute",
-                replace_existing=True,
-            )
         scheduler.start()
     except Exception as exc:
         logger.warning("APScheduler failed to start: %s", exc)
