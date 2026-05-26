@@ -1,38 +1,41 @@
-"""Macro Pulse signal builder — Phase 1c.
+"""Macro Pulse signal builder — Phase 1c + FRED unmock.
 
 Produces the 4-row payload consumed by `MacroPulseTable.tsx`:
-  Growth (ISM Services PMI)
-  Inflation (Core CPI proxy via headline CPI)
-  Rates (10Y Treasury yield)
-  Stress (HY OAS)
+  Growth     — Chicago Fed National Activity Index (CFNAI, via FRED)
+  Inflation  — Core CPI proxy via headline CPI (Alpha Vantage)
+  Rates      — 10Y Treasury yield (Alpha Vantage)
+  Stress     — ICE BofA US HY Option-Adjusted Spread (BAMLH0A0HYM2, via FRED)
 
-Real data via Alpha Vantage where available:
-  - Rates / 10Y: AV TREASURY_YIELD (maturity=10year, monthly) — real
-  - Inflation / CPI: AV CPI (headline; Core CPI requires FRED) — real,
-    approximate
+Real-data sources:
+  - Rates / 10Y      → AV TREASURY_YIELD (maturity=10year, monthly)
+  - Inflation / CPI  → AV CPI (headline; Core CPI requires the FRED
+    CORESTICKM158SFRBATL series — still approximated by headline for v1)
+  - Growth / CFNAI   → FRED CFNAI (monthly, ~85 indicators incl. industrial
+    production, hours worked, personal consumption). Chosen because ISM
+    PMI is no longer redistributed by FRED after the 2017 ISM licensing
+    change. CFNAI captures the same "is the economy expanding above
+    trend" question — positive = above trend, negative = below trend,
+    -0.7 = recession-typical reading.
+  - Stress / HY OAS  → FRED BAMLH0A0HYM2 (daily, %). Sub-4 = risk-on,
+    4–6 = stretched, 7+ = credit stress.
 
-Mock with documented "pending FRED key" status:
-  - Growth / ISM Services PMI — AV doesn't expose PMI; needs FRED
-    (`NMFCI` or `BACTSAMFRBNY`) or ISM direct
-  - Stress / HY OAS — AV doesn't expose ICE BofA OAS; needs FRED
-    (`BAMLH0A0HYM2`)
+Each real-data builder is wrapped in try/except so one signal's failure
+falls back to a documented "Mock data" variant. The frontend renders both
+identically — the `source` field tells the user which is which.
 
-The frontend already renders fine against the mock; this service just
-swaps the real signals in. Mock signals retain the "Mock data" caveat
-in their `explanation` field so users see what's real vs not.
-
-Cache: 24h. CPI + Treasury yields update daily at most; intraday hits
-just reuse the cache.
+Cache: 24h. None of these series update intraday at a cadence worth
+re-fetching.
 """
 from __future__ import annotations
 
 import logging
 import statistics
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from app.services.alpha_vantage import AlphaVantageClient, AlphaVantageError
+from app.services.fred_client import FREDClient, FREDError
 
 _log = logging.getLogger("livermore.macro_signals")
 
@@ -220,15 +223,140 @@ async def _build_inflation_signal(av: AlphaVantageClient) -> MacroSignal:
     )
 
 
+async def _build_growth_signal(fred: FREDClient) -> MacroSignal:
+    """Real Growth signal via FRED CFNAI (Chicago Fed National Activity
+    Index). Monthly, last 3 yrs. Positive = above-trend growth;
+    negative = below trend; -0.7 = recession-typical.
+
+    NOTE: CFNAI is a Z-SCORE (mean=0, sd=1), not a 0-100 index like PMI.
+    The latestLabel and series reflect that — `+0.34` etc. The frontend
+    `MacroPulseTable` already supports negative values in the sparkline.
+    """
+    # Pull 4 years to guarantee 36 monthly points; trim downstream.
+    start = (date.today() - timedelta(days=365 * 4)).isoformat()
+    data = await fred.fetch_series("CFNAI", observation_start=start)
+    values = [d["value"] for d in data]
+    if not values:
+        raise FREDError("CFNAI returned no usable observations.")
+
+    series3Y = values[-36:] if len(values) >= 36 else values
+    series1Y = values[-12:] if len(values) >= 12 else values
+    last = values[-1]
+    # CFNAI is monthly — 1M sparkline gets the last point repeated so the
+    # visual doesn't collapse (matches the Rates/Inflation pattern above).
+    series1M = [last] * 8
+
+    direction, label = _trend_from_series(series1Y, threshold=0.05)
+    # Re-label using CFNAI vocabulary (Improving / Slowing / Stable) and
+    # write the takeaway in CFNAI's positive=expansion / negative=contraction
+    # convention.
+    if last > 0.0:
+        if direction == "up":
+            label = "Improving"
+            takeaway = "Economy expanding above trend"
+        else:
+            label = "Stable"
+            takeaway = "Economy holding above trend"
+    elif last < -0.3:
+        label = "Slowing"
+        takeaway = "Activity below trend — slowdown signal"
+    else:
+        label = "Stable"
+        takeaway = "Activity near long-run trend"
+
+    return MacroSignal(
+        category="Growth",
+        latestLabel=f"CFNAI: {last:+.2f}",
+        trendDirection=direction,
+        trendLabel=label,
+        takeaway=takeaway,
+        explanation=(
+            "Chicago Fed National Activity Index — a monthly composite of "
+            "85 macro indicators (industrial production, hours worked, "
+            "consumption, sales). Positive values = activity above the "
+            "long-run trend; negative = below. A reading below −0.7 "
+            "historically coincides with the start of a recession. "
+            "Used as a Growth proxy because the ISM Services PMI is no "
+            "longer redistributed by FRED (ISM licensing). Source: FRED "
+            "CFNAI (monthly)."
+        ),
+        series1M=series1M,
+        series1Y=series1Y,
+        series3Y=series3Y,
+        source="fred",
+    )
+
+
+async def _build_stress_signal(fred: FREDClient) -> MacroSignal:
+    """Real Stress signal via FRED BAMLH0A0HYM2 (ICE BofA US HY OAS).
+    Daily series; we downsample to monthly (last value of each month)
+    so the cadence matches the other macro pills.
+    """
+    start = (date.today() - timedelta(days=365 * 4)).isoformat()
+    data = await fred.fetch_series("BAMLH0A0HYM2", observation_start=start)
+    if not data:
+        raise FREDError("BAMLH0A0HYM2 returned no usable observations.")
+
+    # Downsample daily → monthly (last observation of each calendar month).
+    monthly: dict[str, float] = {}
+    for obs in data:
+        key = obs["date"].strftime("%Y-%m")
+        monthly[key] = obs["value"]  # last value wins (chronological order)
+    monthly_values = list(monthly.values())
+
+    series3Y = monthly_values[-36:] if len(monthly_values) >= 36 else monthly_values
+    series1Y = monthly_values[-12:] if len(monthly_values) >= 12 else monthly_values
+    last = monthly_values[-1]
+    series1M = [last] * 8
+
+    direction, label = _trend_from_series(series1Y, threshold=0.05)
+    # Inverted polarity: rising HY spread = MORE stress (bad). Convert
+    # the generic Rising/Cooling labels into stress-vocabulary.
+    if last < 4.0:
+        label = "Stable" if direction == "flat" else ("Tightening" if direction == "down" else "Widening")
+        takeaway = "Credit risk contained"
+    elif last < 6.0:
+        label = "Widening" if direction == "up" else ("Tightening" if direction == "down" else "Stable")
+        takeaway = "Stretched but not stressed"
+    else:
+        label = "Stressed"
+        takeaway = "Credit stress — risk-off regime"
+
+    return MacroSignal(
+        category="Stress",
+        latestLabel=f"HY Spread: {last:.2f}%",
+        trendDirection=direction,
+        trendLabel=label,
+        takeaway=takeaway,
+        explanation=(
+            "ICE BofA US High-Yield Option-Adjusted Spread — extra yield "
+            "investors demand to hold junk bonds vs Treasuries. Below 4% = "
+            "risk-on; 4–6% = stretched; above 7% = credit stress. Source: "
+            "FRED BAMLH0A0HYM2 (daily, downsampled to monthly for trend)."
+        ),
+        series1M=series1M,
+        series1Y=series1Y,
+        series3Y=series3Y,
+        source="fred",
+    )
+
+
 # ── Public API ──────────────────────────────────────────────────────────────
 
 
 async def get_macro_signals() -> list[MacroSignal]:
-    """Return the 4 macro signals. Cached 24h. Real for Rates + Inflation
-    (AV); mock with explanatory note for Growth + Stress (need FRED).
+    """Return the 4 macro signals. Cached 24h.
 
-    Service never raises — any AV failure falls back to the existing
-    full-mock signal so the page doesn't break."""
+    Real-data sources:
+      Growth     → FRED CFNAI
+      Inflation  → AV CPI (headline)
+      Rates      → AV TREASURY_YIELD (10Y)
+      Stress     → FRED BAMLH0A0HYM2 (HY OAS)
+
+    Each builder is wrapped in try/except so one source's failure falls
+    back to the documented mock variant. Service never raises — the page
+    always gets a 4-signal payload.
+    """
     global _CACHE
     now = datetime.utcnow()
 
@@ -238,11 +366,14 @@ async def get_macro_signals() -> list[MacroSignal]:
             return cached
 
     av = AlphaVantageClient()
+    fred = FREDClient()
 
-    # Each real-data builder is wrapped in try/except so one signal's
-    # failure doesn't poison the whole payload.
     signals: list[MacroSignal] = []
-    signals.append(_MOCK_GROWTH)
+    try:
+        signals.append(await _build_growth_signal(fred))
+    except (FREDError, KeyError, ValueError) as exc:
+        _log.warning("macro_signals: growth fell back to mock: %r", exc)
+        signals.append(_MOCK_GROWTH)
     try:
         signals.append(await _build_inflation_signal(av))
     except (AlphaVantageError, KeyError, ValueError) as exc:
@@ -253,7 +384,11 @@ async def get_macro_signals() -> list[MacroSignal]:
     except (AlphaVantageError, KeyError, ValueError) as exc:
         _log.warning("macro_signals: rates fell back to mock: %r", exc)
         signals.append(_full_mock_rates())
-    signals.append(_MOCK_STRESS)
+    try:
+        signals.append(await _build_stress_signal(fred))
+    except (FREDError, KeyError, ValueError) as exc:
+        _log.warning("macro_signals: stress fell back to mock: %r", exc)
+        signals.append(_MOCK_STRESS)
 
     _CACHE = (now, signals)
     return signals
