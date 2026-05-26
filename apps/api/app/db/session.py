@@ -22,44 +22,9 @@ if database_url.startswith("postgresql://"):
 elif database_url.startswith("postgres://"):
     database_url = database_url.replace("postgres://", "postgresql+psycopg://", 1)
 
-engine_kwargs: dict = {"future": True}
+engine_kwargs = {"future": True}
 if database_url.startswith("sqlite"):
     engine_kwargs["connect_args"] = {"check_same_thread": False}
-else:
-    # Postgres-only resilience knobs (2026-05-26 Railway pool-exhaustion fix).
-    #
-    # Why these settings exist:
-    #
-    # • pool_pre_ping=True — Each checkout issues a lightweight `SELECT 1` to
-    #   confirm the connection is still alive. Without this, a connection
-    #   killed server-side (Postgres idle timeout, network blip, Railway
-    #   restart) sits in the pool as a "live" slot; the next query that
-    #   draws it dies with `OperationalError: server closed the connection
-    #   unexpectedly`. Repeat a few times and the pool is full of zombies
-    #   that look used but can't serve queries. Cheap (~1ms per checkout)
-    #   and well worth it in any hosted environment.
-    #
-    # • pool_recycle=1800 — Drop and recreate connections older than 30
-    #   minutes. Belt-and-braces against the same zombie class for hosts
-    #   that silently close conns after N minutes of inactivity.
-    #
-    # • pool_size=10, max_overflow=20 — bump from SQLAlchemy defaults
-    #   (5 + 10). Production carries APScheduler cron jobs + LLM-batched
-    #   chat requests + async route handlers that hold sessions across
-    #   external `await` calls (see apps/api/CLAUDE.md trap #12). 15 was
-    #   not enough headroom; 30 gives ~2x cushion before queue-and-wait.
-    #
-    # • pool_timeout=20 — fail-fast: a connection wait that exceeds 20s
-    #   means something is wedged. Surface it as a 500 immediately instead
-    #   of holding the request handler for the full 30s default, which
-    #   compounds the pile-up when traffic is bursty.
-    engine_kwargs.update({
-        "pool_pre_ping": True,
-        "pool_recycle": 1800,
-        "pool_size": 10,
-        "max_overflow": 20,
-        "pool_timeout": 20,
-    })
 engine = create_engine(database_url, **engine_kwargs)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
