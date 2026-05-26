@@ -190,8 +190,15 @@ def _save_cache(symbol: str, segment_type: str, years: list[SegmentYear], db: Se
                     "INSERT INTO revenue_segments (symbol, fiscal_year, segment_type, data)"
                     " VALUES (:sym, :yr, :stype, :data)"
                     if is_sqlite else
+                    # CAST(:data AS jsonb) — NOT `:data::jsonb`. SQLAlchemy's
+                    # `text()` bind-parameter regex uses a negative-lookahead
+                    # `(?!:)` that refuses to match `:data` when followed by
+                    # `:`, so `:data::jsonb` is sent to Postgres literally,
+                    # which then raises `SyntaxError at or near ":"`. Use the
+                    # explicit CAST form (or wrap as `(:data)::jsonb`) in any
+                    # SQLAlchemy text() statement that needs a postgres cast.
                     "INSERT INTO revenue_segments (symbol, fiscal_year, segment_type, data)"
-                    " VALUES (:sym, :yr, :stype, :data::jsonb)"
+                    " VALUES (:sym, :yr, :stype, CAST(:data AS jsonb))"
                 ),
                 {"sym": symbol, "yr": sy.year, "stype": segment_type, "data": data_json},
             )
