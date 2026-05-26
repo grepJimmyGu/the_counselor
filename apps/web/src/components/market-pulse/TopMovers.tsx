@@ -1,9 +1,18 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import type { AssetCard } from "@/lib/contracts";
 import { cn } from "@/lib/utils";
+import { useLiveQuotes } from "@/lib/useLiveQuotes";
 import { MoverRow, type MoverRowProps } from "./MoverRow";
+import {
+  applyLiveQuoteToMoverItem,
+  countMoverItemsByCategory,
+  liveSymbolsForMoverItems,
+  selectVisibleMoverItems,
+  type MoverFilter,
+  type MoverItem,
+  type MoverSort,
+} from "./top-movers-selection";
 
 /**
  * Section 5 — Top Movers (unified ranked list).
@@ -21,28 +30,27 @@ import { MoverRow, type MoverRowProps } from "./MoverRow";
  * §4b follow-ups).
  */
 
-export interface MoverItem {
-  card: AssetCard;
-  category: "Stock" | "ETF";
-  href: string;
-}
-
-type Filter = "all" | "stock" | "etf";
-type Sort = "gainers" | "losers" | "cmf";
+export type { MoverItem } from "./top-movers-selection";
 
 export function TopMovers({ items }: { items: MoverItem[] }) {
-  const [filter, setFilter] = useState<Filter>("all");
-  const [sort, setSort] = useState<Sort>("gainers");
+  const [filter, setFilter] = useState<MoverFilter>("all");
+  const [sort, setSort] = useState<MoverSort>("gainers");
 
-  const filtered = useMemo(() => {
-    const byCat =
-      filter === "all"
-        ? items
-        : items.filter((i) => i.category.toLowerCase() === filter);
-    return sortItems(byCat, sort);
+  const visibleItems = useMemo(() => {
+    return selectVisibleMoverItems(items, filter, sort);
   }, [items, filter, sort]);
 
-  const counts = useMemo(() => countByCategory(items), [items]);
+  const liveSymbols = useMemo(
+    () => liveSymbolsForMoverItems(visibleItems),
+    [visibleItems],
+  );
+  const { quotes: liveQuotes } = useLiveQuotes(liveSymbols);
+
+  const visibleItemsWithLive = useMemo(() => {
+    return visibleItems.map((item) => applyLiveQuoteToMoverItem(item, liveQuotes));
+  }, [visibleItems, liveQuotes]);
+
+  const counts = useMemo(() => countMoverItemsByCategory(items), [items]);
 
   return (
     <section
@@ -60,7 +68,7 @@ export function TopMovers({ items }: { items: MoverItem[] }) {
         <select
           aria-label="Sort top movers by"
           value={sort}
-          onChange={(e) => setSort(e.target.value as Sort)}
+          onChange={(e) => setSort(e.target.value as MoverSort)}
           className="rounded-md border border-border bg-white px-2 py-1 text-xs focus-visible:outline-2 focus-visible:outline-primary"
         >
           <option value="gainers">Sort: Top gainers</option>
@@ -87,7 +95,7 @@ export function TopMovers({ items }: { items: MoverItem[] }) {
         />
       </div>
 
-      {filtered.length === 0 ? (
+      {visibleItems.length === 0 ? (
         <div className="rounded-xl border border-border bg-white px-3 py-6 text-center text-xs text-muted-foreground">
           No matches.
         </div>
@@ -97,7 +105,7 @@ export function TopMovers({ items }: { items: MoverItem[] }) {
         // wrapping. Mobile: 2 cols × 5 rows keeps the same cards reachable
         // without horizontal scroll.
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-2">
-          {filtered.slice(0, 10).map(({ card, category, href }) => (
+          {visibleItemsWithLive.map(({ card, category, href }) => (
             <MoverRow
               key={`${category}-${card.symbol}`}
               card={card}
@@ -133,34 +141,5 @@ function FilterChip({
     >
       {label}
     </button>
-  );
-}
-
-function countByCategory(items: MoverItem[]): { stock: number; etf: number } {
-  return items.reduce(
-    (acc, i) => {
-      const k = i.category.toLowerCase() as keyof typeof acc;
-      acc[k]++;
-      return acc;
-    },
-    { stock: 0, etf: 0 },
-  );
-}
-
-function sortItems(items: MoverItem[], sort: Sort): MoverItem[] {
-  const arr = [...items];
-  if (sort === "gainers") {
-    return arr.sort(
-      (a, b) => (b.card.perf_1d ?? -Infinity) - (a.card.perf_1d ?? -Infinity),
-    );
-  }
-  if (sort === "losers") {
-    return arr.sort(
-      (a, b) => (a.card.perf_1d ?? Infinity) - (b.card.perf_1d ?? Infinity),
-    );
-  }
-  // sort === "cmf" — money-flow proxy until `volume_ratio` lands for stocks.
-  return arr.sort(
-    (a, b) => (b.card.cmf_20 ?? -Infinity) - (a.card.cmf_20 ?? -Infinity),
   );
 }
