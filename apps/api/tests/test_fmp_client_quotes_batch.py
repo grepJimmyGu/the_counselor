@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from unittest.mock import AsyncMock, call
 
 from app.services.fmp_client import FMPClient
 
@@ -20,69 +20,85 @@ def _raw_quote(symbol: str) -> dict:
     }
 
 
-async def test_get_quotes_batch_calls_get_quote_per_symbol() -> None:
-    """get_quotes_batch fires one get_quote call per symbol — FMP /stable/quote
-    does not support comma-separated multi-symbol queries."""
+async def test_get_quotes_batch_uses_path_based_quote_endpoint() -> None:
+    """Primary path is /stable/quote/SYM1,SYM2,... — the fmpsdk convention."""
     client = FMPClient()
-    client.get_quote = AsyncMock(side_effect=lambda sym: _raw_quote(sym))
+    client._get = AsyncMock(return_value=[_raw_quote("AAPL"), _raw_quote("MSFT")])
 
-    result = await client.get_quotes_batch(["AAPL", "msft"])
+    result = await client.get_quotes_batch(["aapl", "msft"])
 
-    assert client.get_quote.await_count == 2
-    assert {r["symbol"] for r in result} == {"AAPL", "MSFT"}
-
-
-async def test_get_quotes_batch_deduplicates_symbols() -> None:
-    """Duplicate symbols (case-insensitive) are only fetched once."""
-    client = FMPClient()
-    client.get_quote = AsyncMock(side_effect=lambda sym: _raw_quote(sym))
-
-    await client.get_quotes_batch(["AAPL", "aapl", "AAPL"])
-
-    assert client.get_quote.await_count == 1
+    assert [r["symbol"] for r in result] == ["AAPL", "MSFT"]
+    client._get.assert_awaited_once_with("/quote/AAPL,MSFT", {})
 
 
-async def test_get_quotes_batch_handles_fmp_returning_none() -> None:
-    """Symbols where get_quote returns None are silently omitted."""
+async def test_get_quotes_batch_chunks_at_100_concurrent() -> None:
+    """500 symbols split into 5 chunks of 100, fired concurrently via gather."""
     client = FMPClient()
 
-    async def fake_get_quote(sym: str):
-        if sym == "AAPL":
-            return _raw_quote("AAPL")
-        return None
+    async def fake_get(path: str, params: dict):
+        syms = path.replace("/quote/", "").split(",")
+        return [_raw_quote(s) for s in syms]
 
-    client.get_quote = AsyncMock(side_effect=fake_get_quote)
-
-    result = await client.get_quotes_batch(["AAPL", "BADTICKER"])
-
-    assert len(result) == 1
-    assert result[0]["symbol"] == "AAPL"
-
-
-async def test_get_quotes_batch_large_list_fetches_all() -> None:
-    """500 symbols are all fetched, bounded by the semaphore."""
-    client = FMPClient()
-    call_count = 0
-
-    async def fake_get_quote(sym: str):
-        nonlocal call_count
-        call_count += 1
-        return _raw_quote(sym)
-
-    client.get_quote = AsyncMock(side_effect=fake_get_quote)
+    client._get = AsyncMock(side_effect=fake_get)
     symbols = [f"S{i:03d}" for i in range(500)]
 
     result = await client.get_quotes_batch(symbols)
 
-    assert call_count == 500
     assert len(result) == 500
+    assert client._get.await_count == 5
+    expected_chunks = [
+        call(f"/quote/{','.join(symbols[i:i + 100])}", {})
+        for i in range(0, 500, 100)
+    ]
+    assert client._get.await_args_list == expected_chunks
+
+
+async def test_get_quotes_batch_falls_back_to_individual_for_missing() -> None:
+    """If the path-batch returns partial data, missing symbols fall back to get_quote."""
+    client = FMPClient()
+    client._get = AsyncMock(return_value=[_raw_quote("AAPL")])  # batch returns only AAPL
+    client.get_quote = AsyncMock(side_effect=lambda sym: _raw_quote(sym))
+
+    result = await client.get_quotes_batch(["AAPL", "MSFT", "TSLA"])
+
+    symbols = {r["symbol"] for r in result}
+    assert symbols == {"AAPL", "MSFT", "TSLA"}
+    # Path-batch fired once for the chunk; individual fallback for the 2 missing.
+    assert client._get.await_count == 1
+    assert client.get_quote.await_count == 2
+    fallback_syms = {c.args[0] for c in client.get_quote.await_args_list}
+    assert fallback_syms == {"MSFT", "TSLA"}
+
+
+async def test_get_quotes_batch_handles_complete_batch_failure() -> None:
+    """If path-batch raises for all chunks, every symbol falls back to get_quote."""
+    client = FMPClient()
+    client._get = AsyncMock(side_effect=RuntimeError("FMP 500"))
+    client.get_quote = AsyncMock(side_effect=lambda sym: _raw_quote(sym))
+
+    result = await client.get_quotes_batch(["AAPL", "MSFT"])
+
+    assert {r["symbol"] for r in result} == {"AAPL", "MSFT"}
+    assert client.get_quote.await_count == 2
+
+
+async def test_get_quotes_batch_deduplicates_symbols() -> None:
+    client = FMPClient()
+    client._get = AsyncMock(return_value=[_raw_quote("AAPL")])
+
+    await client.get_quotes_batch(["AAPL", "aapl", "AAPL"])
+
+    assert client._get.await_count == 1
+    client._get.assert_awaited_once_with("/quote/AAPL", {})
 
 
 async def test_get_quotes_batch_empty_input() -> None:
     client = FMPClient()
+    client._get = AsyncMock()
     client.get_quote = AsyncMock()
 
     result = await client.get_quotes_batch([])
 
     assert result == []
+    client._get.assert_not_awaited()
     client.get_quote.assert_not_awaited()
