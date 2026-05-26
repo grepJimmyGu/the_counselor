@@ -27,11 +27,11 @@ class FMPClient:
     # returns a list, same as the v3 /quote/{symbols} convention preserved in stable.
     # 100 is the proven FMP chunk size — splits 500 S&P 500 names into 5 concurrent calls.
     BATCH_SYMBOL_LIMIT = 100
-    # Max concurrent path-batch chunks. Firing all 5 (500-symbol pulse) at once
-    # tripped FMP's burst limiter and 80% of the late-alphabet chunks returned
-    # 429-after-retries. 2 concurrent keeps us comfortably under the burst cap
-    # while still completing 500 names in ~3 rounds (~1.5s total).
-    BATCH_CONCURRENT_CHUNKS = 2
+    # Max concurrent path-batch chunks. Even 2 concurrent triggered FMP's burst
+    # limiter for late-alphabet chunks (M-Z), dropping coverage to ~88% on cold
+    # cache. Strict serial (1) trades ~1s latency for 100% first-call coverage.
+    # 5 chunks × ~500ms = ~2.5s — still well inside the user-facing budget.
+    BATCH_CONCURRENT_CHUNKS = 1
     # Conservative bound for the individual-call fallback path: 10 concurrent requests
     # keeps the worst case (path-batch entirely broken) safely under FMP rate limits.
     CONCURRENT_QUOTE_LIMIT = 10
