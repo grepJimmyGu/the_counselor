@@ -92,9 +92,22 @@ export function SummaryStep({
   const [riskPreset, setRiskPreset] = useState<RiskPreset>(initialRiskPreset);
   const [weightMode, setWeightMode] = useState<"equal" | "custom">("equal");
   const [customWeights, setCustomWeights] = useState<Record<string, number>>({});
-  const [capital, setCapital] = useState<number>(100_000);
+  // Capital + costBps are stored as raw input strings so the user can
+  // type/edit freely (PR-H, 2026-05-26). The previous `useState<number>`
+  // coerced every keystroke through `Number(e.target.value) || 0`, which
+  // collapsed mid-edit values to 0 and prevented clearing the field.
+  // We parse on submit instead.
+  const [capitalInput, setCapitalInput] = useState<string>("100000");
+  const capital = useMemo(() => {
+    const n = Number(capitalInput.replace(/[,\s]/g, ""));
+    return Number.isFinite(n) ? n : 0;
+  }, [capitalInput]);
   const [costEnabled, setCostEnabled] = useState<boolean>(false);
-  const [costBps, setCostBps] = useState<number>(10);
+  const [costInput, setCostInput] = useState<string>("10");
+  const costBps = useMemo(() => {
+    const n = Number(costInput.replace(/[,\s]/g, ""));
+    return Number.isFinite(n) ? n : 0;
+  }, [costInput]);
 
   const tickerList = useMemo(
     () =>
@@ -289,23 +302,34 @@ export function SummaryStep({
         <div className="mt-5 grid gap-3 sm:grid-cols-2">
           <label className="block">
             <span className="text-xs font-medium text-muted-foreground">Starting capital (USD)</span>
+            {/* Free-form text input — the previous `type=number` controlled
+                component coerced every keystroke through Number() and
+                blocked the user from clearing/editing the field cleanly.
+                Allow digits, commas, and whitespace; parse on submit. */}
             <Input
-              type="number"
-              min={1000}
-              max={100_000_000}
-              step={1000}
-              value={capital}
-              onChange={(e) => setCapital(Number(e.target.value) || 0)}
+              type="text"
+              inputMode="numeric"
+              autoComplete="off"
+              value={capitalInput}
+              onChange={(e) => setCapitalInput(e.target.value)}
+              placeholder="100000"
+              aria-label="Starting capital in US dollars"
               className="mt-1.5 font-mono text-sm"
             />
-            {!capitalValid && (
+            {!capitalValid ? (
               <span className="mt-0.5 block text-[11px] text-red-500">
                 Must be between $1,000 and $100M
+              </span>
+            ) : (
+              <span className="mt-0.5 block text-[11px] text-muted-foreground">
+                ≈ ${capital.toLocaleString("en-US")}
               </span>
             )}
           </label>
           <div>
-            <span className="text-xs font-medium text-muted-foreground">Transaction costs</span>
+            <span className="text-xs font-medium text-muted-foreground">
+              Transaction costs <span className="text-foreground/50">(round-trip, in basis points — 10 bps ≈ 0.1%)</span>
+            </span>
             <div className="mt-1.5 flex items-center gap-3">
               <button
                 type="button"
@@ -328,16 +352,21 @@ export function SummaryStep({
               </span>
             </div>
             {costEnabled && (
-              <Input
-                type="number"
-                min={0}
-                max={100}
-                step={1}
-                value={costBps}
-                onChange={(e) => setCostBps(Number(e.target.value) || 0)}
-                className="mt-2 h-8 w-28 font-mono text-sm"
-                aria-label="Transaction cost in basis points"
-              />
+              <div className="mt-2 flex items-center gap-1.5">
+                <Input
+                  type="text"
+                  inputMode="numeric"
+                  autoComplete="off"
+                  value={costInput}
+                  onChange={(e) => setCostInput(e.target.value)}
+                  placeholder="10"
+                  aria-label="Transaction cost in basis points"
+                  className="h-8 w-20 font-mono text-sm"
+                />
+                <span className="font-mono text-xs text-muted-foreground">
+                  bps {Number.isFinite(costBps) && costBps > 0 ? `· ≈ ${(costBps / 100).toFixed(2)}%` : ""}
+                </span>
+              </div>
             )}
           </div>
         </div>
@@ -359,10 +388,11 @@ export function SummaryStep({
           results screen; here we use the compact inline variant. */}
       <ResultsDisclaimer variant="inline" className="pt-2" />
 
-      {/* CTA */}
+      {/* CTA — PR-H (2026-05-26): skip the preview step; this fires the
+          backtest directly. */}
       <div className="flex justify-end pt-2">
         <Button onClick={submit} disabled={!canContinue} size="lg" className="gap-2">
-          Preview strategy <ArrowRight className="h-4 w-4" />
+          Run backtest <ArrowRight className="h-4 w-4" />
         </Button>
       </div>
     </div>
