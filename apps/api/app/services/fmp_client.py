@@ -23,9 +23,13 @@ class FMPNotConfiguredError(FMPError):
 class FMPClient:
     # FMP deprecated /api/v3 for new subscribers after Aug 2025; all calls now use /stable
     BASE_URL = "https://financialmodelingprep.com/stable"
-    BATCH_SYMBOL_LIMIT = 100  # kept for reference; no longer used for batch-quote
-    # Max concurrent individual /stable/quote calls. 50 is conservative for FMP Starter.
-    CONCURRENT_QUOTE_LIMIT = 50
+    # FMP /stable/quote/{symbols} (path-based) accepts comma-separated symbols and
+    # returns a list, same as the v3 /quote/{symbols} convention preserved in stable.
+    # 100 is the proven FMP chunk size — splits 500 S&P 500 names into 5 concurrent calls.
+    BATCH_SYMBOL_LIMIT = 100
+    # Conservative bound for the individual-call fallback path: 10 concurrent requests
+    # keeps the worst case (path-batch entirely broken) safely under FMP rate limits.
+    CONCURRENT_QUOTE_LIMIT = 10
 
     def __init__(self) -> None:
         self.settings = get_settings()
@@ -158,33 +162,70 @@ class FMPClient:
         return []
 
     async def get_quotes_batch(self, symbols: list[str]) -> list[dict]:
-        """Live quotes for N symbols via concurrent individual FMP /stable/quote calls.
+        """Live quotes for N symbols via FMP /stable/quote.
 
-        FMP's /stable/quote only supports one symbol per request (comma-separated
-        multi-symbol queries silently return empty or just the first match).
-        We work around this by firing individual requests concurrently, bounded
-        by CONCURRENT_QUOTE_LIMIT to stay within FMP's rate limits.
-
-        At 50 concurrent requests and ~200ms per call, 500 S&P 500 symbols
-        resolve in ~2 seconds — acceptable for the 5-minute market-pulse cache.
+        Strategy:
+          Phase 1 — path-based batch: hit /stable/quote/SYM1,SYM2,...,SYM100 per
+            chunk. FMP returns a JSON list covering all asset types (stocks,
+            ETFs, indices). 500 S&P 500 symbols resolve in 5 concurrent calls.
+            This is the same convention fmpsdk / fmp_py use against v3.
+          Phase 2 — individual fallback: any symbol the batch didn't return is
+            fetched via /stable/quote?symbol=SYM, bounded by
+            CONCURRENT_QUOTE_LIMIT to stay under FMP's rate limit. Handles the
+            edge case where path-based batch silently drops a symbol (bad
+            ticker, FMP-internal filter, etc.).
         """
         if not symbols:
             return []
         pending = list(dict.fromkeys(s.upper() for s in symbols if s))
-        sem = asyncio.Semaphore(self.CONCURRENT_QUOTE_LIMIT)
+        collected: dict[str, dict] = {}
 
-        async def _fetch_one(sym: str) -> Optional[dict]:
-            async with sem:
-                return await self.get_quote(sym)
-
-        results = await asyncio.gather(
-            *(_fetch_one(sym) for sym in pending),
+        # Phase 1: path-based batch
+        chunks = [
+            pending[i:i + self.BATCH_SYMBOL_LIMIT]
+            for i in range(0, len(pending), self.BATCH_SYMBOL_LIMIT)
+        ]
+        batch_results = await asyncio.gather(
+            *(self._get_quote_batch_path(chunk) for chunk in chunks),
             return_exceptions=True,
         )
-        return [
-            r for r in results
-            if isinstance(r, dict) and r.get("symbol")
-        ]
+        for result in batch_results:
+            if isinstance(result, Exception):
+                continue
+            for item in result:
+                if not isinstance(item, dict):
+                    continue
+                sym = item.get("symbol")
+                if not sym:
+                    continue
+                collected[str(sym).upper()] = item
+
+        # Phase 2: individual fallback for any symbols the batch missed
+        missing = [s for s in pending if s not in collected]
+        if missing:
+            sem = asyncio.Semaphore(self.CONCURRENT_QUOTE_LIMIT)
+
+            async def _fetch_one(sym: str) -> Optional[dict]:
+                async with sem:
+                    return await self.get_quote(sym)
+
+            fallback = await asyncio.gather(
+                *(_fetch_one(s) for s in missing),
+                return_exceptions=True,
+            )
+            for r in fallback:
+                if isinstance(r, dict) and r.get("symbol"):
+                    collected[str(r["symbol"]).upper()] = r
+
+        return [collected[s] for s in pending if s in collected]
+
+    async def _get_quote_batch_path(self, symbols: list[str]) -> list[dict]:
+        """Fetch one chunk via /stable/quote/SYM1,SYM2,...,SYMN (path-based)."""
+        if not symbols:
+            return []
+        joined = ",".join(symbols)
+        data = await self._get(f"/quote/{joined}", {})
+        return data if isinstance(data, list) else []
 
     async def get_revenue_segments(self, symbol: str, limit: int = 5) -> list[dict]:
         """Annual product/business revenue segmentation (last N years)."""
