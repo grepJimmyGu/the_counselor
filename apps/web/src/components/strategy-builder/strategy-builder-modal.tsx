@@ -17,8 +17,9 @@ import {
 } from "@/lib/contracts";
 import { cn } from "@/lib/utils";
 import { StrategyWizard } from "./wizard/strategy-wizard";
-import type { AssetAnswer, DrawdownAnswer, WizardAnswers, WizardStrategy } from "./wizard/strategy-wizard-data";
+import type { AssetAnswer, WizardAnswers, WizardStrategy } from "./wizard/strategy-wizard-data";
 import { SummaryStep, type SummaryStepConfig, type RiskPreset } from "./summary-step";
+import { applyRiskLevel } from "@/lib/strategy-picker/risk-presets";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -435,9 +436,43 @@ export function StrategyBuilderModal({
   function handleRunBacktest() {
     const template = selectedTemplate ?? customConfig.selectedTemplate;
     const finalName = strategyName.trim() || template?.name || "Untitled Strategy";
-    const strategyJson = selectedTemplate
-      ? buildStrategyFromTemplate(selectedTemplate, resolvedTickers(), templateDateRange, finalName)
-      : buildStrategyFromCustom(customConfig, finalName);
+    let strategyJson: StrategyJson | null;
+
+    if (summaryConfig && selectedTemplate) {
+      // PR-D path: wizard → summary step. Build the JSON from the
+      // user's WHAT (tickers) + HOW MUCH (risk preset, capital,
+      // weights, transaction-cost opt-in). Then apply the risk
+      // preset to mutate position_sizing + risk_management per the
+      // risk_control_prompt.md mapping table.
+      const tickerList = summaryConfig.tickers
+        .split(/[,\s]+/)
+        .map((s) => s.trim().toUpperCase())
+        .filter(Boolean);
+      const weights =
+        summaryConfig.weightMode === "custom" && Object.keys(summaryConfig.customWeights).length > 0
+          ? Object.fromEntries(
+              Object.entries(summaryConfig.customWeights).map(([k, v]) => [k, v / 100]),
+            )
+          : undefined;
+      const base: StrategyJson = {
+        ...selectedTemplate.strategy,
+        strategy_name: finalName,
+        universe: tickerList.length > 0 ? tickerList : selectedTemplate.defaultTickers,
+        start_date: dateRangeToStartDate(templateDateRange),
+        end_date: today,
+        initial_capital: summaryConfig.capital,
+        transaction_cost_bps: summaryConfig.costEnabled ? summaryConfig.costBps : 0,
+        slippage_bps: summaryConfig.costEnabled ? summaryConfig.costBps : 0,
+        position_sizing: weights
+          ? { method: "fixed_weight", weights }
+          : { ...selectedTemplate.strategy.position_sizing },
+      };
+      strategyJson = applyRiskLevel(base, summaryConfig.riskPreset);
+    } else if (selectedTemplate) {
+      strategyJson = buildStrategyFromTemplate(selectedTemplate, resolvedTickers(), templateDateRange, finalName);
+    } else {
+      strategyJson = buildStrategyFromCustom(customConfig, finalName);
+    }
 
     if (!strategyJson) return;
 
