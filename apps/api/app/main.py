@@ -27,7 +27,6 @@ from app.api.routes.sentiment import router as sentiment_router
 from app.api.routes.strategy_storage import router as strategy_storage_router
 from app.api.routes.strategy import router as strategy_router
 from app.api.routes.anonymous import router as anonymous_router
-from app.api.routes.asset_behavior import router as asset_behavior_router  # Module 2
 from app.api.routes.chat import (
     anonymous_router as anonymous_chat_router,
     router as chat_router,
@@ -363,7 +362,6 @@ app.include_router(stripe_webhook_router)
 app.include_router(community_router)
 app.include_router(sentiment_router)
 app.include_router(anonymous_router)  # Stage 1a
-app.include_router(asset_behavior_router)  # Module 2 — Asset Behavior Fingerprint
 app.include_router(chat_router)  # Stage 7 ticket #5 — authed chat + SSE
 app.include_router(anonymous_chat_router)  # Stage 7 ticket #6 — anonymous chat + SSE
 app.include_router(live_quotes_router)  # 2026-05-21 — live quote cache
