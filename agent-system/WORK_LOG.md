@@ -9,52 +9,63 @@
 
 ## Current Session
 
-**Status:** Market Pulse accuracy + latency sprint SHIPPED. 9 PRs landed (#68 / #69 / #70 / #71 / #73 / #74 / #75 / #77 / #78) plus 2 chat-side PRs from another Claude session (#72 / #79-was-#76). All 4 user-flagged accuracy bugs fixed; date stamp visible as newspaper-byline; data latency footer live; audit script + Claude skill (`/market-pulse-audit`) deployed; Top Movers pool grew from 30 → 497 SPX names after the operational backfill. Final production audit: **11 OK · 0 WARN · 0 ERROR**.
-**Active branch:** main (HEAD: `3d77184` — chat-tool QA gate after Market Pulse sprint)
+**Status:** End of 2026-05-26 — the 30-PR Tuesday. Three acts shipped: morning strategy-builder polish (#86–#96), midday 16-hour Railway outage resolved by Postgres dashboard restart (#103–#107 recovery), evening market-pulse live-data saga that took 8 PRs to converge (#108→#118) + the docs PR (#119) codifying the day's traps. Production now serves **497/497 live S&P 500 symbols on every cold-cache request** for both Top Movers and Sector Rotation; all 4 macro signals real (Inflation + Rates via Alpha Vantage; Growth + Stress via FRED). `/market-pulse-audit` skill returns 11 OK · 0 WARN · 0 ERROR.
+**Active branch:** main (HEAD: `7374357` — docs PR #119)
 **Last stable tag:** `prd-14-complete` (2026-05-12) — no `stage-*` tags exist
-**Tests:** **696 backend** all green (was 625 pre-sprint, +71); frontend build clean across all 9 PRs
+**Tests:** **763 backend** all green; frontend build clean
 **Deployed:** Railway + Vercel both healthy
 - `GATING_ENABLED=true` (enforcement)
-- `POSTHOG_API_KEY` not set → analytics queue silently
-- `RESEND_API_KEY` not set → emails log `email_noop`
-- `FRED_API_KEY` not set → Growth + Stress macro signals fall back to mock (labeled `mock_pending_fred` on the response)
-- Live-quote cache (FMP `/stable/quote` fan-out) confirmed working in prod
-- CORS regex (`https://the-counselor-web-.*\.vercel\.app`) now permits Vercel preview deploys
-- Railway Postgres storage expanded 2026-05-23 (Jimmy, via dashboard) after backfill hit `DiskFull`
-- `^GSPC` backfilled into `price_bars` (1004 rows, source=`backfill_gspc`)
-- `SP500_TICKERS` universe backfilled into `price_bars` (517 of 525; 8 failed = delisted/renamed names)
+- `FRED_API_KEY` is **set** — Growth (CFNAI) + Stress (HY OAS / BAMLH0A0HYM2) signals real (the last two `Mock` pills are gone)
+- Live-quote overlay confirmed: `/stable/quote/SYM1,SYM2,...` path-based batch + strict-serial concurrency (`BATCH_CONCURRENT_CHUNKS=1`) + dot↔hyphen normalisation (BRK.B → BRK-B)
+- `_LIVE_CACHE_TTL = 300s` (5 min); cold-cache refresh ~2.5s, served instant for next 5 min
+- `dunning_expiry_job` no longer leaks DB connections (Stripe call moved outside the tx in PR #104)
+- `^GSPC` + `SP500_TICKERS` universe both backfilled (517 of 525 SPX names; 8 delisted/renamed)
+- Railway Postgres storage expanded 2026-05-23 after `DiskFull` mid-backfill
+- `POSTHOG_API_KEY` / `RESEND_API_KEY` / `EMAIL_UNSUB_SIGNING_KEY` / `CAN_SPAM_ADDRESS` still unset — safe no-op pattern until they land
 
-**Recently shipped (2026-05-23 — the accuracy + latency sprint):**
-- PR [#68](https://github.com/grepJimmyGu/the_counselor/pull/68) — block CN listings from US Top Movers + drop redundant sort
-- PR [#69](https://github.com/grepJimmyGu/the_counselor/pull/69) — widen Top Movers pool so 'Top losers' has losers
-- PR [#70](https://github.com/grepJimmyGu/the_counselor/pull/70) — narrative `as_of` field (initial render — was too subtle)
-- PR [#71](https://github.com/grepJimmyGu/the_counselor/pull/71) — hide US-only sections on CN toggle
-- PR [#73](https://github.com/grepJimmyGu/the_counselor/pull/73) — sector chart `^GSPC` swap + `backfill_gspc.py`
-- PR [#74](https://github.com/grepJimmyGu/the_counselor/pull/74) — data latency endpoint + `<DataFreshnessFooter />`
-- PR [#75](https://github.com/grepJimmyGu/the_counselor/pull/75) — `audit_market_pulse.py` + `/market-pulse-audit` Claude skill
-- PR [#77](https://github.com/grepJimmyGu/the_counselor/pull/77) — Top Movers pool = `SP500_TICKERS` + prominent newspaper-byline date
-- PR [#78](https://github.com/grepJimmyGu/the_counselor/pull/78) — `backfill_sp500_universe.py` + operational ingest of 517 SPX names
+**Recently shipped (2026-05-26 — the 30-PR Tuesday):**
 
-**Parallel chat-side PRs (other Claude session):**
-- PR [#72](https://github.com/grepJimmyGu/the_counselor/pull/72) — chat anon cookie + stock_lookup date coercion
-- PR [#79](https://github.com/grepJimmyGu/the_counselor/pull/79) — chat-tool production-shape gate + nightly auditor (was #76; rebased after parallel-PR conflict with #72)
+*Morning — strategy-builder polish (#86–#96):*
+- PR #91 — animated single-question wizard + rich `StrategyBriefCard` expansion + bump-out animation
+- PR #92 — WHEN IN / WHEN OUT detailed copy for 11 templates (synthesized from `Livermore_Strategy_Library_v2.html`)
+- PR #96 — lock unavailable templates + skip preview step + free-form capital input
+- PR #97 — Module 2: Asset Behavior Fingerprint (`asset_behavior_service.py` + frontend card; reverted during outage hunt, re-applied as #106)
+- PR #98 — spinner decouple (LLM calls fire in background; `isRunning` flips false on result, not on LLM done)
 
-**New product invariant codified:**
+*Midday — Railway outage recovery (#103–#107):*
+- PR #103 — full post-mortem in `docs/KNOWN_ISSUES.md` (Postgres process-level socket wedge; 15-second fix via dashboard restart)
+- PR #104 — moved `cancel_subscription()` (Stripe HTTP) outside the DB transaction in `dunning_expiry_job` (the actual amplifier of the outage)
+- PR #105 — re-applied PR #99 (`:bind::type` → `CAST(:bind AS type)`)
+- PR #106 — re-applied PR #97 (Module 2)
+- PR #107 — added PR #88 (Signals v0 Phase B) to backlog as **paused for reshape**; original code preserved on the GitHub remote branch + the revert commit stays on main
 
-> **The stock universe is a STANDARD — expand only, never shrink.**
-> `SP500_TICKERS` is the contract with users that "Top Movers shows the
-> S&P 500." Future PRs may add tickers; must not shrink without product
-> sign-off. Documented in root [CLAUDE.md](../CLAUDE.md) "Product
-> invariants" + `apps/api/app/data/sp500_tickers.py` docstring.
+*Evening — market-pulse live-data saga (#108–#118):*
+- PR #108-110 — Codex's first overlay attempt + 3 invented FMP batch endpoints; live overlay code ran but every chunk 404'd silently
+- PR #112 — `/stable/quote?symbol=A,B,C` (wrong: query-param multi-symbol returns nothing)
+- PR #113 — concurrent individual `get_quote()` at Semaphore(50) — burst rate limit dropped ~60 late-alphabet symbols
+- PR #114 — **path-based batch `/stable/quote/SYM1,SYM2,...`** (the fmpsdk / fmp_py convention) + individual fallback at Semaphore(10) → 496/497
+- PR #115 — BRK.B → BRK-B normalisation → 497/497 on warm cache
+- PR #116 — throttle path-batch to `BATCH_CONCURRENT_CHUNKS=2` (still ~88% cold)
+- PR #118 — strict serial `BATCH_CONCURRENT_CHUNKS=1` → **100% cold-cache coverage** (~2.5s first-user latency)
+
+*Independent — FRED integration:*
+- PR #111 — `FREDClient` + builders for CFNAI (Growth) + HY OAS (Stress); `FRED_API_KEY` set on Railway → last two Mock pills swapped to real data
+
+*Documentation — codify the day's learnings:*
+- PR #119 — `apps/api/CLAUDE.md` traps #14 (hallucinated endpoints), #15 (FMP path-batch + BRK normalisation + strict-serial), #16 (UTC date in freshness checks); full `project_log.md` entry; `BUILDING_LIVERMORE_JOURNAL.md` Episode 27 (story-shaped)
+
+**Parallel-session note:** PRs #116 and #118 were written by a sibling Claude session while the primary session waited on user input. Both fixes landed cleanly because each agent operated in its own worktree per the `PARALLEL_WORK.md` discipline. The market-pulse-audit skill caught every wrong intermediate fix.
 
 **Open work in flight:**
-- None Market-Pulse-blocking. PROJECT_BACKLOG.md §4b carries the remaining items.
+- None blocking. Next meaningful tickets live in [docs/PROJECT_BACKLOG.md](../docs/PROJECT_BACKLOG.md) — Phase 1g (Top news sidebar), LLM prompt rewrite (waiting on Jimmy's draft), Chat v2 go/no-go (`build_specs/research_chat_v2.md`), signals Phase B resume.
 
-**Next action (Market Pulse):**
-- **Phase 1g** — Top news sidebar in MarketBrief right column (replaces the temporary `watch_items` 2-col layout). ~4-5h backend + ~1-2h frontend.
-- **LLM prompt rewrite** — waiting on Jimmy to share the financial-news-summary prompt.
-- **Set `FRED_API_KEY` on Railway** → swap Growth (ISM PMI) + Stress (HY OAS) macro signals from `mock_pending_fred` to real. Backend service code already structured for the swap.
-- **Re-run `/market-pulse-audit` weekly** — surfaces drift before users do. The skill is invokable in any Claude session.
+**Next action (if picking up cold):**
+1. Read this file (you're doing it).
+2. Skim the latest entry in `project_log.md` (2026-05-26 — the day-by-day chronology).
+3. Check `docs/PROJECT_BACKLOG.md` for the open list (Phase 1g, LLM prompt, paused Signals Phase B).
+4. `git log --oneline -10` to see what's shipped recently.
+5. `gh pr list --state open` to see what's in flight from sibling sessions.
+6. **If a market-pulse / live-data issue is reported**, run `/market-pulse-audit` against production first — it's the integration-level guard that catches what unit tests miss.
 
 **Pre-launch env vars still owed:**
 
@@ -65,7 +76,7 @@
 # When PostHog/Resend keys land → no code change required (safe no-op pattern)
 ```
 
-**Pre-flag-flip discipline (added 2026-05-21):** Before any future `GATING_ENABLED` or similar flag flip, walk [docs/SHADOW_MODE_REVIEW.md](../docs/SHADOW_MODE_REVIEW.md). The May 21 boundary bug would have been caught by it.
+**Pre-flag-flip discipline (added 2026-05-21):** Before any future `GATING_ENABLED` or similar flag flip, walk [docs/SHADOW_MODE_REVIEW.md](../docs/SHADOW_MODE_REVIEW.md).
 
 **Surface the catch-up backlog:**
 ```bash
@@ -400,12 +411,56 @@ git push origin main
 
 ## Resumption Checklist
 
+For any Claude session (new or returning) picking up Livermore, follow this
+exact sequence. It takes ~3 minutes and bootstraps the full project state.
+
 ```bash
+# 1. From the canonical root, see what shipped recently and what's open
 cd /Users/jimmygu/the_counselor
-git log --oneline -5
-cat agent-system/WORK_LOG.md
-cat agent-system/PRODUCT_PLAN.md
+git log --oneline -15                  # last 15 PRs to land on main
+gh pr list --state open                # in-flight work from sibling sessions
+git worktree list                      # other sessions' active worktrees
 ```
+
+```bash
+# 2. Read these four files in order — they're the canonical sources
+#    The root CLAUDE.md auto-loads via Claude Code; the others must be read explicitly.
+cat agent-system/WORK_LOG.md           # ← THIS file: current state + next action (read first)
+head -120 project_log.md               # latest day's shipped work (chronological)
+cat docs/PROJECT_BACKLOG.md            # every open item with trigger conditions
+cat apps/api/CLAUDE.md                 # all 16 backend traps (auto-loads when editing apps/api/)
+```
+
+```bash
+# 3. (Optional) Episodic context for why decisions were made the way they were
+sed -n '/^### Episode 2[5-9]/,/^### Episode/p' docs/BUILDING_LIVERMORE_JOURNAL.md
+# Each episode is story-shaped — useful when you need WHY, not just WHAT.
+```
+
+```bash
+# 4. Before touching code, verify production is healthy
+curl -s https://thecounselor-production.up.railway.app/health
+# If the task involves Market Pulse, run the audit skill before changing anything:
+#   /market-pulse-audit
+# It surfaces drift and confirms 11 OK · 0 WARN · 0 ERROR baseline.
+```
+
+**Pickup prompt for a fresh Claude session (copy/paste-ready):**
+
+> *Pick up Livermore. Read `agent-system/WORK_LOG.md` first for current
+> state + next action, then `docs/PROJECT_BACKLOG.md` for open items,
+> then `project_log.md`'s most recent entry for what shipped today. Run
+> `git log --oneline -15` and `gh pr list --state open` to see live PRs.
+> If the task touches Market Pulse / Top Movers / Sector Rotation, run
+> `/market-pulse-audit` before changing anything.*
+
+**Pre-existing hard rules** (from CLAUDE.md, restated for emphasis):
+
+- Work in a `git worktree`, not the canonical root (which stays on `main` for `claude-main`)
+- Never `gh pr merge` — open the PR and stop; `claude-main` is sole master merger
+- Branch prefix `<agent>/<type>/<slug>` (e.g. `claude/feat/<slug>`)
+- Backend tests pass + frontend build clean before any PR opens for merge
+- Disambiguate suspect hashes with `git cat-file -t <hash>` before treating as a git SHA — the Railway-deploy-ID confusion cost 16 hours on 2026-05-26
 
 ---
 
