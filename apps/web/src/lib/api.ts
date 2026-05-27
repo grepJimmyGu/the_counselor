@@ -609,6 +609,41 @@ export interface SignalSubscriptionStatus {
   subscription_active: boolean;
 }
 
+export interface SavedStrategySignalState {
+  saved_strategy_id: string;
+  current_signal: Record<string, unknown> | null;
+  current_signal_display: string | null;
+  as_of_date: string | null;
+  last_changed_at: string | null;
+  subscription_active: boolean;
+  recent_events: Array<{
+    id: string;
+    previous_signal_display: string | null;
+    new_signal_display: string;
+    change_type: string;
+    as_of_date: string;
+    reference_price_snapshot: Record<string, unknown> | null;
+  }>;
+}
+
+/** Fetch the cached signal state for a saved strategy. Returns `null` if
+ *  the signal-alerts feature is disabled on the backend (route 404s) so
+ *  callers can render a graceful fallback. */
+export async function getSavedStrategySignal(
+  strategyId: string,
+  backendToken: string,
+): Promise<SavedStrategySignalState | null> {
+  try {
+    return await fetchApi<SavedStrategySignalState>(
+      `/api/saved-strategies/${strategyId}/signal`,
+      { headers: { Authorization: `Bearer ${backendToken}` } },
+    );
+  } catch (err) {
+    if (err instanceof Error && /\b404\b/.test(err.message)) return null;
+    throw err;
+  }
+}
+
 /** Opt the current user into email alerts for a saved strategy.
  *  Idempotent: re-calling flips `email_enabled` back to true if the
  *  row exists but was disabled. Returns 401 if anonymous (caller

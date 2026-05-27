@@ -6,7 +6,6 @@ import {
   ArrowRight,
   BarChart2,
   Bot,
-  FileSearch,
   Newspaper,
   TrendingUp,
   Users,
@@ -15,10 +14,13 @@ import {
 import type { Route } from "next";
 import { Button } from "@/components/ui/button";
 import { MarketSnapshot } from "@/components/home/market-snapshot";
-import { StrategyTeaser } from "@/components/home/strategy-teaser";
+import { SavedStrategiesTile } from "@/components/home/saved-strategies-tile";
 import { CapabilityGlossary } from "@/components/home/capability-glossary";
 import { researchTemplates, type ResearchTemplate } from "@/lib/contracts";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
+import { ChatWidget } from "@/components/ChatWidget";
+import { dispatchChatSeed } from "@/lib/chat-widget-event-bus";
+import { EntryModePicker } from "@/lib/flows/bricks/entry-mode-picker";
 
 // ── Three main pillars (simplified — no feature bullet lists) ──────────────────
 
@@ -115,6 +117,10 @@ export default function HomePage() {
         initialTemplate={builderTemplate}
         initialIdea={builderIdea}
       />
+
+      {/* Floating chat widget — mounted on Home so the PRD-11 picker's
+          "Chat builder" CTA has a subscriber for `dispatchChatSeed`. */}
+      <ChatWidget />
 
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
       <section className="relative overflow-hidden border-b border-border bg-gradient-to-br from-primary/10 via-primary/5 to-background">
@@ -223,8 +229,20 @@ export default function HomePage() {
           </div>
         </section>
 
-        {/* ── Strategy Builder Teaser ────────────────────────────────────── */}
-        <StrategyTeaser onOpenBuilder={openBuilder} />
+        {/* ── PRD-11: Saved-strategies tile (or sign-in prompt) + entry-mode picker ── */}
+        <section className="space-y-5">
+          <SavedStrategiesTile />
+          <EntryModePicker
+            from="home"
+            onChatBuilderOpen={() =>
+              dispatchChatSeed({
+                greeting:
+                  "I can turn a plain-English trading idea into a backtest. Tell me what you want to test — a ticker, a signal, a holding period — and I'll structure it.",
+                contextHint: "home/chat_builder",
+              })
+            }
+          />
+        </section>
 
         {/* ── Capability Glossary (collapsed by default) ─────────────────── */}
         <CapabilityGlossary compact collapsed />
