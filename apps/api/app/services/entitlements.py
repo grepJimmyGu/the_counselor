@@ -135,6 +135,55 @@ def increment_template_backtest(db: Session, user_id: str) -> int:
     return row.template_backtest_runs
 
 
+# ── PRD-13b: Portfolio diagnose rate-limit ────────────────────────────────────
+
+# Per-hour caps on POST /api/portfolio/diagnose. The endpoint is expensive
+# (~2-5s of CPU per call); per-tier limits keep cost bounded without
+# discouraging legitimate exploratory use.
+PORTFOLIO_DIAGNOSE_HOURLY_CAPS: dict[str, int] = {
+    "scout": 5,
+    "strategist": 50,
+    "quant": 10_000,  # effectively unlimited
+}
+
+
+def increment_portfolio_diagnose_run(db: Session, user_id: str) -> int:
+    """Increment the hourly portfolio-diagnose counter on the user's
+    current-week row. Rolls over the counter when the last_reset_hour is
+    older than the current hour. Returns the new count.
+
+    Counter scope is hourly even though it lives on a weekly row — the
+    weekly row is convenient storage; the `last_reset_hour` field is the
+    actual window anchor.
+    """
+    row = get_or_create_current_weekly_usage(db, user_id)
+    now = datetime.utcnow()
+    current_hour = now.replace(minute=0, second=0, microsecond=0)
+    last = row.last_reset_hour
+    last_hour = last.replace(minute=0, second=0, microsecond=0) if last else None
+    if last_hour is None or last_hour < current_hour:
+        # New hour — reset.
+        row.portfolio_diagnose_runs_hourly = 1
+        row.last_reset_hour = current_hour
+    else:
+        row.portfolio_diagnose_runs_hourly += 1
+    db.commit()
+    return row.portfolio_diagnose_runs_hourly
+
+
+def get_portfolio_diagnose_runs_used(db: Session, user_id: str) -> int:
+    """Read-only check of how many diagnoses the user has done this hour.
+    Returns 0 if the hour rolled over since last_reset_hour."""
+    row = get_or_create_current_weekly_usage(db, user_id)
+    last = row.last_reset_hour
+    if not last:
+        return 0
+    now = datetime.utcnow()
+    if last.replace(minute=0, second=0, microsecond=0) < now.replace(minute=0, second=0, microsecond=0):
+        return 0
+    return int(row.portfolio_diagnose_runs_hourly or 0)
+
+
 def _bump_monthly_legacy(db: Session, user_id: str) -> None:
     """Keep monthly_usage.backtest_runs populated for Stage 2 reports."""
     usage = get_or_create_current_usage(db, user_id)

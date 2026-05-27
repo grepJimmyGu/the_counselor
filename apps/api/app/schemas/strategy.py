@@ -41,7 +41,23 @@ StrategyType = Literal[
     "insider_buying",
     # Prompt-6 composite factor strategy
     "multi_factor_composite",
+    # ── Portfolio overlay strategies (PRD-13b) ───────────────────────────────
+    # Each takes the user's existing holdings (inherited_universe) and applies
+    # a rule on top: defensive (per-holding MA filter), rotation (rank by
+    # momentum, hold top-K), rebalance (periodic re-weight to targets).
+    "portfolio_defensive_overlay",
+    "portfolio_rotation_overlay",
+    "portfolio_rebalance_overlay",
 ]
+
+# Strategy types whose universe comes from the user's holdings, not the
+# strategy template. The engine treats `strategy.inherited_universe` as the
+# universe and ignores `strategy.universe` if both are set.
+PORTFOLIO_OVERLAY_TYPES = frozenset({
+    "portfolio_defensive_overlay",
+    "portfolio_rotation_overlay",
+    "portfolio_rebalance_overlay",
+})
 
 # The types that the backtester engine currently handles
 ENGINE_SUPPORTED_TYPES = frozenset({
@@ -72,6 +88,10 @@ ENGINE_SUPPORTED_TYPES = frozenset({
     "insider_buying",
     # Prompt-6 composite factor strategy
     "multi_factor_composite",
+    # PRD-13b portfolio overlays
+    "portfolio_defensive_overlay",
+    "portfolio_rotation_overlay",
+    "portfolio_rebalance_overlay",
 })
 
 RebalanceFrequency = Literal["daily", "weekly", "monthly", "quarterly"]
@@ -154,10 +174,24 @@ class StrategyJSON(BaseModel):
     position_sizing: PositionSizing
     risk_management: RiskManagement = Field(default_factory=RiskManagement)
     cash_management: CashManagement = Field(default_factory=CashManagement)
+    # PRD-13b: Portfolio Mode inverts the universe relationship. When the
+    # user supplies holdings, `inherited_universe` carries them through and
+    # the engine uses this list instead of `universe`. Optional + defaulted
+    # so the 22 pre-existing strategy_types continue to ignore it.
+    inherited_universe: Optional[list[str]] = None
 
     @field_validator("universe", mode="before")
     @classmethod
     def normalize_universe(cls, value: list[str]) -> list[str]:
+        return [item.upper().strip() for item in value]
+
+    @field_validator("inherited_universe", mode="before")
+    @classmethod
+    def normalize_inherited_universe(
+        cls, value: Optional[list[str]]
+    ) -> Optional[list[str]]:
+        if value is None:
+            return None
         return [item.upper().strip() for item in value]
 
     @field_validator("benchmark")
@@ -182,6 +216,29 @@ class StrategyJSON(BaseModel):
             if not 0.99 <= total_weight <= 1.01:
                 raise ValueError("static allocation weights must sum to 1.0")
         # vol_target and signal_weighted do NOT require weights
+
+        # ── PRD-13b: portfolio-overlay validation ────────────────────────────
+        # Portfolio overlays MUST carry an inherited_universe. Each overlay
+        # has its own minimum-holding count derived from its mechanics.
+        if self.strategy_type in PORTFOLIO_OVERLAY_TYPES:
+            holdings = self.inherited_universe or []
+            if not holdings:
+                raise ValueError(
+                    f"{self.strategy_type} requires inherited_universe "
+                    "(the user's holdings)"
+                )
+            if self.strategy_type == "portfolio_defensive_overlay" and len(holdings) < 1:
+                raise ValueError("portfolio_defensive_overlay needs at least 1 holding")
+            if self.strategy_type == "portfolio_rotation_overlay" and len(holdings) < 3:
+                raise ValueError("portfolio_rotation_overlay needs at least 3 holdings")
+            if self.strategy_type == "portfolio_rebalance_overlay":
+                if len(holdings) < 2:
+                    raise ValueError("portfolio_rebalance_overlay needs at least 2 holdings")
+                weights = self.position_sizing.weights or {}
+                if not weights:
+                    raise ValueError(
+                        "portfolio_rebalance_overlay requires position_sizing.weights"
+                    )
         return self
 
 

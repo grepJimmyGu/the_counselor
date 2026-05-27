@@ -4,9 +4,11 @@ import type {
   CompanyProfile,
   DataQualityReport,
   DataStatusResponse,
+  DiagnoseResponse,
   EntitlementErrorResponse,
   ExplanationResponse,
   FundamentalSummary,
+  Holding,
   KeyMetrics,
   MarketSnapshotItem,
   PriceBarResponse,
@@ -720,5 +722,21 @@ export async function updateEmailPreferences(
     method: "PATCH",
     headers: { Authorization: `Bearer ${backendToken}` },
     body: JSON.stringify(payload),
+  });
+}
+
+// PRD-13b — Portfolio Mode diagnose endpoint.
+export async function diagnosePortfolio(
+  holdings: Holding[],
+  backendToken?: string,
+): Promise<DiagnoseResponse> {
+  const headers: Record<string, string> = {};
+  if (backendToken) {
+    headers["Authorization"] = `Bearer ${backendToken}`;
+  }
+  return fetchApi<DiagnoseResponse>("/api/portfolio/diagnose", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ holdings }),
   });
 }

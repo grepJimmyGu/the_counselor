@@ -20,6 +20,11 @@ import { StrategyWizard } from "./wizard/strategy-wizard";
 import type { AssetAnswer, WizardAnswers, WizardStrategy } from "./wizard/strategy-wizard-data";
 import { SummaryStep, type SummaryStepConfig, type RiskPreset } from "./summary-step";
 import { applyRiskLevel } from "@/lib/strategy-picker/risk-presets";
+// PRD-13b — Portfolio Mode entry: registers the `portfolio_mode` flow
+// via side-effect import so the "Use my portfolio" affordance below can
+// call startFlow without a separate explicit import.
+import "@/lib/flows/portfolio-mode";
+import { startFlow } from "@/lib/flows/runtime";
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -988,6 +993,20 @@ function UniverseStep({
   else if (!isMulti) question = `Which ${template.category === "Reversal" ? "stock or ETF" : "ticker"} do you want to test this on?`;
   else if (minCount >= 10) question = `Which group of stocks? (need at least ${minCount} for a meaningful cross-section)`;
 
+  // PRD-13b — for multi-ticker templates, offer "Use my portfolio" which
+  // hands off into the Portfolio Mode flow so the user can apply a
+  // (template-specific) overlay rule to their own book. Single-ticker
+  // templates don't get this option; their use-case is Mode 1.
+  const offerUseMyPortfolio = isMulti && minCount >= 2;
+  const handleUseMyPortfolio = () => {
+    startFlow("portfolio_mode", {
+      initialContext: {
+        fromTrigger: "builders/multi_ticker_use_my_portfolio",
+        fromTemplate: template.id,
+      },
+    });
+  };
+
   return (
     <div className="space-y-6">
       <div>
@@ -996,6 +1015,25 @@ function UniverseStep({
           <p className="mt-1 text-sm text-muted-foreground">Enter comma-separated tickers — minimum {minCount} for this strategy type.</p>
         )}
       </div>
+
+      {offerUseMyPortfolio && (
+        <button
+          type="button"
+          onClick={handleUseMyPortfolio}
+          data-testid="universe-use-my-portfolio"
+          className={cn(
+            "w-full cursor-pointer rounded-xl border border-dashed border-primary/50 bg-primary/5 p-4 text-left transition-all duration-150",
+            "hover:border-primary hover:bg-primary/10",
+            "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+          )}
+        >
+          <div className="font-medium text-primary">Use my portfolio →</div>
+          <div className="mt-0.5 text-xs text-muted-foreground">
+            Apply this template's logic to your existing holdings instead of
+            typing tickers below.
+          </div>
+        </button>
+      )}
 
       <div className="space-y-1.5">
         <label className="text-xs font-medium text-muted-foreground">

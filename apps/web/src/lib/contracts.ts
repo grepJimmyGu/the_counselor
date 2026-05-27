@@ -192,7 +192,11 @@ export type StrategyType =
   | "earnings_revision"
   | "news_sentiment_momentum"
   | "insider_buying"
-  | "multi_factor_composite";
+  | "multi_factor_composite"
+  // PRD-13b — Portfolio Mode overlays
+  | "portfolio_defensive_overlay"
+  | "portfolio_rotation_overlay"
+  | "portfolio_rebalance_overlay";
 
 export type RebalanceFrequency = "daily" | "weekly" | "monthly" | "quarterly";
 
@@ -336,6 +340,85 @@ export interface StrategyJson {
   position_sizing: PositionSizing;
   risk_management: RiskManagement;
   cash_management: CashManagement;
+  /** PRD-13b — Portfolio Mode. When set, the backend uses this list as
+   *  the effective universe and ignores `universe`. Required when
+   *  `strategy_type` starts with `portfolio_`. */
+  inherited_universe?: string[];
+}
+
+// ── PRD-13b: Portfolio Mode contracts ────────────────────────────────────────
+
+export interface Holding {
+  ticker: string;
+  /** Target weight 0..1. Wins over `shares` if both are present. */
+  weight?: number;
+  /** Number of shares. Used only if `weight` is undefined. */
+  shares?: number;
+  /** Display-only. Does not affect backtest. */
+  cost_basis_per_share?: number;
+}
+
+export type StyleBucket =
+  | "growth"
+  | "value"
+  | "defensive"
+  | "commodity"
+  | "macro_sensitive";
+
+export type BehaviorBucket = "trending" | "mean_reverting" | "mixed";
+
+export type OverlayKind = "defensive" | "rotation" | "rebalance";
+
+export interface StyleMix {
+  growth: number;
+  value: number;
+  defensive: number;
+  commodity: number;
+  macro_sensitive: number;
+  unclassified_weight: number;
+}
+
+export interface FactorExposure {
+  size?: number | null;
+  value?: number | null;
+  momentum?: number | null;
+  quality?: number | null;
+  low_vol?: number | null;
+  beta_to_spy?: number | null;
+}
+
+export interface BehaviorAggregate {
+  trending_pct: number;
+  mean_reverting_pct: number;
+  mixed_pct: number;
+}
+
+export interface SectorBreakdown {
+  sectors: Record<string, number>;
+  unknown_sector_weight: number;
+}
+
+export interface OverlayRecommendation {
+  overlay: OverlayKind;
+  rank: number;
+  reason: string;
+}
+
+export interface PortfolioDiagnosis {
+  n_holdings: number;
+  style_mix: StyleMix;
+  factor_exposure: FactorExposure;
+  behavior: BehaviorAggregate;
+  sectors: SectorBreakdown;
+  realized_vol_1y?: number | null;
+  max_drawdown_5y?: number | null;
+  caveats: string[];
+}
+
+export interface DiagnoseResponse {
+  diagnosis: PortfolioDiagnosis;
+  recommended_overlays: OverlayRecommendation[];
+  cache_hit: boolean;
 }
 
 export type ClarificationState = "ready" | "needs_parameters" | "not_supported";

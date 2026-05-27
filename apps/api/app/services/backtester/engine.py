@@ -28,7 +28,7 @@ from app.schemas.backtest import (
     MonthlyReturnItem,
     TradeLogItem,
 )
-from app.schemas.strategy import StrategyJSON
+from app.schemas.strategy import PORTFOLIO_OVERLAY_TYPES, StrategyJSON
 from app.services.backtester.metrics import compute_buy_and_hold, compute_drawdown, compute_metrics
 from app.services.market_data import MarketDataService
 from app.services.strategy_validator import validate_strategy
@@ -105,6 +105,20 @@ class BacktestEngine:
         # Multi-factor composite: momentum_12_1 sub-factor needs 252+21 days
         if stype == "multi_factor_composite":
             return int(273 * 1.4) + 10   # 392 — covers 12-1 momentum warmup
+        # ── PRD-13b portfolio overlays ────────────────────────────────────────
+        if stype == "portfolio_defensive_overlay":
+            # MA-length per-holding signal; default 200-day MA
+            rule0 = rules[0] if rules else None
+            window = (rule0.lookback_days if rule0 else None) or 200
+            return int(window * 1.5) + 5
+        if stype == "portfolio_rotation_overlay":
+            # Rank holdings by N-month return; default 6-month (~126 trading days)
+            rule0 = rules[0] if rules else None
+            lookback = (rule0.ranking_lookback_days if rule0 else None) or 126
+            return int(lookback * 1.5) + 5
+        if stype == "portfolio_rebalance_overlay":
+            # Pure target-weight re-balance; no indicator warmup.
+            return 5
         # Signal-provider-backed strategies: no price-based lookback needed
         if stype in _FUNDAMENTAL_STRATEGY_TYPES:
             return 5
@@ -668,6 +682,52 @@ class BacktestEngine:
                 )
             # else: no factors → hold cash (weights remain all-zero)
 
+        # ── PRD-13b portfolio overlays ────────────────────────────────────────
+
+        elif strategy.strategy_type == "portfolio_defensive_overlay":
+            # Per-holding MA filter. For each rebalance date and each holding:
+            #   weight = target_weight if close > MA else 0 (goes to cash).
+            # Target weights default to equal-weight if not provided.
+            rule0 = strategy.rules[0] if strategy.rules else None
+            window = (rule0.lookback_days if rule0 else None) or 200
+            target_weights = strategy.position_sizing.weights or {}
+            if not target_weights:
+                # Default to equal-weight across the holdings the engine can see.
+                visible = [s for s in strategy.universe if s in close_matrix.columns]
+                if visible:
+                    equal = 1.0 / len(visible)
+                    target_weights = {s: equal for s in visible}
+            for symbol in close_matrix.columns:
+                target = float(target_weights.get(symbol, 0.0))
+                if target <= 0.0:
+                    continue
+                ma = close_matrix[symbol].rolling(window=window).mean()
+                in_position = close_matrix[symbol] > ma
+                weights[symbol] = in_position.astype(float) * target
+
+        elif strategy.strategy_type == "portfolio_rotation_overlay":
+            # Rank holdings by N-month return; hold top-K equal-weight.
+            # Same mechanic as momentum_rotation but the universe is the
+            # user's book, not a template default.
+            rule = strategy.rules[0] if strategy.rules else None
+            lookback = (rule.ranking_lookback_days if rule else None) or 126
+            top_n = (rule.top_n if rule else None)
+            if top_n is None:
+                top_n = min(3, len(strategy.universe))
+            score_matrix = close_matrix / close_matrix.shift(lookback) - 1.0
+            weights = self._generate_cross_sectional_weights(
+                close_matrix, score_matrix, rebalance_mask,
+                top_n=top_n, top_pct=None, rank_direction="top",
+            )
+
+        elif strategy.strategy_type == "portfolio_rebalance_overlay":
+            # Apply target weights on every rebalance date. Mechanically
+            # identical to static_allocation, but reads the user's holdings
+            # via inherited_universe rather than a template's default list.
+            for symbol, weight in (strategy.position_sizing.weights or {}).items():
+                if symbol in weights.columns:
+                    weights[symbol] = weight
+
         # ── Post-processing (shared for all strategies) ───────────────────────
 
         # Signal strategies produce a new 0/1 weight each day — clip to binary.
@@ -800,6 +860,18 @@ class BacktestEngine:
         return []
 
     async def run(self, db: Session, strategy: StrategyJSON) -> BacktestResult:
+        # PRD-13b: For portfolio overlays, the user's holdings (inherited_universe)
+        # ARE the universe. Swap once at the top so every downstream helper
+        # (_load_prices, _generate_weights, _check_microcap, trade log, etc.)
+        # reads the right set of tickers without each branch needing to know.
+        if (
+            strategy.strategy_type in PORTFOLIO_OVERLAY_TYPES
+            and strategy.inherited_universe
+        ):
+            strategy = strategy.model_copy(
+                update={"universe": list(strategy.inherited_universe)}
+            )
+
         warnings = list(validate_strategy(strategy))
 
         # Microcap warning for PEAD strategies (requires DB access)
