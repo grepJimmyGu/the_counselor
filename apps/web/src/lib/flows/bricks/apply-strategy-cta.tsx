@@ -17,10 +17,6 @@
  * replaces the onClick path with `startFlow('one_asset_mode', …)`; the
  * brick's prop surface is preserved across that swap.
  *
- * Labels: inlined as module constants for now. PR #117 ships the
- * `lib/flows/copy.ts` lexicon and once it lands these will route through
- * `useFlowCopy('apply_cta', key)` — a one-line edit at that time.
- *
  * Analytics: PostHog wiring lives at the use-site so each surface can
  * fire its own event (`stock_page_apply_strategy_clicked`,
  * `commodity_page_apply_strategy_clicked`, …). The brick stays
@@ -28,9 +24,12 @@
  */
 
 import { Button } from "@/components/ui/button";
+import { registerModeCopy, useFlowCopy } from "../copy";
 
-const LABEL_DEFAULT = "⚡ Apply a strategy";
-const LABEL_COMPACT = "Apply strategy";
+registerModeCopy("apply_cta", {
+  label_default: "⚡ Apply a strategy",
+  label_compact: "Apply strategy",
+});
 
 export interface ApplyStrategyCTAProps {
   /** The ticker the user is currently looking at. */
@@ -63,7 +62,9 @@ export function ApplyStrategyCTA({
   onClick,
   ariaLabel,
 }: ApplyStrategyCTAProps) {
-  const label = compact ? LABEL_COMPACT : LABEL_DEFAULT;
+  const labelDefault = useFlowCopy("apply_cta", "label_default");
+  const labelCompact = useFlowCopy("apply_cta", "label_compact");
+  const label = compact ? labelCompact : labelDefault;
   return (
     <Button
       type="button"
