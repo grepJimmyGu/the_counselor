@@ -8,6 +8,126 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-05-26 — The 30-PR Tuesday: strategy builder, production outage, market-pulse live-data saga
+
+Calendar count for the day: **PRs #86 through #118**, plus reverts, plus
+one 16-hour production outage misdiagnosed at the start and a market-pulse
+saga that took 8 PRs to converge.
+
+### Morning — strategy builder rebuild (PRs #86–#96)
+
+Reviewing the post-rebuild strategy builder with Jimmy surfaced a coherent
+set of polish items that shipped across seven PRs:
+
+| What | PR |
+|---|---|
+| Animated single-question wizard (fade-in/out, summary chips for answered Qs, auto-advance) | #91 |
+| Rich template comparison cards (inline `StrategyBriefCard` expansion + "bump-out" animation on pick) | #91 |
+| WHEN IN / WHEN OUT detailed copy for 11 templates, synthesized from `Livermore_Strategy_Library_v2.html` + framework docs | #92 |
+| Lock unavailable templates + skip preview step + free-form capital input | #96 |
+| Signals v0 Phase B (daily cron + email alerts + signal-unsub) | #88 |
+| Spinner decouple — "Generating report" unstuck (LLM calls fire in background) | #98 |
+| Module 2 — Asset Behavior Fingerprint (backend service + frontend card) | #97 |
+
+### Midday — the 16-hour Railway outage (misdiagnosed)
+
+Production wedged at "Waiting for application startup." The earliest failed
+deploy ID was `11686d26`. The string was mistaken for a git SHA and traced
+(incorrectly) to PR #88. Three PRs got reverted (#88, #99, #100, #97) and
+re-deployed, each failing with the same hang — because the real culprit was
+a **Postgres process-level socket wedge**, not any code change. Postgres
+queries from the dashboard worked fine; new app containers couldn't
+connect.
+
+**The 15-second fix:** Railway → Postgres service → Deployments → Restart.
+
+**Codified in `apps/api/CLAUDE.md` trap #11**: always disambiguate a suspect
+hash with `git cat-file -t <hash>` before treating it as a git SHA. If it
+errors, it's a Railway deployment ID, not a commit.
+
+Full post-mortem: `docs/KNOWN_ISSUES.md` (entry 2026-05-26).
+
+### Afternoon — recovery + the real conn-leak culprit (PRs #103–#107)
+
+Once the restart confirmed no code was at fault:
+- Jimmy decided to **pause PR #88 (Signals Phase B)** for reshape — full
+  context in `docs/PROJECT_BACKLOG.md` §4. Original revert commit stays on
+  main; the work itself is preserved on the GitHub remote branch and
+  documented for resumption.
+- **PR #104** moved `cancel_subscription()` (Stripe API call) outside the
+  open DB transaction in `dunning_expiry_job`. This was the actual
+  amplifier of the outage — slow Stripe calls held DB connections
+  idle-in-tx, draining the pool. Worth fixing regardless of whether
+  Postgres restart "solved" the immediate symptom.
+- **PRs #105, #106** re-applied PR #99 (`:bind::type` → `CAST(:bind AS type)`)
+  and PR #97 (Module 2 Asset Behavior Fingerprint) as clean re-PRs after
+  the rollbacks.
+- **PR #103** documented the outage post-mortem in `docs/KNOWN_ISSUES.md`.
+
+### Evening — the market-pulse live-data saga (PRs #108–#118)
+
+Eight PRs to converge on a working live-quote overlay. Each iteration
+taught something worth keeping in CLAUDE.md.
+
+| # | What | Result |
+|---|---|---|
+| #108 | Codex's first cut — live overlay path + 3 invented FMP batch endpoints (`/stable/batch-quote`, `/batch-etf-quotes`, `/batch-index-quotes`) | All batch calls 404'd silently → 0 live overlay applied, but the architecture was correct |
+| #109 | Wire `get_live_pulse()` into the route (fixed the dead-code path) | Overlay code now runs, but still no quotes from #108's invented endpoints |
+| #110 | Codex's batch implementation, same invented endpoints + chunking + concurrent gather | Same outcome — 0/497 live; tests mocked `client._get` so the broken URL strings never failed |
+| #112 | Replace invented endpoints with `/stable/quote?symbol=A,B,C` (comma-separated query param) | **Wrong** — FMP `/stable/quote` is single-symbol only in query mode. Returned only the one symbol that was already cached individually. |
+| #113 | Switch to concurrent individual `get_quote(sym)` calls at Semaphore(50) | Worked for the first 50 symbols, then hit FMP burst limits — late-alphabet (M-Z) silently 429'd inside `try/except Exception` |
+| #114 | **Real batch convention is path-based**: `/stable/quote/SYM1,SYM2,...` (same as fmpsdk / fmp_py against v3) + individual fallback at Semaphore(10) | Coverage jumped to 496/497 |
+| #115 | BRK.B normalization (FMP returns class shares as BRK-B, not BRK.B) — translate dot↔hyphen in both `_get_quote_batch_path` and `get_quote` | 497/497 in the warm case; ~88% on cold cache due to remaining burst-rate-limit hits |
+| #116 | Throttle path-batch to `BATCH_CONCURRENT_CHUNKS=2` (Semaphore-bounded gather) | Cold-cache still ~88% — even 2 concurrent chunks triggered FMP's burst window |
+| #118 | Strict serial: `BATCH_CONCURRENT_CHUNKS=1` | **100% cold-cache coverage**, ~2.5s latency for the first user after each 5-min cache expiry |
+
+Parallel-session note: PRs #116 and #118 were written by a sibling Claude
+session while the primary session was waiting for user input. Both fixes
+landed cleanly because each agent worked in its own worktree per the
+`PARALLEL_WORK.md` discipline.
+
+**Plus PR #111** (independent of the saga): real FRED data for the last two
+mock macro signals — CFNAI (Growth) and BAMLH0A0HYM2 (Stress / HY OAS).
+Drops the last two `Mock` pills from the Market Pulse table. Note: ISM PMI
+was the original Growth signal candidate but is no longer FRED-hosted
+(post-2017 licensing); CFNAI is the documented alternative.
+
+### What this day codified in `apps/api/CLAUDE.md`
+
+- **Trap #11** — production hang at "Waiting for application startup": diagnose
+  with `railway deployment list`, restart Postgres add-on first, treat the
+  symptom-time hash as a deploy ID until proven otherwise.
+- **Trap #12** — SQLAlchemy `text()` doesn't parse `:bind::type` (PR #99 / #105).
+- **Trap #13** — async routes holding DB sessions across slow external HTTP
+  awaits drain the connection pool under load (the conn-leak amplifier).
+- **Trap #14** — don't hallucinate API endpoints; verify against existing
+  in-repo working calls, real curls, or vendor docs before shipping.
+- **Trap #15** — FMP-specific patterns: path-based batch convention,
+  class-share dot↔hyphen normalization, strict-serial batch concurrency to
+  avoid burst rate limits.
+- **Trap #16** — UTC date rollover in freshness verification: compute the
+  comparison date in the same TZ the backend writes (UTC on Railway). The
+  saga had a 30-minute panic when my hard-coded date string flagged 497/497
+  as "stale" right after UTC midnight passed.
+
+### Production state at end of day
+
+- Market Pulse `/stocks`: 497/497 S&P 500 symbols live on every cold-cache
+  request (verified via `market-pulse-audit`)
+- Sector Rotation re-sorted by live CMF
+- All four macro signals real (Inflation, Rates via Alpha Vantage; Growth,
+  Stress via FRED) — the four "Mock" pills are gone
+- Backend test suite: 761 + new tests for #114-#118 / #115 normalization
+- Frontend build clean
+
+### Test suite growth across the day
+
+737 → 761 → 763. Each market-pulse PR carried at least one regression test.
+The `market-pulse-audit` skill (added 2026-05-23) was the integration-level
+guard that caught every wrong fix before users would have.
+
+---
+
 ## 2026-05-23 — Market Pulse accuracy + latency sprint (9 PRs)
 
 Jimmy's first manual production review of the Market Pulse v2 redesign
