@@ -1004,6 +1004,289 @@ actual market action of the day, finally visible.
 - *"What an 'audit skill' is, and why building one paid for itself in a
   single afternoon."*
 
+### Episode 28 — Sprint 1 of Product Flow v2: from PRD drafts to 5 shipped PRDs in one day (May 26, late)
+
+The 30-PR Tuesday wasn't supposed to be done at PR #28. After PR #119 closed
+out the morning's strategy-builder polish, the midday outage recovery, and
+the evening market-pulse saga, Jimmy paused, looked at a HANDOFF doc he'd
+been drafting with another Claude session (the Sprint 1 plan for the
+"Livermore Product Flow v2" rewrite), and decided to ship the whole sprint
+that same night.
+
+By midnight, **five PRDs were merged**, the flow runtime had its first real
+consumer, the two highest-priority entry modes worked end-to-end, and the
+architecture had been validated against the four principles it was built to
+enforce. Eight more PRs (#120, #122, #123, #124, #125, #126, #127, #128)
+landed between PR #119 and Sprint 1 closeout. Combined with the morning
+work, the day's total touched **36 PRs** — the highest single-day count in
+the project's history.
+
+What's interesting isn't the count. It's that the *second half* of the day
+shipped a sprint that was scoped to take **4-6 weeks** in the HANDOFF doc.
+
+#### What Sprint 1 was supposed to be
+
+The product was getting restructured around **six user entry modes**
+(One Asset / Portfolio / Thesis / Custom Build / Idea / Discovery), each
+triggered contextually inside the existing four-tab navigation. Sprint 1
+delivered the two P0 modes (One Asset + Portfolio), their trigger surfaces
+(Home picker + stock-page CTA + Strategy Builders integration), and the
+LEGO-brick infrastructure (`FlowDefinition` runtime + brick library) that
+Sprint 2 would compose against.
+
+Five PRDs, with explicit dependency chains:
+
+```
+PRD-12 (3h) — Asset Behavior Fingerprint     (no deps)
+PRD-13a (2-3d) — Flow runtime                 (no deps)
+PRD-13b (1.5-2wk) — Portfolio Mode + engine   (needs 12 + 13a)
+PRD-14 (1d) — Stock-page Apply CTA            (needs 12)
+PRD-11 (3d) — Home entry picker                (needs 13a + 13b)
+```
+
+The estimates assumed a single human developer. By using **chip-driven
+parallel agent sessions**, the wall clock collapsed to one evening.
+
+#### The chip pattern
+
+The CCD harness (Claude Code Desktop) exposes an MCP tool —
+`spawn_task` — that queues a clickable "chip" in the user's UI. The agent
+calls the tool with a self-contained prompt (PRD kickoff text, branch name,
+acceptance criteria). The chip waits in the UI. When Jimmy clicks it, CCD
+spawns a **fresh worktree on a new branch**, opens a **new Claude Code
+session** in that worktree, and sends the prompt as the first user message.
+
+That spawned session then runs *completely independently* — different
+worktree, different conversation, different Claude instance. They can't
+see each other's state. They communicate only through `git` (push branches,
+open PRs, eventually `claude-main` merges to `main`).
+
+The mechanical translation:
+
+| Before chips (manual) | With chips |
+|---|---|
+| Agent writes "open a fresh Claude session and paste this prompt" | Agent calls `spawn_task` with the prompt |
+| User opens new CCD tab + pastes | User clicks the chip card |
+| User runs `git worktree add ../foo -b bar main` | CCD does worktree + branch in the background |
+| User pastes the kickoff prompt as the first message | CCD sends the queued prompt |
+| User returns to canonical root for `claude-main` duty | New session opens in its own window |
+
+Same protocol (worktrees per session, branch prefixes, master-merger gate);
+fewer keystrokes. The architectural promise — *"every mode is a chip's worth
+of work because the runtime amortizes the foundation"* — got tested for the
+first time tonight.
+
+#### How the day actually unfolded
+
+**PR #117 — PRD-13a (Flow runtime, 2-3 days estimated, ~1h actual).** First
+chip. Built the four files: `types.ts` (FlowDefinition shape), `runtime.ts`
+(`startFlow`, `FlowProvider`, sessionStorage persistence with 250ms debounce,
+`step_idle` event after 300ms), `registry.ts` (`registerFlow`/`getFlow`),
+`copy.ts` (`useFlowCopy(modeId, key)` lexicon). Added a universal
+`/flow/[flowId]` shell route. Added vitest as the test runner. 16 files,
++3289/-335 lines, 25/25 tests pass on first try.
+
+**PR #120 — PRD-14 (Stock CTA, 1 day estimated, ~30 min actual).** Second
+chip, opened in parallel. Replaced the inline "Apply a strategy" button on
+`/stocks/[ticker]` with a `<ApplyStrategyCTA>` brick. Rendered the existing
+`<AssetBehaviorFingerprintCard>` (PRD-12, already shipped via PR #97/#106).
+Wired PostHog. 2 files, +103/-6 lines. The brick became the *template*
+every subsequent brick would mirror.
+
+**Three polish chips (#122 / #123 / #124, ~30 min total).** While I was
+reviewing PR #117 + #120, a parallel session knocked out three follow-ups
+the original PRs had explicitly deferred:
+- #124 — gate the dev mock-flow registration to `NODE_ENV !== "production"`
+  + add `schemaVersion: 1` to persisted sessionStorage state (so future
+  FlowDefinition shape changes invalidate stale entries automatically)
+- #123 — route the ApplyStrategyCTA brick's labels through `useFlowCopy`
+  instead of hardcoded constants (the lexicon discipline that had been
+  *blocked* on PR #117 landing first)
+- #122 — vitest tests for the brick (6 cases — locks the contract)
+
+Three chips, three PRs, three independent worktrees, all merged in <30 min.
+The chip-driven model held up: each agent worked in isolation, no
+cross-session conflicts, claude-main reviewed + merged sequentially.
+
+**PR #125 — PRD-13b (Portfolio Mode + engine extension, 1.5-2 weeks
+estimated, ~3h actual).** The big one. 38 files, +3870/-16 lines:
+
+Backend: `StrategyJSON.inherited_universe: Optional[list[str]]` as an
+*additive* field — engine's `run()` swaps `strategy.universe` for
+`inherited_universe` at the top when `strategy_type in PORTFOLIO_OVERLAY_TYPES`,
+so every downstream helper reads the right tickers without per-branch
+wiring. Three new strategy types (`portfolio_defensive_overlay`,
+`portfolio_rotation_overlay`, `portfolio_rebalance_overlay`). New `Holding`
+Pydantic model. `PortfolioDiagnosisService` composing `FundamentalService` +
+`PriceDataService` + `compute_asset_behavior_fingerprint` (PRD-12's
+contribution paying off). `POST /api/portfolio/diagnose` with a 60-min
+in-process LRU cache + per-tier hourly rate-limit (Scout 5/h, Strategist
+50/h, Quant unlimited). Migration adds `weekly_usage.portfolio_diagnose_runs_hourly`
+column.
+
+Frontend: `portfolio-mode.ts` — the **first concrete FlowDefinition**, with
+7 steps. Three portfolio bricks (`<PortfolioUpload>`, `<PortfolioDiagnosis>`,
+`<OverlayPicker>`) plus four adapter bricks (`portfolio-summary` /
+`-backtest` / `-review` / `-save`). Strategy Builders multi-ticker template
+picker gained a "Use my portfolio →" CTA that calls
+`startFlow('portfolio_mode', { fromTrigger: 'builders/multi_ticker_use_my_portfolio' })`.
+Self-registration on import. 7 backend test files (25 cases) + 3 frontend
+test files (16 cases) all green.
+
+The architecture worked exactly as promised: a single agent built a 2-week
+feature in 3 hours because the runtime + brick patterns from PRD-13a +
+PRD-14 amortized the foundation cost.
+
+**PR #126 — trap #13 follow-up (~30 min).** During review of PR #125 I
+flagged the diagnose endpoint as holding the request-scoped DB session
+across `await _service.diagnose(db, payload.holdings)` — 2-5s of FMP HTTP
+calls with the connection pinned, which is the exact pattern from
+CLAUDE.md trap #13 that caused the 2026-05-26 outage earlier in the day.
+Spawned a follow-up chip. The fix mirrors PR #104's pattern: close the
+request session before the slow await, re-acquire `SessionLocal()` for the
+work. Added a 20-concurrent-call regression test that verifies the pool
+doesn't drain. Confirmed: the test failed against the pre-fix route with
+`QueuePool limit ... overflow timeout`, passed against the fix. Merged.
+Same-day trap closure — exactly the discipline the morning's outage
+hardening was supposed to enable.
+
+**PR #127 — PRD-11 (Home picker, 3 days estimated, ~1h actual).** The last
+chip. Replaced the legacy "Describe Your Strategy" teaser with an
+`<EntryModePicker>` brick (three CTAs: Pick an asset → `/stocks` via
+`<Link>`, Upload portfolio → `startFlow('portfolio_mode', ...)`, Chat
+builder → opens the floating ChatWidget via `dispatchChatSeed`). Added a
+`<SavedStrategiesTile>` for signed-in users — three most-recent saved
+strategies with per-row signal-state chips fetched in parallel. Anonymous
+users see a "Sign in to access your strategies" prompt that fires NextAuth's
+`signIn()`.
+
+The "Upload portfolio" CTA worked the instant it shipped because PRD-13b
+had landed an hour earlier and the runtime found `portfolio_mode` in the
+registry. *That's the promise of the architecture made literal.*
+
+**PR #128 — Sprint 1 closeout.** Committed the HANDOFF doc + 5 PRDs to
+`main` (they'd been untracked in canonical root the whole time). Flipped
+every brick-inventory entry from ⏳ to ✅. Ticked the acceptance checklist.
+Refreshed WORK_LOG.md Current Session to reflect Sprint 1 complete.
+Added the wrap entry to project_log.md.
+
+#### The Mode 1 moment
+
+After PR #128 was open and waiting on CI, Jimmy sent a screenshot of
+`/stocks/NTAP` with the new "⚡ Apply a strategy" button visible, and one
+sharp question:
+
+> *"when I click apply strategy, I expect to trigger 'Mode: Pick One Asset',
+> is it actually working?"*
+
+The honest answer was **no, not in the FlowDefinition sense.** The brick's
+`onClick` calls `setBuilderOpen(true)` directly — opens the legacy
+`StrategyBuilderModal` with the ticker pre-loaded. It does NOT call
+`startFlow('one_asset_mode', {...})`. There is no `one_asset_mode` file in
+`apps/web/src/lib/flows/`. Both PRD-14 and PRD-11 had explicit out-of-scope
+carve-outs deferring the Mode 1 refactor to Sprint 2.
+
+I had already ticked those two acceptance lines as `[x]` in PR #128's
+HANDOFF update because *functionally* the journey worked — modal opens,
+ticker loaded, backtest runs, save works. But that's reading "Mode 1" as
+"the conceptual one-asset journey." Jimmy was reading it as "Mode 1 = the
+FlowDefinition called via startFlow." Both readings are defensible; only
+one is the architectural promise the runtime was built to deliver.
+
+Downgraded both ticks to `[~]` (partial) with explicit "Architectural gap"
+notes that spell out (a) what the CTA does today, (b) what's missing (the
+`one_asset_mode` FlowDefinition), and (c) what Sprint 2's refactor will
+swap in. Spawned a Sprint 2 chip — `PRD-Mode1-Refactor` — that includes
+the adapter-brick extraction work (PRD-13b's `portfolio-*` adapter bricks
+were always intended to collapse into mode-agnostic versions when Mode 1
+joined them on the runtime).
+
+**The discipline-level lesson:** *the user noticed before the documentation
+did.* If the acceptance checklist had stayed at `[x]`, Sprint 1 would have
+been recorded as fully delivered against its spec when one explicit
+non-goal was still standing. The user's UX expectation caught it. Worth
+remembering when writing future acceptance language — "the journey works"
+and "the journey routes through the architecture" are not the same claim.
+
+#### What the architecture proved tonight
+
+The "Mode = FlowDefinition" abstraction was the load-bearing bet. The
+HANDOFF doc said:
+
+> *"This is the abstraction that makes Sprint 2 cheap: adding Mode 3
+> (Thesis) is 'build one or two new bricks + one new flow file + wire one
+> trigger' — not 'build another wizard from scratch.'"*
+
+Three pieces of evidence tonight that the bet paid off:
+
+1. **PRD-13b shipped a 2-week feature in 3 hours.** The runtime did most of
+   the work. The portfolio-specific code was the new bricks + the flow
+   definition + the engine additivity. Everything around it — sessionStorage
+   resume, step transitions, label lexicon, event emission — was already
+   there from PRD-13a.
+
+2. **PRD-11's "Upload portfolio" CTA worked the moment it was written.**
+   Because `portfolio-mode.ts` had self-registered into the runtime an hour
+   earlier, the trigger button needed exactly one line:
+   `startFlow('portfolio_mode', { fromTrigger: 'home/upload_portfolio' })`.
+   The full 7-step flow opened without any consumer-side glue.
+
+3. **The four polish chips composed cleanly.** Six independent agent
+   sessions ran tonight (PRD-13a, PRD-14, three polish chips, PRD-13b, PRD-11,
+   trap-#13 fix). All landed without cross-contamination because each one
+   touched its own files in its own worktree. The PARALLEL_WORK.md
+   discipline from May 21 held.
+
+#### Quotable moments
+
+- *"The chip is the trigger; the spawned session is the flow that runs the
+  work. Same architectural pattern as your flow-runtime PRs."*
+- *"PRD-11's 'Upload portfolio' CTA worked the moment it was written
+  because PRD-13b had landed an hour earlier."* — the architecture made
+  literal.
+- *"When I click apply strategy, I expect to trigger 'Mode: Pick One Asset'
+  — is it actually working?"* — the user catching an architectural gap the
+  documentation glossed over.
+- *"The journey works ≠ the journey routes through the architecture."* —
+  acceptance-checklist discipline lesson.
+- *"PRD-13b shipped a 2-week feature in 3 hours because the runtime did
+  most of the work."* — the foundation paying for itself.
+
+#### Where Sprint 2 starts
+
+A chip is queued: `PRD-Mode1-Refactor — one_asset_mode FlowDefinition`.
+When it lands, the two acceptance `[~]` lines become `[x]`, the legacy
+`StrategyBuilderModal` becomes a candidate for deletion in Sprint 3, and
+the adapter bricks PRD-13b shipped collapse into mode-agnostic versions
+that PRD-15 (Thesis) and PRD-16 (Custom Build) will reuse instead of
+forking.
+
+#### Final state at sprint close
+
+| Metric | Value |
+|---|---|
+| Backend tests | **790** (+27 from Sprint 1 PRDs) |
+| Frontend vitest | **55** (from 0 — runner itself shipped in PRD-13a) |
+| FlowDefinitions on main | 1 (`portfolio_mode`) — Sprint 2 adds `one_asset_mode`, `thesis_mode`, `custom_build_mode` |
+| Bricks in `lib/flows/bricks/` | 5 (`apply-strategy-cta`, `portfolio-upload`, `portfolio-diagnosis`, `overlay-picker`, `entry-mode-picker`) + 4 adapters (portfolio-*) |
+| Sprint 1 PRDs shipped | 5 / 5 (PRD-11, PRD-12, PRD-13a, PRD-13b, PRD-14) |
+| Sprint 1 wall-clock | ~6 hours from PR #117 to PR #128 |
+| Cross-session conflicts | 0 |
+
+**Content hooks for later:**
+
+- *"How an architecture pays for itself in a single evening."* — the
+  PRD-13a → PRD-13b → PRD-11 cost curve (foundation → first consumer →
+  one-line trigger).
+- *"What chip-driven parallel agent sessions actually feel like."* — six
+  independent sessions, one master merger, six PRs, zero contamination.
+- *"The user noticed before the documentation did."* — the Mode 1
+  architectural gap moment. Acceptance language matters; "the journey
+  works" ≠ "the journey routes through the architecture."
+- *"Same-day trap closure."* — PR #126 fixing the trap #13 risk in the
+  same evening it shipped, because the morning's outage hardening made
+  the diagnostic loop instinctive.
+
 ---
 
 ## Recurring journeys (themes)
