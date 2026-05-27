@@ -21,8 +21,9 @@ import { MockFlow } from "@/lib/flows/__tests__/fixtures/mock-flow";
 
 // Idempotent registration of the PRD-13a mock flow so /flow/mock_flow
 // works in dev. PRD-13b adds `import "@/lib/flows/portfolio-mode"` (a
-// self-registering module) right here, and any future mode the same way.
-if (!getFlow(MockFlow.id)) {
+// self-registering module) right here, and any future mode the same way —
+// at which point this dev-only block can be deleted entirely.
+if (process.env.NODE_ENV !== "production" && !getFlow(MockFlow.id)) {
   registerFlow(MockFlow);
 }
 

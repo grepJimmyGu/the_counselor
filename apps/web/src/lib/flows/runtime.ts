@@ -26,7 +26,14 @@ const STORAGE_KEY = (flowId: string) => `livermore_flow_${flowId}`;
 const PERSIST_DEBOUNCE_MS = 250;
 const IDLE_MS = 300;
 
+// Bump when RuntimeState / FlowDefinition contract changes in a way that
+// would deserialize subtly wrong from older session entries. Mismatched
+// entries are dropped on read, so the user starts fresh instead of
+// resuming into a half-shaped context.
+const SCHEMA_VERSION = 1;
+
 interface RuntimeState<TCtx extends FlowContextBase> {
+  schemaVersion: number;
   flowId: string;
   currentStepId: string;
   context: TCtx;
@@ -58,6 +65,7 @@ function resumeState<TCtx extends FlowContextBase>(
     if (!raw) return null;
     const parsed = JSON.parse(raw) as RuntimeState<TCtx>;
     if (!parsed || parsed.flowId !== flowId) return null;
+    if (parsed.schemaVersion !== SCHEMA_VERSION) return null;
     return parsed;
   } catch {
     return null;
@@ -96,6 +104,7 @@ export function startFlow<TCtx extends FlowContextBase>(
     );
   }
   const initial: RuntimeState<TCtx> = {
+    schemaVersion: SCHEMA_VERSION,
     flowId,
     currentStepId: flow.initialStepId,
     context: opts.initialContext,
@@ -155,6 +164,7 @@ export const FlowProvider: React.FC<{
       if (validStepId) return resumed;
     }
     return {
+      schemaVersion: SCHEMA_VERSION,
       flowId,
       currentStepId: flow.initialStepId,
       context: { fromTrigger: "direct" } as FlowContextBase,

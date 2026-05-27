@@ -142,6 +142,7 @@ describe("runtime — sessionStorage persistence", () => {
     window.sessionStorage.setItem(
       STORAGE_KEY("mock_flow"),
       JSON.stringify({
+        schemaVersion: 1,
         flowId: "mock_flow",
         currentStepId: "step2",
         context: { fromTrigger: "test/resume", x: 1 },
@@ -151,6 +152,24 @@ describe("runtime — sessionStorage persistence", () => {
     renderMock();
     expect(screen.getByTestId("step-title").textContent).toBe("Mock Step 2");
     expect(screen.getByTestId("ctx-x").textContent).toBe("1");
+  });
+
+  it("ignores entries with a mismatched schemaVersion and starts fresh", () => {
+    // A blob written by a prior schema. Without the version gate, the
+    // provider would resume into step2 with a half-shaped context; with
+    // it, the stale entry is dropped and the flow starts at step1.
+    window.sessionStorage.setItem(
+      STORAGE_KEY("mock_flow"),
+      JSON.stringify({
+        schemaVersion: 0,
+        flowId: "mock_flow",
+        currentStepId: "step2",
+        context: { fromTrigger: "test/stale", x: 1 },
+      })
+    );
+
+    renderMock();
+    expect(screen.getByTestId("step-title").textContent).toBe("Mock Step 1");
   });
 });
 
