@@ -15,17 +15,13 @@
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { FlowProvider, FlowShell } from "@/lib/flows/runtime";
-import { getFlow, registerFlow } from "@/lib/flows/registry";
+import { getFlow } from "@/lib/flows/registry";
 import type { FlowEvent } from "@/lib/flows/types";
-import { MockFlow } from "@/lib/flows/__tests__/fixtures/mock-flow";
 
-// Idempotent registration of the PRD-13a mock flow so /flow/mock_flow
-// works in dev. PRD-13b adds `import "@/lib/flows/portfolio-mode"` (a
-// self-registering module) right here, and any future mode the same way —
-// at which point this dev-only block can be deleted entirely.
-if (process.env.NODE_ENV !== "production" && !getFlow(MockFlow.id)) {
-  registerFlow(MockFlow);
-}
+// Self-registering FlowDefinition modules. Each import has the
+// side-effect of `registerFlow(...)` at module load. New modes append
+// to this list (e.g. PRD-15 thesis_mode, PRD-16 custom_build_mode).
+import "@/lib/flows/portfolio-mode";   // PRD-13b
 
 function handleEvent(event: FlowEvent): void {
   if (process.env.NODE_ENV !== "production") {

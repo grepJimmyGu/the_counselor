@@ -121,6 +121,39 @@ def _run_stage1_isolated_ddl(engine: Engine, is_sqlite: bool) -> None:
     except Exception:
         pass  # column already exists
 
+    # ── 3e. PRD-13b: weekly_usage portfolio-diagnose rate-limit columns ───────
+    # Tracks per-hour usage of the expensive POST /api/portfolio/diagnose
+    # endpoint (~2-5s of CPU per call). Counter resets on the next call after
+    # `last_reset_hour` rolls over an hour boundary.
+    try:
+        with engine.begin() as c:
+            if is_sqlite:
+                c.execute(text(
+                    "ALTER TABLE weekly_usage "
+                    "ADD COLUMN portfolio_diagnose_runs_hourly INTEGER NOT NULL DEFAULT 0"
+                ))
+            else:
+                c.execute(text(
+                    "ALTER TABLE weekly_usage "
+                    "ADD COLUMN IF NOT EXISTS portfolio_diagnose_runs_hourly INTEGER NOT NULL DEFAULT 0"
+                ))
+    except Exception:
+        pass  # column already exists
+
+    try:
+        with engine.begin() as c:
+            if is_sqlite:
+                c.execute(text(
+                    "ALTER TABLE weekly_usage ADD COLUMN last_reset_hour TIMESTAMP"
+                ))
+            else:
+                c.execute(text(
+                    "ALTER TABLE weekly_usage "
+                    "ADD COLUMN IF NOT EXISTS last_reset_hour TIMESTAMP"
+                ))
+    except Exception:
+        pass  # column already exists
+
     # ── 4. Indexes that depend on columns added above ─────────────────────────
     # These live here (not in main conn) because IF NOT EXISTS still aborts a Postgres
     # transaction if the referenced COLUMN is missing — even though the INDEX might not exist.
@@ -1129,7 +1162,10 @@ def run_startup_migrations(engine: Engine) -> None:
         # production upgrades where create_all has already run once. All use
         # CREATE TABLE IF NOT EXISTS — safe in shared conn (never raises in Postgres).
 
-        # weekly_usage — Scout 5-runs-per-week meter
+        # weekly_usage — Scout 5-runs-per-week meter + PRD-13b portfolio
+        # diagnose hourly counter. Fresh-install path; for upgrades the
+        # two extra columns are also added idempotently in
+        # _run_stage1_isolated_ddl §3e.
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS weekly_usage (
                 user_id VARCHAR(36) NOT NULL,
@@ -1137,6 +1173,8 @@ def run_startup_migrations(engine: Engine) -> None:
                 backtest_runs INTEGER NOT NULL DEFAULT 0,
                 custom_backtest_runs INTEGER NOT NULL DEFAULT 0,
                 template_backtest_runs INTEGER NOT NULL DEFAULT 0,
+                portfolio_diagnose_runs_hourly INTEGER NOT NULL DEFAULT 0,
+                last_reset_hour TIMESTAMP,
                 PRIMARY KEY (user_id, week_start)
             )
         """))

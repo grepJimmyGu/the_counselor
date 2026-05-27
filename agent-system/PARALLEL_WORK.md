@@ -100,6 +100,7 @@ Either:
 | claude-chat-v2-p7-widget | `/Users/jimmygu/the_counselor-chat-v2-p7-widget` | rotating per-task | latest | active — built Stage 7 chat v2 tickets #2–#7 + #9; currently on `claude/docs/chat-v2-phase1-recap` after landing PR #53 (production hang fix) |
 | codex-chatbuilder | `/private/tmp/the_counselor_chatbuilder_test` | `codex/improve-chat-builder` | `0932c75` | abandoned 2026-05-19; rebase or delete |
 | claude-flow-runtime | `/Users/jimmygu/the_counselor-flow-runtime` | `claude/feat/flow-runtime-infra` | latest | active 2026-05-26 — PRD-13a flow runtime infrastructure; PR open pending claude-main review |
+| claude-portfolio-mode | `/Users/jimmygu/the_counselor-portfolio-mode` | `claude/feat/portfolio-mode` | latest | active 2026-05-26 — PRD-13b Portfolio Mode (engine overlays + diagnosis + flow definition) |
 
 The old `claude-chat-v2-p2` row (worktree `the_counselor-chat-v2-p2`) was retired 2026-05-22 once ticket #6 landed; that worktree is dormant and can be removed when convenient.
 

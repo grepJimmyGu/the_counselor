@@ -57,7 +57,8 @@
 **Parallel-session note:** PRs #116 and #118 were written by a sibling Claude session while the primary session waited on user input. Both fixes landed cleanly because each agent operated in its own worktree per the `PARALLEL_WORK.md` discipline. The market-pulse-audit skill caught every wrong intermediate fix.
 
 **Open work in flight:**
-- None blocking. Next meaningful tickets live in [docs/PROJECT_BACKLOG.md](../docs/PROJECT_BACKLOG.md) — Phase 1g (Top news sidebar), LLM prompt rewrite (waiting on Jimmy's draft), Chat v2 go/no-go (`build_specs/research_chat_v2.md`), signals Phase B resume.
+- **PRD-13b — Portfolio Mode** (claude-portfolio-mode session, 2026-05-26). Branch `claude/feat/portfolio-mode`. Backend: `inherited_universe` field + 3 portfolio overlay strategy_types (defensive / rotation / rebalance) + `PortfolioDiagnosisService` + `POST /api/portfolio/diagnose` (60-min in-process cache + per-tier hourly rate-limit) + `weekly_usage.portfolio_diagnose_runs_hourly` migration. Frontend: 3 portfolio bricks (upload / diagnosis / overlay-picker) + 4 adapter bricks (summary / backtest / review / save) + `portfolio-mode.ts` FlowDefinition self-registered on import + "Use my portfolio" affordance wired into Strategy Builders multi-ticker universe step + `/test/flows/portfolio` smoke surface. Tests: 7 backend pytest files (25 cases) + 3 frontend vitest files (16 cases) all green. PR pending.
+- Next meaningful tickets live in [docs/PROJECT_BACKLOG.md](../docs/PROJECT_BACKLOG.md) — Phase 1g (Top news sidebar), LLM prompt rewrite (waiting on Jimmy's draft), Chat v2 go/no-go (`build_specs/research_chat_v2.md`), signals Phase B resume.
 
 **Next action (if picking up cold):**
 1. Read this file (you're doing it).

@@ -463,6 +463,38 @@ producer writes in TZ X, the consumer must compare in TZ X.
 
 ---
 
+## Engine semantics — PRD-13b portfolio overlays
+
+`StrategyJSON.inherited_universe: Optional[list[str]]` is the user's holdings
+list when launching a Portfolio Mode strategy. It is **additive** on the
+existing 22 strategy_types — they ignore the field and behave unchanged.
+
+Three new `strategy_type` values consume it:
+
+- **`portfolio_defensive_overlay`** — per-holding MA filter. On each
+  rebalance date, each holding's weight is `target_weight * (close > MA)`;
+  failed names go to cash. Requires `position_sizing.weights` (defaults to
+  equal-weight if absent). Default MA window 200 days.
+- **`portfolio_rotation_overlay`** — rank holdings by N-month return, hold
+  top-K equal-weight. Reuses `_generate_cross_sectional_weights`. Default
+  126-day lookback, top-3 (capped by holding count).
+- **`portfolio_rebalance_overlay`** — apply `position_sizing.weights` on
+  every rebalance date. Mechanically static_allocation, but reads the
+  universe from `inherited_universe`.
+
+`BacktestEngine.run()` swaps `strategy.universe` for
+`strategy.inherited_universe` at the top of the method when
+`strategy_type in PORTFOLIO_OVERLAY_TYPES`, so every downstream helper
+(`_load_prices`, `_generate_weights`, `_check_microcap`, etc.) reads the
+right tickers without per-branch wiring.
+
+`strategy_validator.py` enforces per-overlay minimums: defensive ≥1
+holding, rotation ≥3, rebalance ≥2 with explicit weights. The validator
+also emits a soft warning when `universe` and `inherited_universe` disagree
+on a portfolio overlay — the inherited list always wins at engine time.
+
+---
+
 ## Where the patterns live in code
 
 - **`app/db/migrations.py`** — `_run_stage1_isolated_ddl()` is the canonical "isolated risky DDL" pattern. `run_startup_migrations()`'s shared block holds only safe `CREATE TABLE IF NOT EXISTS`.

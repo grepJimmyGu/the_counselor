@@ -1,6 +1,10 @@
 from __future__ import annotations
 
-from app.schemas.strategy import ENGINE_SUPPORTED_TYPES, StrategyJSON
+from app.schemas.strategy import (
+    ENGINE_SUPPORTED_TYPES,
+    PORTFOLIO_OVERLAY_TYPES,
+    StrategyJSON,
+)
 
 
 def validate_strategy(strategy: StrategyJSON) -> list[str]:
@@ -8,6 +12,19 @@ def validate_strategy(strategy: StrategyJSON) -> list[str]:
 
     if len(strategy.universe) == 1 and strategy.strategy_type == "momentum_rotation":
         warnings.append("Momentum rotation is usually more meaningful with multiple symbols.")
+
+    # PRD-13b: portfolio overlays use `inherited_universe` as the effective
+    # universe. If `universe` was set to something different, surface a soft
+    # warning so the strategy author knows the universe field is ignored.
+    if (
+        strategy.strategy_type in PORTFOLIO_OVERLAY_TYPES
+        and strategy.inherited_universe
+        and set(strategy.universe) != set(strategy.inherited_universe)
+    ):
+        warnings.append(
+            "Portfolio overlays use `inherited_universe` as the effective "
+            "universe; the `universe` field will be ignored at engine time."
+        )
 
     if strategy.start_date.year >= strategy.end_date.year:
         warnings.append("Backtest window may be too short to judge robustness.")

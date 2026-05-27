@@ -41,6 +41,8 @@ CodeT = Literal[
     "chat_quota_exhausted",
     # Phase 1f (2026-05-22) — Market Pulse screener preset gating
     "screener_preset_locked",
+    # PRD-13b (2026-05-26) — Portfolio Mode diagnose rate-limit
+    "portfolio_diagnose_rate_limit",
 ]
 
 
@@ -74,6 +76,7 @@ _CTA_COPY: dict[str, str] = {
     "market_pulse_ticker_out_of_scope": "Upgrade to research all US stocks",
     "chat_quota_exhausted": "Sign up for unlimited chat",
     "screener_preset_locked": "Upgrade to unlock this preset screen",
+    "portfolio_diagnose_rate_limit": "Upgrade for more portfolio diagnoses per hour",
 }
 
 # Which tier unlocks each code.
@@ -85,6 +88,7 @@ _REQUIRED_TIER: dict[str, Optional[str]] = {
     "robustness_test_locked": "quant",
     "market_pulse_ticker_out_of_scope": "strategist",
     "chat_quota_exhausted": "strategist",  # Scout cap → upgrade to Strategist
+    "portfolio_diagnose_rate_limit": "strategist",  # Scout: 5/h, Strategist: 50/h
     # Anonymous codes resolve to signup; no required_tier.
 }
 
