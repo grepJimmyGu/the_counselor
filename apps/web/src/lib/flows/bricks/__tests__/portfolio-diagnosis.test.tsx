@@ -15,11 +15,20 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
+// `useSession` mock — defaults to unauthenticated so the brick fires its
+// anonymous diagnose path. Individual tests can override via
+// `useSessionMock.mockReturnValue(...)` before render.
+const useSessionMock = vi.fn(() => ({ data: null, status: "unauthenticated" }));
+vi.mock("next-auth/react", () => ({
+  useSession: () => useSessionMock(),
+}));
+
 import { diagnosePortfolio } from "@/lib/api";
 import { PortfolioDiagnosis } from "../portfolio-diagnosis";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useSessionMock.mockReturnValue({ data: null, status: "unauthenticated" });
 });
 
 afterEach(() => {
@@ -107,5 +116,47 @@ describe("PortfolioDiagnosis", () => {
   it("falls back to error state when no holdings are passed", async () => {
     renderDiag([]);
     await waitFor(() => screen.getByTestId("portfolio-diagnosis-error"));
+  });
+
+  // ── Auth wiring (PR follow-up: anonymous + signed-in both work) ───────
+
+  it("calls diagnosePortfolio without a token when the visitor is anonymous", async () => {
+    useSessionMock.mockReturnValue({ data: null, status: "unauthenticated" });
+    (diagnosePortfolio as any).mockResolvedValueOnce({
+      diagnosis: _diagnosis(),
+      recommended_overlays: [],
+      cache_hit: false,
+    });
+    renderDiag();
+    await waitFor(() => screen.getByTestId("portfolio-diagnosis"));
+    expect(diagnosePortfolio).toHaveBeenCalledTimes(1);
+    // Second arg is the backendToken; for anonymous it must be undefined
+    // (the API client only attaches the Authorization header when it's
+    // truthy — backend then resolves to the synthetic legacy-anon user).
+    expect((diagnosePortfolio as any).mock.calls[0][1]).toBeUndefined();
+  });
+
+  it("passes the backendToken when the visitor is signed in", async () => {
+    useSessionMock.mockReturnValue({
+      data: { backendToken: "test-jwt-token" } as any,
+      status: "authenticated",
+    });
+    (diagnosePortfolio as any).mockResolvedValueOnce({
+      diagnosis: _diagnosis(),
+      recommended_overlays: [],
+      cache_hit: false,
+    });
+    renderDiag();
+    await waitFor(() => screen.getByTestId("portfolio-diagnosis"));
+    expect(diagnosePortfolio).toHaveBeenCalledTimes(1);
+    expect((diagnosePortfolio as any).mock.calls[0][1]).toBe("test-jwt-token");
+  });
+
+  it("does not fire the diagnose call while next-auth is still loading", async () => {
+    useSessionMock.mockReturnValue({ data: null, status: "loading" });
+    renderDiag();
+    // Skeleton stays mounted; no API call yet.
+    expect(screen.getByTestId("portfolio-diagnosis-skeleton")).toBeTruthy();
+    expect(diagnosePortfolio).not.toHaveBeenCalled();
   });
 });

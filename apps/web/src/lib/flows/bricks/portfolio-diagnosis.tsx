@@ -17,6 +17,7 @@
  */
 
 import * as React from "react";
+import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { diagnosePortfolio, UpgradeRequiredError } from "@/lib/api";
@@ -176,6 +177,18 @@ export function PortfolioDiagnosis({
   const errorMsg = useFlowCopy("portfolio_mode", "diagnose_error");
   const rateLimitMsg = useFlowCopy("portfolio_mode", "diagnose_rate_limited");
 
+  // Pull the backend token off the next-auth session when present. The
+  // POST /api/portfolio/diagnose route accepts both authenticated and
+  // anonymous callers (the backend resolves a synthetic anonymous user
+  // when no bearer token is sent), so this is `undefined` for signed-out
+  // visitors and a string for signed-in ones — both produce a working
+  // diagnose response. We wait for `sessionStatus !== "loading"` before
+  // firing so a signed-in visitor never gets a one-time anonymous run on
+  // the brief next-auth boot window.
+  const { data: session, status: sessionStatus } = useSession();
+  const backendToken = (session as unknown as { backendToken?: string } | null)
+    ?.backendToken;
+
   const [diagnosis, setDiagnosis] = React.useState<PortfolioDiagnosisPayload | undefined>(
     context.diagnosis,
   );
@@ -196,10 +209,15 @@ export function PortfolioDiagnosis({
       setLoading(false);
       return;
     }
+    // Wait for next-auth to resolve before firing — otherwise a signed-in
+    // visitor would briefly call the route as anonymous.
+    if (sessionStatus === "loading") {
+      return;
+    }
     let cancelled = false;
     setLoading(true);
     setError(null);
-    diagnosePortfolio(holdings)
+    diagnosePortfolio(holdings, backendToken)
       .then((resp) => {
         if (cancelled) return;
         setDiagnosis(resp.diagnosis);
@@ -219,8 +237,11 @@ export function PortfolioDiagnosis({
       cancelled = true;
     };
     // updateContext / errorMsg / rateLimitMsg are stable references for this render.
+    // sessionStatus + backendToken are included so the effect re-fires once
+    // next-auth resolves the session — signed-in visitors then make their
+    // diagnose call with the bearer token, not as anonymous.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(holdings)]);
+  }, [JSON.stringify(holdings), sessionStatus, backendToken]);
 
   if (loading) return <DiagSkeleton />;
   if (error) {
