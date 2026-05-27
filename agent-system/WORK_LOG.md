@@ -21,9 +21,11 @@ The flow runtime + brick architecture validated end-to-end. Sprint 2 (Thesis Mod
 
 Plus the morning's market-pulse production hardening continued shipping: 497/497 live S&P 500 symbols on every cold-cache request, all 4 macro signals real, `/market-pulse-audit` returns 11 OK · 0 WARN · 0 ERROR.
 
-**Active branch:** main (HEAD: `a9f09ce` — PRD-11 PR #127 + this Sprint 1 closeout PR)
+**Active branch:** main (HEAD: `32c5b9c` — PR #132 portfolio-diagnose auth fix)
 **Last stable tag:** `prd-14-complete` (2026-05-12) — no `stage-*` tags exist
-**Tests:** **790 backend** + **55 frontend vitest** all green; frontend build clean
+**Tests:** **796 backend** (+6 from PR #132's anonymous-route regression suite) + **58 frontend vitest** (+3 from PR #132's `<PortfolioDiagnosis>` session-aware coverage) all green; frontend build clean
+**In flight:** PR #131 — `feat(flows): one_asset_mode FlowDefinition (Sprint 2 Mode 1 refactor)` — CI green, merge deferred per Jimmy's signal (task #53)
+**Sprint 2 status:** PRD-Mode1-Refactor PR open; PRD-15 / PRD-16 / PRD-17 / PRD-18 / PRD-19 pending. See [`agent-system/plans/HANDOFF-livermore-product-flow-v2-sprint-2.md`](plans/HANDOFF-livermore-product-flow-v2-sprint-2.md) for the full plan.
 **Deployed:** Railway + Vercel both healthy
 - `GATING_ENABLED=true` (enforcement)
 - `FRED_API_KEY` is **set** — Growth (CFNAI) + Stress (HY OAS / BAMLH0A0HYM2) signals real (the last two `Mock` pills are gone)
