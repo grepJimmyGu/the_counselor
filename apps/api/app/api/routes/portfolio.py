@@ -29,6 +29,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
+from app.api.deps import _LEGACY_USER_ID
 from app.api.deps_entitlement import require_entitlement
 from app.api.entitlement_errors import upgrade_error
 from app.db.session import SessionLocal, get_db
@@ -111,7 +112,16 @@ def _enforce_diagnose_rate_limit(db: Session, user_id: str, tier: str) -> None:
     """Raise 402 portfolio_diagnose_rate_limit when the user has burned
     their hourly quota. Reads the row but does NOT increment — the
     increment happens after the diagnosis succeeds.
+
+    Anonymous callers (synthetic `legacy-anon-0000` user) share a single
+    globally-scoped counter, so a 5/hr Scout cap would mean the 6th
+    anonymous visitor across the entire site in any hour gets blocked —
+    not the entry-mode UX we want. Treat anonymous as effectively
+    uncapped; per-IP / per-anon-session limits are a follow-up if abuse
+    becomes an issue.
     """
+    if user_id == _LEGACY_USER_ID:
+        return
     cap = PORTFOLIO_DIAGNOSE_HOURLY_CAPS.get(tier, PORTFOLIO_DIAGNOSE_HOURLY_CAPS["scout"])
     used = get_portfolio_diagnose_runs_used(db, user_id)
     if used >= cap:
@@ -138,14 +148,23 @@ def _enforce_diagnose_rate_limit(db: Session, user_id: str, tier: str) -> None:
 @router.post("/diagnose", response_model=DiagnoseResponse)
 async def diagnose_portfolio(
     payload: DiagnoseRequest,
-    auth: tuple = Depends(require_entitlement(needs_run_quota=False)),
+    auth: tuple = Depends(
+        require_entitlement(needs_run_quota=False, allow_anonymous=True),
+    ),
     db: Session = Depends(get_db),
 ) -> DiagnoseResponse:
     user, ent = auth
+    # Snapshot the ORM-bound fields we'll need after `db.close()`. Once
+    # any code path commits `db` (e.g. `get_or_create_current_weekly_usage`
+    # creating a fresh WeeklyUsage row), all `user`/`ent.user` attributes
+    # are expired; touching `user.id` after `db.close()` then raises
+    # `DetachedInstanceError`. Same lesson as PR #53 (chat hang).
+    user_id: str = user.id
+    tier: str = ent.tier
 
     # 1. Rate-limit first — cheaper than the cache lookup, and we don't
     # want a rate-limited user to enjoy unlimited cached re-reads.
-    _enforce_diagnose_rate_limit(db, user.id, ent.tier)
+    _enforce_diagnose_rate_limit(db, user_id, tier)
 
     # 2. Cache lookup (60-min TTL).
     cache_key = _make_cache_key(payload.holdings)
@@ -153,8 +172,10 @@ async def diagnose_portfolio(
     if cached is not None:
         # Re-emit with cache_hit=True without re-running. We still bump
         # the rate-limit counter so the cache doesn't become a workaround
-        # for the hourly cap.
-        increment_portfolio_diagnose_run(db, user.id)
+        # for the hourly cap — except for anonymous, whose counter is the
+        # global shared row and isn't gating anyway.
+        if user_id != _LEGACY_USER_ID:
+            increment_portfolio_diagnose_run(db, user_id)
         return DiagnoseResponse(
             diagnosis=cached.diagnosis,
             recommended_overlays=cached.recommended_overlays,
@@ -181,16 +202,19 @@ async def diagnose_portfolio(
     )
 
     # 4. Cache + increment counter (re-acquire a session for the write).
+    # Anonymous users share a single global row; skip the write to avoid
+    # noisy contention on it.
     _cache_set(cache_key, response)
-    with SessionLocal() as write_db:
-        increment_portfolio_diagnose_run(write_db, user.id)
+    if user_id != _LEGACY_USER_ID:
+        with SessionLocal() as write_db:
+            increment_portfolio_diagnose_run(write_db, user_id)
 
     # 5. PostHog analytics — fire-and-forget; never breaks the request.
     try:
         from app.services.posthog_service import capture as _ph_capture
-        _ph_capture(user.id, "portfolio_diagnosed", {
+        _ph_capture(user_id, "portfolio_diagnosed", {
             "n_holdings": diagnosis.n_holdings,
-            "current_tier": ent.tier,
+            "current_tier": tier,
             "top_overlay": recommended[0].overlay if recommended else None,
         })
     except Exception:
