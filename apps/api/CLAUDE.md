@@ -352,6 +352,100 @@ runs outside the request path. Pre-merge, audit any async route
 that takes `db: Session` and `await`s on network — those are
 candidates for the same trap.
 
+### 14. External API endpoints: don't hallucinate, verify against the real surface
+
+LLMs (this codebase's agents included) confidently generate plausible-looking
+API paths that don't exist. The failure mode is silent: a wrapped
+`try/except` or `asyncio.gather(return_exceptions=True)` swallows the 404,
+the caller behaves as if the upstream returned empty, and downstream UI
+quietly stays on stale data. The 2026-05-26 Market Pulse saga burned **8
+PRs (#108→#118) over one day** because of this trap, in three flavors:
+
+**14a. Invented paths.** Codex introduced `/stable/batch-quote`,
+`/stable/batch-etf-quotes`, `/stable/batch-index-quotes` in PR #110 — none
+exist in FMP's stable API. The 5-call concurrent batch returned `[]` for all
+500 S&P 500 symbols; the live overlay ran successfully but produced an empty
+quotes dict, so `_apply_live_to_asset` left every card unchanged. Top
+Movers showed last week's earnings winners (DELL, HPQ) instead of today's
+real movers. Unit tests passed because they mocked at `client._get` level,
+never exercising the real path string.
+
+**14b. Wrong parameter convention.** PR #112 swapped the invented paths for
+`/stable/quote?symbol=AAPL,MSFT,...` (comma-separated query param). FMP's
+`/stable/quote` is **single-symbol only** in query-param mode — multi-symbol
+queries silently return either nothing or just the first match. Confirmed
+in production: `/api/live/quotes?symbols=HPQ,NTAP,EL,QCOM` returned only
+the one symbol that was already cached individually.
+
+**14c. The right convention is path-based.** FMP's batch is
+`/stable/quote/SYM1,SYM2,...` (comma-separated **in the URL path**, not the
+query string) — the same convention `fmpsdk` and `fmp_py` use against the
+v3 API. One call returns up to 100 symbols as a list of quote dicts.
+
+**The cross-cutting pattern:**
+
+Before adding any call to an external API:
+
+1. **Find an existing working call to the same endpoint** in this codebase
+   first — that's ground truth. `get_quote()` was already using `/stable/quote`
+   correctly for single symbols. Looking at it before writing
+   `get_quotes_batch` would have prevented PRs #110, #112.
+2. **Test against a real curl** if no in-repo example exists. The 2026-05-26
+   saga ended only when we curled `/api/live/quotes?symbols=HPQ` directly
+   and saw the discrepancy with multi-symbol queries.
+3. **Verify in production after deploy** with the `market-pulse-audit` skill
+   (or equivalent integration check). The skill counts `latest_date=today`
+   on the actual response to confirm the overlay fired. Unit tests at the
+   `client._get` mock level miss this entire class of bug.
+4. **Don't trust silent successes.** If a batch call returns 0 items and
+   the caller treats that as "no data available," the call is indistinguishable
+   from a wrong endpoint. Always log the request/response sizes at INFO
+   when integrating a new external endpoint, and remove the logs only after
+   one production cycle confirms expected behavior.
+
+### 15. FMP-specific conventions worth memorising
+
+- **Batch quotes are path-based**, not query-param:
+  `/stable/quote/AAPL,MSFT,GOOG` (NOT `?symbol=AAPL,MSFT,GOOG`). Chunk size:
+  100 symbols per call. See `FMPClient.get_quotes_batch` for the canonical
+  implementation.
+- **Class-share tickers use the hyphen convention** (BRK-B, not BRK.B).
+  Our `SP500_TICKERS` uses dot notation (BRK.B) for human readability;
+  `FMPClient._get_quote_batch_path` and `get_quote` translate dot→hyphen
+  on the way out and remap response symbols back. Any new FMP-facing code
+  must do the same or BRK.B will silently fall through.
+- **`/stable/quote` burst-rate-limits concurrent path-batch chunks.** Even
+  2 concurrent 100-symbol requests dropped ~12% of late-alphabet symbols on
+  cold cache. `BATCH_CONCURRENT_CHUNKS = 1` (strict serial) trades ~1s of
+  latency for 100% first-call coverage. Don't raise this without verifying
+  cold-cache behavior against production.
+
+### 16. UTC date rollover in freshness verification tests
+
+When you write a script that flags symbols as "stale" by string-comparing
+`latest_date` against today's date, **compute today in the same timezone the
+backend uses** — `date.today().isoformat()` in `_apply_live_to_asset`
+uses the Python runtime's local TZ, which is UTC on Railway containers.
+The 2026-05-26 saga had a 30-minute panic when my verification script
+hard-coded `'2026-05-26'` as today but UTC midnight had just passed: every
+card came back with `latest_date='2026-05-27'`, my filter flagged all 497
+as "stale," and I almost reverted a working fix.
+
+**Pattern:**
+
+```python
+# WRONG — hardcodes the date string, breaks at UTC midnight
+stale = [a for a in assets if a.get('latest_date') != '2026-05-26']
+
+# CORRECT — compare against the same TZ the backend uses
+from datetime import datetime, timezone
+today_utc = datetime.now(timezone.utc).date().isoformat()
+stale = [a for a in assets if a.get('latest_date') != today_utc]
+```
+
+Same rule applies to any "is this fresh?" check across the codebase — if the
+producer writes in TZ X, the consumer must compare in TZ X.
+
 ---
 
 ## Cross-dialect quick reference
