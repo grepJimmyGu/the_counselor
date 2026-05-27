@@ -31,7 +31,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps_entitlement import require_entitlement
 from app.api.entitlement_errors import upgrade_error
-from app.db.session import get_db
+from app.db.session import SessionLocal, get_db
 from app.schemas.portfolio import (
     DiagnoseRequest,
     DiagnoseResponse,
@@ -161,8 +161,17 @@ async def diagnose_portfolio(
             cache_hit=True,
         )
 
-    # 3. Run the diagnosis (the expensive path: ~2-5s).
-    diagnosis = await _service.diagnose(db, payload.holdings)
+    # Release the request-scoped session before the slow external work.
+    # `_service.diagnose` awaits ~2-5s of FMP HTTP calls; holding the
+    # `Depends(get_db)` connection across that await drains the pool
+    # under load (CLAUDE.md trap #13). FastAPI's `get_db` finally-block
+    # will call .close() again at request end — that's a no-op.
+    db.close()
+
+    # 3. Run the diagnosis (the expensive path: ~2-5s) on a fresh session
+    # so the slow FMP roundtrip doesn't sit on a pool connection.
+    with SessionLocal() as work_db:
+        diagnosis = await _service.diagnose(work_db, payload.holdings)
     recommended = _service.recommend_overlays(diagnosis)
 
     response = DiagnoseResponse(
@@ -171,9 +180,10 @@ async def diagnose_portfolio(
         cache_hit=False,
     )
 
-    # 4. Cache + increment counter.
+    # 4. Cache + increment counter (re-acquire a session for the write).
     _cache_set(cache_key, response)
-    increment_portfolio_diagnose_run(db, user.id)
+    with SessionLocal() as write_db:
+        increment_portfolio_diagnose_run(write_db, user.id)
 
     # 5. PostHog analytics — fire-and-forget; never breaks the request.
     try:
