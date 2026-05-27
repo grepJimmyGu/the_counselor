@@ -7,7 +7,9 @@
  * the Home page (and, later, the re-engagement modal that will reuse this
  * brick from the shelf):
  *
- *   1. Pick an asset    → /stocks (Sprint 2 refactors to startFlow('one_asset_mode'))
+ *   1. Pick an asset    → startFlow('one_asset_mode', { fromTrigger })
+ *                          (Sprint 2 / Mode 1 refactor — was a <Link> to
+ *                          /stocks during Sprint 1.)
  *   2. Upload portfolio → startFlow('portfolio_mode', { fromTrigger })
  *   3. Chat builder     → onChatBuilderOpen() — surface decides how to open
  *                         the floating ChatWidget (Home uses dispatchChatSeed)
@@ -16,22 +18,18 @@
  * launcher that fronts the flow runtime ships as a brick so re-engagement
  * modals can pick it off the shelf without duplicating layout / copy.
  *
- * Mirrors the `apply-strategy-cta.tsx` pattern: registerModeCopy at module
- * load, useFlowCopy for every visible label, `from` prop for surface-aware
- * analytics, no inline navigation logic for the flow-runtime CTA.
+ * Both portfolio_mode and one_asset_mode self-register via the side-effect
+ * imports below. Idempotent via the getFlow() guards inside each module,
+ * so the universal /flow/[flowId] shell can also import them without
+ * colliding.
  */
 
 import { useRouter } from "next/navigation";
-import Link from "next/link";
-import type { Route } from "next";
 import { ArrowRight, MessageSquare, Search, Upload } from "lucide-react";
 import { startFlow } from "../runtime";
 import { registerModeCopy, useFlowCopy } from "../copy";
-// Side-effect import — guarantees `portfolio_mode` is in the registry by the
-// time the Upload CTA can fire. Idempotent via the getFlow() guard inside
-// portfolio-mode.ts, so the universal /flow/[flowId] shell can also import
-// it without colliding.
 import "../portfolio-mode";
+import "../one-asset-mode";
 
 registerModeCopy("home_picker", {
   section_eyebrow: "Get started",
@@ -41,7 +39,7 @@ registerModeCopy("home_picker", {
   pick_asset_label: "Pick an asset",
   pick_asset_desc:
     "Look up a stock, ETF, or commodity to see price history and apply a backtested strategy.",
-  pick_asset_cta: "Browse Market Pulse",
+  pick_asset_cta: "Apply a strategy",
   upload_portfolio_label: "Upload portfolio",
   upload_portfolio_desc:
     "Bring your holdings — we diagnose style, factor exposure, and recommend an overlay.",
@@ -66,19 +64,11 @@ export interface EntryModePickerProps {
    * elsewhere or open a different overlay.
    */
   onChatBuilderOpen: () => void;
-  /**
-   * Optional. Destination for the "Pick an asset" CTA. Defaults to
-   * `/stocks` (Market Pulse, the canonical asset-picker surface today).
-   * Sprint 2's Mode 1 refactor will replace the link with
-   * `startFlow('one_asset_mode', …)` and drop this prop.
-   */
-  pickAssetHref?: Route;
 }
 
 export function EntryModePicker({
   from,
   onChatBuilderOpen,
-  pickAssetHref = "/stocks" as Route,
 }: EntryModePickerProps) {
   const router = useRouter();
 
@@ -98,15 +88,24 @@ export function EntryModePicker({
   const chatBuilderDesc = useFlowCopy("home_picker", "chat_builder_desc");
   const chatBuilderCta = useFlowCopy("home_picker", "chat_builder_cta");
 
+  function launchOneAssetFlow() {
+    startFlow("one_asset_mode", {
+      initialContext: { fromTrigger: `${from}/pick_asset` },
+    });
+  }
+
   function launchPortfolioFlow() {
     startFlow("portfolio_mode", {
       initialContext: { fromTrigger: `${from}/upload_portfolio` },
     });
   }
 
-  // Hover-based prefetch — warms the destination route on intent so the
-  // perceived load on click is <300ms. Next.js <Link prefetch> handles the
-  // /stocks case; button CTAs we prefetch manually via router.prefetch.
+  // Hover-based prefetch — warms the flow-shell route on intent so the
+  // perceived load on click is <300ms.
+  function prefetchOneAsset() {
+    router.prefetch("/flow/one_asset_mode");
+  }
+
   function prefetchPortfolio() {
     router.prefetch("/flow/portfolio_mode");
   }
@@ -129,12 +128,15 @@ export function EntryModePicker({
       </div>
 
       <div className="mt-8 grid gap-5 lg:grid-cols-3">
-        {/* 1. Pick an asset — Next.js <Link> per Sprint-1 scope */}
-        <Link
-          href={pickAssetHref}
+        {/* 1. Pick an asset — startFlow('one_asset_mode') per Sprint 2 */}
+        <button
+          type="button"
           data-testid="entry-mode-pick-asset"
           data-from={from}
-          className="group flex flex-col rounded-2xl border border-border/60 bg-white/80 p-6 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={launchOneAssetFlow}
+          onMouseEnter={prefetchOneAsset}
+          onFocus={prefetchOneAsset}
+          className="group flex flex-col rounded-2xl border border-border/60 bg-white/80 p-6 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
         >
           <div className="mb-5 inline-flex h-12 w-12 items-center justify-center rounded-xl border border-blue-200 bg-blue-50">
             <Search className="h-6 w-6 text-blue-500" />
@@ -147,7 +149,7 @@ export function EntryModePicker({
             {pickAssetCta}
             <ArrowRight className="h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
           </span>
-        </Link>
+        </button>
 
         {/* 2. Upload portfolio — startFlow('portfolio_mode') per PRD-13b */}
         <button

@@ -2,25 +2,22 @@
  * portfolio-mode — PRD-13b FlowDefinition.
  *
  * The first concrete flow shipped on the PRD-13a runtime. Triggered from:
- *   - Home page "Upload portfolio" CTA (PRD-11 wires this; this file
- *     pre-registers the flow so PRD-11 only needs a one-line call)
+ *   - Home page "Upload portfolio" CTA (PRD-11)
  *   - Strategy Builders multi-ticker template universe picker
- *     ("Use my portfolio" option — wired in PRD-13b)
+ *     ("Use my portfolio" option)
  *
  * Importing this module has two side effects:
  *   1. registerFlow(PortfolioModeFlow) — adds the flow to the registry
- *   2. registerModeCopy("portfolio_mode", { … }) — by transitive imports
- *      of each brick, which calls registerModeCopy at module load
+ *   2. registerModeCopy("portfolio_mode", { … }) — for every label its
+ *      bricks render. The mode-agnostic bricks (FlowBacktest / -Review /
+ *      -Save) resolve their copy via `useFlowCopy(flow.id, key)`, so
+ *      this file owns the portfolio-specific values for each of those
+ *      keys — switching modes only changes the values, not the brick
+ *      code.
  *
- * Both are idempotent — importing the module multiple times throws only
- * for registerFlow (registry rejects duplicates), so the conventional
- * import pattern at the universal /flow/[flowId] shell is:
- *   import "@/lib/flows/portfolio-mode";   // side-effect only
- *
- * Sprint 2 cleanup: when Mode 1 (One Asset) also migrates to the runtime,
- * SummaryStep / BacktestRunner / ResultViewer / SaveStrategy can be
- * extracted into mode-agnostic bricks; the portfolio-specific adapters
- * below collapse into thin wrappers around those.
+ * Sprint 2 (Mode 1 refactor / this PRD) generalised the backtest /
+ * review / save bricks. The summary, upload, diagnose, and overlay
+ * steps remain portfolio-specific.
  */
 
 import type { FlowDefinition } from "./types";
@@ -30,16 +27,36 @@ import { PortfolioUpload } from "./bricks/portfolio-upload";
 import { PortfolioDiagnosis } from "./bricks/portfolio-diagnosis";
 import { OverlayPicker } from "./bricks/overlay-picker";
 import { PortfolioSummary } from "./bricks/portfolio-summary";
-import { PortfolioBacktest } from "./bricks/portfolio-backtest";
-import { PortfolioReview } from "./bricks/portfolio-review";
-import { PortfolioSave } from "./bricks/portfolio-save";
+import { FlowBacktest } from "./bricks/flow-backtest";
+import { FlowReview } from "./bricks/flow-review";
+import { FlowSave } from "./bricks/flow-save";
 import type { PortfolioModeContext } from "./portfolio-mode-context";
 
-// Framework-level overrides that bricks reference via useFlowCopy. The
-// individual brick modules also registerModeCopy() for their own keys
-// (uploaded transitively when this file imports them above).
+// Mode-level copy. Bricks that own their own labels still
+// registerModeCopy at module load (upload / diagnose / overlay /
+// summary); the keys below are the ones the mode-agnostic
+// FlowBacktest / FlowReview / FlowSave bricks read.
 registerModeCopy("portfolio_mode", {
   flow_name: "Portfolio Overlay",
+  // FlowBacktest
+  backtest_title: "Running backtest",
+  backtest_subtitle:
+    "Computing the overlay's historical performance on your book.",
+  backtest_retry: "Retry",
+  backtest_error: "Backtest failed. Try again.",
+  // FlowReview
+  review_title: "Backtest result",
+  review_subtitle:
+    "Past performance is not a guarantee of future results — this is a research tool, not investment advice.",
+  review_save: "Save strategy →",
+  // FlowSave
+  save_title: "Save this overlay",
+  save_subtitle: "Give it a name; we'll add it to your saved strategies.",
+  save_label: "Strategy name",
+  save_placeholder: "Defensive overlay on my book",
+  save_signin: "Sign in to save this strategy.",
+  save_error: "Couldn't save. Try again.",
+  save_done: "Saved! Redirecting…",
 });
 
 export const PortfolioModeFlow: FlowDefinition<PortfolioModeContext> = {
@@ -55,13 +72,13 @@ export const PortfolioModeFlow: FlowDefinition<PortfolioModeContext> = {
     { id: "diagnose", brick: PortfolioDiagnosis },
     { id: "overlay",  brick: OverlayPicker },
     { id: "summary",  brick: PortfolioSummary },
-    { id: "backtest", brick: PortfolioBacktest },
-    { id: "review",   brick: PortfolioReview },
-    { id: "save",     brick: PortfolioSave, next: () => null },
+    { id: "backtest", brick: FlowBacktest },
+    { id: "review",   brick: FlowReview },
+    { id: "save",     brick: FlowSave, next: () => null },
   ],
   onComplete: (ctx) => {
     // Navigate to the saved-strategy detail page when a save succeeded;
-    // otherwise back to home. (PortfolioSave only `advance()`s on a
+    // otherwise back to home. (FlowSave only `advance()`s on a
     // successful save, so savedSlug is always set on this path.)
     if (typeof window !== "undefined") {
       const slug = (ctx as PortfolioModeContext & { savedSlug?: string }).savedSlug;
