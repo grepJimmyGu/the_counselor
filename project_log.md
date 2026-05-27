@@ -8,6 +8,85 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-05-27 — Portfolio Mode diagnose: a triple-bug fix worth three new CLAUDE.md traps (PR #132)
+
+Jimmy hit the Portfolio Mode flow and got **"We couldn't diagnose your portfolio. Try again."** Same error for anonymous AND signed-in users. Different copy than the one PR #126 fixed (that was a pool-saturation issue under load); this was an auth-and-error-mapping problem.
+
+Investigation found three distinct bugs compounding into one indistinguishable failure mode. Each is now a CLAUDE.md trap so the next agent touching this surface doesn't have to re-derive any of them.
+
+### Bug 1 (backend) — route shipped sign-in-only
+
+`POST /api/portfolio/diagnose` used `require_entitlement(needs_run_quota=False)` — the default `allow_anonymous=False`. The route fronts the Portfolio Mode upload step, which **anonymous users can reach by clicking "Upload portfolio" on Home before signing in**. Strict `get_current_user` 401'd every anonymous caller. Frontend's generic catch block mapped the 401 to "couldn't diagnose."
+
+**Fix:** `allow_anonymous=True`, plus a synthetic-user early-return in `_enforce_diagnose_rate_limit` (all anonymous callers share one `WeeklyUsage` row, so the standard Scout 5/hr cap would gate the 6th anonymous visitor sitewide). Counter increment also skipped for the synthetic user to avoid contention.
+
+**Codified as `apps/api/CLAUDE.md` trap #18**: `require_entitlement` defaults to `allow_anonymous=False`. Pre-sign-in flows must opt in. Rate-limit caveat for the shared synthetic-user row spelled out.
+
+### Bug 2 (frontend) — bricks calling authed endpoints must read `backendToken`
+
+`<PortfolioDiagnosis>` never read `backendToken` off `useSession()` and never passed an `Authorization` header. Signed-in users called the endpoint as if anonymous → also 401 → same generic error copy.
+
+**Fix:** mirror the `getEntitlements` pattern — pull `backendToken` from `useSession()`, gate the diagnose call on `sessionStatus !== "loading"`, add both to the effect's deps so it re-fires after NextAuth resolves. Without the gate, signed-in users would fire one anonymous request during NextAuth's boot window before the authenticated retry.
+
+**Codified as `apps/api/CLAUDE.md` trap #19**: frontend bricks calling authed endpoints must read `backendToken` from `useSession()`. Two non-obvious bits: the `sessionStatus !== "loading"` gate and the effect-deps requirement.
+
+### Bug 3 (subtle ORM) — intermediate commit expires `user` mid-route
+
+This is the most insidious of the three. Inside the route:
+
+```python
+async def diagnose_portfolio(payload, auth, db):
+    user, ent = auth
+    _enforce_diagnose_rate_limit(db, user.id, ent.tier)  # ← creates WeeklyUsage row + commits
+    # ... later, after db.close() and the slow await ...
+    _ph_capture(user.id, "portfolio_diagnosed", {"current_tier": ent.tier, ...})  # ← DetachedInstanceError
+```
+
+The rate-limit check calls `get_or_create_current_weekly_usage(...)`, which **creates a fresh row + commits when no row exists for the user × week**. SQLAlchemy's default behaviour after `commit()` is to expire all instances bound to the session. The `user` ORM object is now in expired state; downstream reads of `user.id` / `ent.tier` trigger a lazy-refresh that fails after `db.close()` with `DetachedInstanceError`.
+
+**Why this is insidious — the bug doesn't trip in tests or for existing users.** A user whose `WeeklyUsage` row already exists for the current week doesn't trigger the create-and-commit path; their attribute reads stay live because `db` doesn't commit. Tests use a fixture that pre-populates the row. So the bug ships green and explodes on the first NEW user's first diagnose call — exactly the failure mode every production debug already warns about.
+
+**Fix:** snapshot `user.id` and `ent.tier` to plain `user_id: str` / `tier: str` locals at the top of the route. Use the locals everywhere downstream. ORM-bound reads happen exactly once, before any commit can fire.
+
+**Codified as `apps/api/CLAUDE.md` trap #17**: intermediate commits expire ORM instances — snapshot scalars at route entry. Anchored to PR #132 (this bug) and PR #53 (the same class in the chat-hang fix from 2026-05-22).
+
+### Test plan + regression coverage
+
+- 6 new backend pytest cases (`tests/test_portfolio_diagnose_anonymous.py`):
+  - Anonymous calls succeed (synthetic user, no 401)
+  - Anonymous rate-limit skip across 50 simulated bursts (no spurious gate)
+  - Scout cap still gates for signed-in users (regression bar)
+  - Counter does NOT pollute the shared anonymous row
+  - Counter DOES increment for signed-in users
+  - Static introspection: FastAPI dep resolves to `get_current_user_or_anonymous` (catches an accidental future re-tighten without needing a live request)
+- 3 new frontend vitest cases (`portfolio-diagnosis.test.tsx`):
+  - Anonymous (token undefined): endpoint called without `Authorization` header
+  - Signed-in (token present): endpoint called with `Authorization: Bearer <token>`
+  - Loading: endpoint NOT called yet (waits for NextAuth to resolve)
+
+Test count: backend **790 → 796**, frontend vitest **55 → 58**.
+
+### The pattern this completes
+
+Three traps in CLAUDE.md now cover the full "async route + auth + slow await" surface:
+
+| Trap | Lesson | Born from |
+|---|---|---|
+| #13 | Async routes can't hold `db: Session = Depends(get_db)` across slow external HTTP awaits — pool drains. Close + re-acquire via `SessionLocal()`. | PR #104 (`dunning_expiry_job`) + PR #126 (`portfolio_diagnose`) |
+| #17 | Intermediate commits expire ORM instances — snapshot scalars at route entry. | PR #53 (chat hang) + PR #132 (portfolio diagnose) |
+| #18 | `require_entitlement(...)` defaults to `allow_anonymous=False`. Pre-sign-in flows must opt in. | PR #132 |
+| #19 (frontend) | Bricks calling authed endpoints must read `backendToken` from `useSession()` + gate on `sessionStatus !== "loading"`. | PR #132 |
+
+Together they describe everything an async route handler needs to think about. New routes that touch DB + external HTTP + auth should pass all four checks.
+
+### What it reinforces
+
+- **Insidious-bug heuristic**: when a backend path includes `commit()` inside a sub-helper, ask *"would this fire for an existing user vs. a new user differently?"* If yes, the new-user path is the one that ships green and breaks in production.
+- **Indistinguishable-failure heuristic**: when two different root causes produce the same error string, the user-facing error is too generic. Future polish: the frontend catch block in `<PortfolioDiagnosis>` should at minimum log the underlying status so debugging session-zero issues like this doesn't require reading server logs blind.
+- **Same-day discovery → same-day codification**: the bug got reported, diagnosed across three layers, fixed with regression tests, and the lessons written into CLAUDE.md within hours. This is the loop that lets sprint velocity stay high without losing institutional knowledge.
+
+---
+
 ## 2026-05-26 (late) — Sprint 1 (Livermore Product Flow v2) shipped end-to-end
 
 Late on the 30-PR Tuesday, Sprint 1 of the **Livermore Product Flow v2** rewrite closed out. The whole spec (HANDOFF doc + 5 PRDs) was drafted, scoped, executed, and merged in a single day across parallel agent sessions.

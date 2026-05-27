@@ -446,6 +446,144 @@ stale = [a for a in assets if a.get('latest_date') != today_utc]
 Same rule applies to any "is this fresh?" check across the codebase — if the
 producer writes in TZ X, the consumer must compare in TZ X.
 
+### 17. Intermediate commits expire ORM instances — snapshot scalars at route entry
+
+In an async route that takes `db: Session = Depends(get_db)` and `auth =
+Depends(require_entitlement(...))`, the `user` / `ent` objects are SQLAlchemy
+ORM instances bound to `db`. Any sub-helper the route calls that commits the
+session (creating a row, advancing a counter, etc.) **expires every
+instance attached to `db`**. The next read of `user.id` / `ent.tier` /
+`user.plan.tier` then triggers SQLAlchemy's lazy-refresh, which fails with
+`DetachedInstanceError` if `db` has been closed or with a fresh query if
+it's still open. Either way, the route reads no longer return what the
+author thinks they do.
+
+**The 2026-05-26 portfolio-diagnose bug** (PR #132): `_enforce_diagnose_rate_limit(db, user.id, ent.tier)`
+called `get_or_create_current_weekly_usage(...)`, which creates a fresh
+`WeeklyUsage` row and commits. The route's later PostHog capture read
+`user.id` and `ent.tier` after `db.close()` — same instance, now detached,
+`DetachedInstanceError`. The route still tested green because existing
+users' WeeklyUsage rows already existed (no commit fired). New users
+would have crashed on their first diagnose call.
+
+Same class as the 2026-05-22 chat-hang fix (PR #53), where the SSE
+`event_stream()` generator read ORM attributes after the request-scoped
+`db` had closed.
+
+**Pattern: snapshot scalars at the top of the route, then use the locals
+for everything downstream.**
+
+```python
+@router.post("/diagnose")
+async def diagnose_portfolio(
+    payload: DiagnoseRequest,
+    auth: tuple = Depends(require_entitlement(needs_run_quota=False, allow_anonymous=True)),
+    db: Session = Depends(get_db),
+):
+    user, ent = auth
+    # Snapshot ORM-bound fields we'll need after any commit + after db.close().
+    # Once `_enforce_diagnose_rate_limit` triggers a WeeklyUsage-creation commit,
+    # `user`/`ent` are expired; touching `.id`/`.tier` after `db.close()` then
+    # raises DetachedInstanceError. Same lesson as PR #53.
+    user_id: str = user.id
+    tier: str = ent.tier
+    _enforce_diagnose_rate_limit(db, user_id, tier)
+    # ...slow await on a fresh SessionLocal()...
+    db.close()
+    # ...later: PostHog capture uses user_id + tier (plain strings, never reads ORM)...
+```
+
+**Why this is insidious:** the bug only manifests when a sub-helper commits.
+Existing users (whose row already exists, no commit fires) don't trip it.
+The first NEW user does. So this kind of bug ships green and explodes on
+production traffic, not in CI.
+
+**Audit rule for new async routes:** if the route reads ORM attributes
+*twice* with anything in between (helper call, commit, await, db.close),
+snapshot the attributes to plain locals at the top. If you only read them
+once, you're fine.
+
+### 18. `require_entitlement` defaults to `allow_anonymous=False` — pre-sign-in flows must opt in
+
+`require_entitlement(...)` from `app/api/deps_entitlement.py` defaults to
+strict `get_current_user`, which 401s anonymous callers. That's the right
+default for routes that perform user-scoped writes (save, run-with-quota,
+billing, settings).
+
+It's the **wrong default for entry-mode flows that fire BEFORE sign-in** —
+e.g., the Portfolio Mode diagnose step, which the user reaches by clicking
+"Upload portfolio" on Home without an account. Anonymous visitors hitting
+those endpoints get 401 and the frontend surfaces a generic "couldn't
+diagnose" error that gives the user no useful action to take.
+
+**Pattern:** for any endpoint that the user could reasonably hit *before*
+sign-in (Portfolio Mode diagnose, Mode 1 ticker pick, Mode 3 thesis parse,
+…), set `allow_anonymous=True`:
+
+```python
+auth: tuple = Depends(require_entitlement(needs_run_quota=False, allow_anonymous=True))
+```
+
+This routes anonymous callers through `get_current_user_or_anonymous`,
+which returns a synthetic `legacy-anon-0000` user that downstream code
+can branch on.
+
+**Rate-limit caveat:** when you allow anonymous, **all anonymous visitors
+share a single DB row** (the synthetic-user `WeeklyUsage`). Standard
+per-tier hourly caps will gate the 6th anonymous visitor sitewide —
+not the entry-mode UX you want. Either skip the rate-limit check for
+the synthetic user (PR #132's approach: `if user_id == _LEGACY_USER_ID:
+return` at the top of `_enforce_*_rate_limit`) or implement per-IP /
+per-anon-session limits if abuse becomes a real risk.
+
+### 19. Frontend bricks calling authed endpoints must read `backendToken` off `useSession()`
+
+Frontend bricks that POST to an endpoint with `require_entitlement(...)`
+(even with `allow_anonymous=True`) must pass the `Authorization: Bearer
+<backendToken>` header for signed-in users. Otherwise the request fires
+as anonymous and the user — who *is* signed in — gets either a 401
+(strict route) or the wrong tier's caps (allow_anonymous route).
+
+**The 2026-05-26 portfolio-diagnose bug** (also in PR #132): `<PortfolioDiagnosis>`
+never read `backendToken` from `useSession()`. Combined with the backend
+route being sign-in-only, the same "couldn't diagnose" copy showed for
+both anonymous AND signed-in users — two different root causes, one
+indistinguishable UX failure.
+
+**Pattern (mirror `getEntitlements` / `listSavedStrategies` / etc.):**
+
+```tsx
+"use client";
+import { useSession } from "next-auth/react";
+
+export function MyBrick() {
+  const { data: session, status: sessionStatus } = useSession();
+  const backendToken = (session as any)?.backendToken as string | undefined;
+
+  useEffect(() => {
+    // CRITICAL: don't fire while NextAuth is still booting — otherwise a
+    // signed-in user briefly fires an anonymous request during the loading
+    // window. Wait for status to resolve first.
+    if (sessionStatus === "loading") return;
+    callMyEndpoint(payload, backendToken);
+  }, [payload, sessionStatus, backendToken]);
+}
+```
+
+Two non-obvious bits:
+
+1. The `useEffect` must depend on `sessionStatus` and `backendToken` —
+   the effect needs to re-fire once NextAuth resolves from `"loading"`
+   to `"authenticated"`. Without the deps, you fire once with
+   `backendToken === undefined` and never retry.
+2. NextAuth doesn't expose `backendToken` in its default `Session` type;
+   the cast (`session as any`) mirrors what `getEntitlements` does today.
+   When `next-auth/react`'s types support custom session fields, this can
+   become typed.
+
+`apps/web/src/lib/flows/bricks/portfolio-diagnosis.tsx` is the canonical
+example; mirror it in any new brick that calls an authed endpoint.
+
 ---
 
 ## Cross-dialect quick reference
