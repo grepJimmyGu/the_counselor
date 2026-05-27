@@ -20,8 +20,11 @@ import { EvaluationDashboard } from "./_evaluation-dashboard";
 import { WatchlistButton } from "@/components/community/watchlist-button";
 import { VoteBar } from "@/components/community/vote-bar";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
+import { AssetBehaviorFingerprintCard } from "@/components/strategy-picker/AssetBehaviorFingerprintCard";
+import { ApplyStrategyCTA } from "@/lib/flows/bricks/apply-strategy-cta";
 import { useLiveQuotes } from "@/lib/useLiveQuotes";
 import { dispatchChatSeed } from "@/lib/chat-widget-event-bus";
+import { track } from "@/lib/analytics";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -191,10 +194,19 @@ function CompanyPageInner() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
+            {/* PRD-14: secondary trigger for Mode 1 (Apply a strategy on
+                this ticker). Replaces the inline `<Button>` so the same
+                affordance can be reused on commodity pages, screener
+                rows, and per-holding rows in portfolio diagnosis. Sprint
+                2's Mode 1 refactor will swap the onClick for
+                startFlow('one_asset_mode', {...}). */}
+            <ApplyStrategyCTA
+              ticker={data.symbol}
+              from="stock_page"
+              variant="secondary"
+              compact
               onClick={() => {
+                track("stock_page_apply_strategy_clicked", { ticker: data.symbol });
                 setBuilderIdea(`Backtest a strategy on ${data.symbol}`);
                 setBuilderOpen(true);
                 // Auto-open the chat widget with a contextual greeting
@@ -207,9 +219,7 @@ function CompanyPageInner() {
                   contextHint: data.symbol,
                 });
               }}
-            >
-              Apply a Strategy
-            </Button>
+            />
             <WatchlistButton symbol={data.symbol} />
           </div>
         </div>
@@ -287,6 +297,12 @@ function CompanyPageInner() {
           <h2 className="mb-4 font-heading text-sm font-semibold">Community Sentiment</h2>
           <VoteBar symbol={data.symbol} />
         </section>
+
+        {/* PRD-14: Asset Behavior Fingerprint (Module 2 component, used
+            as-is). Self-fetching mode — the page is a Client Component
+            so we let the card own its loading state rather than
+            threading SSR data through. */}
+        <AssetBehaviorFingerprintCard symbol={data.symbol} />
 
         {/* Disclaimer */}
         <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
