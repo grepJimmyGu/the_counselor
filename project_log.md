@@ -8,6 +8,51 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-05-26 (late) — Sprint 1 (Livermore Product Flow v2) shipped end-to-end
+
+Late on the 30-PR Tuesday, Sprint 1 of the **Livermore Product Flow v2** rewrite closed out. The whole spec (HANDOFF doc + 5 PRDs) was drafted, scoped, executed, and merged in a single day across parallel agent sessions.
+
+### What the sprint delivered
+
+The product is restructured around **six user entry modes** (One Asset / Portfolio / Thesis / Custom / Idea / Discovery). Sprint 1 shipped the two highest-priority modes (Mode 1 secondary trigger + Mode 2 full flow), their trigger surfaces (Home picker + stock-page CTA + Strategy Builders integration), and the foundational LEGO architecture (`FlowDefinition` runtime + brick library) that Sprint 2 will compose against.
+
+| PRD | What | PR(s) |
+|---|---|---|
+| **PRD-12** | Asset Behavior Fingerprint service + `<AssetBehaviorFingerprintCard>` | #97 / #106 |
+| **PRD-13a** | Flow runtime infrastructure (`lib/flows/{types,runtime,registry,copy}.ts`) + universal `/flow/[flowId]` shell route + mock-flow dev fixture | #117 + #122 (brick tests) + #123 (`useFlowCopy` lexicon) + #124 (`schemaVersion` + dev-gate hardening) |
+| **PRD-13b** | Portfolio Mode + engine extension (`inherited_universe` field, 3 overlay strategy_types, `PortfolioDiagnosisService`, `POST /api/portfolio/diagnose` cached + rate-limited, `weekly_usage.portfolio_diagnose_runs_hourly` migration, 3 portfolio bricks + 4 adapter bricks + first concrete `FlowDefinition`) | #125 + #126 (trap-#13 pool-safety fix) |
+| **PRD-14** | Stock-page "⚡ Apply a strategy" CTA brick + fingerprint card render | #120 |
+| **PRD-11** | Home page entry picker (3 CTAs) + saved-strategies tile | #127 |
+| Sprint closeout | HANDOFF + 5 PRDs committed to `main`; brick inventory flipped ⏳→✅; acceptance checklist ticked; WORK_LOG refreshed | #128 (this entry) |
+
+### Tests
+
+Backend: **763 → 790** (+27 across the 5 PRDs).
+Frontend vitest: **0 → 55** (the runner itself was new in PRD-13a; 4 brick test suites + the runtime suite).
+
+### The four principles, in practice
+
+The HANDOFF doc named four principles that every Sprint 1 PRD enforced:
+
+1. **Reuse, don't replicate** — verified across PR reviews: backtest / save / result paths were never re-implemented per mode; PRD-13b's adapter bricks wrap the existing `/api/backtest/run` + `/api/strategies/save` instead of forking them.
+2. **LEGO bricks** — every Sprint 1 brick lives at `apps/web/src/lib/flows/bricks/` (or `components/strategy-picker/` for PRD-12's pre-existing card). Sprint 2 modes plug in without touching `lib/flows/runtime.ts`.
+3. **Mode = `FlowDefinition`, not a route** — `portfolio-mode.ts` is the first concrete proof. 7 steps, pure data, self-registers on import. PRD-11's "Upload portfolio" CTA is one line: `startFlow('portfolio_mode', { fromTrigger: 'home/upload_portfolio' })`.
+4. **UX consistency + sub-300ms perceived load** — `useFlowCopy(modeId, key)` lexicon used everywhere; skeleton states on every blocking call > 200ms; `router.prefetch` on hover/focus for the EntryModePicker CTAs.
+
+### The discipline that made it possible
+
+- **Chip-driven parallel agent sessions.** PRD-13b, PRD-14, PRD-11, the 3 runtime-hardening chips, and the trap-#13 follow-up all ran in their own worktrees on their own branches; `claude-main` reviewed + merged sequentially. Zero cross-session contamination.
+- **One PR per PRD, base=main.** Avoided the stacked-PR-loses-CI trap. Every PR ran the full backend pytest + frontend build + CodeQL + Postgres smoke before merge.
+- **End-to-end audits beat unit tests.** PRD-13b's `test_engine_cross_sectional` regression check confirmed the `inherited_universe` field is truly additive (existing 22 strategy_types unaffected).
+- **Trap-class follow-ups same day.** PRD-13b shipped with the known trap-#13 risk (DB session held across slow FMP HTTP); review flagged it; chip queued; PR #126 fixed it within hours, mirroring PR #104's pattern. The whole 2026-05-26 trap class is now closed at the application layer.
+
+### What's next
+
+- **Sprint 2** (per HANDOFF §10): PRD-15 Thesis Mode, PRD-16 Custom Build (closes the read-only WHEN IN / WHEN OUT gap), PRD-17 Saved-strategies surface, PRD-18 Community thesis cards, PRD-19 per-holding signal extension (un-defer after Phase B reshape).
+- Each Sprint 2 PRD should be <1 week because the architecture is in place — that's the explicit promise of the runtime + brick library investment.
+
+---
+
 ## 2026-05-26 — The 30-PR Tuesday: strategy builder, production outage, market-pulse live-data saga
 
 Calendar count for the day: **PRs #86 through #118**, plus reverts, plus

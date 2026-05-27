@@ -9,10 +9,21 @@
 
 ## Current Session
 
-**Status:** End of 2026-05-26 — the 30-PR Tuesday. Three acts shipped: morning strategy-builder polish (#86–#96), midday 16-hour Railway outage resolved by Postgres dashboard restart (#103–#107 recovery), evening market-pulse live-data saga that took 8 PRs to converge (#108→#118) + the docs PR (#119) codifying the day's traps. Production now serves **497/497 live S&P 500 symbols on every cold-cache request** for both Top Movers and Sector Rotation; all 4 macro signals real (Inflation + Rates via Alpha Vantage; Growth + Stress via FRED). `/market-pulse-audit` skill returns 11 OK · 0 WARN · 0 ERROR.
-**Active branch:** main (HEAD: `7374357` — docs PR #119)
+**Status:** End of 2026-05-26 — **Sprint 1 (Livermore Product Flow v2) is functionally complete.** All 5 PRDs shipped:
+
+  - ✅ **PRD-12** — Asset Behavior Fingerprint (PR #97 / #106)
+  - ✅ **PRD-13a** — Flow runtime infrastructure (PR #117 + #122 / #123 / #124 hardening)
+  - ✅ **PRD-13b** — Portfolio Mode + engine extension (PR #125 + #126 trap-#13 fix)
+  - ✅ **PRD-14** — Stock-page Apply CTA (PR #120)
+  - ✅ **PRD-11** — Home entry picker + saved-strategies tile (PR #127)
+
+The flow runtime + brick architecture validated end-to-end. Sprint 2 (Thesis Mode, Custom Build, Saved-strategies surface, Community thesis cards) can now compose against the established bricks without reinventing wizards or save paths. See `agent-system/plans/HANDOFF-livermore-product-flow-v2.md` §10 for the Sprint 2 preview.
+
+Plus the morning's market-pulse production hardening continued shipping: 497/497 live S&P 500 symbols on every cold-cache request, all 4 macro signals real, `/market-pulse-audit` returns 11 OK · 0 WARN · 0 ERROR.
+
+**Active branch:** main (HEAD: `a9f09ce` — PRD-11 PR #127 + this Sprint 1 closeout PR)
 **Last stable tag:** `prd-14-complete` (2026-05-12) — no `stage-*` tags exist
-**Tests:** **763 backend** all green; frontend build clean
+**Tests:** **790 backend** + **55 frontend vitest** all green; frontend build clean
 **Deployed:** Railway + Vercel both healthy
 - `GATING_ENABLED=true` (enforcement)
 - `FRED_API_KEY` is **set** — Growth (CFNAI) + Stress (HY OAS / BAMLH0A0HYM2) signals real (the last two `Mock` pills are gone)
@@ -57,8 +68,9 @@
 **Parallel-session note:** PRs #116 and #118 were written by a sibling Claude session while the primary session waited on user input. Both fixes landed cleanly because each agent operated in its own worktree per the `PARALLEL_WORK.md` discipline. The market-pulse-audit skill caught every wrong intermediate fix.
 
 **Open work in flight:**
-- **PRD-13b — Portfolio Mode** (claude-portfolio-mode session, 2026-05-26). Branch `claude/feat/portfolio-mode`. Backend: `inherited_universe` field + 3 portfolio overlay strategy_types (defensive / rotation / rebalance) + `PortfolioDiagnosisService` + `POST /api/portfolio/diagnose` (60-min in-process cache + per-tier hourly rate-limit) + `weekly_usage.portfolio_diagnose_runs_hourly` migration. Frontend: 3 portfolio bricks (upload / diagnosis / overlay-picker) + 4 adapter bricks (summary / backtest / review / save) + `portfolio-mode.ts` FlowDefinition self-registered on import + "Use my portfolio" affordance wired into Strategy Builders multi-ticker universe step + `/test/flows/portfolio` smoke surface. Tests: 7 backend pytest files (25 cases) + 3 frontend vitest files (16 cases) all green. PR pending.
-- Next meaningful tickets live in [docs/PROJECT_BACKLOG.md](../docs/PROJECT_BACKLOG.md) — Phase 1g (Top news sidebar), LLM prompt rewrite (waiting on Jimmy's draft), Chat v2 go/no-go (`build_specs/research_chat_v2.md`), signals Phase B resume.
+- None Sprint-1-blocking. The 4 frontend "adapter bricks" (`portfolio-summary` / `portfolio-backtest` / `portfolio-review` / `portfolio-save`) that PRD-13b shipped will collapse into mode-agnostic bricks when Sprint 2's Mode 1 refactor lands (PRD-15 / PRD-16 wave).
+- Next meaningful tickets live in [docs/PROJECT_BACKLOG.md](../docs/PROJECT_BACKLOG.md) — Phase 1g (Top news sidebar), LLM prompt rewrite (waiting on Jimmy's draft), Chat v2 go/no-go (`build_specs/research_chat_v2.md`), Signals v0 Phase B resume (paused per PR #107), per-holding signal extension (deferred until Phase B reshape).
+- Sprint 2 PRDs are mapped in HANDOFF §10: PRD-15 (Thesis Mode), PRD-16 (Custom Build), PRD-17 (Saved-strategies surface), PRD-18 (Community thesis cards), PRD-19 (per-holding signal extension). Each is expected to be <1 week because the architecture (flow runtime + brick library) is in place.
 
 **Next action (if picking up cold):**
 1. Read this file (you're doing it).
