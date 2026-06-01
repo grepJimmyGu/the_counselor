@@ -37,8 +37,10 @@ from app.services.anonymous_service import (
     record_anonymous_referrer,
 )
 from app.services.backtest_preflight import ensure_data_available, validate_universe
-from app.services.backtester import engine
+from app.services.backtester.engine import BacktestEngine
 from app.services.entitlements import get_anonymous_entitlements
+
+engine = BacktestEngine()
 
 router = APIRouter(prefix="/api/anonymous", tags=["anonymous"])
 
