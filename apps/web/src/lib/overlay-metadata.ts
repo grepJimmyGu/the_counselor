@@ -1,4 +1,4 @@
-import type { OverlayKind } from "@/lib/contracts";
+import type { OverlayKind, StrategyType } from "@/lib/contracts";
 
 export interface OverlayMeta {
   kind: OverlayKind;
@@ -8,7 +8,7 @@ export interface OverlayMeta {
   researchSource: string;
   historicalEstimate: string;
   suitableFor: string;
-  strategyType: string;
+  strategyType: StrategyType;
   tier: "core" | "advanced";
 }
 

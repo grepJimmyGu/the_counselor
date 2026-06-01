@@ -196,7 +196,11 @@ export type StrategyType =
   // PRD-13b — Portfolio Mode overlays
   | "portfolio_defensive_overlay"
   | "portfolio_rotation_overlay"
-  | "portfolio_rebalance_overlay";
+  | "portfolio_rebalance_overlay"
+  // PRD-13c — Portfolio overlay expansion
+  | "portfolio_dual_momentum_overlay"
+  | "portfolio_defense_first_overlay"
+  | "portfolio_stability_tilt_overlay";
 
 export type RebalanceFrequency = "daily" | "weekly" | "monthly" | "quarterly";
 
