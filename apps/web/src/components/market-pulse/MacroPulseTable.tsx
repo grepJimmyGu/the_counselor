@@ -36,7 +36,7 @@ import type { MacroSignal } from "@/lib/contracts";
  * don't have to horizontally scroll.
  */
 
-type Range = "1M" | "1Y" | "3Y";
+type Range = "6M" | "1Y" | "5Y";
 
 // Local fallback that matches the backend `MacroSignal` shape. Used when
 // the backend payload is absent (e.g. before Phase 1c rolls to prod) so
@@ -51,9 +51,9 @@ const MOCK_MACRO: MacroSignal[] = [
     takeaway: "Economy still expanding",
     explanation:
       "ISM Services PMI — monthly diffusion index of services sector activity. >50 = expansion, <50 = contraction. Above 52 implies steady growth; below 48 starts to signal recession risk.",
-    series1M: [51.4, 51.7, 51.9, 52.1, 52.0, 52.0, 52.2, 52.0],
+    series6M: [51.4, 51.7, 51.9, 52.1, 52.0, 52.0, 52.2, 52.0],
     series1Y: gen("growth-1y", 52, 4, 52, 0.3),
-    series3Y: gen("growth-3y", 36, 4, 53, 0.4),
+    series5Y: gen("growth-3y", 36, 4, 53, 0.4),
     source: "mock_pending_fred",
   },
   {
@@ -64,9 +64,9 @@ const MOCK_MACRO: MacroSignal[] = [
     takeaway: "Supports future rate cuts",
     explanation:
       "Core CPI — year-over-year change in consumer prices ex-food and energy. The Fed's primary inflation gauge for policy decisions. Target is 2.0%. Above 3% = restrictive policy stance; trending lower = cuts on the table.",
-    series1M: [3.6, 3.5, 3.5, 3.5, 3.4, 3.4, 3.4, 3.4],
+    series6M: [3.6, 3.5, 3.5, 3.5, 3.4, 3.4, 3.4, 3.4],
     series1Y: gen("inflation-1y", 52, 6, 3.8, -0.02),
-    series3Y: gen("inflation-3y", 36, 6, 5.5, -0.08),
+    series5Y: gen("inflation-3y", 36, 6, 5.5, -0.08),
     source: "mock_pending_fred",
   },
   {
@@ -77,9 +77,9 @@ const MOCK_MACRO: MacroSignal[] = [
     takeaway: "Headwind for growth stocks",
     explanation:
       "10-year US Treasury yield — the global risk-free rate benchmark. Discount rate for long-duration equity cash flows. Rising = pressure on growth multiples; falling = relief rally for duration-sensitive sectors (tech, REITs, utilities).",
-    series1M: [4.15, 4.18, 4.22, 4.25, 4.27, 4.29, 4.30, 4.30],
+    series6M: [4.15, 4.18, 4.22, 4.25, 4.27, 4.29, 4.30, 4.30],
     series1Y: gen("rates-1y", 52, 5, 4.1, 0.005),
-    series3Y: gen("rates-3y", 36, 5, 3.5, 0.025),
+    series5Y: gen("rates-3y", 36, 5, 3.5, 0.025),
     source: "mock_pending_fred",
   },
   {
@@ -90,9 +90,9 @@ const MOCK_MACRO: MacroSignal[] = [
     takeaway: "Credit risk contained",
     explanation:
       "ICE BofA US High-Yield Option-Adjusted Spread — extra yield investors demand to hold junk bonds vs Treasuries. Below 4% = risk-on; 4-6% = stretched; above 7% = credit stress. Widely watched as the canary for cycle turns.",
-    series1M: [3.35, 3.40, 3.42, 3.38, 3.40, 3.41, 3.40, 3.40],
+    series6M: [3.35, 3.40, 3.42, 3.38, 3.40, 3.41, 3.40, 3.40],
     series1Y: gen("stress-1y", 52, 4, 3.6, -0.005),
-    series3Y: gen("stress-3y", 36, 4, 4.2, -0.02),
+    series5Y: gen("stress-3y", 36, 4, 4.2, -0.02),
     source: "mock_pending_fred",
   },
 ];
@@ -178,7 +178,7 @@ function RangeTabs({
   range: Range;
   onChange: (r: Range) => void;
 }) {
-  const opts: Range[] = ["1M", "1Y", "3Y"];
+  const opts: Range[] = ["6M", "1Y", "5Y"];
   return (
     <div className="inline-flex items-center gap-1 rounded-md border border-border bg-white p-0.5">
       {opts.map((o) => (
@@ -381,9 +381,9 @@ function Sparkline({
 }
 
 function pickSeries(s: MacroSignal, range: Range): number[] {
-  if (range === "1M") return s.series1M;
+  if (range === "6M") return s.series6M;
   if (range === "1Y") return s.series1Y;
-  return s.series3Y;
+  return s.series5Y;
 }
 
 // ── Mock series generator ───────────────────────────────────────────────────

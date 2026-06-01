@@ -75,8 +75,8 @@ async def test_build_rates_signal_real_path():
     # Latest is the 14th entry: 4.0 + 0.05 * 14 = 4.70
     assert sig.latestLabel == "10Y Yield: 4.70%"
     assert len(sig.series1Y) == 12
-    assert len(sig.series1M) == 8  # flat-repeat of last value
-    assert sig.series1M[-1] == 4.70
+    assert len(sig.series6M) == 6
+    assert sig.series6M[-1] == 4.70
     # Series chronologically increasing → direction should be "up"
     assert sig.trendDirection == "up"
     assert sig.trendLabel == "Rising"
@@ -96,7 +96,7 @@ async def test_build_rates_signal_drops_dots_and_nulls():
 
     sig = await svc._build_rates_signal(av)
     # Only the two real values made it through.
-    assert sig.series1M[-1] == 4.30
+    assert sig.series6M[-1] == 4.30
 
 
 # ── _build_inflation_signal ─────────────────────────────────────────────────

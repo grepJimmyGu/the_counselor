@@ -130,9 +130,9 @@ def test_growth_signal_positive_cfnai_labels_expanding():
     assert signal.source == "fred"
     assert "CFNAI" in signal.latestLabel
     assert signal.latestLabel.startswith("CFNAI: +")  # positive sign formatting
-    assert len(signal.series3Y) == 36
+    assert len(signal.series5Y) >= 36
     assert len(signal.series1Y) == 12
-    assert signal.series3Y[-1] > 0  # last value is the positive end of the ramp
+    assert signal.series5Y[-1] > 0  # last value is the positive end of the ramp
     assert signal.takeaway in (
         "Economy expanding above trend",
         "Economy holding above trend",
@@ -230,9 +230,9 @@ def test_stress_signal_downsamples_daily_to_monthly():
 
     signal = asyncio.run(_build_stress_signal(fred))
 
-    # Three calendar months → three monthly points in series3Y (trimmed
+    # Three calendar months → three monthly points in series5Y (trimmed
     # to 36, which we have fewer than).
-    assert signal.series3Y == [3.5, 3.7, 3.8]
+    assert signal.series5Y == [3.5, 3.7, 3.8]
     assert signal.series1Y == [3.5, 3.7, 3.8]
     assert signal.latestLabel == "HY Spread: 3.80%"
 
@@ -257,9 +257,9 @@ def test_get_macro_signals_fred_failure_falls_back_to_mock_growth_and_stress():
             trendLabel="Cooling",
             takeaway="Supports future rate cuts",
             explanation="test",
-            series1M=[3.4] * 8,
+            series6M=[3.4] * 8,
             series1Y=[3.4] * 12,
-            series3Y=[3.4] * 36,
+            series5Y=[3.4] * 36,
             source="alpha_vantage",
         )
 
@@ -271,9 +271,9 @@ def test_get_macro_signals_fred_failure_falls_back_to_mock_growth_and_stress():
             trendLabel="Rising",
             takeaway="Headwind for growth stocks",
             explanation="test",
-            series1M=[4.3] * 8,
+            series6M=[4.3] * 8,
             series1Y=[4.3] * 12,
-            series3Y=[4.3] * 36,
+            series5Y=[4.3] * 36,
             source="alpha_vantage",
         )
 
@@ -301,23 +301,23 @@ def test_get_macro_signals_fred_success_uses_real_growth_and_stress():
         return MacroSignal(
             category="Growth", latestLabel="CFNAI: +0.20", trendDirection="up",
             trendLabel="Improving", takeaway="Economy expanding above trend",
-            explanation="test", series1M=[0.2] * 8, series1Y=[0.2] * 12,
-            series3Y=[0.2] * 36, source="fred",
+            explanation="test", series6M=[0.2] * 8, series1Y=[0.2] * 12,
+            series5Y=[0.2] * 36, source="fred",
         )
 
     async def _fake_stress(*_args, **_kwargs):
         return MacroSignal(
             category="Stress", latestLabel="HY Spread: 3.40%", trendDirection="flat",
             trendLabel="Stable", takeaway="Credit risk contained",
-            explanation="test", series1M=[3.4] * 8, series1Y=[3.4] * 12,
-            series3Y=[3.4] * 36, source="fred",
+            explanation="test", series6M=[3.4] * 8, series1Y=[3.4] * 12,
+            series5Y=[3.4] * 36, source="fred",
         )
 
     async def _fake_inflation(*_args, **_kwargs):
         return MacroSignal(
             category="Inflation", latestLabel="x", trendDirection="flat",
             trendLabel="Stable", takeaway="x", explanation="x",
-            series1M=[1.0] * 8, series1Y=[1.0] * 12, series3Y=[1.0] * 36,
+            series6M=[1.0] * 8, series1Y=[1.0] * 12, series5Y=[1.0] * 36,
             source="alpha_vantage",
         )
 
@@ -325,7 +325,7 @@ def test_get_macro_signals_fred_success_uses_real_growth_and_stress():
         return MacroSignal(
             category="Rates", latestLabel="x", trendDirection="flat",
             trendLabel="Stable", takeaway="x", explanation="x",
-            series1M=[1.0] * 8, series1Y=[1.0] * 12, series3Y=[1.0] * 36,
+            series6M=[1.0] * 8, series1Y=[1.0] * 12, series5Y=[1.0] * 36,
             source="alpha_vantage",
         )
 

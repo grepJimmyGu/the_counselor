@@ -328,7 +328,7 @@ def _serialize_comparison(resp: SectorComparisonResponse) -> dict:
 
 
 @router.get("/market/history-rhymes")
-def get_history_rhymes(
+async def get_history_rhymes(
     market: str = Query(default="US", pattern="^(US|CN)$"),
     bypass_cache: bool = Query(default=False),
     db: Session = Depends(get_db),
@@ -346,7 +346,7 @@ def get_history_rhymes(
     try:
         if bypass_cache:
             _invalidate_history_rhymes_cache()
-        resp = _get_history_rhymes(market, db)
+        resp = await _get_history_rhymes(market, db)
         return {
             "market": resp.market,
             "as_of": resp.as_of,

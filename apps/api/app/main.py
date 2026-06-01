@@ -69,8 +69,8 @@ async def _warmup_market_etfs() -> None:
         "XLK", "XLF", "XLE", "XLY", "XLV", "XLI", "XLP", "XLU", "XLB", "XLRE", "XLC",
         # CN proxies (US-listed) — must match CN_SECTORS + CN_FEATURED_ETFS in market_pulse_service
         "FXI", "KWEB", "MCHI", "CQQQ", "CHIE", "FLCH", "CNYA",
-        # Macro
-        "VXX", "UUP", "TLT", "HYG",
+        # Macro — History Rhymes basket (SPY, TLT, SHY, UUP, HYG, GLD)
+        "SPY", "SHY", "VXX", "UUP", "TLT", "HYG",
         # Commodities
         "GLD", "USO", "COPX", "WEAT",
     ]

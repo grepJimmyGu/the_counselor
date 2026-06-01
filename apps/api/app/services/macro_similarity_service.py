@@ -42,13 +42,13 @@ from app.models.price_bar import PriceBar
 _log = logging.getLogger("livermore.macro_similarity")
 
 # Macro basket — the 6 ETFs whose joint 5-day returns define the vector.
-MACRO_BASKET: list[str] = ["TLT", "VXX", "UUP", "HYG", "GLD", "USO"]
+MACRO_BASKET: list[str] = ["SPY", "TLT", "SHY", "UUP", "HYG", "GLD"]
 
 # Hyperparameters
 WINDOW_DAYS = 5            # trading-day window for the return vector
 POST_WINDOW_DAYS = 30      # trading-day SPY return after each match window
 TOP_K = 3                  # number of historical matches to surface
-HISTORY_LOOKBACK_DAYS = 365 * 5  # ~5y of calendar history to search
+HISTORY_LOOKBACK_DAYS = 365 * 24  # ~24y of calendar history (oldest ETF: SHY, 2002)
 MIN_GAP_DAYS = 14          # require matches to be >= 14 trading days apart
                            # (avoid 3 near-identical adjacent windows)
 
@@ -80,7 +80,7 @@ class HistoryRhymesResponse:
 # ── Cache ───────────────────────────────────────────────────────────────────
 
 _CACHE: dict[str, tuple[datetime, HistoryRhymesResponse]] = {}
-_CACHE_TTL = timedelta(hours=4)
+_CACHE_TTL = timedelta(hours=1)
 
 
 # ── Math helpers ────────────────────────────────────────────────────────────
@@ -114,24 +114,27 @@ def _cosine(a: np.ndarray, b: np.ndarray) -> float:
 def _context_label(vec: np.ndarray) -> str:
     """Heuristic plain-English regime tag from the 6-dim macro vector.
 
-    Order: TLT, VXX, UUP, HYG, GLD, USO.
-
-    Maps the dominant signed components to short labels. Not a substitute
-    for human historical context (the v1 mock had nice things like
-    "pre-Fed 50bps cut · trade-war jitters"), but it's better than just
-    rendering the date alone.
+    Order: SPY, TLT, SHY, UUP, HYG, GLD.
     """
     if len(vec) != len(MACRO_BASKET):
         return "Mixed signals"
 
-    tlt, vxx, uup, hyg, gld, uso = vec.tolist()
+    spy, tlt, shy, uup, hyg, gld = vec.tolist()
     pieces: list[str] = []
-    if vxx > 0.05:
-        pieces.append("vol spike")
-    elif vxx < -0.05:
-        pieces.append("vol falling")
-    if tlt > 0.02:
+    if spy > 0.03:
+        pieces.append("equities ripping")
+    elif spy < -0.03:
+        pieces.append("equities selling off")
+    elif spy > 0.01:
+        pieces.append("stocks up")
+    elif spy < -0.01:
+        pieces.append("stocks down")
+    if tlt > 0.02 and shy < tlt * 0.5:
+        pieces.append("curve steepening")
+    elif tlt > 0.02:
         pieces.append("bonds rallying")
+    elif tlt < -0.02 and shy > tlt * 0.5:
+        pieces.append("curve flattening")
     elif tlt < -0.02:
         pieces.append("bonds selling off")
     if uup > 0.02:
@@ -143,18 +146,11 @@ def _context_label(vec: np.ndarray) -> str:
     elif hyg > 0.015:
         pieces.append("credit tight")
     if gld > 0.03:
-        pieces.append("gold haven bid")
-    if uso > 0.05:
-        pieces.append("oil ripping")
-    elif uso < -0.05:
-        pieces.append("oil dumped")
+        pieces.append("gold bid")
 
     if not pieces:
         return "Quiet macro tape"
-    # Title-case the first segment so the UI doesn't get all-lowercase
-    return " · ".join(pieces).capitalize() if len(pieces) == 1 else (
-        pieces[0].capitalize() + " · " + " · ".join(pieces[1:])
-    )
+    return pieces[0].capitalize() + " · " + " · ".join(pieces[1:]) if len(pieces) > 1 else pieces[0].capitalize()
 
 
 # ── Data load ───────────────────────────────────────────────────────────────
@@ -258,15 +254,37 @@ def _post_window_spy_outcome(
     return ret, sparkline
 
 
+# ── Price refresh ─────────────────────────────────────────────────────────────
+
+
+async def _refresh_macro_prices(db: Session, required_from: date) -> None:
+    """Ensure the macro basket + SPY have current price data before
+    computing today's vector. force=False lets ensure_history skip
+    symbols that already have today's bar."""
+    from app.services.alpha_vantage import AlphaVantageClient
+    from app.services.price_cache_service import PriceCacheService
+
+    symbols = set(MACRO_BASKET + ["SPY"])
+    try:
+        client = AlphaVantageClient()
+        svc = PriceCacheService(client)
+        for sym in symbols:
+            try:
+                await svc.ensure_history(db, sym, required_from, force=False)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+
 # ── Public API ─────────────────────────────────────────────────────────────
 
 
-def get_history_rhymes(
+async def get_history_rhymes(
     market: str, db: Session, force_refresh: bool = False
 ) -> HistoryRhymesResponse:
-    """Build the History Rhymes payload. Phase 1e only supports
-    `market='US'`; CN doesn't have an equivalent US-listed macro basket
-    available in our price_bars. Cached 4h."""
+    """Build the History Rhymes payload. Cached 1h. Calls ensure_history
+    before computing so ETF prices reflect today's close."""
     key = market.upper()
     if key != "US":
         return _empty_response(market, caveat="History Rhymes is US-only in v1.")
@@ -277,7 +295,9 @@ def get_history_rhymes(
         if cached and (now - cached[0]) < _CACHE_TTL:
             return cached[1]
 
+    # Refresh ETF price data so vectors reflect today's close.
     cutoff = date.today() - timedelta(days=HISTORY_LOOKBACK_DAYS)
+    await _refresh_macro_prices(db, cutoff)
     dates_asc, aligned = _load_aligned_prices(db, MACRO_BASKET, cutoff)
 
     if not dates_asc or len(dates_asc) < WINDOW_DAYS + 1:

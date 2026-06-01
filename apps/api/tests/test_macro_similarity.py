@@ -75,15 +75,15 @@ def test_context_label_quiet_when_all_small():
     assert svc._context_label(vec) == "Quiet macro tape"
 
 
-def test_context_label_vol_spike():
-    # TLT, VXX, UUP, HYG, GLD, USO  — VXX +10%
-    vec = np.array([0.0, 0.10, 0.0, 0.0, 0.0, 0.0])
-    assert "vol spike" in svc._context_label(vec).lower()
+def test_context_label_equities_selling_off():
+    # SPY, TLT, SHY, UUP, HYG, GLD — SPY −5%
+    vec = np.array([-0.05, 0.0, 0.0, 0.0, 0.0, 0.0])
+    assert "equities selling off" in svc._context_label(vec).lower()
 
 
 def test_context_label_bonds_rallying_dollar_bid():
-    # TLT +5%, UUP +5%
-    vec = np.array([0.05, 0.0, 0.05, 0.0, 0.0, 0.0])
+    # SPY, TLT, SHY, UUP, HYG, GLD — TLT +3% (SHY close so no curve steepen), UUP +5%
+    vec = np.array([0.0, 0.03, 0.025, 0.05, 0.0, 0.0])
     label = svc._context_label(vec)
     assert "bonds rallying" in label.lower()
     assert "dollar bid" in label.lower()
@@ -135,21 +135,21 @@ def _insert_bars(db, symbol: str, start_date: date, prices: list[float]):
     db.commit()
 
 
-def test_get_history_rhymes_empty_when_no_data(db):
+async def test_get_history_rhymes_empty_when_no_data(db):
     svc.invalidate_cache()
-    resp = svc.get_history_rhymes("US", db)
+    resp = await svc.get_history_rhymes("US", db)
     assert resp.matches == []
     assert "Insufficient" in resp.caveat or "history" in resp.caveat.lower()
 
 
-def test_get_history_rhymes_cn_returns_us_only_caveat(db):
+async def test_get_history_rhymes_cn_returns_us_only_caveat(db):
     svc.invalidate_cache()
-    resp = svc.get_history_rhymes("CN", db)
+    resp = await svc.get_history_rhymes("CN", db)
     assert resp.matches == []
     assert "US-only" in resp.caveat
 
 
-def test_get_history_rhymes_with_data(db):
+async def test_get_history_rhymes_with_data(db):
     """End-to-end: insert enough macro + SPY data so that at least one
     full 5-day window + 30d post-outcome can be computed."""
     svc.invalidate_cache()
@@ -162,10 +162,10 @@ def test_get_history_rhymes_with_data(db):
         return [100.0 + seed * 0.1 + i * 0.05 for i in range(n)]
 
     # All 6 macro symbols + SPY
-    for sym in ["TLT", "VXX", "UUP", "HYG", "GLD", "USO", "SPY"]:
+    for sym in set(svc.MACRO_BASKET + ["SPY"]):
         _insert_bars(db, sym, start, _series(hash(sym) % 5))
 
-    resp = svc.get_history_rhymes("US", db)
+    resp = await svc.get_history_rhymes("US", db)
     # With monotonically increasing series, every window's return is
     # roughly the same, so cosine sim ≈ 1.0 against today's vector.
     # We should get up to TOP_K matches.
@@ -178,28 +178,28 @@ def test_get_history_rhymes_with_data(db):
         assert m.sample_sparkline[0] == 100.0
 
 
-def test_get_history_rhymes_cache_round_trip(db):
+async def test_get_history_rhymes_cache_round_trip(db):
     """Second call returns the cached object (identity equality)."""
     svc.invalidate_cache()
     today = date.today()
     start = today - timedelta(days=200)
-    for sym in ["TLT", "VXX", "UUP", "HYG", "GLD", "USO", "SPY"]:
+    for sym in set(svc.MACRO_BASKET + ["SPY"]):
         _insert_bars(db, sym, start, [100.0 + i * 0.05 for i in range(100)])
 
-    first = svc.get_history_rhymes("US", db)
-    second = svc.get_history_rhymes("US", db)
+    first = await svc.get_history_rhymes("US", db)
+    second = await svc.get_history_rhymes("US", db)
     assert first is second
 
 
-def test_invalidate_cache_clears_state(db):
+async def test_invalidate_cache_clears_state(db):
     svc.invalidate_cache()
     today = date.today()
     start = today - timedelta(days=200)
-    for sym in ["TLT", "VXX", "UUP", "HYG", "GLD", "USO", "SPY"]:
+    for sym in set(svc.MACRO_BASKET + ["SPY"]):
         _insert_bars(db, sym, start, [100.0 + i * 0.05 for i in range(100)])
 
-    first = svc.get_history_rhymes("US", db)
+    first = await svc.get_history_rhymes("US", db)
     svc.invalidate_cache()
-    second = svc.get_history_rhymes("US", db)
+    second = await svc.get_history_rhymes("US", db)
     # Identity differs because the cache was rebuilt
     assert first is not second

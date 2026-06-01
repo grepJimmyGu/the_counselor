@@ -1853,9 +1853,9 @@ export interface MacroSignal {
   trendLabel: string;
   takeaway: string;
   explanation: string;
-  series1M: number[];
+  series6M: number[];
   series1Y: number[];
-  series3Y: number[];
+  series5Y: number[];
   source: "alpha_vantage" | "mock_pending_fred" | "mock_av_failed";
 }
 

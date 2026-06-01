@@ -51,16 +51,16 @@ class MacroSignal:
     trendLabel: str           # "Rising" | "Cooling" | "Stable"
     takeaway: str             # plain-English read
     explanation: str          # tooltip definition
-    series1M: list[float]
+    series6M: list[float]
     series1Y: list[float]
-    series3Y: list[float]
+    series5Y: list[float]
     source: str               # "alpha_vantage" | "mock_pending_fred"
 
 
 # ── Cache ────────────────────────────────────────────────────────────────────
 
 _CACHE: Optional[tuple[datetime, list[MacroSignal]]] = None
-_CACHE_TTL = timedelta(hours=24)
+_CACHE_TTL = timedelta(hours=2)
 
 
 # ── Mock data (Growth + Stress where AV has no source) ──────────────────────
@@ -76,11 +76,11 @@ _MOCK_GROWTH = MacroSignal(
         "activity. >50 = expansion, <50 = contraction. Mock data pending "
         "FRED API key for the real series (NMFCI)."
     ),
-    series1M=[51.4, 51.7, 51.9, 52.1, 52.0, 52.0, 52.2, 52.0],
+    series6M=[51.4, 51.7, 51.9, 52.1, 52.0, 52.0, 52.2, 52.0],
     series1Y=[
         50.8, 51.0, 51.2, 51.5, 51.6, 51.8, 51.7, 51.9, 52.0, 52.0, 52.1, 52.0,
     ],
-    series3Y=[
+    series5Y=[
         53.1, 52.5, 51.8, 50.9, 49.5, 48.2, 47.5, 48.0, 49.0, 50.1, 51.0, 52.0,
     ],
     source="mock_pending_fred",
@@ -99,11 +99,11 @@ _MOCK_STRESS = MacroSignal(
         "risk-on; 4-6% = stretched; above 7% = credit stress. Mock data "
         "pending FRED API key for the real series (BAMLH0A0HYM2)."
     ),
-    series1M=[3.35, 3.40, 3.42, 3.38, 3.40, 3.41, 3.40, 3.40],
+    series6M=[3.35, 3.40, 3.42, 3.38, 3.40, 3.41, 3.40, 3.40],
     series1Y=[
         3.85, 3.75, 3.65, 3.55, 3.50, 3.45, 3.40, 3.38, 3.40, 3.42, 3.40, 3.40,
     ],
-    series3Y=[
+    series5Y=[
         4.50, 4.30, 4.10, 3.90, 3.80, 3.85, 4.00, 3.90, 3.75, 3.60, 3.50, 3.40,
     ],
     source="mock_pending_fred",
@@ -137,12 +137,12 @@ async def _build_rates_signal(av: AlphaVantageClient) -> MacroSignal:
     series_3y_full = [
         float(d["value"]) for d in data if d.get("value") not in (None, ".")
     ]
-    series3Y = series_3y_full[-36:] if len(series_3y_full) >= 36 else series_3y_full
+    series5Y = series_3y_full[-60:] if len(series_3y_full) >= 60 else series_3y_full
     series1Y = series_3y_full[-12:] if len(series_3y_full) >= 12 else series_3y_full
     # Monthly cadence — 1M sparkline gets the last point repeated as a flat
     # line of 8 samples so the visual doesn't collapse to a single dot.
     last = series_3y_full[-1] if series_3y_full else 4.0
-    series1M = [last] * 8
+    series6M = series_3y_full[-6:] if len(series_3y_full) >= 6 else series_3y_full
 
     direction, label = _trend_from_series(series1Y, threshold=0.005)
     if direction == "up":
@@ -165,9 +165,9 @@ async def _build_rates_signal(av: AlphaVantageClient) -> MacroSignal:
             "for duration-sensitive sectors (tech, REITs, utilities). "
             "Source: Alpha Vantage TREASURY_YIELD (monthly)."
         ),
-        series1M=series1M,
+        series6M=series6M,
         series1Y=series1Y,
-        series3Y=series3Y,
+        series5Y=series5Y,
         source="alpha_vantage",
     )
 
@@ -189,10 +189,10 @@ async def _build_inflation_signal(av: AlphaVantageClient) -> MacroSignal:
         if prior > 0:
             yoy_series.append((index_series[i] - prior) / prior * 100.0)
 
-    series3Y = yoy_series[-36:] if len(yoy_series) >= 36 else yoy_series
+    series5Y = yoy_series[-60:] if len(yoy_series) >= 60 else yoy_series
     series1Y = yoy_series[-12:] if len(yoy_series) >= 12 else yoy_series
     last = yoy_series[-1] if yoy_series else 3.4
-    series1M = [last] * 8  # monthly cadence
+    series6M = yoy_series[-6:] if len(yoy_series) >= 6 else yoy_series  # last 6 months
 
     direction, label = _trend_from_series(series1Y, threshold=0.02)
     if direction == "down":
@@ -216,9 +216,9 @@ async def _build_inflation_signal(av: AlphaVantageClient) -> MacroSignal:
             "Source: Alpha Vantage CPI (monthly); FRED CORESTICKM158SFRBATL "
             "for true Core CPI pending."
         ),
-        series1M=series1M,
+        series6M=series6M,
         series1Y=series1Y,
-        series3Y=series3Y,
+        series5Y=series5Y,
         source="alpha_vantage",
     )
 
@@ -233,18 +233,18 @@ async def _build_growth_signal(fred: FREDClient) -> MacroSignal:
     `MacroPulseTable` already supports negative values in the sparkline.
     """
     # Pull 4 years to guarantee 36 monthly points; trim downstream.
-    start = (date.today() - timedelta(days=365 * 4)).isoformat()
+    start = (date.today() - timedelta(days=365 * 7)).isoformat()
     data = await fred.fetch_series("CFNAI", observation_start=start)
     values = [d["value"] for d in data]
     if not values:
         raise FREDError("CFNAI returned no usable observations.")
 
-    series3Y = values[-36:] if len(values) >= 36 else values
+    series5Y = values[-60:] if len(values) >= 60 else values
     series1Y = values[-12:] if len(values) >= 12 else values
     last = values[-1]
     # CFNAI is monthly — 1M sparkline gets the last point repeated so the
     # visual doesn't collapse (matches the Rates/Inflation pattern above).
-    series1M = [last] * 8
+    series6M = values[-6:] if len(values) >= 6 else values
 
     direction, label = _trend_from_series(series1Y, threshold=0.05)
     # Re-label using CFNAI vocabulary (Improving / Slowing / Stable) and
@@ -280,9 +280,9 @@ async def _build_growth_signal(fred: FREDClient) -> MacroSignal:
             "longer redistributed by FRED (ISM licensing). Source: FRED "
             "CFNAI (monthly)."
         ),
-        series1M=series1M,
+        series6M=series6M,
         series1Y=series1Y,
-        series3Y=series3Y,
+        series5Y=series5Y,
         source="fred",
     )
 
@@ -292,7 +292,7 @@ async def _build_stress_signal(fred: FREDClient) -> MacroSignal:
     Daily series; we downsample to monthly (last value of each month)
     so the cadence matches the other macro pills.
     """
-    start = (date.today() - timedelta(days=365 * 4)).isoformat()
+    start = (date.today() - timedelta(days=365 * 7)).isoformat()
     data = await fred.fetch_series("BAMLH0A0HYM2", observation_start=start)
     if not data:
         raise FREDError("BAMLH0A0HYM2 returned no usable observations.")
@@ -304,10 +304,10 @@ async def _build_stress_signal(fred: FREDClient) -> MacroSignal:
         monthly[key] = obs["value"]  # last value wins (chronological order)
     monthly_values = list(monthly.values())
 
-    series3Y = monthly_values[-36:] if len(monthly_values) >= 36 else monthly_values
+    series5Y = monthly_values[-60:] if len(monthly_values) >= 60 else monthly_values
     series1Y = monthly_values[-12:] if len(monthly_values) >= 12 else monthly_values
     last = monthly_values[-1]
-    series1M = [last] * 8
+    series6M = monthly_values[-6:] if len(monthly_values) >= 6 else monthly_values
 
     direction, label = _trend_from_series(series1Y, threshold=0.05)
     # Inverted polarity: rising HY spread = MORE stress (bad). Convert
@@ -334,9 +334,9 @@ async def _build_stress_signal(fred: FREDClient) -> MacroSignal:
             "risk-on; 4–6% = stretched; above 7% = credit stress. Source: "
             "FRED BAMLH0A0HYM2 (daily, downsampled to monthly for trend)."
         ),
-        series1M=series1M,
+        series6M=series6M,
         series1Y=series1Y,
-        series3Y=series3Y,
+        series5Y=series5Y,
         source="fred",
     )
 
@@ -413,9 +413,9 @@ def _full_mock_inflation() -> MacroSignal:
             "Core CPI — year-over-year change in consumer prices ex-food "
             "and energy. Mock data — Alpha Vantage CPI fetch failed."
         ),
-        series1M=[3.6, 3.5, 3.5, 3.5, 3.4, 3.4, 3.4, 3.4],
+        series6M=[3.6, 3.5, 3.5, 3.5, 3.4, 3.4, 3.4, 3.4],
         series1Y=[3.8, 3.7, 3.6, 3.5, 3.5, 3.4, 3.4, 3.4, 3.4, 3.4, 3.4, 3.4],
-        series3Y=[5.5, 5.2, 4.9, 4.5, 4.2, 4.0, 3.8, 3.7, 3.6, 3.5, 3.4, 3.4],
+        series5Y=[5.5, 5.2, 4.9, 4.5, 4.2, 4.0, 3.8, 3.7, 3.6, 3.5, 3.4, 3.4],
         source="mock_av_failed",
     )
 
@@ -431,11 +431,11 @@ def _full_mock_rates() -> MacroSignal:
             "10-year US Treasury yield. Mock data — Alpha Vantage "
             "TREASURY_YIELD fetch failed."
         ),
-        series1M=[4.15, 4.18, 4.22, 4.25, 4.27, 4.29, 4.30, 4.30],
+        series6M=[4.15, 4.18, 4.22, 4.25, 4.27, 4.29, 4.30, 4.30],
         series1Y=[
             4.10, 4.12, 4.15, 4.18, 4.20, 4.22, 4.24, 4.25, 4.27, 4.28, 4.30, 4.30,
         ],
-        series3Y=[
+        series5Y=[
             3.50, 3.65, 3.80, 3.95, 4.05, 4.10, 4.15, 4.20, 4.22, 4.25, 4.28, 4.30,
         ],
         source="mock_av_failed",
