@@ -104,6 +104,7 @@ Either:
 | **deepseek-main** (master merger) | `/Users/jimmygu/the_counselor` | rotating per-task | latest | Active 2026-06-01 — current master merger. Runs on DeepSeek backend; uses `deepseek/` prefix. Owns all `gh pr merge` to `main`. |
 | claude-main (former master merger) | — | — | — | Retired 2026-06-01. Master-merger role handed off to deepseek-main. |
 | codex-chatbuilder | `/private/tmp/the_counselor_chatbuilder_test` | `codex/improve-chat-builder` | `0932c75` | abandoned 2026-05-19; rebase or delete |
+| deepseek-overlay-expansion | `/Users/jimmygu/the_counselor-overlay-expansion` | `deepseek/feat/overlay-expansion` | `ebc8756` | Active 2026-06-01 — building PRD-13c: 3 new portfolio overlay strategies (dual momentum, defense-first, stability tilt). Backend + frontend complete, ready for PR. |
 
 The old `claude-chat-v2-p7-widget` row was retired 2026-05-22. The
 `claude-flow-runtime` and `claude-portfolio-mode` rows were retired
