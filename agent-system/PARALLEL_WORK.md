@@ -8,7 +8,7 @@ Multiple AI agent sessions (Claude Code, codex, etc.) operate on this repo concu
 
 ## Master merger (designated 2026-05-21)
 
-**`claude-main` is the sole agent authorized to run `gh pr merge` against `main`.**
+**`deepseek-main` is the sole agent authorized to run `gh pr merge` against `main`.**
 
 Other sessions push branches and **open** PRs, but do **not** merge them. The master merger:
 
@@ -21,7 +21,7 @@ Other sessions push branches and **open** PRs, but do **not** merge them. The ma
 If you're a non-master session and want a PR merged:
 - Push your branch and open the PR yourself (titles + bodies as normal)
 - Leave it alone — don't call `gh pr merge`
-- `claude-main` reviews + merges; if no-op, closes with a comment so you see why
+- `deepseek-main` reviews + merges; if no-op, closes with a comment so you see why
 
 If `claude-main` isn't reachable and you need to merge urgently, fall back to Jimmy. Don't bypass the master merger silently.
 
@@ -34,10 +34,13 @@ If `claude-main` isn't reachable and you need to merge urgently, fall back to Ji
 Every branch starts with an agent prefix. No exceptions:
 
 ```
-claude/feat/<slug>      # Claude Code (this is me)
+deepseek/feat/<slug>    # deepseek-main (master merger, canonical root)
+claude/feat/<slug>      # Claude Code sessions
 codex/feat/<slug>       # codex
 human/feat/<slug>       # Jimmy hand-coding
-claude/docs/<slug>      # Non-feature work follows the same rule
+deepseek/docs/<slug>    # Non-feature work follows the same rule
+deepseek/fix/<slug>
+claude/docs/<slug>
 claude/fix/<slug>
 ```
 
@@ -96,13 +99,12 @@ Either:
 
 | Session | Worktree path | Branch | HEAD | Status |
 |---|---|---|---|---|
-| **claude-main** (master merger) | `/Users/jimmygu/the_counselor` | rotating per-task | latest | Permanent — owns all `gh pr merge` to `main` |
-| claude-chat-v2-p7-widget | `/Users/jimmygu/the_counselor-chat-v2-p7-widget` | rotating per-task | latest | active — built Stage 7 chat v2 tickets #2–#7 + #9; currently on `claude/docs/chat-v2-phase1-recap` after landing PR #53 (production hang fix) |
+| **deepseek-main** (master merger) | `/Users/jimmygu/the_counselor` | rotating per-task | latest | Permanent — owns all `gh pr merge` to `main`. Runs on DeepSeek backend; uses `deepseek/` prefix. |
 | codex-chatbuilder | `/private/tmp/the_counselor_chatbuilder_test` | `codex/improve-chat-builder` | `0932c75` | abandoned 2026-05-19; rebase or delete |
-| claude-flow-runtime | `/Users/jimmygu/the_counselor-flow-runtime` | `claude/feat/flow-runtime-infra` | latest | active 2026-05-26 — PRD-13a flow runtime infrastructure; PR open pending claude-main review |
-| claude-portfolio-mode | `/Users/jimmygu/the_counselor-portfolio-mode` | `claude/feat/portfolio-mode` | latest | active 2026-05-26 — PRD-13b Portfolio Mode (engine overlays + diagnosis + flow definition) |
 
-The old `claude-chat-v2-p2` row (worktree `the_counselor-chat-v2-p2`) was retired 2026-05-22 once ticket #6 landed; that worktree is dormant and can be removed when convenient.
+The old `claude-chat-v2-p7-widget` row was retired 2026-05-22. The
+`claude-flow-runtime` and `claude-portfolio-mode` rows were retired
+2026-06-01 (PRs #117, #125 merged and deployed).
 
 When you start, **add a row.** When you finish, **delete it** (history is in git).
 

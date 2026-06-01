@@ -15,6 +15,11 @@ plus a human (Jimmy). That arrangement has specific rules — break them and
 you cause cross-session contamination that has already burned three PRs.
 Don't be the fourth.
 
+> **Session identity:** the AI session running in the canonical root at
+> `/Users/jimmygu/the_counselor` is **`deepseek-main`** (master merger, on
+> DeepSeek backend). It uses the `deepseek/` branch prefix. Other sessions
+> may use `claude/` or `codex/`; all follow the same protocol.
+
 ---
 
 ## Boot sequence
@@ -45,9 +50,9 @@ not improvise rules from training-data assumptions.
   merges. If `claude-main` is offline and a merge is urgent, escalate to
   Jimmy. The master-merger gate exists to catch cross-session contamination
   (see PARALLEL_WORK.md for the failure history that motivated it).
-- **Always prefix branches with your agent name.** `claude/feat/<slug>`,
-  `codex/feat/<slug>`, `human/feat/<slug>`. No bare `feat/<slug>` for new
-  work — that's how branches silently collide.
+- **Always prefix branches with your agent name.** `deepseek/feat/<slug>`,
+  `claude/feat/<slug>`, `codex/feat/<slug>`, `human/feat/<slug>`. No bare
+  `feat/<slug>` for new work — that's how branches silently collide.
 - **Work in your own worktree, not the canonical root.** Canonical root
   (`/Users/jimmygu/the_counselor`) is `claude-main`'s home and stays on
   `main`. Spin up `git worktree add ../the_counselor-<session-tag> -b <branch> main`.
@@ -55,6 +60,16 @@ not improvise rules from training-data assumptions.
   staging surprises. Don't `git add -A` or `git add .` — explicit pathspecs
   only.
 - **Don't push to a branch you didn't create** unless explicitly asked.
+- **Explain → plan → permission → code.** Before any non-trivial change:
+  1. Explain the problem and context in a few sentences.
+  2. Summarize the plan — files to touch, approach, risks.
+  3. Wait for Jimmy's explicit go-ahead.
+  4. Then write code.
+  Hotfixes for production bugs we just introduced are exempt; everything
+  else follows this sequence. *Why:* 2026-06-01 — the one_asset_mode
+  backtest shipped with two bugs (missing auth token, wrong endpoint
+  for anonymous users) that a plan review would have caught before the
+  first push.
 
 ---
 
