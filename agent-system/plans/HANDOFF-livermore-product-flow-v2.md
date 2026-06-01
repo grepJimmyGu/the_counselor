@@ -171,16 +171,24 @@ The running list of LEGO bricks created across Sprint 1. Each PRD updates this s
 | `lib/flows/runtime.ts` (startFlow, useFlowState, FlowProvider) | PRD-13a + PR #124 | ✅ | Every mode; `schemaVersion: 1` on persisted state for safe schema evolution |
 | `lib/flows/copy.ts` (useFlowCopy(modeId, key) — 2-arg, Sprint-2-ready) | PRD-13a | ✅ | Every mode; `registerModeCopy` is the registration pattern |
 | `lib/flows/registry.ts` (registerFlow, getFlow) | PRD-13a | ✅ | Every mode |
-| `<ApplyStrategyCTA>` brick | PRD-14 | ✅ | Stock detail page; future commodity page, screener result rows. Reusable Mode 1 secondary trigger. |
+| `<ApplyStrategyCTA>` brick | PRD-14 | ✅ | Stock detail page; future commodity page, screener result rows. Mode 1 secondary trigger — `onClick` now calls `startFlow('one_asset_mode', …)` (Sprint 2 / Mode 1 refactor). |
 | `portfolio-mode.ts` (FlowDefinition for Mode 2) | PRD-13b | ✅ | Home upload CTA (PRD-11); Strategy Builders multi-ticker option |
+| `one-asset-mode.ts` (FlowDefinition for Mode 1) | Sprint 2 / Mode 1 refactor | ✅ | Stock-page `<ApplyStrategyCTA>` (`stock_page/apply_strategy`); Home picker "Pick an asset" (`home/pick_asset`) |
 | `<PortfolioUpload>` brick | PRD-13b | ✅ | Mode 2; future watchlist UI |
 | `<PortfolioDiagnosis>` brick | PRD-13b | ✅ | Mode 2; future portfolio review pages |
 | `<OverlayPicker>` brick (neutral copy in Sprint 1; tease deferred to Sprint 2 polish) | PRD-13b | ✅ | Mode 2; future "rule overlay" patterns |
+| `<PortfolioSummary>` brick (overlay-specific 4-block summary) | PRD-13b | ✅ | Mode 2 only — Mode 1 uses `<OneAssetSummary>` because the strategy isn't pre-built |
+| `<OneAssetTicker>` brick (ticker entry; auto-advance when seeded) | Sprint 2 / Mode 1 refactor | ✅ | Mode 1; future commodity-page launchers |
+| `<OneAssetTemplatePick>` brick (wraps the existing 5-question wizard) | Sprint 2 / Mode 1 refactor | ✅ | Mode 1; thin composition layer over `components/strategy-builder/wizard/strategy-wizard.tsx` |
+| `<OneAssetSummary>` brick (wraps the existing `<SummaryStep>`) | Sprint 2 / Mode 1 refactor | ✅ | Mode 1; thin composition layer over `components/strategy-builder/summary-step.tsx` |
+| **Mode-agnostic** `<FlowBacktest>` brick | Sprint 2 / Mode 1 refactor | ✅ | Every mode that wraps `/api/backtest/run`. Replaces PRD-13b's `<PortfolioBacktest>`; reads its mode-id from `useFlowState().flow.id` and pulls copy via `useFlowCopy(modeId, …)`. |
+| **Mode-agnostic** `<FlowReview>` brick | Sprint 2 / Mode 1 refactor | ✅ | Every mode. Replaces PRD-13b's `<PortfolioReview>`; same mode-id pattern. |
+| **Mode-agnostic** `<FlowSave>` brick | Sprint 2 / Mode 1 refactor | ✅ | Every mode that wraps `/api/strategies/save`. Replaces PRD-13b's `<PortfolioSave>`; same mode-id pattern. |
 | `<AssetBehaviorFingerprintCard>` brick | PRD-12 / PRD-14 | ✅ | Stock page; future Mode 1 picker (Sprint 2) |
-| `<EntryModePicker>` brick | PRD-11 | ✅ | Home page; future re-engagement modals |
+| `<EntryModePicker>` brick | PRD-11 + Sprint 2 / Mode 1 refactor | ✅ | Home page; future re-engagement modals. Pick-an-asset CTA now launches `one_asset_mode` instead of routing to `/stocks`. |
 | `<SavedStrategiesTile>` brick | PRD-11 | ✅ | Home page; future saved-strategies surface PRD |
 
-All Sprint 1 bricks ✅ shipped. Sprint 2 PRDs (PRD-15 Thesis, PRD-16 Custom Build, PRD-17 Saved-Strategies surface, PRD-18 Community thesis cards) will compose against these — see §10 Sprint 2 preview.
+All Sprint 1 bricks ✅ shipped. The Sprint 2 Mode 1 refactor consolidated the per-mode backtest / review / save adapters into mode-agnostic bricks above; Sprint 2 PRDs (PRD-15 Thesis, PRD-16 Custom Build, PRD-17 Saved-Strategies surface, PRD-18 Community thesis cards) will compose against these — see §10 Sprint 2 preview.
 
 ---
 
@@ -190,10 +198,10 @@ The sprint is done when **all of the following are true**:
 
 ### Functional
 
-- [~] User on Home page can click "Pick an asset" → routes to `/stocks` via `<Link>` (Mode 1 = existing ticker search). **Architectural gap**: this does NOT yet call `startFlow('one_asset_mode')` — there is no `one_asset_mode` FlowDefinition. Sprint 2 (Mode 1 refactor PRD) replaces the `<Link>` with `startFlow`. Functional outcome works today; the runtime-pure version is Sprint 2. (PRD-11 + Mode 1)
+- [x] User on Home page can click "Pick an asset" → `startFlow('one_asset_mode', { fromTrigger: 'home/pick_asset' })` → ticker step prompts for a symbol → template picker → summary → backtest → save. (PRD-11 + Sprint 2 Mode 1 refactor)
 - [x] User on Home page can click "Upload portfolio" → `startFlow('portfolio_mode')` → upload step → diagnose → overlay → backtest → save. (PRD-11 + PRD-13a + PRD-13b)
 - [x] User on Home page can click "Chat builder" → opens floating ChatWidget seeded with the trading-idea greeting. (PRD-11 uses the existing widget per PRD carve-out; Mode 3/5 build in Sprint 2 PRD-15.)
-- [~] User on any stock detail page sees "⚡ Apply a strategy" button → opens **existing in-page `<StrategyBuilderModal>`** with ticker pre-loaded; `<AssetBehaviorFingerprintCard>` renders below sections. **Architectural gap (same as the Home picker's Pick-an-asset CTA)**: the brick's `onClick` calls `setBuilderOpen(true)` directly, not `startFlow('one_asset_mode', {...})`. There is no `one_asset_mode` FlowDefinition yet — Sprint 2 (Mode 1 refactor PRD) replaces the `onClick` body with the `startFlow` call. The brick's prop surface is preserved across that swap. Functional outcome works today. (PRD-14 / PR #120)
+- [x] User on any stock detail page sees "⚡ Apply a strategy" button → `startFlow('one_asset_mode', { fromTrigger: 'stock_page/apply_strategy', ticker })` → ticker step auto-advances (seeded via initialContext) → template picker → summary → backtest → save. `<AssetBehaviorFingerprintCard>` still renders below sections. The legacy in-page `<StrategyBuilderModal>` is no longer mounted on the stock detail page; its deletion is Sprint 3 once no other surface depends on it. The brick's prop surface (`onClick` required) is preserved across the swap. (PRD-14 / PR #120 + Sprint 2 Mode 1 refactor)
 - [x] User on Strategy Builders, when picking a multi-ticker template, sees "Use my portfolio →" as a universe option → calls `startFlow('portfolio_mode', { fromTrigger: 'builders/multi_ticker_use_my_portfolio', fromTemplate })`. (PRD-13b / PR #125)
 - [x] User can interrupt any flow (close tab) → reopens later → resumes at the same step with context intact via sessionStorage. (PRD-13a runtime + PR #124 `schemaVersion: 1` guard; verified end-to-end during PRD-13b smoke at `/test/flows/portfolio`)
 - [ ] Mode 2 strategies save successfully → live signal cron emits aggregate signal payload → email alert renders. **DEFERRED**: PR #88 (Signals v0 Phase B) is paused for reshape per backlog §4. Save-strategy works; cron + email are not part of Sprint 1's bar. Tracked in PROJECT_BACKLOG.md.
@@ -209,7 +217,7 @@ The sprint is done when **all of the following are true**:
 
 - [x] `cd apps/api && python3 -m pytest -q` — **790 passed, 12 skipped** (PR #126 final).
 - [x] `cd apps/web && npm run build` — clean, no TypeScript errors.
-- [x] `cd apps/web && npm run test -- --run` — **55 / 55 passed** (PR #127 final).
+- [x] `cd apps/web && npm run test -- --run` — **64 / 64 passed** (Sprint 2 Mode 1 refactor; +9 from PR #127's 55 — one-asset-mode flow tests + expanded EntryModePicker tests).
 - [x] No `X | None` syntax in backend code (Python 3.9 compat); audited on each PR.
 - [x] PostHog events captured: `portfolio_diagnosed`, `portfolio_diagnose_rate_limited`, `stock_page_apply_strategy_clicked`, plus EntryModePicker's per-CTA events.
 - [x] No regressions in existing tests — engine additivity verified by PRD-13b (existing 22 strategy_types unaffected; `test_engine_cross_sectional` / `test_vol_target` / `test_fundamental_templates` all green).

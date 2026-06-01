@@ -1,30 +1,26 @@
 "use client";
 
 /**
- * <PortfolioReview> — PRD-13b adapter brick.
+ * <FlowReview> — mode-agnostic adapter brick (Sprint 2 / Mode 1 refactor).
  *
- * Renders headline metrics from the backtest result + a sparkline-ish
- * equity-curve summary line. The full chart-heavy result viewer lives
- * inside the existing strategy-builder modal (`backtest-loading.tsx`
- * has the rendering helpers); extracting that into a reusable brick is
- * a Sprint 2 cleanup. For Sprint 1 we ship the minimum: the headline
- * numbers + a CTA to save.
+ * Renders headline metrics from `context.backtestResult` plus a
+ * "continue to save" CTA. Replaces PRD-13b's `<PortfolioReview>` — the
+ * full chart-heavy result viewer still lives inside the legacy
+ * strategy-builder modal (`backtest-loading.tsx`); extracting that is a
+ * Sprint 3 cleanup once the modal can be deleted.
+ *
+ * Sprint 1's PortfolioReview only rendered the metrics grid plus a Save
+ * CTA. This brick is functionally identical, but resolves its labels
+ * dynamically per mode via `useFlowState().flow.id`.
  */
 
 import { Button } from "@/components/ui/button";
 import type { BacktestResult } from "@/lib/contracts";
-import type { FlowStepProps } from "../types";
-import { registerModeCopy, useFlowCopy } from "../copy";
-import type { PortfolioModeContext } from "../portfolio-mode-context";
+import type { FlowContextBase, FlowStepProps } from "../types";
+import { useFlowCopy } from "../copy";
+import { useFlowState } from "../runtime";
 
-registerModeCopy("portfolio_mode", {
-  review_title: "Backtest result",
-  review_subtitle:
-    "Past performance is not a guarantee of future results — this is a research tool, not investment advice.",
-  review_save: "Save strategy →",
-});
-
-interface PortfolioReviewContext extends PortfolioModeContext {
+export interface FlowReviewContext extends FlowContextBase {
   backtestResult?: BacktestResult;
 }
 
@@ -38,18 +34,21 @@ function fmtNum(x: number | null | undefined, digits = 2): string {
   return x.toFixed(digits);
 }
 
-export function PortfolioReview({
+export function FlowReview({
   context,
   advance,
-}: FlowStepProps<PortfolioReviewContext>) {
-  const title = useFlowCopy("portfolio_mode", "review_title");
-  const subtitle = useFlowCopy("portfolio_mode", "review_subtitle");
-  const saveLabel = useFlowCopy("portfolio_mode", "review_save");
+}: FlowStepProps<FlowReviewContext>) {
+  const { flow } = useFlowState();
+  const modeId = flow.id;
+
+  const title = useFlowCopy(modeId, "review_title");
+  const subtitle = useFlowCopy(modeId, "review_subtitle");
+  const saveLabel = useFlowCopy(modeId, "review_save");
 
   const result = context.backtestResult;
   if (!result) {
     return (
-      <section className="space-y-3" data-testid="portfolio-review-empty">
+      <section className="space-y-3" data-testid="flow-review-empty">
         <p className="text-sm text-red-600">No backtest result available yet.</p>
       </section>
     );
@@ -66,7 +65,7 @@ export function PortfolioReview({
   ];
 
   return (
-    <section className="space-y-6" data-testid="portfolio-review">
+    <section className="space-y-6" data-testid="flow-review">
       <header>
         <h1 className="font-heading text-3xl font-bold">{title}</h1>
         <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
@@ -92,7 +91,7 @@ export function PortfolioReview({
       ) : null}
 
       <div>
-        <Button onClick={advance} data-testid="portfolio-review-save">
+        <Button onClick={advance} data-testid="flow-review-save">
           {saveLabel}
         </Button>
       </div>

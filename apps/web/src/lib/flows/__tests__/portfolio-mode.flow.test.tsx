@@ -56,24 +56,27 @@ vi.mock("../bricks/portfolio-summary", () => ({
   ),
 }));
 
-vi.mock("../bricks/portfolio-backtest", () => ({
-  PortfolioBacktest: (props: { advance: () => void }) => (
+// Sprint 2 (Mode 1 refactor) consolidated the per-mode backtest /
+// review / save bricks into mode-agnostic <FlowBacktest> / <FlowReview>
+// / <FlowSave>. The mocks below intercept those modules.
+vi.mock("../bricks/flow-backtest", () => ({
+  FlowBacktest: (props: { advance: () => void }) => (
     <div data-testid="step-backtest">
       <button data-testid="backtest-advance" onClick={props.advance}>advance</button>
     </div>
   ),
 }));
 
-vi.mock("../bricks/portfolio-review", () => ({
-  PortfolioReview: (props: { advance: () => void }) => (
+vi.mock("../bricks/flow-review", () => ({
+  FlowReview: (props: { advance: () => void }) => (
     <div data-testid="step-review">
       <button data-testid="review-advance" onClick={props.advance}>advance</button>
     </div>
   ),
 }));
 
-vi.mock("../bricks/portfolio-save", () => ({
-  PortfolioSave: (props: { advance: () => void }) => (
+vi.mock("../bricks/flow-save", () => ({
+  FlowSave: (props: { advance: () => void }) => (
     <div data-testid="step-save">
       <button data-testid="save-advance" onClick={props.advance}>advance</button>
     </div>

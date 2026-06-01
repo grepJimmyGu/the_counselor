@@ -19,9 +19,13 @@ import { ChatWidget } from "@/components/ChatWidget";
 import { EvaluationDashboard } from "./_evaluation-dashboard";
 import { WatchlistButton } from "@/components/community/watchlist-button";
 import { VoteBar } from "@/components/community/vote-bar";
-import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
 import { AssetBehaviorFingerprintCard } from "@/components/strategy-picker/AssetBehaviorFingerprintCard";
 import { ApplyStrategyCTA } from "@/lib/flows/bricks/apply-strategy-cta";
+import { startFlow } from "@/lib/flows/runtime";
+// Side-effect import — registers `one_asset_mode` in the flow registry
+// so startFlow below can find it. Idempotent via the getFlow() guard
+// inside one-asset-mode.ts.
+import "@/lib/flows/one-asset-mode";
 import { useLiveQuotes } from "@/lib/useLiveQuotes";
 import { dispatchChatSeed } from "@/lib/chat-widget-event-bus";
 import { track } from "@/lib/analytics";
@@ -50,8 +54,11 @@ function CompanyPageInner() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [gateDetail, setGateDetail] = useState<EntitlementErrorDetail | null>(null);
-  const [builderOpen, setBuilderOpen] = useState(false);
-  const [builderIdea, setBuilderIdea] = useState<string | undefined>(undefined);
+  // Sprint 2 Mode 1 refactor: the in-page <StrategyBuilderModal> +
+  // builderOpen / builderIdea state is gone — the Apply CTA now calls
+  // startFlow('one_asset_mode') and the universal /flow shell renders
+  // the steps. State that used to live here is now in the flow runtime
+  // and persists via sessionStorage so closing the tab resumes.
 
   // Live price for this ticker. Falls back to data.price (loaded server-side
   // via FMP) until the first poll resolves; from then on overrides it.
@@ -147,12 +154,6 @@ function CompanyPageInner() {
 
   return (
     <main className="min-h-screen bg-background">
-      <StrategyBuilderModal
-        open={builderOpen}
-        onClose={() => { setBuilderOpen(false); setBuilderIdea(undefined); }}
-        initialIdea={builderIdea}
-        initialCustomTickers={data.symbol}
-      />
       <div className="mx-auto max-w-[1200px] space-y-6 px-4 py-6 md:px-6 lg:px-8">
 
         {/* Breadcrumb */}
@@ -194,12 +195,12 @@ function CompanyPageInner() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            {/* PRD-14: secondary trigger for Mode 1 (Apply a strategy on
-                this ticker). Replaces the inline `<Button>` so the same
-                affordance can be reused on commodity pages, screener
-                rows, and per-holding rows in portfolio diagnosis. Sprint
-                2's Mode 1 refactor will swap the onClick for
-                startFlow('one_asset_mode', {...}). */}
+            {/* PRD-14 + Sprint 2 Mode 1 refactor: secondary trigger for
+                Mode 1. The brick's prop surface (onClick) is unchanged
+                from PRD-14; the implementation now launches the
+                `one_asset_mode` flow instead of opening the legacy
+                in-page <StrategyBuilderModal>. The ticker rides in via
+                initialContext so the flow's first step auto-advances. */}
             <ApplyStrategyCTA
               ticker={data.symbol}
               from="stock_page"
@@ -207,16 +208,20 @@ function CompanyPageInner() {
               compact
               onClick={() => {
                 track("stock_page_apply_strategy_clicked", { ticker: data.symbol });
-                setBuilderIdea(`Backtest a strategy on ${data.symbol}`);
-                setBuilderOpen(true);
-                // Auto-open the chat widget with a contextual greeting
-                // so the user has an active research-partner alongside
-                // the builder. See chat-widget-event-bus.ts.
+                // Open the chat widget alongside the flow so the user
+                // has an active research-partner. See
+                // chat-widget-event-bus.ts.
                 dispatchChatSeed({
                   greeting:
                     `Got it — I'll help you build a strategy on ${data.symbol}. ` +
                     `Pick a template from the wizard, or tell me what you're trying to capture and I'll suggest one.`,
                   contextHint: data.symbol,
+                });
+                startFlow("one_asset_mode", {
+                  initialContext: {
+                    fromTrigger: "stock_page/apply_strategy",
+                    ticker: data.symbol,
+                  },
                 });
               }}
             />

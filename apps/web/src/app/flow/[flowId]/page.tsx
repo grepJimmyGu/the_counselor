@@ -22,6 +22,7 @@ import type { FlowEvent } from "@/lib/flows/types";
 // side-effect of `registerFlow(...)` at module load. New modes append
 // to this list (e.g. PRD-15 thesis_mode, PRD-16 custom_build_mode).
 import "@/lib/flows/portfolio-mode";   // PRD-13b
+import "@/lib/flows/one-asset-mode";   // Sprint 2 — Mode 1 refactor
 
 function handleEvent(event: FlowEvent): void {
   if (process.env.NODE_ENV !== "production") {
