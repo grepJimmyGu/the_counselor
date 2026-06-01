@@ -24,7 +24,7 @@ import * as React from "react";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { runBacktest, UpgradeRequiredError } from "@/lib/api";
+import { runBacktest, anonymousBacktestRun, UpgradeRequiredError } from "@/lib/api";
 import type { BacktestResult, StrategyJson } from "@/lib/contracts";
 import type { FlowContextBase, FlowStepProps } from "../types";
 import { useFlowCopy } from "../copy";
@@ -55,6 +55,7 @@ export function FlowBacktest({
   // Mirrors the workspace's handleRunBacktestWith pattern.
   const { data: session, status: sessionStatus } = useSession();
   const backendToken = (session as any)?.backendToken as string | undefined;
+  const isAnonymous = sessionStatus === "unauthenticated";
 
   const title = useFlowCopy(modeId, "backtest_title");
   const subtitle = useFlowCopy(modeId, "backtest_subtitle");
@@ -77,7 +78,19 @@ export function FlowBacktest({
     if (sessionStatus === "loading") return;
     setLoading(true);
     setError(null);
-    runBacktest(strategyJson, { backendToken })
+
+    // Branch on auth state: anonymous users hit the anonymous endpoint
+    // (with cookie-based session tracking), signed-in users hit the
+    // authed endpoint. Mirrors workspace's handleRunBacktestWith.
+    const templateId =
+      (context as FlowBacktestContext & { template?: { id: string } }).template?.id ??
+      "custom";
+
+    const promise = isAnonymous
+      ? anonymousBacktestRun({ template_id: templateId, strategy_json: strategyJson })
+      : runBacktest(strategyJson, { backendToken, templateId });
+
+    promise
       .then((result) => {
         updateContext({ backtestResult: result } as Partial<FlowBacktestContext>);
         setLoading(false);
@@ -95,7 +108,7 @@ export function FlowBacktest({
       });
     // strategyJson is stringified-stable for this purpose.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(strategyJson), sessionStatus, backendToken]);
+  }, [JSON.stringify(strategyJson), sessionStatus, backendToken, isAnonymous]);
 
   React.useEffect(() => {
     if (!context.backtestResult) {
