@@ -9,65 +9,47 @@
 
 ## Current Session
 
-**Status:** End of 2026-05-26 — **Sprint 1 (Livermore Product Flow v2) is functionally complete.** All 5 PRDs shipped:
+**Status:** End of 2026-06-01 — **Sprint 2 Mode 1 refactor SHIPPED.** The two Sprint 1 `[~]` acceptance gaps are now `[x]`. Plus: macro data overhaul (History Rhymes new vector + Macro Pulse sparkline refactor), 3 production backtest bugs fixed, PRD-13c (portfolio overlay expansion) merged, deepseek-main established as current master merger.
 
-  - ✅ **PRD-12** — Asset Behavior Fingerprint (PR #97 / #106)
-  - ✅ **PRD-13a** — Flow runtime infrastructure (PR #117 + #122 / #123 / #124 hardening)
-  - ✅ **PRD-13b** — Portfolio Mode + engine extension (PR #125 + #126 trap-#13 fix)
-  - ✅ **PRD-14** — Stock-page Apply CTA (PR #120)
-  - ✅ **PRD-11** — Home entry picker + saved-strategies tile (PR #127)
+**Shipped today (2026-06-01):**
 
-The flow runtime + brick architecture validated end-to-end. Sprint 2 (Thesis Mode, Custom Build, Saved-strategies surface, Community thesis cards) can now compose against the established bricks without reinventing wizards or save paths. See `agent-system/plans/HANDOFF-livermore-product-flow-v2.md` §10 for the Sprint 2 preview.
+*Sprint 2 — Mode 1 refactor:*
+- PR #131 — `one_asset_mode` FlowDefinition (6 steps: ticker → template-pick → summary → backtest → review → save). Extracted mode-agnostic adapter bricks (`FlowBacktest`, `FlowReview`, `FlowSave`) from portfolio-mode.
+- Home "Pick an asset" CTA now calls `startFlow('one_asset_mode')` instead of `<Link href="/stocks">`
+- Stock page "Apply a strategy" CTA now calls `startFlow('one_asset_mode', { ticker })` instead of opening legacy `StrategyBuilderModal`
+- Legacy `<StrategyBuilderModal>` removed from stock detail page
 
-Plus the morning's market-pulse production hardening continued shipping: 497/497 live S&P 500 symbols on every cold-cache request, all 4 macro signals real, `/market-pulse-audit` returns 11 OK · 0 WARN · 0 ERROR.
+*Production backtest bug fixes (3 commits, found via live testing):*
+- `13c69c4` — FlowBacktest brick now passes `backendToken` to `runBacktest()` (was sending unauthenticated requests → 401 for signed-in users)
+- `7b01a20` — FlowBacktest routes anonymous users to `anonymousBacktestRun()` instead of the authed endpoint (was sending anonymous users to 401)
+- `3751f79` — Anonymous backtest route instantiates `BacktestEngine()` at module level (was importing the module and calling `engine.run()` on it → AttributeError 500)
+- `6a451a2` — `FlowReview` brick now has "View full results in Workspace →" button (was only showing 6 headline metrics with no chart/explanation path)
 
-**Active branch:** main (HEAD: `32c5b9c` — PR #132 portfolio-diagnose auth fix)
-**Last stable tag:** `prd-14-complete` (2026-05-12) — no `stage-*` tags exist
-**Tests:** **796 backend** (+6 from PR #132's anonymous-route regression suite) + **58 frontend vitest** (+3 from PR #132's `<PortfolioDiagnosis>` session-aware coverage) all green; frontend build clean
-**In flight:** PR #131 — `feat(flows): one_asset_mode FlowDefinition (Sprint 2 Mode 1 refactor)` — CI green, merge deferred per Jimmy's signal (task #53)
-**Sprint 2 status:** PRD-Mode1-Refactor PR open; PRD-15 / PRD-16 / PRD-17 / PRD-18 / PRD-19 pending. See [`agent-system/plans/HANDOFF-livermore-product-flow-v2-sprint-2.md`](plans/HANDOFF-livermore-product-flow-v2-sprint-2.md) for the full plan.
+*Macro data overhaul:*
+- `9ac213c` — History Rhymes: new macro vector (SPY, SHY replacing VXX, USO), 24yr lookback, `ensure_history()` price refresh before computing, cache 4h→1h
+- Macro Pulse: tabs 1M/1Y/3Y → 6M/1Y/5Y (monthly data can't render 1M movement), `series6M` = last 6 monthly points (was `[last]*8` flat line), `series5Y` = last 60 points (was 36), cache 24h→2h
+
+*Architecture + governance:*
+- `6acaccb` + `17077aa` — `deepseek-main` added alongside `claude-main` in PARALLEL_WORK.md; `deepseek/` branch prefix added
+- "Explain → plan → permission → code" codified as hard rule in CLAUDE.md (motivation: the one_asset_mode backtest shipped with 2 bugs that a plan review would have caught)
+
+*PRD-13c — Portfolio overlay expansion (from parallel session, reviewed + rebased + merged):*
+- `27dc008` → `5fbb0ed` — 3 new portfolio overlay strategies: Dual Momentum (relative + absolute momentum), Defense-First (breadth-of-holdings MA signal with exposure scaling), Stability Tilt (inverse-vol weighting with per-holding cap)
+- 3 new test files (~530 lines), engine additions are additive only, frontend overlay-picker refactored to data-driven `overlay-metadata.ts`
+
+**Active branch:** main (HEAD: `55abc36` — retire overlay expansion session)
+**Tests:** **803 backend** (+7 from PRD-13c) + **67 frontend vitest** all green; frontend build clean
 **Deployed:** Railway + Vercel both healthy
+- `FRED_API_KEY` set — Growth (CFNAI) + Stress (HY OAS) signals real
 - `GATING_ENABLED=true` (enforcement)
-- `FRED_API_KEY` is **set** — Growth (CFNAI) + Stress (HY OAS / BAMLH0A0HYM2) signals real (the last two `Mock` pills are gone)
-- Live-quote overlay confirmed: `/stable/quote/SYM1,SYM2,...` path-based batch + strict-serial concurrency (`BATCH_CONCURRENT_CHUNKS=1`) + dot↔hyphen normalisation (BRK.B → BRK-B)
-- `_LIVE_CACHE_TTL = 300s` (5 min); cold-cache refresh ~2.5s, served instant for next 5 min
-- `dunning_expiry_job` no longer leaks DB connections (Stripe call moved outside the tx in PR #104)
-- `^GSPC` + `SP500_TICKERS` universe both backfilled (517 of 525 SPX names; 8 delisted/renamed)
-- Railway Postgres storage expanded 2026-05-23 after `DiskFull` mid-backfill
-- `POSTHOG_API_KEY` / `RESEND_API_KEY` / `EMAIL_UNSUB_SIGNING_KEY` / `CAN_SPAM_ADDRESS` still unset — safe no-op pattern until they land
+- All prior infra notes from 2026-05-26 still apply (live-quote overlay, disk expansion, etc.)
 
-**Recently shipped (2026-05-26 — the 30-PR Tuesday):**
-
-*Morning — strategy-builder polish (#86–#96):*
-- PR #91 — animated single-question wizard + rich `StrategyBriefCard` expansion + bump-out animation
-- PR #92 — WHEN IN / WHEN OUT detailed copy for 11 templates (synthesized from `Livermore_Strategy_Library_v2.html`)
-- PR #96 — lock unavailable templates + skip preview step + free-form capital input
-- PR #97 — Module 2: Asset Behavior Fingerprint (`asset_behavior_service.py` + frontend card; reverted during outage hunt, re-applied as #106)
-- PR #98 — spinner decouple (LLM calls fire in background; `isRunning` flips false on result, not on LLM done)
-
-*Midday — Railway outage recovery (#103–#107):*
-- PR #103 — full post-mortem in `docs/KNOWN_ISSUES.md` (Postgres process-level socket wedge; 15-second fix via dashboard restart)
-- PR #104 — moved `cancel_subscription()` (Stripe HTTP) outside the DB transaction in `dunning_expiry_job` (the actual amplifier of the outage)
-- PR #105 — re-applied PR #99 (`:bind::type` → `CAST(:bind AS type)`)
-- PR #106 — re-applied PR #97 (Module 2)
-- PR #107 — added PR #88 (Signals v0 Phase B) to backlog as **paused for reshape**; original code preserved on the GitHub remote branch + the revert commit stays on main
-
-*Evening — market-pulse live-data saga (#108–#118):*
-- PR #108-110 — Codex's first overlay attempt + 3 invented FMP batch endpoints; live overlay code ran but every chunk 404'd silently
-- PR #112 — `/stable/quote?symbol=A,B,C` (wrong: query-param multi-symbol returns nothing)
-- PR #113 — concurrent individual `get_quote()` at Semaphore(50) — burst rate limit dropped ~60 late-alphabet symbols
-- PR #114 — **path-based batch `/stable/quote/SYM1,SYM2,...`** (the fmpsdk / fmp_py convention) + individual fallback at Semaphore(10) → 496/497
-- PR #115 — BRK.B → BRK-B normalisation → 497/497 on warm cache
-- PR #116 — throttle path-batch to `BATCH_CONCURRENT_CHUNKS=2` (still ~88% cold)
-- PR #118 — strict serial `BATCH_CONCURRENT_CHUNKS=1` → **100% cold-cache coverage** (~2.5s first-user latency)
-
-*Independent — FRED integration:*
-- PR #111 — `FREDClient` + builders for CFNAI (Growth) + HY OAS (Stress); `FRED_API_KEY` set on Railway → last two Mock pills swapped to real data
-
-*Documentation — codify the day's learnings:*
-- PR #119 — `apps/api/CLAUDE.md` traps #14 (hallucinated endpoints), #15 (FMP path-batch + BRK normalisation + strict-serial), #16 (UTC date in freshness checks); full `project_log.md` entry; `BUILDING_LIVERMORE_JOURNAL.md` Episode 27 (story-shaped)
-
-**Parallel-session note:** PRs #116 and #118 were written by a sibling Claude session while the primary session waited on user input. Both fixes landed cleanly because each agent operated in its own worktree per the `PARALLEL_WORK.md` discipline. The market-pulse-audit skill caught every wrong intermediate fix.
+**Next actions:**
+- **Sprint 2 remaining PRDs:** PRD-15 (Thesis Builder), PRD-16 (Custom Build / signal composer), PRD-17 (Saved-strategies surface), PRD-18 (Community thesis cards). PRD-19 blocked on Phase B reshape.
+- **History Rhymes enhancement:** weight the 6 vector dimensions by historical correlation to SPY (currently equal-weighted). See discussion 2026-06-01.
+- **Set `FRED_API_KEY` if not already** — verify Growth + Stress show real data (not `mock_pending_fred`)
+- **Run `/market-pulse-audit` after Railway deploy** — verify the new macro vector + price refresh are working in production
+- **Sprint 3:** delete legacy `StrategyBuilderModal` once all modes are on the runtime
 
 **Open work in flight:**
 - None Sprint-1-blocking. The 4 frontend "adapter bricks" (`portfolio-summary` / `portfolio-backtest` / `portfolio-review` / `portfolio-save`) that PRD-13b shipped will collapse into mode-agnostic bricks when Sprint 2's Mode 1 refactor lands (PRD-15 / PRD-16 wave).

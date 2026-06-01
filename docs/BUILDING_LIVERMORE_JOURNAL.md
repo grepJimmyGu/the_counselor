@@ -1414,7 +1414,49 @@ Three patterns established in this project:
 
 ---
 
-## Open chapters (still to be written)
+### Episode 29 — deepseek-main takes over, Mode 1 ships, macro data gets a brain (June 1)
+
+**The handoff.** June 1st started with a session handoff: the previous `claude-main` master merger session had burned through its context window after 407 turns on the 30-PR Tuesday. The new session — running on DeepSeek backend, hence the name `deepseek-main` — booted up and had to absorb the full project state from scratch: CLAUDE.md, PARALLEL_WORK.md, WORK_LOG.md, the Sprint 1+2 HANDOFF docs, all 5 PRDs, the product vision HTML, the build journal, the known issues. A full hour of reading before the first line of code.
+
+The immediate task: close the two Sprint 1 `[~]` acceptance gaps. The Home page's "Pick an asset" button was just a `<Link>` to `/stocks` — not a guided flow. The stock detail page's "Apply a strategy" button opened the legacy `StrategyBuilderModal` — not the flow runtime. Both were architectural debt that Sprint 1 explicitly deferred to Sprint 2.
+
+**The PR that was already done.** PR #131 (`claude/feat/one-asset-mode-refactor`) had everything: the `one_asset_mode` FlowDefinition, the extraction of `FlowBacktest`/`FlowReview`/`FlowSave` into mode-agnostic bricks, the Home CTA rewired to `startFlow('one_asset_mode')`, the stock page CTA rewired to `startFlow('one_asset_mode', { ticker })`, and the legacy modal removed from the stock page. It just needed a rebase onto current main and a merge. One merge commit, one push, done.
+
+**The bug chain that followed.** Merge → deploy → test → "Backtest failed. Try again." Three bugs in sequence, each one unmasked by fixing the previous:
+
+1. **401 for signed-in users.** `FlowBacktest` called `runBacktest(strategyJson)` without the auth token. The workspace page always passed `backendToken` from `useSession()`. The flow brick had no session awareness at all. Fix: import `useSession`, read `backendToken`, pass it to `runBacktest()`. Commit `13c69c4`.
+
+2. **401 for anonymous users.** Now signed-in worked, but anonymous still failed. Same brick, same error message, different root cause: `FlowBacktest` always called the authed endpoint. The workspace branches on `isAnonymous` and calls `anonymousBacktestRun()` instead. Fix: add the same branch to the flow brick. Commit `7b01a20`.
+
+3. **500 for anonymous backtests.** This one was a backend bug hiding behind the CORS error. `POST /api/anonymous/backtest/run` crashed with `AttributeError: module 'app.services.backtester.engine' has no attribute 'run'`. The anonymous route imported the module; `engine.run()` is a method on `BacktestEngine` instances. The authed route did it correctly the whole time — the two routes had silently diverged. Fix: import `BacktestEngine` and instantiate it. Commit `3751f79`.
+
+**The lesson that got codified.** All three bugs would have been caught by a plan review. The `FlowBacktest` brick was architecturally sound for its contract (read `strategyJson`, run backtest, write `backtestResult`) but had never been thought through end-to-end for auth. Jimmy's feedback: "explain → plan → permission → code." Added as a hard rule in CLAUDE.md with the very bugs it would have prevented cited as the "why."
+
+**Macro data gets a brain.** While debugging, Jimmy noticed two data-quality issues on the Market Pulse page:
+
+- **Macro Pulse sparklines:** the 1M tab showed a flat line. All four signals (Growth, Inflation, Rates, Stress) use monthly data. One data point per month → the 1M view had literally one value repeated 8 times. Fix: change tabs to 6M / 1Y / 5Y, where 6M shows 6 actual monthly data points. Simple.
+
+- **History Rhymes stale/repetitive:** the macro vector (TLT, VXX, UUP, HYG, GLD, USO) was computed from ETF prices that only refreshed at app startup. If the server had been running for a week, "today's macro setup" was a week old. Plus: VXX has structural decay, USO is supply-driven, and the vector had no equities dimension. Fix: swap VXX/USO for SPY/SHY (equities + short rates), expand lookback from 5yr → 24yr, add `ensure_history()` price refresh before each computation, reduce cache from 4h → 1h.
+
+This was the kind of change where a simple question ("what's the vector trying to capture?") led to a better answer than the original design. The new vector (SPY front and center, SHY for curve context, no decay-prone vol futures, no supply-driven oil) is conceptually cleaner and will produce more interesting historical matches because equities are actually in the signal.
+
+**Parallel agent ships 3 new overlays.** While deepseek-main worked on the above, a parallel session (`deepseek-overlay-expansion`) built PRD-13c: three new portfolio overlay strategies. Dual Momentum (relative + absolute momentum), Defense-First (breadth-of-holdings MA regime check with exposure scaling), Stability Tilt (inverse-vol weighting with per-holding caps). The branch added 137 lines to the engine (all additive, no modifications to existing overlays), 530 lines of tests, and refactored the frontend overlay-picker to be data-driven via `overlay-metadata.ts`. The master merger reviewed, rebased (fixed a contracts.ts conflict that would have reverted the MacroSignal field renames), fixed a TypeScript issue (StrategyType union was missing the new literals), and merged. 803 backend tests, build clean, shipped.
+
+**What stuck.** The explain→plan→permission rule isn't just process theater — three production bugs in one afternoon that a 60-second plan review would have caught is the strongest argument for it. The session restart data loss (all in-flight edits wiped mid-session) reinforced that commits should happen at every logical checkpoint, not at the end. And the parallel agent protocol worked: two sessions shipped independent work on the same day with zero merge conflicts that couldn't be resolved in a single cherry-pick.
+
+| What | Count |
+|---|---|
+| PRs merged | 3 (#131, macro overhaul, overlay expansion) |
+| Production bugs found & fixed | 3 (auth, anon routing, engine import) |
+| New backend tests | +7 (803 total) |
+| New frontend tests | unchanged (67) |
+| Files changed | ~25 across all PRs |
+| Hours of work | ~6 hours wall-clock |
+
+**One number worth noting:** 796 → 803 backend tests in one session. Every bugfix paired with a regression test or the existing suite already covered it. The test suite that started at 37 is now 803 — a 22x growth in 30 days.
+
+---
+
 
 - **The first paying customer.** Still pending. When it lands, every Stage 1-2-3 design assumption gets tested for real. The H1 A/B test goes live once cumulative Scout signups cross ~1,500.
 - **Stage 5b — the SEO catch-up sprint.** 47 more landing pages, comparison pages, OG image generation, creator UI. Triggered by the first 1K of organic traffic OR the first creator applying.

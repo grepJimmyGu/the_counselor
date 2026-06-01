@@ -31,6 +31,62 @@ A running log of bugs encountered, root causes, and confirmed fixes. Add new ent
 
 ---
 
+### Anonymous backtest 500 — AttributeError: module 'engine' has no attribute 'run'
+**Date:** 2026-06-01
+**Area:** backend / anonymous routes
+**Symptom:**
+`POST /api/anonymous/backtest/run` → 500 Internal Server Error
+Railway log: `AttributeError: module 'app.services.backtester.engine' has no attribute 'run'`
+Browser showed CORS error because 500 responses from Railway don't include CORS headers.
+
+**Root cause:**
+The anonymous route imported `from app.services.backtester import engine` — this imports the **module** `engine.py`, not the `BacktestEngine` class. `engine.run()` doesn't exist on a module. The authed route correctly imports `from app.services.backtester.engine import BacktestEngine` and creates `engine = BacktestEngine()` at module level. The two routes had diverged.
+
+**Fix:**
+Change `from app.services.backtester import engine` to `from app.services.backtester.engine import BacktestEngine` and add `engine = BacktestEngine()` at module level, matching the authed route's pattern.
+
+**Files:** `apps/api/app/api/routes/anonymous.py`
+**Rule:** When two route files call the same service the same way, prefer a shared helper or at minimum verify the import patterns match. The divergence was invisible to tests because tests mock at the client level.
+
+---
+
+### FlowBacktest brick 401 — mode-agnostic brick didn't pass auth token
+**Date:** 2026-06-01
+**Area:** frontend / flow runtime
+**Symptom:**
+Signed-in users clicking through the `one_asset_mode` or `portfolio_mode` flow saw "Backtest failed. Try again." at the backtest step. Network tab showed 401 Unauthorized on `POST /api/backtest/run`. The legacy workspace's backtest worked fine for the same user.
+
+**Root cause:**
+`FlowBacktest` (the mode-agnostic adapter brick) called `runBacktest(strategyJson)` without passing the user's `backendToken`. The workspace page reads `backendToken` from `useSession()` and passes it to `runBacktest()`, but the flow brick never imported `useSession`. Signed-in users sent unauthenticated requests → 401.
+
+The brick also didn't route anonymous users to `anonymousBacktestRun()`, so anonymous users got the same 401 (see next entry).
+
+**Fix:**
+Import `useSession` from `next-auth/react`. Read `backendToken` and `sessionStatus`. Pass `backendToken` to `runBacktest()`. Guard against firing during the NextAuth loading window. For anonymous users, call `anonymousBacktestRun()` instead.
+
+**Files:** `apps/web/src/lib/flows/bricks/flow-backtest.tsx`
+**Rule:** Mode-agnostic bricks that call authenticated endpoints must read `backendToken` from `useSession()` — same pattern as `PortfolioDiagnosis` (trap #19 in `apps/api/CLAUDE.md`). The brick didn't have this because it was extracted from a portfolio-specific brick that also never had it.
+
+---
+
+### FlowBacktest brick 401 for anonymous — didn't route to anonymous endpoint
+**Date:** 2026-06-01
+**Area:** frontend / flow runtime
+**Symptom:**
+Same as above — "Backtest failed. Try again." — but for anonymous users. The fix for signed-in users (#1) still left anonymous users broken because `runBacktest()` with no auth hits the authed endpoint.
+
+**Root cause:**
+`FlowBacktest` always called `runBacktest()`, never `anonymousBacktestRun()`. The workspace page branches on `isAnonymous = sessionStatus === "unauthenticated"` and calls the appropriate endpoint. The flow brick had no such branch.
+
+**Fix:**
+Add `isAnonymous = sessionStatus === "unauthenticated"`. When anonymous, call `anonymousBacktestRun()` with `template_id` from context. When authenticated, call `runBacktest()` with `backendToken`.
+
+**Files:** `apps/web/src/lib/flows/bricks/flow-backtest.tsx`
+**Rule:** Any brick that calls a backtest endpoint must handle both auth states. The branching pattern (anonymous → anonymous endpoint, signed-in → authed endpoint + token) is the canonical approach; every new mode must implement it.
+**Test gap:** No test exercises the anonymous backtest path end-to-end through the flow runtime. The bug was found via live production testing. A cypress/vitest integration test that walks the flow as an anonymous user would have caught it.
+
+---
+
 ### Production wedged 16h — FastAPI `lifespan` hung on `Base.metadata.create_all` even though `pg_stat_activity` was empty
 **Date:** 2026-05-26
 **Area:** infra / backend startup
