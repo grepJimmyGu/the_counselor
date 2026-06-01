@@ -14,8 +14,9 @@
  * dynamically per mode via `useFlowState().flow.id`.
  */
 
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import type { BacktestResult } from "@/lib/contracts";
+import type { BacktestResult, StrategyJson } from "@/lib/contracts";
 import type { FlowContextBase, FlowStepProps } from "../types";
 import { useFlowCopy } from "../copy";
 import { useFlowState } from "../runtime";
@@ -40,6 +41,7 @@ export function FlowReview({
 }: FlowStepProps<FlowReviewContext>) {
   const { flow } = useFlowState();
   const modeId = flow.id;
+  const router = useRouter();
 
   const title = useFlowCopy(modeId, "review_title");
   const subtitle = useFlowCopy(modeId, "review_subtitle");
@@ -90,9 +92,29 @@ export function FlowReview({
         </ul>
       ) : null}
 
-      <div>
+      <div className="flex flex-wrap gap-3">
         <Button onClick={advance} data-testid="flow-review-save">
           {saveLabel}
+        </Button>
+        <Button
+          variant="outline"
+          onClick={() => {
+            // Persist the strategy so /workspace?autorun=true can pick it
+            // up and render the full chart + explanation + sandbox review.
+            // Mirrors strategy-builder-modal.tsx's runBacktest() handoff.
+            const strategyJson =
+              (context as FlowReviewContext & { strategyJson?: StrategyJson }).strategyJson;
+            if (strategyJson) {
+              sessionStorage.setItem(
+                "pendingStrategy",
+                JSON.stringify(strategyJson),
+              );
+            }
+            router.push("/workspace?fromBuilder=true&autorun=true");
+          }}
+          data-testid="flow-review-workspace"
+        >
+          View full results in Workspace →
         </Button>
       </div>
     </section>
