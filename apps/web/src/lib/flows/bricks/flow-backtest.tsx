@@ -21,6 +21,7 @@
  */
 
 import * as React from "react";
+import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { runBacktest, UpgradeRequiredError } from "@/lib/api";
@@ -50,6 +51,11 @@ export function FlowBacktest({
   const { flow } = useFlowState();
   const modeId = flow.id;
 
+  // Auth token for signed-in users — the backtest endpoint requires it.
+  // Mirrors the workspace's handleRunBacktestWith pattern.
+  const { data: session, status: sessionStatus } = useSession();
+  const backendToken = (session as any)?.backendToken as string | undefined;
+
   const title = useFlowCopy(modeId, "backtest_title");
   const subtitle = useFlowCopy(modeId, "backtest_subtitle");
   const retryLabel = useFlowCopy(modeId, "backtest_retry");
@@ -66,9 +72,12 @@ export function FlowBacktest({
       setLoading(false);
       return;
     }
+    // Don't fire while NextAuth is still resolving — a signed-in user
+    // would briefly send an anonymous request during the loading window.
+    if (sessionStatus === "loading") return;
     setLoading(true);
     setError(null);
-    runBacktest(strategyJson)
+    runBacktest(strategyJson, { backendToken })
       .then((result) => {
         updateContext({ backtestResult: result } as Partial<FlowBacktestContext>);
         setLoading(false);
@@ -86,7 +95,7 @@ export function FlowBacktest({
       });
     // strategyJson is stringified-stable for this purpose.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(strategyJson)]);
+  }, [JSON.stringify(strategyJson), sessionStatus, backendToken]);
 
   React.useEffect(() => {
     if (!context.backtestResult) {
@@ -96,7 +105,7 @@ export function FlowBacktest({
       advance();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [run]);
 
   if (loading) {
     return (
