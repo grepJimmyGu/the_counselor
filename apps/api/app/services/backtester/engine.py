@@ -119,6 +119,23 @@ class BacktestEngine:
         if stype == "portfolio_rebalance_overlay":
             # Pure target-weight re-balance; no indicator warmup.
             return 5
+        # ── PRD-13c portfolio overlay expansion ────────────────────────────────
+        if stype == "portfolio_dual_momentum_overlay":
+            # Relative ranking + absolute momentum filter; use max of the two.
+            rule0 = rules[0] if rules else None
+            ranking_lb = (rule0.ranking_lookback_days if rule0 else None) or 126
+            absolute_lb = (rule0.lookback_days if rule0 else None) or 252
+            return int(max(ranking_lb, absolute_lb) * 1.5) + 5
+        if stype == "portfolio_defense_first_overlay":
+            # Breadth-of-holdings MA signal; default 200-day MA
+            rule0 = rules[0] if rules else None
+            window = (rule0.lookback_days if rule0 else None) or 200
+            return int(window * 1.5) + 5
+        if stype == "portfolio_stability_tilt_overlay":
+            # Trailing volatility window; default 63 days (1 quarter)
+            rule0 = rules[0] if rules else None
+            lookback = (rule0.lookback_days if rule0 else None) or 63
+            return int(lookback * 1.4) + 10
         # Signal-provider-backed strategies: no price-based lookback needed
         if stype in _FUNDAMENTAL_STRATEGY_TYPES:
             return 5
@@ -727,6 +744,126 @@ class BacktestEngine:
             for symbol, weight in (strategy.position_sizing.weights or {}).items():
                 if symbol in weights.columns:
                     weights[symbol] = weight
+
+        # ── PRD-13c portfolio overlay expansion ────────────────────────────────
+
+        elif strategy.strategy_type == "portfolio_dual_momentum_overlay":
+            # Rank holdings by relative momentum; only invest in those that also
+            # pass an absolute momentum filter. Holdings that fail → cash.
+            # If none pass both filters → portfolio is 100% cash.
+            rule = strategy.rules[0] if strategy.rules else None
+            ranking_lookback = (rule.ranking_lookback_days if rule else None) or 126
+            absolute_lookback = (rule.lookback_days if rule else None) or 252
+            top_n = (rule.top_n if rule else None)
+            if top_n is None:
+                top_n = min(3, len(strategy.universe))
+
+            # Step 1: relative momentum ranking (same mechanic as rotation)
+            score_matrix = close_matrix / close_matrix.shift(ranking_lookback) - 1.0
+            weights = self._generate_cross_sectional_weights(
+                close_matrix, score_matrix, rebalance_mask,
+                top_n=top_n, top_pct=None, rank_direction="top",
+            )
+
+            # Step 2: absolute momentum filter — zero out any selected holding
+            # whose trailing return over the absolute lookback is <= 0.
+            absolute_returns = close_matrix.pct_change(absolute_lookback)
+            for dt in weights.index[weights.sum(axis=1) > 0]:
+                active = weights.columns[weights.loc[dt] > 0]
+                for sym in active:
+                    abs_ret = absolute_returns.loc[dt, sym]
+                    if pd.isna(abs_ret) or abs_ret <= 0.0:
+                        weights.loc[dt, sym] = 0.0
+
+        elif strategy.strategy_type == "portfolio_defense_first_overlay":
+            # Breadth-of-holdings regime check. Compute what fraction of holdings
+            # are above their MA. If breadth >= threshold → full exposure.
+            # If breadth < threshold → scale all positions by scale_down factor.
+            rule = strategy.rules[0] if strategy.rules else None
+            ma_window = (rule.lookback_days if rule else None) or 200
+            breadth_threshold = (rule.threshold if rule else None) or 0.5
+            scale_down = (rule.value if rule else None) or 0.5
+            if not (0.0 < scale_down <= 1.0):
+                scale_down = 0.5
+
+            # Target weights (same pattern as rebalance: user's allocation)
+            target_weights = strategy.position_sizing.weights or {}
+            if not target_weights:
+                visible = [s for s in strategy.universe if s in close_matrix.columns]
+                if visible:
+                    equal = 1.0 / len(visible)
+                    target_weights = {s: equal for s in visible}
+
+            # Apply target weights on every rebalance date
+            for dt in index[rebalance_mask]:
+                tw = {s: float(target_weights.get(s, 0.0))
+                      for s in close_matrix.columns}
+                total = sum(tw.values()) or 1.0
+                for s, w in tw.items():
+                    if s in weights.columns and w > 0:
+                        weights.loc[dt, s] = w / total
+
+            # Compute breadth: what fraction of target holdings are above their MA
+            above_ma = pd.DataFrame(0.0, index=close_matrix.index,
+                                    columns=close_matrix.columns)
+            active_cols = [s for s in close_matrix.columns
+                          if target_weights.get(s, 0) > 0]
+            for sym in active_cols:
+                ma = close_matrix[sym].rolling(window=ma_window).mean()
+                above_ma[sym] = (close_matrix[sym] > ma).astype(float)
+            breadth = above_ma[active_cols].sum(axis=1) / max(len(active_cols), 1)
+
+            # Scale exposure when breadth is weak
+            for dt in index[rebalance_mask]:
+                if dt not in breadth.index:
+                    continue
+                b = breadth.loc[dt]
+                if pd.notna(b) and b < breadth_threshold:
+                    weights.loc[dt] = weights.loc[dt] * scale_down
+
+        elif strategy.strategy_type == "portfolio_stability_tilt_overlay":
+            # Weight each holding inversely to its trailing realized volatility.
+            # Normalize so weights sum to 1.0 on each rebalance date.
+            # Cap per-holding weight to avoid concentration in one calm name.
+            rule = strategy.rules[0] if strategy.rules else None
+            vol_window = (rule.lookback_days if rule else None) or 63
+            max_weight = (rule.value if rule else None) or 0.25
+            if not (0.0 < max_weight <= 1.0):
+                max_weight = 0.25
+
+            rets = close_matrix.pct_change().fillna(0.0)
+            vol = rets.rolling(vol_window).std()
+
+            for dt in index[rebalance_mask]:
+                vols = vol.loc[dt].dropna()
+                if vols.empty:
+                    continue
+                # Replace zero / near-zero vol with median to avoid div-by-zero
+                vol_median = vols.median()
+                if vol_median <= 0:
+                    vol_median = vols[vols > 0].median()
+                if pd.isna(vol_median) or vol_median <= 0:
+                    continue
+                vols = vols.replace(0.0, vol_median).clip(lower=vol_median * 0.1)
+                inv_vol = 1.0 / vols
+                raw_weights = inv_vol / inv_vol.sum()
+
+                # Apply per-holding cap, redistributing excess proportionally
+                for _ in range(10):  # converges in 2–3 iterations
+                    excess_mask = raw_weights > max_weight
+                    if not excess_mask.any():
+                        break
+                    excess = (raw_weights[excess_mask] - max_weight).sum()
+                    raw_weights[excess_mask] = max_weight
+                    denom = raw_weights[~excess_mask].sum()
+                    if denom > 0:
+                        raw_weights[~excess_mask] += excess * (
+                            raw_weights[~excess_mask] / denom
+                        )
+
+                for sym, w in raw_weights.items():
+                    if sym in weights.columns:
+                        weights.loc[dt, sym] = w
 
         # ── Post-processing (shared for all strategies) ───────────────────────
 

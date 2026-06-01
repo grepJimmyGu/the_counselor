@@ -367,7 +367,7 @@ export type StyleBucket =
 
 export type BehaviorBucket = "trending" | "mean_reverting" | "mixed";
 
-export type OverlayKind = "defensive" | "rotation" | "rebalance";
+export type OverlayKind = "defensive" | "rotation" | "rebalance" | "dual_momentum" | "defense_first" | "stability_tilt";
 
 export interface StyleMix {
   growth: number;

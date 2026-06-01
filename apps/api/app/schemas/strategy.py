@@ -48,6 +48,10 @@ StrategyType = Literal[
     "portfolio_defensive_overlay",
     "portfolio_rotation_overlay",
     "portfolio_rebalance_overlay",
+    # ── Portfolio overlay expansion (PRD-13c) ──────────────────────────────────
+    "portfolio_dual_momentum_overlay",
+    "portfolio_defense_first_overlay",
+    "portfolio_stability_tilt_overlay",
 ]
 
 # Strategy types whose universe comes from the user's holdings, not the
@@ -57,6 +61,10 @@ PORTFOLIO_OVERLAY_TYPES = frozenset({
     "portfolio_defensive_overlay",
     "portfolio_rotation_overlay",
     "portfolio_rebalance_overlay",
+    # PRD-13c additions:
+    "portfolio_dual_momentum_overlay",
+    "portfolio_defense_first_overlay",
+    "portfolio_stability_tilt_overlay",
 })
 
 # The types that the backtester engine currently handles
@@ -92,6 +100,10 @@ ENGINE_SUPPORTED_TYPES = frozenset({
     "portfolio_defensive_overlay",
     "portfolio_rotation_overlay",
     "portfolio_rebalance_overlay",
+    # PRD-13c portfolio overlay expansion
+    "portfolio_dual_momentum_overlay",
+    "portfolio_defense_first_overlay",
+    "portfolio_stability_tilt_overlay",
 })
 
 RebalanceFrequency = Literal["daily", "weekly", "monthly", "quarterly"]
@@ -239,6 +251,22 @@ class StrategyJSON(BaseModel):
                     raise ValueError(
                         "portfolio_rebalance_overlay requires position_sizing.weights"
                     )
+            # ── PRD-13c: new overlay minimums ───────────────────────────────
+            if self.strategy_type == "portfolio_dual_momentum_overlay" and len(holdings) < 3:
+                raise ValueError(
+                    "portfolio_dual_momentum_overlay needs at least 3 holdings "
+                    "(relative ranking requires multiple candidates)"
+                )
+            if self.strategy_type == "portfolio_defense_first_overlay" and len(holdings) < 2:
+                raise ValueError(
+                    "portfolio_defense_first_overlay needs at least 2 holdings "
+                    "(breadth signal requires multiple data points)"
+                )
+            if self.strategy_type == "portfolio_stability_tilt_overlay" and len(holdings) < 2:
+                raise ValueError(
+                    "portfolio_stability_tilt_overlay needs at least 2 holdings "
+                    "(cross-sectional vol weighting requires multiple candidates)"
+                )
         return self
 
 
