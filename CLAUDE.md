@@ -16,9 +16,10 @@ you cause cross-session contamination that has already burned three PRs.
 Don't be the fourth.
 
 > **Session identity:** the AI session running in the canonical root at
-> `/Users/jimmygu/the_counselor` is **`deepseek-main`** (master merger, on
-> DeepSeek backend). It uses the `deepseek/` branch prefix. Other sessions
-> may use `claude/` or `codex/`; all follow the same protocol.
+> `/Users/jimmygu/the_counselor` is currently **`deepseek-main`** (master
+> merger, on DeepSeek backend). It uses the `deepseek/` branch prefix. It
+> took over the master-merger role from `claude-main` on 2026-06-01. Other
+> sessions may use `claude/` or `codex/`; all follow the same protocol.
 
 ---
 

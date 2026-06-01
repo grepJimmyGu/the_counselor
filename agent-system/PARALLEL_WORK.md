@@ -8,7 +8,9 @@ Multiple AI agent sessions (Claude Code, codex, etc.) operate on this repo concu
 
 ## Master merger (designated 2026-05-21)
 
-**`deepseek-main` is the sole agent authorized to run `gh pr merge` against `main`.**
+**`deepseek-main` is the current master merger** (as of 2026-06-01). Previously
+`claude-main` held this role. Only the active master merger runs `gh pr merge`
+against `main`.
 
 Other sessions push branches and **open** PRs, but do **not** merge them. The master merger:
 
@@ -21,7 +23,7 @@ Other sessions push branches and **open** PRs, but do **not** merge them. The ma
 If you're a non-master session and want a PR merged:
 - Push your branch and open the PR yourself (titles + bodies as normal)
 - Leave it alone — don't call `gh pr merge`
-- `deepseek-main` reviews + merges; if no-op, closes with a comment so you see why
+- `deepseek-main` (current master merger) reviews + merges; if no-op, closes with a comment so you see why
 
 If `claude-main` isn't reachable and you need to merge urgently, fall back to Jimmy. Don't bypass the master merger silently.
 
@@ -99,7 +101,8 @@ Either:
 
 | Session | Worktree path | Branch | HEAD | Status |
 |---|---|---|---|---|
-| **deepseek-main** (master merger) | `/Users/jimmygu/the_counselor` | rotating per-task | latest | Permanent — owns all `gh pr merge` to `main`. Runs on DeepSeek backend; uses `deepseek/` prefix. |
+| **deepseek-main** (master merger) | `/Users/jimmygu/the_counselor` | rotating per-task | latest | Active 2026-06-01 — current master merger. Runs on DeepSeek backend; uses `deepseek/` prefix. Owns all `gh pr merge` to `main`. |
+| claude-main (former master merger) | — | — | — | Retired 2026-06-01. Master-merger role handed off to deepseek-main. |
 | codex-chatbuilder | `/private/tmp/the_counselor_chatbuilder_test` | `codex/improve-chat-builder` | `0932c75` | abandoned 2026-05-19; rebase or delete |
 
 The old `claude-chat-v2-p7-widget` row was retired 2026-05-22. The
