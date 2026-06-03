@@ -64,7 +64,7 @@ async def _warmup_market_etfs() -> None:
 
     ALL_MARKET_ETFS = [
         # US indices
-        "SPY", "QQQ", "IWM", "DIA",
+        "SPY", "QQQ", "IWM", "DIA", "^GSPC",
         # US sectors (SPDR)
         "XLK", "XLF", "XLE", "XLY", "XLV", "XLI", "XLP", "XLU", "XLB", "XLRE", "XLC",
         # CN proxies (US-listed) — must match CN_SECTORS + CN_FEATURED_ETFS in market_pulse_service
