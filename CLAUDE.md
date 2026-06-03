@@ -71,6 +71,14 @@ not improvise rules from training-data assumptions.
   backtest shipped with two bugs (missing auth token, wrong endpoint
   for anonymous users) that a plan review would have caught before the
   first push.
+- **Wrap up with a goal-vs-result summary.** After every meaningful chunk
+  of work, summarize: (1) what the original goal was, (2) what was actually
+  achieved, and (3) what was started vs ended with (a before/after table if
+  applicable). Keeps the session grounded and prevents scope creep. *Why:*
+  2026-06-02 — the overlay picker redesign spanned 3 iterations before
+  converging on the condensed card + two-column detail pattern; the wrap-up
+  summary confirmed we actually solved the original problem (quick
+  comparison + depth on demand).
 
 ---
 
