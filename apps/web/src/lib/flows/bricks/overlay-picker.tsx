@@ -127,6 +127,7 @@ export function OverlayPicker({
   context,
   updateContext,
   advance,
+  back,
 }: FlowStepProps<PortfolioModeContext>) {
   const title = useFlowCopy("portfolio_mode", "overlay_title");
   const subtitle = useFlowCopy("portfolio_mode", "overlay_subtitle");
@@ -184,6 +185,13 @@ export function OverlayPicker({
 
   return (
     <section className="space-y-6" data-testid="overlay-picker">
+      <button
+        type="button"
+        onClick={back}
+        className="text-xs font-medium text-muted-foreground transition-colors hover:text-foreground"
+      >
+        ← Back
+      </button>
       <header>
         <h1 className="font-heading text-3xl font-bold">{title}</h1>
         <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>

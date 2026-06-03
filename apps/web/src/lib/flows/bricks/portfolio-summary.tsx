@@ -3,19 +3,13 @@
 /**
  * <PortfolioSummary> — PRD-13b adapter brick.
  *
- * Thin review-before-backtest surface for portfolio_mode. Shows the
- * constructed StrategyJson (the overlay + the user's holdings + their
- * normalized weights) and a single "Run backtest" CTA.
- *
- * Why not reuse strategy-builder/summary-step.tsx directly: that
- * component is wizard-flow specific (takes a `template` prop and emits
- * a SummaryStepConfig); portfolio_mode already has a fully formed
- * StrategyJson by this point — there's nothing to configure.
- * A future cleanup PRD will split summary-step into a generic brick
- * once Mode 1 also migrates to the flow runtime; until then this
- * adapter is the right minimum.
+ * Review-before-backtest surface for portfolio_mode. Shows the
+ * constructed StrategyJson (overlay + holdings + weights) and a
+ * "Run backtest" CTA that hands off to the full workspace experience
+ * (same pattern as the legacy StrategyBuilderModal).
  */
 
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import type { FlowStepProps } from "../types";
 import { registerModeCopy, useFlowCopy } from "../copy";
@@ -26,15 +20,18 @@ registerModeCopy("portfolio_mode", {
   summary_subtitle:
     "We'll run this overlay against your holdings over your selected backtest period.",
   summary_run: "Run backtest →",
+  summary_back: "← Back",
 });
 
 export function PortfolioSummary({
   context,
-  advance,
+  back,
 }: FlowStepProps<PortfolioModeContext>) {
+  const router = useRouter();
   const title = useFlowCopy("portfolio_mode", "summary_title");
   const subtitle = useFlowCopy("portfolio_mode", "summary_subtitle");
   const runLabel = useFlowCopy("portfolio_mode", "summary_run");
+  const backLabel = useFlowCopy("portfolio_mode", "summary_back");
   const whatLabel = useFlowCopy("portfolio_mode", "what_block_title");
   const whenInLabel = useFlowCopy("portfolio_mode", "when_in_block_title");
   const howMuchLabel = useFlowCopy("portfolio_mode", "how_much_block_title");
@@ -125,8 +122,22 @@ export function PortfolioSummary({
         </div>
       </div>
 
-      <div>
-        <Button onClick={advance} data-testid="portfolio-summary-run">
+      <div className="flex gap-3">
+        <Button variant="outline" onClick={back} data-testid="portfolio-summary-back">
+          {backLabel}
+        </Button>
+        <Button
+          onClick={() => {
+            // Hand off to the full workspace experience — saves strategy
+            // to sessionStorage and navigates, matching the legacy
+            // StrategyBuilderModal pattern.
+            if (typeof window !== "undefined" && sj) {
+              sessionStorage.setItem("pendingStrategy", JSON.stringify(sj));
+            }
+            router.push("/workspace?fromBuilder=true&autorun=true");
+          }}
+          data-testid="portfolio-summary-run"
+        >
           {runLabel}
         </Button>
       </div>

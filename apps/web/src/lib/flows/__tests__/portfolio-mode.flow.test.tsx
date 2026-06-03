@@ -6,6 +6,11 @@
  * Mocks the brick implementations so the test drives the runtime
  * directly: register portfolio-mode → render <FlowProvider> →
  * verify each step renders + advances + context propagates.
+ *
+ * 2026-06-02: flow shortened to 4 steps (upload → diagnose → overlay →
+ * summary). Summary now navigates to /workspace instead of advancing to
+ * backtest/review/save. The removed steps (backtest/review/save) are
+ * handled by the workspace experience.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -48,46 +53,15 @@ vi.mock("../bricks/overlay-picker", () => ({
   ),
 }));
 
+// Summary now navigates to /workspace — the mock just shows the step
+// without advancing (onComplete fires via the flow definition's next: null).
 vi.mock("../bricks/portfolio-summary", () => ({
-  PortfolioSummary: (props: { advance: () => void }) => (
-    <div data-testid="step-summary">
-      <button data-testid="summary-advance" onClick={props.advance}>advance</button>
-    </div>
-  ),
-}));
-
-// Sprint 2 (Mode 1 refactor) consolidated the per-mode backtest /
-// review / save bricks into mode-agnostic <FlowBacktest> / <FlowReview>
-// / <FlowSave>. The mocks below intercept those modules.
-vi.mock("../bricks/flow-backtest", () => ({
-  FlowBacktest: (props: { advance: () => void }) => (
-    <div data-testid="step-backtest">
-      <button data-testid="backtest-advance" onClick={props.advance}>advance</button>
-    </div>
-  ),
-}));
-
-vi.mock("../bricks/flow-review", () => ({
-  FlowReview: (props: { advance: () => void }) => (
-    <div data-testid="step-review">
-      <button data-testid="review-advance" onClick={props.advance}>advance</button>
-    </div>
-  ),
-}));
-
-vi.mock("../bricks/flow-save", () => ({
-  FlowSave: (props: { advance: () => void }) => (
-    <div data-testid="step-save">
-      <button data-testid="save-advance" onClick={props.advance}>advance</button>
-    </div>
+  PortfolioSummary: () => (
+    <div data-testid="step-summary">summary</div>
   ),
 }));
 
 // Bricks are now mocked. Import the flow definition + runtime APIs.
-// Note: the static import below evaluates portfolio-mode.ts ONCE, which
-// calls registerFlow as a side-effect. beforeEach wipes the registry
-// then re-registers `PortfolioModeFlow` directly — this matches the
-// pattern PRD-13a's runtime.test.tsx uses for MockFlow.
 import { PortfolioModeFlow } from "../portfolio-mode";
 import { FlowProvider, FlowShell, startFlow } from "../runtime";
 import { __resetRegistryForTests, getFlow, registerFlow } from "../registry";
@@ -120,9 +94,6 @@ describe("portfolio-mode FlowDefinition", () => {
       "diagnose",
       "overlay",
       "summary",
-      "backtest",
-      "review",
-      "save",
     ]);
   });
 
@@ -145,12 +116,7 @@ describe("portfolio-mode FlowDefinition", () => {
     expect(screen.getByTestId("step-overlay")).toBeTruthy();
     fireEvent.click(screen.getByTestId("overlay-advance"));
     expect(screen.getByTestId("step-summary")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("summary-advance"));
-    expect(screen.getByTestId("step-backtest")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("backtest-advance"));
-    expect(screen.getByTestId("step-review")).toBeTruthy();
-    fireEvent.click(screen.getByTestId("review-advance"));
-    expect(screen.getByTestId("step-save")).toBeTruthy();
+    // Summary is terminal — no further advance
   });
 
   it("persists context patches across step transitions", () => {
@@ -159,8 +125,6 @@ describe("portfolio-mode FlowDefinition", () => {
     act(() => {
       fireEvent.click(screen.getByTestId("upload-advance"));
     });
-    // Runtime debounces persistence by 250ms — advance the timer
-    // to flush the write to sessionStorage.
     act(() => {
       vi.advanceTimersByTime(300);
     });

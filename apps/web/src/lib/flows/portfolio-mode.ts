@@ -27,36 +27,11 @@ import { PortfolioUpload } from "./bricks/portfolio-upload";
 import { PortfolioDiagnosis } from "./bricks/portfolio-diagnosis";
 import { OverlayPicker } from "./bricks/overlay-picker";
 import { PortfolioSummary } from "./bricks/portfolio-summary";
-import { FlowBacktest } from "./bricks/flow-backtest";
-import { FlowReview } from "./bricks/flow-review";
-import { FlowSave } from "./bricks/flow-save";
 import type { PortfolioModeContext } from "./portfolio-mode-context";
 
-// Mode-level copy. Bricks that own their own labels still
-// registerModeCopy at module load (upload / diagnose / overlay /
-// summary); the keys below are the ones the mode-agnostic
-// FlowBacktest / FlowReview / FlowSave bricks read.
+// Mode-level copy for portfolio-specific bricks.
 registerModeCopy("portfolio_mode", {
   flow_name: "Portfolio Overlay",
-  // FlowBacktest
-  backtest_title: "Running backtest",
-  backtest_subtitle:
-    "Computing the overlay's historical performance on your book.",
-  backtest_retry: "Retry",
-  backtest_error: "Backtest failed. Try again.",
-  // FlowReview
-  review_title: "Backtest result",
-  review_subtitle:
-    "Past performance is not a guarantee of future results — this is a research tool, not investment advice.",
-  review_save: "Save strategy →",
-  // FlowSave
-  save_title: "Save this overlay",
-  save_subtitle: "Give it a name; we'll add it to your saved strategies.",
-  save_label: "Strategy name",
-  save_placeholder: "Defensive overlay on my book",
-  save_signin: "Sign in to save this strategy.",
-  save_error: "Couldn't save. Try again.",
-  save_done: "Saved! Redirecting…",
 });
 
 export const PortfolioModeFlow: FlowDefinition<PortfolioModeContext> = {
@@ -71,22 +46,13 @@ export const PortfolioModeFlow: FlowDefinition<PortfolioModeContext> = {
     { id: "upload",   brick: PortfolioUpload },
     { id: "diagnose", brick: PortfolioDiagnosis },
     { id: "overlay",  brick: OverlayPicker },
-    { id: "summary",  brick: PortfolioSummary },
-    { id: "backtest", brick: FlowBacktest },
-    { id: "review",   brick: FlowReview },
-    { id: "save",     brick: FlowSave, next: () => null },
+    { id: "summary",  brick: PortfolioSummary, next: () => null },
   ],
   onComplete: (ctx) => {
-    // Navigate to the saved-strategy detail page when a save succeeded;
-    // otherwise back to home. (FlowSave only `advance()`s on a
-    // successful save, so savedSlug is always set on this path.)
+    // Summary navigates to /workspace, so onComplete is a no-op.
+    // If the user somehow reaches this (e.g. direct URL), send home.
     if (typeof window !== "undefined") {
-      const slug = (ctx as PortfolioModeContext & { savedSlug?: string }).savedSlug;
-      if (slug) {
-        window.location.assign(`/strategies/${slug}`);
-      } else {
-        window.location.assign("/");
-      }
+      window.location.assign("/");
     }
   },
 };
