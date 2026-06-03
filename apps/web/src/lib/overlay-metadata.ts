@@ -9,6 +9,7 @@ export interface OverlayMeta {
   historicalEstimate: string;
   suitableFor: string;
   strategyType: StrategyType;
+  minHoldings: number;
   tier: "core" | "advanced";
 }
 
@@ -26,6 +27,7 @@ export const OVERLAY_METADATA: Record<OverlayKind, OverlayMeta> = {
       "In backtests from 2000-2024, a 200-day MA filter on the S&P 500 reduced max drawdown from -55% to -28% while capturing ~70% of the upside.",
     suitableFor: "Portfolios with 5+ holdings where capital preservation matters.",
     strategyType: "portfolio_defensive_overlay",
+    minHoldings: 1,
     tier: "core",
   },
 
@@ -43,6 +45,7 @@ export const OVERLAY_METADATA: Record<OverlayKind, OverlayMeta> = {
     suitableFor:
       "Diversified portfolios (8+ holdings across sectors) where you're comfortable concentrating into 2-4 names.",
     strategyType: "portfolio_rotation_overlay",
+    minHoldings: 3,
     tier: "core",
   },
 
@@ -60,6 +63,7 @@ export const OVERLAY_METADATA: Record<OverlayKind, OverlayMeta> = {
     suitableFor:
       "Any portfolio where you have a clear target allocation you want to maintain.",
     strategyType: "portfolio_rebalance_overlay",
+    minHoldings: 2,
     tier: "core",
   },
 
@@ -77,6 +81,7 @@ export const OVERLAY_METADATA: Record<OverlayKind, OverlayMeta> = {
     suitableFor:
       "Portfolios of 5+ holdings where you want to stay invested in good times but protect capital in broad downturns.",
     strategyType: "portfolio_dual_momentum_overlay",
+    minHoldings: 3,
     tier: "advanced",
   },
 
@@ -94,6 +99,7 @@ export const OVERLAY_METADATA: Record<OverlayKind, OverlayMeta> = {
     suitableFor:
       "Portfolios of 8+ holdings across at least 2-3 sectors. Larger portfolios give the breadth signal more statistical meaning.",
     strategyType: "portfolio_defense_first_overlay",
+    minHoldings: 2,
     tier: "advanced",
   },
 
@@ -111,6 +117,7 @@ export const OVERLAY_METADATA: Record<OverlayKind, OverlayMeta> = {
     suitableFor:
       "Portfolios with a mix of volatile and steady holdings (e.g., tech + consumer staples). The more volatility dispersion, the more the overlay matters.",
     strategyType: "portfolio_stability_tilt_overlay",
+    minHoldings: 2,
     tier: "advanced",
   },
 };

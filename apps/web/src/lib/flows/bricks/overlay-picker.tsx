@@ -157,6 +157,8 @@ export function OverlayPicker({
   const holdings = context.holdings || [];
 
   const onPick = (overlay: OverlayKind) => {
+    const meta = OVERLAY_METADATA[overlay];
+    if (holdings.length < meta.minHoldings) return; // silently reject under-qualified
     setSelected(overlay);
     updateContext({
       selectedOverlay: overlay,
@@ -193,6 +195,7 @@ export function OverlayPicker({
           const meta = OVERLAY_METADATA[overlay];
           const isSelected = selected === overlay;
           const isAdvanced = meta.tier === "advanced";
+          const insufficient = holdings.length < meta.minHoldings;
           const showGroupHeader = meta.tier !== lastTier;
           lastTier = meta.tier;
 
@@ -209,13 +212,16 @@ export function OverlayPicker({
                 type="button"
                 onClick={() => onPick(overlay)}
                 aria-pressed={isSelected}
+                disabled={insufficient}
                 data-testid={`overlay-card-${overlay}`}
                 className={[
                   "cursor-pointer rounded-xl border p-4 text-left transition-all duration-150",
                   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
-                  isSelected
-                    ? "border-primary bg-primary/8 ring-1 ring-primary shadow-sm"
-                    : "border-border hover:border-primary/40 hover:bg-muted/30",
+                  insufficient
+                    ? "cursor-not-allowed border-muted/30 bg-muted/10 opacity-60"
+                    : isSelected
+                      ? "border-primary bg-primary/8 ring-1 ring-primary shadow-sm"
+                      : "border-border hover:border-primary/40 hover:bg-muted/30",
                 ].join(" ")}
               >
                 <div className="flex items-center justify-between">
@@ -224,6 +230,11 @@ export function OverlayPicker({
                     {isAdvanced && (
                       <span className="ml-1.5 rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-700">
                         {advancedBadgeLabel}
+                      </span>
+                    )}
+                    {insufficient && (
+                      <span className="ml-1.5 rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-600">
+                        Needs {meta.minHoldings}+ holdings
                       </span>
                     )}
                   </span>
