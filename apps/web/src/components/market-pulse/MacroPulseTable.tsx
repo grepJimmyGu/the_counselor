@@ -105,7 +105,8 @@ export function MacroPulseTable({ signals }: { signals?: MacroSignal[] }) {
   const rows = signals && signals.length > 0 ? signals : MOCK_MACRO;
   // Badge: "Mixed · real + mock" when at least one row has real data;
   // "Preview · mock data" when none do (Phase 0a / API didn't ship signals).
-  const hasReal = rows.some((r) => r.source === "alpha_vantage");
+  const hasReal = rows.some((r) => r.source === "alpha_vantage" || r.source === "fred");
+  const allReal = rows.length > 0 && rows.every((r) => r.source === "alpha_vantage" || r.source === "fred");
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -122,7 +123,11 @@ export function MacroPulseTable({ signals }: { signals?: MacroSignal[] }) {
             >
               Macro Pulse
             </h2>
-            {hasReal ? (
+            {allReal ? (
+              <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-900">
+                Live data
+              </span>
+            ) : hasReal ? (
               <span className="rounded-full border border-emerald-300 bg-emerald-50 px-2 py-0.5 text-[10px] font-medium text-emerald-900">
                 Mixed · real + mock
               </span>
@@ -234,11 +239,11 @@ function MacroRow({ signal, range }: { signal: MacroSignal; range: Range }) {
  * so the absence of a pill = it's a Live AV signal.
  */
 function SourcePill({ source }: { source: MacroSignal["source"] }) {
-  if (source === "alpha_vantage") {
+  if (source === "alpha_vantage" || source === "fred") {
     return (
       <span
         className="rounded-sm border border-emerald-200 bg-emerald-50 px-1 py-0 text-[8px] font-semibold uppercase tracking-wider text-emerald-800"
-        title="Real data via Alpha Vantage"
+        title={source === "alpha_vantage" ? "Real data via Alpha Vantage" : "Real data via FRED"}
       >
         Live
       </span>

@@ -1860,7 +1860,7 @@ export interface MacroSignal {
   series6M: number[];
   series1Y: number[];
   series5Y: number[];
-  source: "alpha_vantage" | "mock_pending_fred" | "mock_av_failed";
+  source: "alpha_vantage" | "fred" | "mock_pending_fred" | "mock_av_failed";
 }
 
 export interface MarketPulseResponse {
