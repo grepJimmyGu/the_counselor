@@ -8,9 +8,11 @@ export interface TrackRecordMetric {
 export interface OverlayMeta {
   kind: OverlayKind;
   label: string;
-  tier: "core" | "advanced";
+  tier: "basic" | "advanced";
   /** One-sentence thesis — the bet this overlay makes. */
   idea: string;
+  /** One-line summary with key metric for condensed card view. */
+  tagline: string;
   /** Multi-line execution description: signal + action + frequency. */
   execution: string;
   /** Example narrative with {ticker} placeholder replaced at render time. */
@@ -52,9 +54,11 @@ export const OVERLAY_METADATA: Record<OverlayKind, OverlayMeta> = {
   defensive: {
     kind: "defensive",
     label: "Defensive",
-    tier: "core",
+    tier: "basic",
     idea:
       "Falling knives are more dangerous than missed rallies. Step aside when a stock is hurting, re-enter when it's healed.",
+    tagline:
+      "Cuts crash damage in half (worst loss −28% vs −55%)",
     execution:
       "Sell a holding when its price drops below its 200-day moving average · moves to cash\nBuy back when price reclaims the MA\nChecks every position every day",
     exampleTemplate:
@@ -91,9 +95,11 @@ export const OVERLAY_METADATA: Record<OverlayKind, OverlayMeta> = {
   rotation: {
     kind: "rotation",
     label: "Rotation",
-    tier: "core",
+    tier: "basic",
     idea:
       "Yesterday's winners tend to keep winning. Concentrate into what's working, drop what isn't, and don't get sentimental about either.",
+    tagline:
+      "Earns 2–4% more per year (but whipsaws in choppy markets)",
     execution:
       "Once a month, rank your holdings by their 6-month return\nTop 3 get equal weight · the rest go to cash\nRepeat next month with fresh rankings",
     exampleTemplate:
@@ -131,9 +137,11 @@ export const OVERLAY_METADATA: Record<OverlayKind, OverlayMeta> = {
   rebalance: {
     kind: "rebalance",
     label: "Rebalance",
-    tier: "core",
+    tier: "basic",
     idea:
       "Your portfolio drifts over time — winners grow too big, losers shrink. A disciplined rebalance sells high and buys low without you having to decide when.",
+    tagline:
+      "Automatically sells high, buys low (1–2pp less swing)",
     execution:
       "Monthly, each holding is reset back to your target weight\nOverweight → trimmed  |  Underweight → topped up\nNo market-timing · no cash-outs · just discipline",
     exampleTemplate:
@@ -174,6 +182,8 @@ export const OVERLAY_METADATA: Record<OverlayKind, OverlayMeta> = {
     tier: "advanced",
     idea:
       "A stock needs to do two things to earn your money — be stronger than its peers AND be going up in absolute terms. If nothing passes both tests, cash wins.",
+    tagline:
+      "Holds winners, goes to cash when everything falls (30% lower drawdown)",
     execution:
       "Step 1: rank holdings by 6-month return (like Rotation)\nStep 2: each winner must also be up over the past 12 months\nPass both → invested  |  Fail either → cash\nIf nothing passes, 100% cash until conditions improve",
     exampleTemplate:
@@ -214,6 +224,8 @@ export const OVERLAY_METADATA: Record<OverlayKind, OverlayMeta> = {
     tier: "advanced",
     idea:
       "Before you worry about which holding to sell, ask whether the whole ship is tilting. If most of your positions look weak, reduce everything — not just one.",
+    tagline:
+      "Reduces exposure in weak markets (drawdown roughly cut in half)",
     execution:
       "Counts how many holdings are above their 200-day MA\n≥ half above → stay fully invested\n< half above → scale all positions to 50% until breadth recovers",
     exampleTemplate:
@@ -254,6 +266,8 @@ export const OVERLAY_METADATA: Record<OverlayKind, OverlayMeta> = {
     tier: "advanced",
     idea:
       "Not all returns are equal. A stock that drifts up 10% is a smoother ride than one that swings wildly to get there. Give the calm ones more weight.",
+    tagline:
+      "Same stocks, calmer sizing (20–30% lower volatility)",
     execution:
       "Monthly, measure each holding's trailing volatility (63 days)\nHigher vol → smaller position  |  Lower vol → larger position\nAll holdings stay invested, just sized differently\nSingle holding capped at 25%",
     exampleTemplate:

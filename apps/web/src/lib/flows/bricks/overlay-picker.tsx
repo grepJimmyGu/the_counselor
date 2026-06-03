@@ -34,7 +34,7 @@ registerModeCopy("portfolio_mode", {
     "All six apply on top of your existing book — they don't change which names you hold (rotation moves between them).",
   overlay_continue: "Continue → Summary",
   overlay_advanced_header: "Advanced Overlays",
-  overlay_core_header: "Core Overlays",
+  overlay_basic_header: "Basic Overlays",
 });
 
 function todayIso(): string {
@@ -131,14 +131,13 @@ export function OverlayPicker({
   const title = useFlowCopy("portfolio_mode", "overlay_title");
   const subtitle = useFlowCopy("portfolio_mode", "overlay_subtitle");
   const continueLabel = useFlowCopy("portfolio_mode", "overlay_continue");
-  const coreHeaderLabel = useFlowCopy("portfolio_mode", "overlay_core_header");
+  const coreHeaderLabel = useFlowCopy("portfolio_mode", "overlay_basic_header");
   const advancedHeaderLabel = useFlowCopy("portfolio_mode", "overlay_advanced_header");
 
   const [selected, setSelected] = React.useState<OverlayKind | undefined>(
     context.selectedOverlay,
   );
   const [dateRange, setDateRange] = React.useState<DateRange>("5Y");
-  const [expandedKind, setExpandedKind] = React.useState<OverlayKind | null>(null);
 
   const holdings = context.holdings || [];
 
@@ -190,35 +189,7 @@ export function OverlayPicker({
         <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
       </header>
 
-      {/* Date range toggle — matches legacy StrategyBuilderModal pattern */}
-      <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-        Backtest period
-      </h2>
-      <div className="flex gap-3">
-        {(["3Y", "5Y", "10Y"] as const).map((range) => {
-          const selected = dateRange === range;
-          return (
-            <button
-              key={range}
-              type="button"
-              onClick={() => setDateRange(range)}
-              aria-pressed={selected}
-              data-testid={`overlay-date-range-${range}`}
-              className={cn(
-                "cursor-pointer flex-1 rounded-xl border py-2 text-center font-semibold transition-all duration-150",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
-                selected
-                  ? "border-primary bg-primary/8 ring-1 ring-primary text-primary shadow-sm"
-                  : "border-border hover:border-primary/40 hover:bg-muted/20",
-              )}
-            >
-              {range}
-            </button>
-          );
-        })}
-      </div>
-
-      <div className="grid gap-3 sm:grid-cols-2">
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         {OVERLAY_DISPLAY_ORDER.map((overlay) => {
           const meta = OVERLAY_METADATA[overlay];
           const isSelected = selected === overlay;
@@ -230,7 +201,7 @@ export function OverlayPicker({
               {showGroupHeader && (
                 <div className="col-span-full mt-2 first:mt-0">
                   <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                    {meta.tier === "core" ? coreHeaderLabel : advancedHeaderLabel}
+                    {meta.tier === "basic" ? coreHeaderLabel : advancedHeaderLabel}
                   </h2>
                 </div>
               )}
@@ -241,16 +212,44 @@ export function OverlayPicker({
                 holdingsCount={holdings.length}
                 isSelected={isSelected}
                 isDisabled={holdings.length < meta.minHoldings}
-                expanded={expandedKind === overlay}
                 onSelect={() => onPick(overlay)}
-                onExpand={() =>
-                  setExpandedKind(expandedKind === overlay ? null : overlay)
-                }
               />
             </React.Fragment>
           );
         })}
       </div>
+
+      {/* Date range — only shown after user selects an overlay */}
+      {selected && (
+        <div className="space-y-2">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+            Backtest period
+          </h2>
+          <div className="flex gap-3">
+            {(["3Y", "5Y", "10Y"] as const).map((range) => {
+              const sel = dateRange === range;
+              return (
+                <button
+                  key={range}
+                  type="button"
+                  onClick={() => setDateRange(range)}
+                  aria-pressed={sel}
+                  data-testid={`overlay-date-range-${range}`}
+                  className={cn(
+                    "cursor-pointer flex-1 rounded-xl border py-2 text-center font-semibold transition-all duration-150",
+                    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                    sel
+                      ? "border-primary bg-primary/8 ring-1 ring-primary text-primary shadow-sm"
+                      : "border-border hover:border-primary/40 hover:bg-muted/20",
+                  )}
+                >
+                  {range}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div>
         <Button
