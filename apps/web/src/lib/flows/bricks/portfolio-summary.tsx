@@ -24,7 +24,7 @@ import type { PortfolioModeContext } from "../portfolio-mode-context";
 registerModeCopy("portfolio_mode", {
   summary_title: "Review and backtest",
   summary_subtitle:
-    "We'll run this overlay against your holdings over the last 5 years.",
+    "We'll run this overlay against your holdings over your selected backtest period.",
   summary_run: "Run backtest →",
 });
 

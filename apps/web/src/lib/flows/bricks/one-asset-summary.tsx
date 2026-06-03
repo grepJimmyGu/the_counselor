@@ -29,14 +29,14 @@ import {
 import { applyRiskLevel } from "@/lib/strategy-picker/risk-presets";
 import type { ResearchTemplate, StrategyJson } from "@/lib/contracts";
 import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
 import type { FlowStepProps } from "../types";
 import { useFlowCopy } from "../copy";
 import type { OneAssetModeContext } from "../one-asset-mode-context";
 
-// Default look-back window for the Mode 1 backtest. Matches the legacy
-// modal's default ("5Y"). Sprint 3 polish PRD will surface this as a
-// user-editable knob.
-const LOOKBACK_YEARS = 5;
+type DateRange = "3Y" | "5Y" | "10Y";
+
+const DATE_RANGE_YEARS: Record<DateRange, number> = { "3Y": 3, "5Y": 5, "10Y": 10 };
 
 function startDateForLookback(years: number): string {
   const now = new Date();
@@ -59,6 +59,7 @@ function buildStrategyFromConfig(
   template: ResearchTemplate,
   config: SummaryStepConfig,
   strategyName: string,
+  lookbackYears: number,
 ): StrategyJson {
   const tickerList = config.tickers
     .split(/[,\s]+/)
@@ -74,7 +75,7 @@ function buildStrategyFromConfig(
     ...template.strategy,
     strategy_name: strategyName,
     universe: tickerList.length > 0 ? tickerList : template.defaultTickers,
-    start_date: startDateForLookback(LOOKBACK_YEARS),
+    start_date: startDateForLookback(lookbackYears),
     end_date: endDateToday(),
     initial_capital: config.capital,
     transaction_cost_bps: config.costEnabled ? config.costBps : 0,
@@ -133,19 +134,52 @@ export function OneAssetSummary({
   const template = context.template;
   const initialTickers = context.ticker ?? template.defaultTickers.join(", ");
   const initialRiskPreset = context.riskPreset ?? "medium";
+  const [dateRange, setDateRange] = React.useState<DateRange>("5Y");
 
   const handleContinue = React.useCallback(
     (config: SummaryStepConfig) => {
       const strategyName = autoName(template, config.tickers);
-      const strategyJson = buildStrategyFromConfig(template, config, strategyName);
+      const strategyJson = buildStrategyFromConfig(
+        template, config, strategyName, DATE_RANGE_YEARS[dateRange],
+      );
       updateContext({ strategyJson });
       advance();
     },
-    [template, updateContext, advance],
+    [template, updateContext, advance, dateRange],
   );
 
   return (
     <section data-testid="one-asset-summary" data-ticker={context.ticker}>
+      {/* Date range toggle — matches legacy StrategyBuilderModal pattern */}
+      <div className="mb-6">
+        <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Backtest period
+        </h2>
+        <div className="flex gap-3">
+          {(["3Y", "5Y", "10Y"] as const).map((range) => {
+            const selected = dateRange === range;
+            return (
+              <button
+                key={range}
+                type="button"
+                onClick={() => setDateRange(range)}
+                aria-pressed={selected}
+                data-testid={`date-range-${range}`}
+                className={cn(
+                  "cursor-pointer flex-1 rounded-xl border py-3 text-center font-semibold transition-all duration-150",
+                  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
+                  selected
+                    ? "border-primary bg-primary/8 ring-1 ring-primary text-primary shadow-sm"
+                    : "border-border hover:border-primary/40 hover:bg-muted/20",
+                )}
+              >
+                {range}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
       <SummaryStep
         template={template}
         initialRiskPreset={initialRiskPreset}
