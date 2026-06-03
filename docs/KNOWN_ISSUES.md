@@ -31,6 +31,41 @@ A running log of bugs encountered, root causes, and confirmed fixes. Add new ent
 
 ---
 
+### ^GSPC warmup silently fails — Postgres `date >= varchar` type mismatch
+**Date:** 2026-06-03
+**Area:** backend / warmup
+**Symptom:**
+Sector comparison charts showed stale SPY data ending at May 22. The `^GSPC` warmup (`_warmup_gspc()`) ran at every startup but produced no fresh bars. Railway logs showed:
+```
+^GSPC warmup failed: (psycopg.errors.UndefinedFunction)
+operator does not exist: date >= character varying
+```
+
+**Root cause:**
+The warmup passed `from_date = (today - timedelta(days=30)).isoformat()` — a Python string like `"2026-05-04"` — to SQLAlchemy's `delete(PriceBar).where(PriceBar.trading_date >= from_date)`. Postgres has no implicit cast from `varchar` to `date` in comparison operators, so `date >= varchar` fails. SQLite accepts this (permissive type system), so 803 tests passed locally while production silently failed.
+
+The warmup was also wrapped in `except Exception as exc: logger.warning(...)` — the error was logged but never surfaced. Three fix attempts (Alpha Vantage warmup, FMP warmup, date type fix) were needed because the first two never checked if the warmup actually ran.
+
+**Fix:**
+Keep `from_date` as a Python `date` object. Convert to ISO format only for the FMP HTTP call (which needs a string), and pass the `date` object directly to SQLAlchemy.
+
+```python
+# WRONG — string triggers Postgres type error
+from_date = (today - timedelta(days=30)).isoformat()
+d.execute(delete(T).where(T.col >= from_date))
+
+# CORRECT — date object, SQLAlchemy binds correctly
+from_date = today - timedelta(days=30)
+d.execute(delete(T).where(T.col >= from_date))
+```
+
+**Files:** `apps/api/app/main.py:_warmup_gspc`
+**Rule:** Never pass Python strings to SQLAlchemy `where()` comparisons against date columns. SQLite won't catch it; Postgres will fail silently if the error is swallowed. Same family as trap #5 in `CLAUDE.md` (no `INTERVAL` in raw SQL) — cross-dialect type safety requires using Python native types and letting SQLAlchemy handle the binding.
+
+**Secondary rule — don't silence warmup failures:** background warmup tasks that `except Exception: logger.warning(...)` hide type errors, network errors, and API key issues behind a single log line that nobody reads. All three ^GSPC fix iterations would have been one if the warmup had raised visibly or the log had been checked before deploying. Warmup failures should at minimum increment a metric or surface in the healthcheck — not just log.
+
+---
+
 ### Anonymous backtest 500 — AttributeError: module 'engine' has no attribute 'run'
 **Date:** 2026-06-01
 **Area:** backend / anonymous routes

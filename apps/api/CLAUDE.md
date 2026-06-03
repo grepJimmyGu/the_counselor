@@ -584,6 +584,26 @@ Two non-obvious bits:
 `apps/web/src/lib/flows/bricks/portfolio-diagnosis.tsx` is the canonical
 example; mirror it in any new brick that calls an authed endpoint.
 
+### 20. Background warmup failures must not be silenced with `logger.warning(…)`
+
+The 2026-06-03 ^GSPC warmup failed for three deploy cycles because
+`except Exception as exc: logger.warning(…)` hid a Postgres type error
+(`date >= varchar`). The log line was invisible to both the deploying
+agent and Jimmy — the sector chart just showed stale data with no
+indication that the warmup was broken.
+
+**Pattern:** warmup tasks that `except Exception: logger.warning(…)`
+must use `logger.exception(…)` instead (includes the traceback) as a
+minimum. Better: increment a metric or surface the failure in `/health`
+so redeploys can be validated programmatically.
+
+**The specific trap:** passing a Python string (`.isoformat()`) to
+SQLAlchemy's `delete().where(col >= string)` fails in Postgres because
+there's no implicit `varchar → date` cast. SQLite accepts it, so tests
+pass. Use Python `date` objects in SQLAlchemy comparisons — let
+SQLAlchemy handle the binding. Full post-mortem in
+`docs/KNOWN_ISSUES.md` (2026-06-03 entry).
+
 ---
 
 ## Cross-dialect quick reference
