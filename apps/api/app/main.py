@@ -64,7 +64,7 @@ async def _warmup_market_etfs() -> None:
 
     ALL_MARKET_ETFS = [
         # US indices
-        "SPY", "QQQ", "IWM", "DIA", "^GSPC",
+        "SPY", "QQQ", "IWM", "DIA",
         # US sectors (SPDR)
         "XLK", "XLF", "XLE", "XLY", "XLV", "XLI", "XLP", "XLU", "XLB", "XLRE", "XLC",
         # CN proxies (US-listed) — must match CN_SECTORS + CN_FEATURED_ETFS in market_pulse_service
@@ -93,6 +93,60 @@ async def _warmup_market_etfs() -> None:
         logger.info("Market ETF warmup complete: %d/%d symbols loaded", loaded, len(ALL_MARKET_ETFS))
     except Exception as exc:
         logger.warning("Market ETF warmup task failed: %s", exc)
+
+
+async def _warmup_gspc() -> None:
+    """Refresh ^GSPC price data via FMP. Alpha Vantage doesn't serve index
+    symbols; FMP's /historical-price-eod/full does. Uses the same format as
+    the backfill script (backfill_gspc.py)."""
+    from datetime import date, datetime, timedelta
+
+    from app.db.session import SessionLocal as _Db
+    from app.models.price_bar import PriceBar
+    from app.services.fmp_client import FMPClient
+    from sqlalchemy import select, delete
+
+    try:
+        fmp = FMPClient()
+        today = date.today()
+        from_date = (today - timedelta(days=30)).isoformat()  # warm window
+        rows = await fmp.get_historical_eod("^GSPC", from_date, today.isoformat())
+        if not rows:
+            return
+
+        db = _Db()
+        try:
+            # Delete recent bars so we can re-insert fresh ones (avoids dupes)
+            db.execute(
+                delete(PriceBar).where(
+                    PriceBar.symbol == "^GSPC",
+                    PriceBar.trading_date >= from_date,
+                )
+            )
+            for r in rows:
+                try:
+                    d = r["date"].split("T")[0] if "date" in r else str(r["date"])
+                    db.add(PriceBar(
+                        symbol="^GSPC",
+                        trading_date=datetime.strptime(d, "%Y-%m-%d").date(),
+                        open=float(r["open"]),
+                        high=float(r["high"]),
+                        low=float(r["low"]),
+                        close=float(r["close"]),
+                        adjusted_close=float(r["close"]),
+                        volume=int(r.get("volume") or 0),
+                        dividend_amount=0.0,
+                        split_coefficient=1.0,
+                        source="fmp_index",
+                        fetched_at=datetime.utcnow(),
+                    ))
+                except (KeyError, ValueError, TypeError):
+                    continue
+            db.commit()
+        finally:
+            db.close()
+    except Exception as exc:
+        logger.warning("^GSPC warmup failed: %s", exc)
 
 
 async def _warmup_commodity_spots() -> None:
@@ -316,6 +370,7 @@ async def lifespan(_: FastAPI):
     _start_scheduler()
     # Ensure all Market Pulse ETF price bars are loaded (non-blocking)
     asyncio.create_task(_warmup_market_etfs())
+    asyncio.create_task(_warmup_gspc())
     # Fetch actual commodity spot prices (WTI $/bbl, gold $/oz, copper $/lb, wheat ¢/bu)
     asyncio.create_task(_warmup_commodity_spots())
     # Seed top US stocks into symbols table and warmup their price bars
