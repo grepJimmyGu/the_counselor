@@ -9,69 +9,44 @@
 
 ## Current Session
 
-**Status:** End of 2026-06-01 — **Sprint 2 Mode 1 refactor SHIPPED.** The two Sprint 1 `[~]` acceptance gaps are now `[x]`. Plus: macro data overhaul (History Rhymes new vector + Macro Pulse sparkline refactor), 3 production backtest bugs fixed, PRD-13c (portfolio overlay expansion) merged, deepseek-main established as current master merger.
+**Status:** End of 2026-06-02 — **Overlay picker redesign + portfolio flow simplified + macro data fixes shipped.** The Macro Pulse "Mock" pill false-positive is fixed. Portfolio mode is now a clean 4-step flow that hands off to the full workspace experience for backtesting.
 
-**Shipped today (2026-06-01):**
+**Shipped today (2026-06-02):**
 
-*Sprint 2 — Mode 1 refactor:*
-- PR #131 — `one_asset_mode` FlowDefinition (6 steps: ticker → template-pick → summary → backtest → review → save). Extracted mode-agnostic adapter bricks (`FlowBacktest`, `FlowReview`, `FlowSave`) from portfolio-mode.
-- Home "Pick an asset" CTA now calls `startFlow('one_asset_mode')` instead of `<Link href="/stocks">`
-- Stock page "Apply a strategy" CTA now calls `startFlow('one_asset_mode', { ticker })` instead of opening legacy `StrategyBuilderModal`
-- Legacy `<StrategyBuilderModal>` removed from stock detail page
+*Overlay picker complete redesign:*
+- `373eec2` → `5f50014` — New `StrategyCard` LEGO brick (mode-agnostic, reusable). Two visual states: condensed (idea + tagline, scannable 3-col grid) and expanded (two-column split: How it works ║ Why it works, scrollable columns). All copy centralized in `overlay-metadata.ts` as single source of truth. CORE/ADVANCED renamed to BASIC/ADVANCED.
+- `fbcec9e` — Minimum holdings badge: red "Needs X+ holdings" on cards that don't qualify, auto-disabled. Prevents 422 validation errors.
 
-*Production backtest bug fixes (3 commits, found via live testing):*
-- `13c69c4` — FlowBacktest brick now passes `backendToken` to `runBacktest()` (was sending unauthenticated requests → 401 for signed-in users)
-- `7b01a20` — FlowBacktest routes anonymous users to `anonymousBacktestRun()` instead of the authed endpoint (was sending anonymous users to 401)
-- `3751f79` — Anonymous backtest route instantiates `BacktestEngine()` at module level (was importing the module and calling `engine.run()` on it → AttributeError 500)
-- `6a451a2` — `FlowReview` brick now has "View full results in Workspace →" button (was only showing 6 headline metrics with no chart/explanation path)
+*Portfolio flow simplification:*
+- `3b54e47` — Portfolio mode shortened from 7 steps to 4 (upload→diagnose→overlay→summary). Summary now saves StrategyJson to sessionStorage and navigates to `/workspace?autorun=true` — same handoff pattern as the legacy `StrategyBuilderModal`. Back buttons added to diagnose and overlay steps.
+- `eb54439` — Date range picker (3Y/5Y/10Y, default 5Y) added to both one-asset and portfolio mode summaries. Date range appears only after user selects an overlay.
 
-*Macro data overhaul:*
-- `9ac213c` — History Rhymes: new macro vector (SPY, SHY replacing VXX, USO), 24yr lookback, `ensure_history()` price refresh before computing, cache 4h→1h
-- Macro Pulse: tabs 1M/1Y/3Y → 6M/1Y/5Y (monthly data can't render 1M movement), `series6M` = last 6 monthly points (was `[last]*8` flat line), `series5Y` = last 60 points (was 36), cache 24h→2h
+*Data fixes:*
+- `a356684` — Macro Pulse `SourcePill` now recognizes `"fred"` source (was only checking `"alpha_vantage"`). Growth (CFNAI) and Stress (HY OAS) no longer show amber "Mock" pills. Header badge shows "Live data" when all four signals are real. Added `"fred"` to TypeScript `MacroSignal.source` type.
+- `210cad4` — `^GSPC` added to daily ETF warmup list. Was never refreshed, causing sector comparison charts to show data 12+ days stale.
 
-*Architecture + governance:*
-- `6acaccb` + `17077aa` — `deepseek-main` added alongside `claude-main` in PARALLEL_WORK.md; `deepseek/` branch prefix added
-- "Explain → plan → permission → code" codified as hard rule in CLAUDE.md (motivation: the one_asset_mode backtest shipped with 2 bugs that a plan review would have caught)
+*Process:*
+- `dd3c769` — "Goal-vs-result wrap-up" codified as hard rule in CLAUDE.md (every session ends with a before/after summary).
 
-*PRD-13c — Portfolio overlay expansion (from parallel session, reviewed + rebased + merged):*
-- `27dc008` → `5fbb0ed` — 3 new portfolio overlay strategies: Dual Momentum (relative + absolute momentum), Defense-First (breadth-of-holdings MA signal with exposure scaling), Stability Tilt (inverse-vol weighting with per-holding cap)
-- 3 new test files (~530 lines), engine additions are additive only, frontend overlay-picker refactored to data-driven `overlay-metadata.ts`
-
-**Active branch:** main (HEAD: `55abc36` — retire overlay expansion session)
-**Tests:** **803 backend** (+7 from PRD-13c) + **67 frontend vitest** all green; frontend build clean
-**Deployed:** Railway + Vercel both healthy
-- `FRED_API_KEY` set — Growth (CFNAI) + Stress (HY OAS) signals real
+**Active branch:** main (HEAD: `210cad4` — add ^GSPC to ETF warmup list)
+**Tests:** **803 backend** + **67 frontend vitest** all green; frontend build clean
+**Deployed:** Pushed to GitHub; Railway needs redeploy for backend changes (`^GSPC` warmup, 2h macro cache). Vercel auto-deployed.
+- `FRED_API_KEY` set — Growth (CFNAI) + Stress (HY OAS) signals real (confirmed via Railway API call)
 - `GATING_ENABLED=true` (enforcement)
-- All prior infra notes from 2026-05-26 still apply (live-quote overlay, disk expansion, etc.)
+- All prior infra notes from 2026-05-26 still apply
 
 **Next actions:**
+- **Railway redeploy** — needed to pick up backend changes (`^GSPC` warmup, 2h macro cache)
 - **Sprint 2 remaining PRDs:** PRD-15 (Thesis Builder), PRD-16 (Custom Build / signal composer), PRD-17 (Saved-strategies surface), PRD-18 (Community thesis cards). PRD-19 blocked on Phase B reshape.
-- **History Rhymes enhancement:** weight the 6 vector dimensions by historical correlation to SPY (currently equal-weighted). See discussion 2026-06-01.
-- **Set `FRED_API_KEY` if not already** — verify Growth + Stress show real data (not `mock_pending_fred`)
-- **Run `/market-pulse-audit` after Railway deploy** — verify the new macro vector + price refresh are working in production
+- **History Rhymes enhancement:** weight the 6 vector dimensions by historical correlation to SPY (currently equal-weighted).
 - **Sprint 3:** delete legacy `StrategyBuilderModal` once all modes are on the runtime
-
-**Open work in flight:**
-- None Sprint-1-blocking. The 4 frontend "adapter bricks" (`portfolio-summary` / `portfolio-backtest` / `portfolio-review` / `portfolio-save`) that PRD-13b shipped will collapse into mode-agnostic bricks when Sprint 2's Mode 1 refactor lands (PRD-15 / PRD-16 wave).
-- Next meaningful tickets live in [docs/PROJECT_BACKLOG.md](../docs/PROJECT_BACKLOG.md) — Phase 1g (Top news sidebar), LLM prompt rewrite (waiting on Jimmy's draft), Chat v2 go/no-go (`build_specs/research_chat_v2.md`), Signals v0 Phase B resume (paused per PR #107), per-holding signal extension (deferred until Phase B reshape).
-- Sprint 2 PRDs are mapped in HANDOFF §10: PRD-15 (Thesis Mode), PRD-16 (Custom Build), PRD-17 (Saved-strategies surface), PRD-18 (Community thesis cards), PRD-19 (per-holding signal extension). Each is expected to be <1 week because the architecture (flow runtime + brick library) is in place.
+- **DataFreshnessFooter** — shows "Checking data freshness…" on production despite API returning data. Likely stale browser cache or timing issue. Investigate.
 
 **Next action (if picking up cold):**
 1. Read this file (you're doing it).
-2. Skim the latest entry in `project_log.md` (2026-05-26 — the day-by-day chronology).
-3. Check `docs/PROJECT_BACKLOG.md` for the open list (Phase 1g, LLM prompt, paused Signals Phase B).
-4. `git log --oneline -10` to see what's shipped recently.
-5. `gh pr list --state open` to see what's in flight from sibling sessions.
-6. **If a market-pulse / live-data issue is reported**, run `/market-pulse-audit` against production first — it's the integration-level guard that catches what unit tests miss.
-
-**Pre-launch env vars still owed:**
-
-```bash
-# Railway:
-#   EMAIL_UNSUB_SIGNING_KEY ($(openssl rand -hex 32))
-#   CAN_SPAM_ADDRESS
-# When PostHog/Resend keys land → no code change required (safe no-op pattern)
-```
+2. `git log --oneline -10` to see what's shipped recently.
+3. Check `docs/PROJECT_BACKLOG.md` for the open list.
+4. `git pull origin main` to sync.
 
 **Pre-flag-flip discipline (added 2026-05-21):** Before any future `GATING_ENABLED` or similar flag flip, walk [docs/SHADOW_MODE_REVIEW.md](../docs/SHADOW_MODE_REVIEW.md).
 

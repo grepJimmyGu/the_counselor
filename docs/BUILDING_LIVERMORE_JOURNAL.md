@@ -1467,4 +1467,26 @@ This was the kind of change where a simple question ("what's the vector trying t
 
 ---
 
-*Last updated: 2026-05-20 (end of day). Author: Jimmy + Claude (co-pilot). This is a working journal — edit, expand, and turn pieces of it into content as the journey continues. Today added Episodes 19-23 covering Stages 3, 4a/b, 5a, 6a + the DEFERRED.md pattern.*
+### Episode 30 — The overlay picker finally makes sense (June 2)
+
+**The problem that had been bugging Jimmy since June 1.** The portfolio mode's "Pick an overlay" screen showed six identical text-blob cards. Every card had the same visual weight. There was no way to compare them. You had to read all six descriptions and mentally diff them — that's not comparison, that's homework. And when you picked one that needed more tickers than you had, you'd hit a 422 error with no warning.
+
+**The redesign that took three iterations to get right.** The first pass produced beautiful, rich cards with every detail. Too much detail — six of them filled four screens of scrolling. Jimmy pushed back: "condense, then expand."
+
+Iteration two introduced a two-level card system: condensed cards showed just the idea and a tagline, scannable in a 3-column grid. Clicking a card expanded it inline to show everything. Better, but the expanded view was a wall of text in a single column.
+
+Iteration three got it right: the expanded card split into two scrollable columns — "How it works" on the left (execution steps, example, track record) and "Why it works" on the right (rationale, mechanic detail, things to know, research source). The date range picker (3Y/5Y/10Y) only appeared AFTER you selected an overlay — less clutter upfront.
+
+**The LEGO brick bet paid off immediately.** The `StrategyCard` component was built as a mode-agnostic LEGO brick — pure data in from `OverlayMeta`, no mode-specific logic. The same card can be used in portfolio mode, one-asset mode, and future thesis/custom-build modes. The `overlay-metadata.ts` file became the single source of truth for all card content.
+
+**The mock data false-positive that took a Railway deploy to fix.** Growth and Stress macro signals showed amber "Mock" pills even though `FRED_API_KEY` was set and the backend was returning real data. The frontend `SourcePill` component only checked `source === "alpha_vantage"` — it had never heard of `"fred"`. The backend was fine the whole time; the frontend was mislabeling real data as mock. One condition check, one TypeScript type addition, fixed.
+
+**While we were there — ^GSPC had never been refreshed.** The benchmark for sector charts was 12 days stale because `^GSPC` was never in the daily ETF warmup list. The sector rotation comparison ("XLK vs S&P 500") was comparing real-time sector data against a two-week-old benchmark. Added to warmup, fixed.
+
+**Portfolio mode lost three steps.** The flow was upload → diagnose → overlay → summary → backtest → review → save. But the summary-to-backtest pipeline was redundant — the legacy modal already handled backtest/review/save via the workspace. Jimmy's call: wire summary directly to `/workspace?autorun=true` and drop the three extra steps. Now it's 4 steps with back buttons on every screen.
+
+**What stuck.** The redesign needed three iterations to converge because Jimmy kept pushing for less information, not more. Each iteration removed something: first the detail, then the toggle, then the separate columns. The final design is the minimum viable comparison tool: you can scan all six in a glance, click one, see execution and rationale side by side. The "goal-vs-result wrap-up" habit got codified in CLAUDE.md because it's the only way to know if we actually solved the problem we set out to solve.
+
+**One number worth noting:** 10 commits shipped today, 0 bugs introduced. The explain→plan→permission rule from yesterday caught every design iteration before it became code.
+
+*Last updated: 2026-06-02 (end of day).*
