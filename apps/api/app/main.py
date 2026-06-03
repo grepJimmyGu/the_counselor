@@ -109,8 +109,8 @@ async def _warmup_gspc() -> None:
     try:
         fmp = FMPClient()
         today = date.today()
-        from_date = (today - timedelta(days=30)).isoformat()  # warm window
-        rows = await fmp.get_historical_eod("^GSPC", from_date, today.isoformat())
+        from_date = (today - timedelta(days=30))  # date object, not string
+        rows = await fmp.get_historical_eod("^GSPC", from_date.isoformat(), today.isoformat())
         if not rows:
             return
 
@@ -120,7 +120,7 @@ async def _warmup_gspc() -> None:
             db.execute(
                 delete(PriceBar).where(
                     PriceBar.symbol == "^GSPC",
-                    PriceBar.trading_date >= from_date,
+                    PriceBar.trading_date >= from_date,  # date object — Match
                 )
             )
             for r in rows:
