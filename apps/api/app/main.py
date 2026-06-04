@@ -478,7 +478,24 @@ def _start_scheduler() -> None:
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     Base.metadata.create_all(bind=engine)  # creates all tables first
-    run_startup_migrations(engine)          # then backfill/alter existing tables
+
+    # run_startup_migrations may hit lock contention during Postgres
+    # autovacuum/recovery — retry with back-off instead of crashing.
+    max_retries = 3
+    for attempt in range(max_retries):
+        try:
+            run_startup_migrations(engine)
+            break
+        except Exception as exc:
+            if attempt < max_retries - 1:
+                wait = 5.0 * (attempt + 1)
+                logger.warning(
+                    "run_startup_migrations attempt %d/%d failed: %s — retrying in %.0fs",
+                    attempt + 1, max_retries, exc, wait,
+                )
+                await asyncio.sleep(wait)
+            else:
+                raise
     # Surface the gating flag on every deploy. After the 2026-05-20 QA audit
     # found that GATING_ENABLED defaulted to False and no Stage 3 cap was
     # firing in prod, we want a single grep-able log line to confirm the env
