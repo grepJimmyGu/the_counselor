@@ -43,18 +43,6 @@ const EN_COPY: Record<string, string> = {
   // ── CN Stock Search ────────────────────────────────────────────────
   cn_search_heading: "CN Stock Search",
   cn_search_placeholder: "Search by name or code…",
-  // ── CN Company Profile ──────────────────────────────────────────────
-  cmp_overview_tab: "Overview",
-  cmp_sentiment_tab: "News & Sentiment",
-  cmp_health_badge: "Health · Valuation · Trend",
-  cmp_business_model: "Business Model",
-  cmp_market_position: "Market Position",
-  cmp_community: "What others are saying",
-  cmp_disclaimer: "Past performance is no guarantee of future results. Not financial advice.",
-  cmp_apply_strategy: "Apply a strategy →",
-  cmp_profile_not_found: "Company not found",
-  cmp_retry: "Retry",
-  cmp_no_description: "No company description available.",
 };
 
 const CN_COPY: Record<string, string> = {
@@ -97,18 +85,6 @@ const CN_COPY: Record<string, string> = {
   // ── CN Stock Search ────────────────────────────────────────────────
   cn_search_heading: "搜索A股",
   cn_search_placeholder: "输入股票名称或代码…",
-  // ── CN Company Profile ──────────────────────────────────────────────
-  cmp_overview_tab: "概览",
-  cmp_sentiment_tab: "新闻与舆情",
-  cmp_health_badge: "健康 · 估值 · 趋势",
-  cmp_business_model: "商业模式",
-  cmp_market_position: "市场定位",
-  cmp_community: "大家都在关注什么",
-  cmp_disclaimer: "过往业绩不构成未来收益保证。不构成投资建议。",
-  cmp_apply_strategy: "应用策略 →",
-  cmp_profile_not_found: "未找到该公司信息",
-  cmp_retry: "重试",
-  cmp_no_description: "暂无公司简介。",
 };
 
 export function useMarketCopy(key: string, market: "US" | "CN"): string {
