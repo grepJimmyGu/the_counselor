@@ -279,87 +279,6 @@ async def _seed_and_warmup_stock_universe() -> None:
         logger.warning("Stock universe warmup task failed: %s", exc)
 
 
-async def _seed_and_warmup_cn_stock_universe() -> None:
-    """Seed CSI 300 stocks into the symbols table and warmup their price
-    bars. Follows the same pattern as _seed_and_warmup_stock_universe but
-    targets Alpha Vantage's .SS/.SZ CN ticker format.
-
-    Only the CSI 300 is warmed at startup (300 stocks). CSI 500 + CSI 1000
-    are seeded but warmed on demand via /api/stocks/{ticker} to avoid
-    exhausting the AV rate limit on deploy."""
-    from datetime import date, datetime, timedelta
-    from app.data.cn_stock_universe import CSI300_500_1000_TICKERS
-    from app.models.symbol import SymbolCache
-    from app.services.alpha_vantage import AlphaVantageClient
-    from app.services.price_cache_service import PriceCacheService
-    from app.db.session import SessionLocal
-
-    try:
-        # Preload CN name map from committed CSVs so the seed uses real
-        # Chinese names instead of ticker-as-name.
-        _cn_name_map: dict[str, str] = {}
-        import csv
-        from pathlib import Path
-        csv_dir = Path(__file__).resolve().parent / "data"
-        for fname in ["csi300_constituents.csv", "csi500_constituents.csv",
-                      "csi1000_constituents.csv"]:
-            path = csv_dir / fname
-            if path.exists():
-                with open(path, encoding="utf-8-sig") as fh:
-                    for rec in csv.DictReader(fh):
-                        sym = rec.get("yahoo_ticker", "").strip()
-                        name_cn = rec.get("name_cn", "").strip()
-                        if sym and name_cn:
-                            _cn_name_map[sym] = name_cn
-
-        required_from = date.today() - timedelta(days=365 * 3)
-        client = AlphaVantageClient()
-        svc = PriceCacheService(client)
-        db = SessionLocal()
-        seeded = 0
-        warmed = 0
-        now = datetime.utcnow()
-        try:
-            for ticker in sorted(CSI300_500_1000_TICKERS):
-                # Seed symbols table with Chinese name when available
-                cn_name = _cn_name_map.get(ticker, ticker)
-                try:
-                    if db.get(SymbolCache, ticker) is None:
-                        db.add(SymbolCache(
-                            symbol=ticker,
-                            name=cn_name,
-                            sector=None,
-                            instrument_type="Equity",
-                            is_active=True,
-                            last_seen_at=now,
-                            created_at=now,
-                            updated_at=now,
-                        ))
-                        db.commit()
-                        seeded += 1
-                except Exception:
-                    db.rollback()
-
-                # Warmup price bars for CSI 300 only (first 300 entries in
-                # the sorted ticker set cover CSI 300 constituents).
-                # CSI 500 and CSI 1000 are warmed on demand.
-                if warmed < 300:
-                    try:
-                        await svc.ensure_history(db, ticker, required_from, force=False)
-                        warmed += 1
-                    except Exception as exc:
-                        logger.debug("CN stock warmup skipped for %s: %s", ticker, exc)
-            db.commit()
-        finally:
-            db.close()
-        logger.info(
-            "CN stock universe seed complete: %d symbols, %d price bars warmed",
-            seeded, warmed,
-        )
-    except Exception as exc:
-        logger.warning("CN stock universe warmup task failed: %s", exc)
-
-
 async def _invalidate_stale_bi_caches() -> None:
     """
     Delete BI cache rows that predate the upstream_suppliers/downstream_customers fields
@@ -458,8 +377,6 @@ async def lifespan(_: FastAPI):
     asyncio.create_task(_warmup_commodity_spots())
     # Seed top US stocks into symbols table and warmup their price bars
     asyncio.create_task(_seed_and_warmup_stock_universe())
-    # Seed CN A-share stocks (CSI 300 warmed, full universe seeded)
-    asyncio.create_task(_seed_and_warmup_cn_stock_universe())
     # Invalidate stale BI caches (symbols with empty supply chain fields) in background
     asyncio.create_task(_invalidate_stale_bi_caches())
     yield
