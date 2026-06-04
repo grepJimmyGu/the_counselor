@@ -1,15 +1,25 @@
 """CN market endpoints — stock search + technical indicators.
 
 Phase 3c (2026-06-04): CN stock search by Chinese name or ticker code,
-backed by Alpha Vantage SYMBOL_SEARCH filtered to .SS/.SZ exchanges.
+backed by local CSI 300+500+1000 index constituent data. The CSV files
+(china_a_share_universes/*.csv) are loaded once at module import so
+searches are fast, reliable, and work with Chinese characters (unlike
+the AV SYMBOL_SEARCH endpoint which has limited CN language support).
+
 Technical indicator proxy delegates directly to AV so the frontend
 doesn't store API keys.
 """
+from __future__ import annotations
+
+import csv
+import logging
 from datetime import date, timedelta
+from functools import lru_cache
+from pathlib import Path
 from typing import Optional
 
 import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query
 from pydantic import BaseModel
 
 from app.core.config import get_settings
@@ -17,6 +27,8 @@ from app.core.config import get_settings
 router = APIRouter(prefix="/api/cn", tags=["cn-market"])
 
 AV_BASE = "https://www.alphavantage.co/query"
+
+_log = logging.getLogger("livermore.cn_market")
 
 
 # ── Output shapes ──────────────────────────────────────────────────────────────
@@ -70,43 +82,84 @@ def _signal_note(function: str, value: Optional[float]) -> Optional[str]:
     return None
 
 
+# ── Local search index ──────────────────────────────────────────────────────
+
+
+def _load_cn_tickers() -> list[dict]:
+    """Load CSI 300 + 500 + 1000 constituent data from the local CSV files.
+    Returns a deduplicated list of {symbol, name_cn, exchange} dicts."""
+    csv_dir = Path(__file__).resolve().parents[4] / "china_a_share_universes"
+    seen: set[str] = set()
+    rows: list[dict] = []
+    for fname in [
+        "csi300_constituents.csv",
+        "csi500_constituents.csv",
+        "csi1000_constituents.csv",
+    ]:
+        path = csv_dir / fname
+        if not path.exists():
+            _log.warning("cn_market: missing %s — skipping", fname)
+            continue
+        with open(path, encoding="utf-8-sig") as fh:
+            for rec in csv.DictReader(fh):
+                sym = rec.get("yahoo_ticker", "").strip()
+                if not sym or sym in seen:
+                    continue
+                seen.add(sym)
+                # Derive exchange label from the ticker suffix
+                exchange = "上海" if sym.endswith(".SS") else "深圳" if sym.endswith(".SZ") else ""
+                rows.append({
+                    "symbol": sym,
+                    "name_cn": rec.get("name_cn", "").strip(),
+                    "exchange": exchange,
+                })
+    _log.info("cn_market: loaded %d unique CN tickers from CSVs", len(rows))
+    return rows
+
+
+_CN_TICKERS: list[dict] = _load_cn_tickers()
+
+
+def _search_local(query: str, max_results: int = 8) -> list[CnSearchResult]:
+    """Fast local search against the pre-loaded CSV data. Supports:
+    - Chinese name (partial match)
+    - Ticker code (6-digit code, with or without .SS/.SZ suffix)
+    - English name (partial match, case-insensitive)
+    """
+    q = query.strip().lower()
+    results: list[CnSearchResult] = []
+    for row in _CN_TICKERS:
+        sym = row["symbol"]
+        code = sym.split(".")[0]
+        # Match against ticker code (partial), Chinese name (contains),
+        # or English name (the CSV name_cn field IS Chinese, so this
+        # is the primary matching path).
+        if (
+            q in row["name_cn"].lower()
+            or q in sym.lower()
+            or q in code
+        ):
+            results.append(CnSearchResult(
+                symbol=sym,
+                name_cn=row["name_cn"],
+                exchange=row["exchange"],
+            ))
+            if len(results) >= max_results:
+                break
+    return results
+
+
 # ── Routes ────────────────────────────────────────────────────────────────────
 
 
 @router.get("/stocks/search", response_model=list[CnSearchResult])
-async def cn_stock_search(
+def cn_stock_search(
     q: str = Query(min_length=1, description="Chinese name or ticker code"),
 ):
-    """Search CN stocks by name or code. Filters to .SS/.SZ results only."""
-    settings = get_settings()
-    async with httpx.AsyncClient(timeout=settings.api_timeout_seconds) as client:
-        resp = await client.get(AV_BASE, params={
-            "function": "SYMBOL_SEARCH",
-            "keywords": q,
-            "apikey": _av_key(),
-        })
-        resp.raise_for_status()
-        payload = resp.json()
-
-    matches = payload.get("bestMatches", [])
-    results: list[CnSearchResult] = []
-    seen = set()
-    for m in matches:
-        sym = m.get("1. symbol", "")
-        # Only CN exchanges — Alpha Vantage uses .SHH/.SHZ suffixes
-        if not (sym.endswith(".SHH") or sym.endswith(".SHZ") or
-                sym.endswith(".SS") or sym.endswith(".SZ")):
-            continue
-        if sym in seen:
-            continue
-        seen.add(sym)
-        exchange = "上海" if ("SHH" in sym or ".SS" in sym) else "深圳"
-        results.append(CnSearchResult(
-            symbol=sym.replace(".SHH", ".SS").replace(".SHZ", ".SZ"),
-            name_cn=m.get("2. name", sym),
-            exchange=exchange,
-        ))
-    return results[:8]
+    """Search CN stocks by Chinese name or 6-digit ticker code.
+    Uses the local CSI 300+500+1000 index data — instant, reliable,
+    and supports Chinese characters (unlike AV's SYMBOL_SEARCH)."""
+    return _search_local(q)
 
 
 @router.get("/indicators", response_model=IndicatorResponse)

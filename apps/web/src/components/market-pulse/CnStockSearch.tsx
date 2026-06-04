@@ -70,20 +70,20 @@ export function CnStockSearch({ market }: { market: "US" | "CN" }) {
 
   // ── Search ─────────────────────────────────────────────────────────────
   const doSearch = React.useCallback(async (q: string) => {
-    if (q.trim().length < 1) { setResults([]); return; }
+    if (q.trim().length < 1) return;
     setSearching(true);
     try {
       const r = await searchCnStocks(q.trim());
       setResults(r);
     } catch {
-      setResults([]);
+      // leave previous results in place on transient failures
     } finally {
       setSearching(false);
     }
   }, []);
 
   React.useEffect(() => {
-    const t = window.setTimeout(() => doSearch(query), 300);
+    const t = window.setTimeout(() => doSearch(query), 250);
     return () => window.clearTimeout(t);
   }, [query, doSearch]);
 
