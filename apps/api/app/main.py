@@ -369,6 +369,35 @@ def _db_init(engine):
         logger.warning("_db_init: %s — tables may not be current", exc)
 
 
+def _run_async_in_thread(coro) -> None:
+    """Run an async coroutine inside a worker thread with its own event loop.
+
+    Used to schedule lifespan warmups (`_warmup_*`, `_seed_*`, `_invalidate_*`)
+    without blocking the main asyncio event loop. The warmups are declared
+    `async def` but call SYNCHRONOUS `SessionLocal()` + `db.execute(...)`
+    internally — without this bridge they block the main loop, preventing
+    `/health` from responding and failing the Railway healthcheck under any
+    autovacuum stress.
+
+    Each warmup gets its own thread + fresh event loop (created by
+    `asyncio.run`). The thread's loop can `await` async client calls AND
+    block on sync DB work; neither path touches the main loop that serves
+    user requests.
+
+    2026-06-04 outage post-mortem: 14 consecutive Railway deploys failed
+    because the warmups blocked `/health` while autovacuum ran on a
+    freshly-grown `price_bars` table. This bridge makes the failure mode
+    structurally impossible regardless of DB latency.
+
+    Failures use `logger.exception` per trap #20 (warmup failures silenced
+    by `logger.warning` lose the traceback).
+    """
+    try:
+        asyncio.run(coro)
+    except Exception:
+        logger.exception("background warmup failed")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     # Fire DB init in background. Postgres autovacuum can hold table locks
@@ -384,24 +413,16 @@ async def lifespan(_: FastAPI):
         _s.gating_enabled, _s.app_env,
     )
     _start_scheduler()
-    # 2026-06-04 OUTAGE FIX: All 5 lifespan warmups disabled because they are
-    # `async def` but call SYNCHRONOUS `SessionLocal()` + `db.execute(...)` —
-    # they block the event loop. Today's CN seed grew `price_bars` by ~1.5M
-    # rows; autovacuum on that table made the same queries take minutes
-    # instead of milliseconds. The blocked event loop prevented `/health`
-    # from responding → 6 consecutive Railway healthcheck-timeout deploys.
-    #
-    # Re-enable once each function is wrapped in `asyncio.to_thread(...)`
-    # the same way `_db_init` (line 378 above) was wrapped in `ac4d393`.
-    # Until then the data populates lazily on first request to each
-    # surface — measurably slower for the first viewer post-deploy, but
-    # the app is otherwise fully functional.
-    #
-    # asyncio.create_task(_warmup_market_etfs())
-    # asyncio.create_task(_warmup_gspc())
-    # asyncio.create_task(_warmup_commodity_spots())
-    # asyncio.create_task(_seed_and_warmup_stock_universe())
-    # asyncio.create_task(_invalidate_stale_bi_caches())
+    # Warmups run on dedicated threads (see `_run_async_in_thread` above) so
+    # their internal SYNCHRONOUS DB calls can't block the main event loop —
+    # the failure mode of the 2026-06-04 outage. Each warmup gets its own
+    # fresh asyncio event loop inside its thread; the main loop stays free
+    # for `/health` and user requests.
+    asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _warmup_market_etfs()))
+    asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _warmup_gspc()))
+    asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _warmup_commodity_spots()))
+    asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _seed_and_warmup_stock_universe()))
+    asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _invalidate_stale_bi_caches()))
     yield
 
 

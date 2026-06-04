@@ -604,6 +604,88 @@ pass. Use Python `date` objects in SQLAlchemy comparisons — let
 SQLAlchemy handle the binding. Full post-mortem in
 `docs/KNOWN_ISSUES.md` (2026-06-03 entry).
 
+### 21. `async def` lifespan tasks with sync DB calls block the event loop
+
+Any startup task scheduled via `asyncio.create_task(_task())` runs on
+the **same event loop** that serves user requests, including the
+`/health` endpoint Railway uses for healthchecks. If the task is
+declared `async def` but internally calls SYNCHRONOUS SQLAlchemy
+(`SessionLocal()` + `db.execute(...)` without `await`), it blocks the
+loop while waiting for each query. Under healthy DB conditions queries
+finish in milliseconds and the bug is invisible. Under autovacuum
+stress, lock contention, or any slowdown (today's CN seed grew
+`price_bars` by 1.5M rows and triggered one), the same queries take
+minutes — `/health` can't respond and Railway marks the deploy FAILED.
+
+**The 2026-06-04 outage** (PR #134): 14 consecutive Railway deploys
+FAILED. Container logs showed Uvicorn binding cleanly on `:8080` but
+`/health` never responded. Root cause: 5 lifespan warmups
+(`_warmup_market_etfs`, `_warmup_gspc`, `_warmup_commodity_spots`,
+`_seed_and_warmup_stock_universe`, `_invalidate_stale_bi_caches`) were
+all `async def` calling sync DB. Each blocked the loop in turn while
+autovacuum held locks on `price_bars`. The blocked loop couldn't
+serve `/health`, so Railway timed out at 600s and stopped the
+container — repeatedly.
+
+**Why this trap is insidious:**
+1. The function signature *says* it's async (`async def`) — the typing
+   suggests cooperation. The function body lies by calling sync code.
+2. The bug doesn't appear in CI because tests don't run the lifespan
+   under autovacuum stress.
+3. It doesn't appear on every deploy — it appears whenever DB queries
+   that normally take milliseconds happen to take seconds. So the
+   warmups can survive months and then suddenly cause a 14-deploy
+   outage the day a data event makes queries slow.
+
+**Pattern: wrap any `async def` lifespan task in a bridge that runs it
+on a dedicated thread with its own event loop.**
+
+```python
+def _run_async_in_thread(coro) -> None:
+    """Run an async coroutine inside a worker thread with its own event
+    loop. Sync DB calls inside `coro` block ONLY this thread's loop,
+    not the main loop that serves /health and user requests."""
+    try:
+        asyncio.run(coro)
+    except Exception:
+        logger.exception("background warmup failed")  # trap #20: not .warning()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # ANTI-PATTERN — blocks the main event loop:
+    # asyncio.create_task(_warmup_market_etfs())
+
+    # CORRECT — runs each warmup on its own thread:
+    asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _warmup_market_etfs()))
+    yield
+```
+
+The `_db_init` pattern from `ac4d393` (`asyncio.create_task(asyncio.to_thread(_db_init, engine))`)
+works for regular `def` functions only — `_run_async_in_thread` is the
+`async def` variant.
+
+**Audit rule for new lifespan tasks:**
+
+Any `async def` task that opens `SessionLocal()` or calls
+`db.execute(...)` MUST use `_run_async_in_thread`. Direct
+`asyncio.create_task(_foo())` where `_foo` is `async def` with sync DB
+inside is the anti-pattern — even if it works today, it's a latent
+deploy bomb waiting for the next slow query.
+
+To find existing violations, grep:
+```bash
+grep -n "asyncio.create_task(_" apps/api/app/main.py
+```
+Every match should either pass a regular `def` callable to
+`asyncio.to_thread(...)` (the `_db_init` style) OR pass an `async def`
+coroutine to `asyncio.to_thread(_run_async_in_thread, ...)` (the
+warmup style). Anything else is trap #21 latent.
+
+Full post-mortem: `docs/KNOWN_ISSUES.md` (2026-06-04 entry, "Lifespan
+warmups blocked the event loop, 14 deploys failed, production served
+by a pre-CN container from before the outage").
+
 ---
 
 ## Cross-dialect quick reference
