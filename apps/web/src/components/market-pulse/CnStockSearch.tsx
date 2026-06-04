@@ -170,7 +170,7 @@ export function CnStockSearch({ market }: { market: "US" | "CN" }) {
                       href={`/stocks/${r.symbol}` as Route}
                       className="rounded p-0.5 text-muted-foreground hover:bg-muted/20 hover:text-primary"
                       title="查看公司详情"
-                      onClick={(e) => e.stopPropagation()}
+                      onClick={(e: React.MouseEvent) => e.stopPropagation()}
                     >
                       <ExternalLink className="h-3.5 w-3.5" />
                     </Link>
