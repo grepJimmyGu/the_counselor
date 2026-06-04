@@ -384,15 +384,24 @@ async def lifespan(_: FastAPI):
         _s.gating_enabled, _s.app_env,
     )
     _start_scheduler()
-    # Ensure all Market Pulse ETF price bars are loaded (non-blocking)
-    asyncio.create_task(_warmup_market_etfs())
-    asyncio.create_task(_warmup_gspc())
-    # Fetch actual commodity spot prices (WTI $/bbl, gold $/oz, copper $/lb, wheat ¢/bu)
-    asyncio.create_task(_warmup_commodity_spots())
-    # Seed top US stocks into symbols table and warmup their price bars
-    asyncio.create_task(_seed_and_warmup_stock_universe())
-    # Invalidate stale BI caches (symbols with empty supply chain fields) in background
-    asyncio.create_task(_invalidate_stale_bi_caches())
+    # 2026-06-04 OUTAGE FIX: All 5 lifespan warmups disabled because they are
+    # `async def` but call SYNCHRONOUS `SessionLocal()` + `db.execute(...)` —
+    # they block the event loop. Today's CN seed grew `price_bars` by ~1.5M
+    # rows; autovacuum on that table made the same queries take minutes
+    # instead of milliseconds. The blocked event loop prevented `/health`
+    # from responding → 6 consecutive Railway healthcheck-timeout deploys.
+    #
+    # Re-enable once each function is wrapped in `asyncio.to_thread(...)`
+    # the same way `_db_init` (line 378 above) was wrapped in `ac4d393`.
+    # Until then the data populates lazily on first request to each
+    # surface — measurably slower for the first viewer post-deploy, but
+    # the app is otherwise fully functional.
+    #
+    # asyncio.create_task(_warmup_market_etfs())
+    # asyncio.create_task(_warmup_gspc())
+    # asyncio.create_task(_warmup_commodity_spots())
+    # asyncio.create_task(_seed_and_warmup_stock_universe())
+    # asyncio.create_task(_invalidate_stale_bi_caches())
     yield
 
 
