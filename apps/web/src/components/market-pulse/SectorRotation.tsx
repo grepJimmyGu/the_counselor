@@ -95,6 +95,7 @@ export function SectorRotation({
           {activeSector && (
             <SectorComparisonChart
               sector={activeSector}
+              market={market}
               onClose={() => setActiveSymbol(null)}
             />
           )}
