@@ -350,28 +350,6 @@ async def _seed_and_warmup_cn_stock_universe() -> None:
                     except Exception as exc:
                         logger.debug("CN stock warmup skipped for %s: %s", ticker, exc)
             db.commit()
-
-            # Backfill Chinese names for rows seeded before the CSV fix
-            # (where name was set to the ticker string). Idempotent —
-            # UPDATE only touches rows where name = symbol.
-            try:
-                from sqlalchemy import text as _txt
-                backfilled = 0
-                for ticker, cn_name in _cn_name_map.items():
-                    result = db.execute(
-                        _txt("UPDATE symbols SET name = :name WHERE symbol = :sym AND name = :sym"),
-                        {"name": cn_name, "sym": ticker},
-                    )
-                    backfilled += result.rowcount
-                db.commit()
-                if backfilled:
-                    logger.info(
-                        "CN stock name backfill: %d rows updated with Chinese names",
-                        backfilled,
-                    )
-            except Exception:
-                db.rollback()
-
         finally:
             db.close()
         logger.info(
