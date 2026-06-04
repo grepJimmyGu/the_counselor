@@ -36,6 +36,7 @@ const EN_COPY: Record<string, string> = {
   movers_losers: "Sort: Top losers",
   movers_etf: "ETF",
   movers_stock: "Stock",
+  movers_empty: "No matches.",
   screener_heading: "Stock Screener",
   footer_disclaimer:
     "Live FMP snapshot powers rankings and prices · EOD history powers 5D context and freshness details · Not financial advice.",
@@ -72,6 +73,7 @@ const CN_COPY: Record<string, string> = {
   movers_stock: "股票",
 
   // ── Screener ───────────────────────────────────────────────────────
+  movers_empty: "暂无数据",
   screener_heading: "股票筛选器",
 
   // ── Footer ─────────────────────────────────────────────────────────

@@ -87,7 +87,7 @@ export function TopMovers({ items, market = "US" as "US" | "CN" }: { items: Move
 
       {visibleItems.length === 0 ? (
         <div className="rounded-xl border border-border bg-white px-3 py-6 text-center text-xs text-muted-foreground">
-          No matches.
+          {t("movers_empty")}
         </div>
       ) : (
         // 2-row × N-col grid (per 2026-05-21 redo). Take the top 10 cards

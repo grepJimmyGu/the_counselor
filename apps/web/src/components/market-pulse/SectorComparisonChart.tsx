@@ -20,6 +20,7 @@ import type {
 } from "@/lib/contracts";
 import { fmtPct } from "@/lib/market-pulse-format";
 import { getSectorComparison } from "@/lib/api";
+import { useMarketCopy } from "@/lib/market-copy";
 
 /**
  * Inline expansion under the sector heatmap. Renders a sector-ETF
@@ -52,10 +53,13 @@ const RANGES: { id: Range; label: string }[] = [
 export function SectorComparisonChart({
   sector,
   onClose,
+  market = "US" as "US" | "CN",
 }: {
   sector: SectorCard;
   onClose: () => void;
+  market?: "US" | "CN";
 }) {
+  const t = (key: string) => useMarketCopy(key, market);
   const [range, setRange] = useState<Range>("1Y");
   const [data, setData] = useState<SectorComparisonResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -96,11 +100,11 @@ export function SectorComparisonChart({
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            {sector.name.toUpperCase()} VS. S&P 500
+            {sector.name.toUpperCase()} {t("sectors_chart_vs")}
           </div>
           <div className="mt-2 flex flex-wrap items-center gap-3">
             <ReturnBadge color="#f59e0b" label={sector.symbol} value={sectorTotal} />
-            <ReturnBadge color="#3b82f6" label="SPY" value={spyTotal} />
+            <ReturnBadge color="#3b82f6" label={market === "CN" ? "沪深300" : "SPY"} value={spyTotal} />
             {loading && (
               <span className="inline-flex items-center gap-1 rounded-full border border-border bg-muted/30 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
                 <Loader2 className="h-3 w-3 animate-spin" /> Loading
@@ -204,7 +208,7 @@ export function SectorComparisonChart({
                 stroke="#3b82f6"
                 strokeWidth={1.5}
                 fill={`url(#grad-spy-${sector.symbol})`}
-                name="SPY"
+                name={market === "CN" ? "沪深300" : "SPY"}
                 dot={false}
               />
             </AreaChart>
@@ -239,7 +243,7 @@ export function SectorComparisonChart({
             </tr>
             <tr className="border-t border-border/60">
               <td className="px-2 py-1.5 font-sans font-semibold text-foreground">
-                S&P 500
+                {market === "CN" ? "沪深300" : "S&P 500"}
               </td>
               <PerfCell value={data?.spy_day} />
               <PerfCell value={data?.spy_ytd} />
