@@ -79,6 +79,14 @@ not improvise rules from training-data assumptions.
   converging on the condensed card + two-column detail pattern; the wrap-up
   summary confirmed we actually solved the original problem (quick
   comparison + depth on demand).
+- **Ask permission before deep research or multi-agent workflows.** The
+  deep-research skill and Workflow tool fan out ~100 agents and burn
+  significant tokens. Never launch one without Jimmy's explicit go-ahead.
+  Before asking, check: can this be answered with a single API call or
+  codebase search instead? *Why:* 2026-06-03 — a 30-minute deep-research
+  workflow on CN stock APIs returned the same conclusion (FMP/AV don't
+  support CN stocks on free tier) that one `curl` to FMP's endpoint
+  would have confirmed in 30 seconds.
 
 ---
 
