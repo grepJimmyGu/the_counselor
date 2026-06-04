@@ -9,7 +9,7 @@
 
 ## Current Session
 
-**Status:** End of 2026-06-04 — **CN Market (A-shares) shipped.** Full Chinese i18n across market pulse page, company profiles, Top Movers, and stock search. CN company overview endpoint built (FMP + AKShare). Railway deployment had a 6-cycle outage caused by CN seed data triggering Postgres autovacuum — root cause fixed (DB init now fire-and-forget, CN seed deferred to first page load).
+**Status:** End of 2026-06-04 (very late) — **CN Market (A-shares) shipped + two production outages, both resolved.** Full Chinese i18n + CN company overview live. The day had **two** Railway outages (not one): the morning's `Base.metadata.create_all` hung on autovacuum locks (fixed by fire-and-forget DB init), and the evening's 14-deploy cascade where the lifespan warmups blocked `/health` because they're `async def` but call sync DB. Both root causes now structurally impossible — DB init AND the 5 warmups run in threads with their own event loops. Production deploy `4291a85` is the first SUCCESS deploy of the day on the post-warmup-fix code; Market Pulse cold-cache latency back to 2s (was 12s during the comment-out interlude).
 
 **Shipped today (2026-06-04):**
 
@@ -31,26 +31,38 @@
 - `210cad4` — ^GSPC warmup via FMP (Alpha Vantage doesn't serve indices)
 - `b2ccdee` + `4815a56` — Perf: bulk UPDATE CASE + startup retry (reverted — bandaids for autovacuum)
 
-*Railway outage (2026-06-04):*
+*Railway outage round 1 — Postgres autovacuum on price_bars (morning, 2026-06-04):*
 - Root cause: `_seed_and_warmup_cn_stock_universe()` at startup seeded 1,800 CN stock rows + warmed 300 → ~1.5M new `price_bars` rows → Postgres autovacuum storm → `Base.metadata.create_all` hung for 7+ minutes → Railway healthcheck timeout → deployment failed
 - 6 consecutive failed deploys, 5 reverts, 3 attempted fixes
-- Permanent fix: `Base.metadata.create_all` + `run_startup_migrations` now run in background via `asyncio.to_thread` (deploy healthcheck passes in 2-3 seconds). CN seed deferred to first CN page load.
-- Lessons codified in `apps/api/CLAUDE.md` trap #20 (warmup failures must not be silenced), `docs/KNOWN_ISSUES.md` (date >= varchar type mismatch + silent warmup failures)
+- Permanent fix: `Base.metadata.create_all` + `run_startup_migrations` now run in background via `asyncio.create_task(asyncio.to_thread(_db_init, engine))` (`ac4d393`). CN seed surgically removed from startup (`7503dcc`).
+- Lessons codified in `apps/api/CLAUDE.md` trap #20 (warmup failures must not be silenced), `docs/KNOWN_ISSUES.md` (date >= varchar type mismatch + silent warmup failures).
 
-**Active branch:** main (HEAD: pending — fire-and-forget DB init)
+*Railway outage round 2 — sync DB in async warmups (evening, 2026-06-04):*
+- The morning's fix unblocked `Base.metadata.create_all` but did not address an adjacent failure mode: the 5 lifespan warmups (`_warmup_market_etfs`, `_warmup_gspc`, `_warmup_commodity_spots`, `_seed_and_warmup_stock_universe`, `_invalidate_stale_bi_caches`) are `async def` but call SYNCHRONOUS `SessionLocal()` + `db.execute(...)` internally. They block the asyncio event loop the moment any of their DB queries slow down. With autovacuum still active on the bloated `price_bars`, queries took minutes; the blocked event loop couldn't respond to `/health`; Railway timed out 14 deploys in a row.
+- Diagnosis took 3+ hours because the symptom (FAILED deploys with "Application startup complete" + Uvicorn binding cleanly in the logs) looked unrelated to the warmups. Misleading first guess: trap #11 Postgres-wedge — turned out the Postgres restart unblocked but only the trivial endpoints; DB-touching ones still timed out because the *new* container hit the same event-loop block.
+- Path to resolution: bump Railway `healthcheckTimeout` 120s → 600s (`6716928`, didn't fix it); comment out all 5 warmups entirely (`5fc90a7`, unblocked deploys but introduced 12s cold-cache cost for first user per cache cycle); add `_run_async_in_thread(coro)` bridge that runs each warmup's coroutine inside a worker thread with its own event loop, and re-enable all 5 (`#134` / `4291a85`).
+- Permanent fix: warmups now run on dedicated threads. Sync DB calls inside them can block ONLY the thread's loop, never the main loop serving `/health` and user requests.
+- Codified in `apps/api/CLAUDE.md` trap #21 (`async def` lifespan tasks with sync DB block the event loop). Together with traps #13, #17, #20, this completes the documented coverage of the "async + sync DB" collision surface in this codebase.
+- Operational cleanup: re-enabled autovacuum on `price_bars` with tuned settings (`scale_factor=0.1`, `cost_limit=1000`) so it runs in smaller, more frequent chunks if `price_bars` grows large again. *Even if the tuning is later removed, the architectural fixes make tonight's outage class structurally impossible regardless of autovacuum behavior.*
+
+**Active branch:** main (HEAD: `4291a85` — wrap warmups in threads, PR #134)
 **Tests:** **803 backend** + **67 frontend vitest** all green; frontend build clean
-**Deployed:** GitHub pushed. Railway needs redeploy after autovacuum settles. Vercel: Chinese i18n commits reverted, rest deployed.
+**Deployed:** GitHub pushed, Railway deploy `4291a85` SUCCESS, Vercel auto-deployed. Production verified: `/health` 200 in 1.7s, `/api/market/pulse?market=US` 200 in 2.0s (cold cache populated by warmups within 30s of deploy).
 - `FRED_API_KEY` set — Growth + Stress real
 - `GATING_ENABLED=true`
 - CN stock search working (local CSV, instant)
 - CN company profile working (FMP + AKShare)
 
-**Next actions:**
-- **Railway redeploy** — wait for autovacuum to settle, then `railway redeploy --from-source --yes`
-- **Re-apply CN stock detail page i18n** (86198d9 + bab1023 — reverted due to Vercel build error from variable shadowing)
+**Next actions (post 2026-06-04 outages, both resolved):**
+- **Re-apply CN stock detail page i18n** (`86198d9` + `bab1023` — reverted due to Vercel build error from variable shadowing)
 - **CN backtest support** — wire `.SS`/`.SZ` tickers into Strategy Builder
 - **CN screener presets** — needs fundamentals data (PE, sector, dividend yield seeded in symbols table)
 - **Sprint 2 remaining PRDs:** PRD-15 (Thesis Builder), PRD-16 (Custom Build), PRD-17 (Saved-strategies), PRD-18 (Community thesis cards)
+- **PR #131 (PRD-Mode1-Refactor):** still open + CI green from May; merge whenever ready to unblock PRD-15 / PRD-16
+
+**For future agents — the warmup discipline (post tonight's outage):**
+
+Any new lifespan task that opens `SessionLocal()` MUST use the `_run_async_in_thread` bridge (or, for sync `def` callables, the `asyncio.to_thread(fn, *args)` direct pattern). Direct `asyncio.create_task(_my_async_warmup())` is the **anti-pattern** that caused tonight's 14-deploy outage — even if it works for weeks under a healthy DB, it's a latent deploy bomb waiting for the next slow query. Trap #21 in `apps/api/CLAUDE.md` has the audit recipe (grep `asyncio.create_task(_` in `main.py`) and the working pattern. Read it before adding ANY startup task that touches the DB.
 
 **Active branch:** main (HEAD: `210cad4` — add ^GSPC to ETF warmup list)
 **Tests:** **803 backend** + **67 frontend vitest** all green; frontend build clean

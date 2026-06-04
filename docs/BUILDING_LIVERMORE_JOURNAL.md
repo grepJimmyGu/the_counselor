@@ -1513,4 +1513,191 @@ Iteration three got it right: the expanded card split into two scrollable column
 
 *Last updated: 2026-06-04 (end of day).*
 
-*Last updated: 2026-06-02 (end of day).*
+### Episode 32 — The second outage of the same day: where you find out the bug you thought you fixed had a brother (June 4, late evening)
+
+Some debugging stories close cleanly. You find a root cause, ship a fix, write a journal entry, call it a night. Episode 31 told that version of June 4 — CN A-shares shipped, Postgres autovacuum was the bottleneck, fire-and-forget DB init was the cure, we learned more about Railway in four hours than the previous two weeks combined. End scene.
+
+Episode 32 is what happened after that journal entry got written. Because **the bug we thought we fixed had a brother**, and the brother had been quietly living in our codebase for three weeks waiting for exactly the wrong moment to introduce itself.
+
+#### The setup: thinking it was over
+
+Episode 31's fix landed in `ac4d393`:
+
+```python
+asyncio.create_task(asyncio.to_thread(_db_init, engine))  # fire-and-forget
+```
+
+`Base.metadata.create_all` was no longer running on the main event loop at startup. Healthcheck stopped timing out. Deploys started succeeding again. Production came back. The CN feature was live. Everyone agreed it was time to sleep.
+
+Jimmy went to dinner. I (a fresh claude session, picking up Episode 32 cold) logged in three hours later expecting to do the cleanup punchlist — update WORK_LOG, add a trap to CLAUDE.md, maybe wrap up Sprint 2 PRDs. The kind of work you do when you're winding down a long day.
+
+What I found instead: **14 consecutive Railway deploys marked FAILED.** All today. Last successful production deploy was from before the CN seed even shipped. Production was being served by a stale container Railway was keeping alive because it had nothing better to switch to.
+
+Jimmy's exact words when I asked what was happening: *"I just feel I got a break and ready to get back on this."*
+
+He was back to fight the same outage he thought he'd already beaten.
+
+#### What the container logs said (the misdirection)
+
+Every failed deploy showed identical log output:
+
+```
+Starting Container
+INFO:     Started server process [1]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)
+```
+
+…and then nothing. No errors. No crashes. No "Stopping Container" — until Railway's 600-second timeout fired, at which point the container was killed and the deploy marked FAILED.
+
+This is **identical** to the symptom of CLAUDE.md trap #11 ("Production hangs at 'Waiting for application startup.'"). Same outage symptom, same lock-up shape. So we did the trap #11 recipe: hit Restart on the Postgres add-on, redeploy, watch.
+
+Postgres came back. `/health` started responding 200. Production looked alive.
+
+Then I tested `/api/market/pulse?market=US`. HTTP 000. Timeout at 8 seconds.
+
+`/api/live/quotes`. HTTP 000. Timeout.
+
+`/api/symbols/search`. HTTP 422 (responded! but rejected the param). DB connection works. So why did Market Pulse time out?
+
+A new container had picked up. Application startup complete. Uvicorn running. `/health` answering instantly. Real endpoints completely unresponsive.
+
+The Postgres restart unblocked the layer that was wedged. There was clearly **another layer**.
+
+#### The discovery — and why it took 3 hours
+
+When you're staring at a `/health` endpoint defined as `return {"status": "ok"}` and it's returning HTTP 000, the natural suspects are:
+
+- Network — but `/health` is hitting the right container (we have a port match in the deploy logs)
+- Process — but Uvicorn is logged as running
+- Port mismatch — but the bind matches Railway's `$PORT`
+
+Then I realized I'd been looking at the wrong horizon. The lifespan code:
+
+```python
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    asyncio.create_task(asyncio.to_thread(_db_init, engine))  # the morning's fix
+    _start_scheduler()
+    asyncio.create_task(_warmup_market_etfs())
+    asyncio.create_task(_warmup_gspc())
+    asyncio.create_task(_warmup_commodity_spots())
+    asyncio.create_task(_seed_and_warmup_stock_universe())
+    asyncio.create_task(_invalidate_stale_bi_caches())
+    yield
+```
+
+The `_db_init` line uses `asyncio.to_thread(_db_init, engine)` — that's the morning's fix; `_db_init` is a regular `def` function running in a worker thread. ✓ Safe.
+
+The next 5 lines are `asyncio.create_task(_warmup_*())` — and `_warmup_*` are all `async def`. They get scheduled onto the **same asyncio event loop** Uvicorn is using to serve user requests. Including `/health`.
+
+Then I looked inside one of them:
+
+```python
+async def _warmup_market_etfs() -> None:
+    from app.db.session import SessionLocal
+    db = SessionLocal()
+    rows = db.execute(text("SELECT ...")).fetchall()
+    ...
+```
+
+`SessionLocal()` and `db.execute(...)` are synchronous. Python's `async def` keyword doesn't make a function cooperative — it just makes it return a coroutine. If the function body runs synchronous blocking calls, **the event loop is blocked while it runs them**, no different from running them in a regular function.
+
+Normally these warmup queries finish in milliseconds and you'd never notice. Today, with autovacuum still tearing through the bloated `price_bars` table from the morning's CN seed (yes, the same 1.5M-row seed; even after we removed the seed function, the data it had already inserted was still being processed), those queries took **minutes**. While the warmups blocked the loop, the loop couldn't do anything else — including answer `/health`. Railway's healthcheck pinged. Got no response. Pinged again. Got no response. 600 seconds later, declared the deploy a failure.
+
+The morning's `Base.metadata.create_all` fix had moved one synchronous blocker off the loop. The 5 warmups were five **more** synchronous blockers, hiding behind `async def` signatures that promised cooperation they didn't deliver. And nobody had noticed for three weeks because under healthy DB conditions the bug was invisible.
+
+#### Quote that captures the moment
+
+I was trying to explain the bug to Jimmy at 9pm. He read the explanation, paused, and said:
+
+> *"So in human terms, it's the 5 warmup tasks that caused the issue."*
+
+I said yes.
+
+He said: *"So we should not have that much warmup."*
+
+This was the question that crystallized the design decision. The answer wasn't "fewer warmups." The warmups were doing useful work — pre-populating the Market Pulse cache so the first user of the day gets <2s page loads instead of 12s. The answer was: **the warmups themselves are fine, but they have to be run in a way that respects the cooperative-multitasking contract Python's `async def` keyword implies.**
+
+Either rewrite each warmup to actually `await` its DB calls (huge refactor, since SQLAlchemy's async API is different from the sync one we're using everywhere else), or use the bridge pattern: run each warmup's coroutine in its own dedicated thread with its own event loop, so it can do whatever blocking it wants without anyone else paying for it.
+
+#### The four-PR fix sequence
+
+```
+7503dcc — Remove the CN seed function from startup (the trigger)
+ac4d393 — Fire-and-forget Base.metadata.create_all (morning's fix; necessary but not sufficient)
+6716928 — Bump healthcheckTimeout 120→600s (a bandaid that didn't actually unblock)
+5fc90a7 — EMERGENCY: comment out all 5 warmups (unblocked deploys at cost of 12s cold-cache UX)
+PR #134 — Permanent: _run_async_in_thread bridge + re-enable all 5 warmups
+```
+
+`5fc90a7` is the commit I made at 21:00 after Jimmy gave the go-ahead. It commented out the 5 `asyncio.create_task(_warmup_*())` lines with a TODO pointing at the proper fix. The deploy succeeded — first SUCCESS deploy of the entire day, after 14 failures. Production came back fully responsive. Today's CN feature was finally live. We had taken the first user per cache cycle's experience from "fast" to "wait 12 seconds while we fetch from scratch," but the bleeding had stopped.
+
+After Jimmy got some rest, PR #134 was the proper fix:
+
+```python
+def _run_async_in_thread(coro) -> None:
+    """Run an async coroutine inside a worker thread with its own event loop."""
+    try:
+        asyncio.run(coro)
+    except Exception:
+        logger.exception("background warmup failed")  # not .warning() — trap #20
+
+# In lifespan:
+asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _warmup_market_etfs()))
+asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _warmup_gspc()))
+asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _warmup_commodity_spots()))
+asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _seed_and_warmup_stock_universe()))
+asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _invalidate_stale_bi_caches()))
+```
+
+Deploy `4291a85` SUCCESS. `/health` responds in 1.7s. Market Pulse cold-cache back to 2s (was 12s after the emergency comment-out). The warmups are doing the same work they did three weeks ago — but now on dedicated threads where their internal blocking can never reach the main event loop.
+
+#### Codification — trap #21
+
+The lesson got immediately written into `apps/api/CLAUDE.md` as **trap #21**:
+
+> *Any `async def` lifespan task that opens `SessionLocal()` MUST use the `_run_async_in_thread` bridge. Direct `asyncio.create_task(_my_async_warmup())` where the body calls sync DB is the anti-pattern even if it works today — it's a latent deploy bomb waiting for the next slow query.*
+
+The trap entry includes an audit recipe (`grep "asyncio.create_task(_" apps/api/app/main.py`) and the working pattern. Future agents reading the boot-sequence CLAUDE.md files at session start will see this lesson before they write the next `async def _warmup_something():` and the bug structurally can't recur.
+
+#### What the day's two outages teach together
+
+Episode 31 ended with the line *"Postgres autovacuum, not our code, was the deployment bottleneck all along."* That was wrong, or at least incomplete. Tonight proved that **our code** had a second-layer bug — a "sync DB inside async def" collision that autovacuum surfaced but our async/await discipline created. Once the autovacuum window opened, our warmups walked right into it.
+
+A pattern is becoming visible across the last month of `apps/api/CLAUDE.md` traps:
+
+| Trap | One-line shape |
+|---|---|
+| **#13** | Async routes can't hold `db: Session` across slow `await` |
+| **#17** | Intermediate commits expire ORM instances |
+| **#20** | Warmup failures silenced by `logger.warning` lose the traceback |
+| **#21** (tonight) | `async def` lifespan tasks with sync DB block the event loop |
+
+Together, these four describe the **entire collision surface** of "Python's asyncio model" vs. "the synchronous SQLAlchemy API we use everywhere." Each trap entry teaches the rule for one corner. Pass all four discipline checks and you can write async routes + background tasks that talk to Postgres without creating outages.
+
+We're not migrating to async SQLAlchemy. We're not rewriting the warmups. We're documenting where the seams are and giving every future agent the pattern to stay on the safe side of them.
+
+#### Quotable moments from the night
+
+- *"I just feel I got a break and ready to get back on this."* — Jimmy logging back in, three hours after the morning's outage was supposedly resolved
+- *"So in human terms, it's the 5 warmup tasks that caused the issue."*
+- *"So we should not have that much warmup."* — the question that crystallized the design decision
+- *"the bug we thought we fixed had a brother"* — the title of this episode in shorter form
+- *"healthy DB conditions made the bug invisible. Today's CN seed made queries slow enough to expose it."* — the punch line on why three weeks of safe operation didn't mean the code was safe
+
+#### Final state at end of night
+
+- ✅ Production deploy `4291a85` is SUCCESS — first SUCCESS deploy of the day on the fully-fixed code path
+- ✅ `/health` responds 1.7s, Market Pulse responds 2.0s, all DB-touching endpoints back to normal
+- ✅ All 5 warmups running on threads, populating cache within 30s of deploy
+- ✅ `_run_async_in_thread` bridge documented + reusable for future warmups
+- ✅ Trap #21 codified in `apps/api/CLAUDE.md`
+- ✅ Autovacuum re-enabled on `price_bars` with tuned settings (`scale_factor=0.1`, `cost_limit=1000`) — though the architectural fix means even default autovacuum is safe now
+- ✅ Tonight's KNOWN_ISSUES.md entry written
+- ✅ This journal episode written
+
+It's past 22:00 UTC+08 as I write this. Jimmy's still awake — refused to close the laptop until the codification was on `main`. The discipline that gets you through a 12-hour outage saga: don't ship the code fix without shipping the lesson too. Tomorrow's agent doesn't get to re-learn what tonight cost.
+
+*Last updated: 2026-06-04 (very end of day — Episode 32 added 2026-06-04 22:30 UTC+08).*

@@ -31,6 +31,111 @@ A running log of bugs encountered, root causes, and confirmed fixes. Add new ent
 
 ---
 
+### Lifespan warmups blocked the event loop — 14 deploys FAILED in a row, production served by a stale pre-CN container
+
+**Date:** 2026-06-04 (evening — second outage of the day, after the morning's `Base.metadata.create_all` fix)
+**Area:** backend / lifespan startup / asyncio
+**Severity:** High — every deploy failed for ~3 hours, today's CN feature commits stuck on `main` and unable to reach production
+**Resolution PR:** [#134](https://github.com/grepJimmyGu/the_counselor/pull/134) — `fix(main): wrap 5 lifespan warmups in threads`
+
+**Symptom:**
+14 consecutive Railway deploys today (between 16:00 and 17:30 UTC+08) marked FAILED. Container logs showed every deploy starting cleanly:
+
+```
+Starting Container
+INFO:     Started server process [1]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8080 (Press CTRL+C to quit)
+```
+
+…and then `/health` never responded within Railway's 600s healthcheck window. The deployment showed FAILED in the Railway dashboard. Production `/health` returned HTTP 000 (curl timeout) until we realized an **older container from earlier in the day** (pre-CN-feature) was still serving traffic — Railway had no SUCCESS deploy to switch to, so it left the old one running. None of today's commits (CN feature, fire-and-forget DB init `ac4d393`, healthcheck timeout bump `6716928`) was actually live in production.
+
+**Root cause:**
+The FastAPI `lifespan()` function schedules 5 background warmups:
+
+```python
+asyncio.create_task(_warmup_market_etfs())
+asyncio.create_task(_warmup_gspc())
+asyncio.create_task(_warmup_commodity_spots())
+asyncio.create_task(_seed_and_warmup_stock_universe())
+asyncio.create_task(_invalidate_stale_bi_caches())
+```
+
+All 5 are declared `async def` — Python's type system says they're cooperative coroutines that won't hog the event loop. The function **bodies** call **synchronous** SQLAlchemy:
+
+```python
+async def _warmup_market_etfs() -> None:
+    from app.db.session import SessionLocal
+    db = SessionLocal()
+    rows = db.execute(text("SELECT symbol FROM symbols ...")).fetchall()  # ← sync, blocks
+    ...
+```
+
+`db.execute(...)` is synchronous. It blocks the asyncio event loop until the query returns. Under healthy DB conditions, queries finish in milliseconds and the bug is invisible. Under autovacuum stress (today's CN seed had added 1.5M new `price_bars` rows; autovacuum was scanning them for hours), the same queries took **minutes**. While the warmups blocked the loop, the loop couldn't run anything else — including the dead-simple `/health` endpoint (`return {"status": "ok"}`). Railway's healthcheck timed out at 600s and Stopping Container; the next deploy hit the same wall. Repeat 14 times.
+
+The morning's outage fix (`ac4d393`) moved `Base.metadata.create_all` to a thread, which solved THAT layer. The warmups are an entirely separate layer — they were running fine for weeks because nobody had triggered an autovacuum window long enough to expose the latent bug.
+
+**Why the diagnosis took 3 hours:**
+
+1. Symptom looked like trap #11 (Postgres process wedge). We tried the Postgres add-on restart — Postgres came back fine but deploys kept failing.
+2. After the restart, `/health` responded but real endpoints didn't. Misleading — looked like another wedge. Actually was DB acquisition timeouts because the new container's warmups were still blocking the loop.
+3. The container logs showed "Application startup complete" + Uvicorn binding cleanly, so the obvious suspect was anything AFTER startup — not realizing `lifespan()` keeps the loop busy via the scheduled `create_task`s.
+4. The fact that `/health` was a trivial endpoint with NO DB dependency made the diagnosis harder — "if `/health` doesn't respond, it must be a network or process issue" was wrong; the issue was the event loop having no chance to run the handler.
+
+**Fix sequence (what we actually shipped):**
+
+| Commit | What | Effect |
+|---|---|---|
+| `7503dcc` | Surgically remove CN seed function from startup | Removed the trigger (1.5M-row seed) |
+| `ac4d393` | Fire-and-forget `Base.metadata.create_all` via `asyncio.to_thread(_db_init, engine)` | Fixed the morning's outage; necessary but not sufficient for tonight's |
+| `6716928` | Bump Railway healthcheckTimeout 120s → 600s | Bandaid; didn't actually unblock |
+| `5fc90a7` | **Emergency comment-out**: disable all 5 warmups | Unblocked deploys at the cost of 12s cold-cache first-user latency |
+| PR #134 / `4291a85` | **Permanent fix**: `_run_async_in_thread(coro)` bridge runs each warmup's coroutine in its own thread with its own event loop. Re-enable all 5. | Restored pre-outage UX without re-introducing the block |
+
+**The pattern that fixes it (now in `apps/api/CLAUDE.md` trap #21):**
+
+```python
+def _run_async_in_thread(coro) -> None:
+    """Run an async coroutine inside a worker thread with its own event loop.
+    Sync DB calls inside `coro` block ONLY this thread's loop, not the main loop."""
+    try:
+        asyncio.run(coro)
+    except Exception:
+        logger.exception("background warmup failed")  # not .warning() — trap #20
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # ANTI-PATTERN — blocks the main event loop:
+    # asyncio.create_task(_warmup_market_etfs())
+
+    # CORRECT — runs each warmup on its own thread:
+    asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _warmup_market_etfs()))
+    yield
+```
+
+Each warmup gets its own thread. The thread's loop can `await` async client calls AND block on sync DB work. The main event loop stays free for `/health` and user requests.
+
+**Files:** `apps/api/app/main.py` (`_run_async_in_thread` helper + 5 wrapped `create_task` calls)
+
+**Rules going forward:**
+
+1. **Any `async def` lifespan task that opens `SessionLocal()` must use the bridge.** Direct `asyncio.create_task(_my_async_warmup())` is the anti-pattern even if it works today — codified as trap #21.
+2. **For new sync `def` startup work, use `asyncio.to_thread(fn, *args)` directly** (the `_db_init` pattern from `ac4d393`).
+3. **Audit recipe**: grep `asyncio.create_task(_` in `apps/api/app/main.py`. Every match should either (a) pass a sync `def` to `asyncio.to_thread(fn)`, OR (b) pass an `async def` coroutine to `asyncio.to_thread(_run_async_in_thread, coro_fn())`. Anything else is latent trap #21.
+4. **The "async + sync DB collision surface" is now 4 traps**: #13 (async routes can't hold `db: Session` across slow awaits), #17 (intermediate commits expire ORM instances), #20 (warmup failures must surface, not silence), #21 (this entry). Together they describe the entire pattern class.
+
+**What enabled the outage to slip in:**
+
+- The bug existed in the warmups for **weeks** without firing. Today's CN seed (the autovacuum trigger) is what made queries slow enough to expose it.
+- Tests don't run the FastAPI lifespan under autovacuum stress. Even Postgres CI tests don't catch this because they spin up a clean DB.
+- The morning's outage fix gave the false impression that the deploy-stability work was done. The warmups were the second layer of the same broader problem; we didn't realize there was a second layer until tonight.
+
+**Verification:** Production deploy `4291a85` (PR #134, the permanent fix) succeeded in 1m32s. `/health` responds in 1.7s; Market Pulse responds in 2.0s with warmups populating cache within 30s of deploy. The trap is now structurally impossible — autovacuum can run as aggressively as Postgres wants and `/health` stays available.
+
+---
+
 ### ^GSPC warmup silently fails — Postgres `date >= varchar` type mismatch
 **Date:** 2026-06-03
 **Area:** backend / warmup
