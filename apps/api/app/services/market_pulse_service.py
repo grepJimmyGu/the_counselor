@@ -613,6 +613,28 @@ class MarketPulseService:
             return cached_resp
 
         base = self.get_pulse(key, db)
+
+        # For CN: refresh price data before ranking. AV's ensure_history
+        # with force=False only fetches stale symbols, so this is cheap
+        # on second+ page loads of the day.
+        if key == "CN":
+            try:
+                from app.data.cn_stock_universe import CSI300_500_1000_TICKERS
+                from app.services.alpha_vantage import AlphaVantageClient
+                from app.services.price_cache_service import PriceCacheService
+                from datetime import date as _d, timedelta as _td
+
+                _cn_universe = list(CSI300_500_1000_TICKERS)
+                _av = AlphaVantageClient()
+                _svc = PriceCacheService(_av)
+                _required = _d.today() - _td(days=30)
+                for _s in _cn_universe[:300]:
+                    try:
+                        await _svc.ensure_history(db, _s, _required, force=False)
+                    except Exception:
+                        pass
+            except Exception:
+                pass  # best-effort; stale data beats no data
         symbols = _live_quote_symbols(base)
         if not symbols:
             return base
