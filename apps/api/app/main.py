@@ -356,14 +356,28 @@ def _start_scheduler() -> None:
         logger.warning("APScheduler failed to start: %s", exc)
 
 
+def _db_init(engine):
+    """Run create_all + startup migrations in a background thread.
+    Decoupled from the lifespan so Postgres autovacuum/recovery doesn't
+    block the Railway deploy healthcheck. Tables from prior deploys are
+    already present — this is a best-effort idempotent safety net."""
+    try:
+        Base.metadata.create_all(bind=engine, checkfirst=True)
+        run_startup_migrations(engine)
+        logger.info("_db_init: create_all + migrations complete")
+    except Exception as exc:
+        logger.warning("_db_init: %s — tables may not be current", exc)
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    Base.metadata.create_all(bind=engine)  # creates all tables first
-    run_startup_migrations(engine)          # then backfill/alter existing tables
-    # Surface the gating flag on every deploy. After the 2026-05-20 QA audit
-    # found that GATING_ENABLED defaulted to False and no Stage 3 cap was
-    # firing in prod, we want a single grep-able log line to confirm the env
-    # var picked up on each rollout.
+    # Fire DB init in background. Postgres autovacuum can hold table locks
+    # for minutes — rather than block the healthcheck, let the app start
+    # immediately and let DB init complete whenever the DB is ready.
+    # Tables already exist from prior deploys; this is idempotent.
+    asyncio.create_task(asyncio.to_thread(_db_init, engine))
+
+    # Surface the gating flag on every deploy.
     _s = get_settings()
     logger.info(
         "feature_flags gating_enabled=%s app_env=%s",

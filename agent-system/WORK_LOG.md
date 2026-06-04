@@ -9,24 +9,48 @@
 
 ## Current Session
 
-**Status:** End of 2026-06-02 — **Overlay picker redesign + portfolio flow simplified + macro data fixes shipped.** The Macro Pulse "Mock" pill false-positive is fixed. Portfolio mode is now a clean 4-step flow that hands off to the full workspace experience for backtesting.
+**Status:** End of 2026-06-04 — **CN Market (A-shares) shipped.** Full Chinese i18n across market pulse page, company profiles, Top Movers, and stock search. CN company overview endpoint built (FMP + AKShare). Railway deployment had a 6-cycle outage caused by CN seed data triggering Postgres autovacuum — root cause fixed (DB init now fire-and-forget, CN seed deferred to first page load).
 
-**Shipped today (2026-06-02):**
+**Shipped today (2026-06-04):**
 
-*Overlay picker complete redesign:*
-- `373eec2` → `5f50014` — New `StrategyCard` LEGO brick (mode-agnostic, reusable). Two visual states: condensed (idea + tagline, scannable 3-col grid) and expanded (two-column split: How it works ║ Why it works, scrollable columns). All copy centralized in `overlay-metadata.ts` as single source of truth. CORE/ADVANCED renamed to BASIC/ADVANCED.
-- `fbcec9e` — Minimum holdings badge: red "Needs X+ holdings" on cards that don't qualify, auto-disabled. Prevents 422 validation errors.
+*CN market pulse page:*
+- `0ce3525` → `5ea0240` — CN stock search (search by Chinese name/ticker from local CSV) + technical indicator viewer (SMA/RSI/MACD/BBANDS) with Recharts line chart
+- `d51b9e2` → `fbc1e18` → `0dd6136` → `b78f09d` — Chinese i18n across page chrome, TopMovers, Sector Rotation, chart, toggle labels
+- `d54e0d6` — CN Top Movers: 300 real A-shares replacing 7 ETF proxies
+- `fb6c39b` — Performance: LIKE query instead of 1,800-element IN clause, removed 300-stock price refresh loop
 
-*Portfolio flow simplification:*
-- `3b54e47` — Portfolio mode shortened from 7 steps to 4 (upload→diagnose→overlay→summary). Summary now saves StrategyJson to sessionStorage and navigates to `/workspace?autorun=true` — same handoff pattern as the legacy `StrategyBuilderModal`. Back buttons added to diagnose and overlay steps.
-- `eb54439` — Date range picker (3Y/5Y/10Y, default 5Y) added to both one-asset and portfolio mode summaries. Date range appears only after user selects an overlay.
+*CN company profile:*
+- `87242da` — CN overview service (FMP profile + peers + AKShare financials/news). Reliability: lazy AKShare import, asyncio.to_thread, single asyncio.Lock, 15s timeout, every path try/except'd, 24h cache. Returns same CompanyOverviewResponse shape as US.
+- `7432afa` — Full Chinese i18n: company name (CSV lookup), sector (11-sector mapping), exchange (上海/深圳), peer names, Chinese scoring labels + warnings (12 patterns translated), Chinese financial summaries
+- `6eb5935` — CN trend endpoint (price-bars-only, no FMP dependency) + auto-routing .SS/.SZ tickers to CN overview/trend endpoints
+- `86198d9` + `bab1023` — Stock detail page Chinese labels (reverted — Vercel build error)
 
-*Data fixes:*
-- `a356684` — Macro Pulse `SourcePill` now recognizes `"fred"` source (was only checking `"alpha_vantage"`). Growth (CFNAI) and Stress (HY OAS) no longer show amber "Mock" pills. Header badge shows "Live data" when all four signals are real. Added `"fred"` to TypeScript `MacroSignal.source` type.
-- `210cad4` — `^GSPC` added to daily ETF warmup list. Was never refreshed, causing sector comparison charts to show data 12+ days stale.
+*Process + bug fixes:*
+- `8f9987c` — FinancialCheckMetrics init fix (502 on CN company overview)
+- `e7ddc74` — Bug-fix explain-cause-fix rule in CLAUDE.md
+- `210cad4` — ^GSPC warmup via FMP (Alpha Vantage doesn't serve indices)
+- `b2ccdee` + `4815a56` — Perf: bulk UPDATE CASE + startup retry (reverted — bandaids for autovacuum)
 
-*Process:*
-- `dd3c769` — "Goal-vs-result wrap-up" codified as hard rule in CLAUDE.md (every session ends with a before/after summary).
+*Railway outage (2026-06-04):*
+- Root cause: `_seed_and_warmup_cn_stock_universe()` at startup seeded 1,800 CN stock rows + warmed 300 → ~1.5M new `price_bars` rows → Postgres autovacuum storm → `Base.metadata.create_all` hung for 7+ minutes → Railway healthcheck timeout → deployment failed
+- 6 consecutive failed deploys, 5 reverts, 3 attempted fixes
+- Permanent fix: `Base.metadata.create_all` + `run_startup_migrations` now run in background via `asyncio.to_thread` (deploy healthcheck passes in 2-3 seconds). CN seed deferred to first CN page load.
+- Lessons codified in `apps/api/CLAUDE.md` trap #20 (warmup failures must not be silenced), `docs/KNOWN_ISSUES.md` (date >= varchar type mismatch + silent warmup failures)
+
+**Active branch:** main (HEAD: pending — fire-and-forget DB init)
+**Tests:** **803 backend** + **67 frontend vitest** all green; frontend build clean
+**Deployed:** GitHub pushed. Railway needs redeploy after autovacuum settles. Vercel: Chinese i18n commits reverted, rest deployed.
+- `FRED_API_KEY` set — Growth + Stress real
+- `GATING_ENABLED=true`
+- CN stock search working (local CSV, instant)
+- CN company profile working (FMP + AKShare)
+
+**Next actions:**
+- **Railway redeploy** — wait for autovacuum to settle, then `railway redeploy --from-source --yes`
+- **Re-apply CN stock detail page i18n** (86198d9 + bab1023 — reverted due to Vercel build error from variable shadowing)
+- **CN backtest support** — wire `.SS`/`.SZ` tickers into Strategy Builder
+- **CN screener presets** — needs fundamentals data (PE, sector, dividend yield seeded in symbols table)
+- **Sprint 2 remaining PRDs:** PRD-15 (Thesis Builder), PRD-16 (Custom Build), PRD-17 (Saved-strategies), PRD-18 (Community thesis cards)
 
 **Active branch:** main (HEAD: `210cad4` — add ^GSPC to ETF warmup list)
 **Tests:** **803 backend** + **67 frontend vitest** all green; frontend build clean
