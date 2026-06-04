@@ -87,8 +87,10 @@ def _signal_note(function: str, value: Optional[float]) -> Optional[str]:
 
 def _load_cn_tickers() -> list[dict]:
     """Load CSI 300 + 500 + 1000 constituent data from the local CSV files.
-    Returns a deduplicated list of {symbol, name_cn, exchange} dicts."""
-    csv_dir = Path(__file__).resolve().parents[4] / "china_a_share_universes"
+    Returns a deduplicated list of {symbol, name_cn, exchange} dicts.
+
+    Looks for CSVs at `china_a_share_universes/` under the repo root."""
+    csv_dir = Path(__file__).resolve().parents[2] / "data"
     seen: set[str] = set()
     rows: list[dict] = []
     for fname in [
