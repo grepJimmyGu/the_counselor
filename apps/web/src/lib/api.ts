@@ -775,3 +775,41 @@ export async function diagnosePortfolio(
     body: JSON.stringify({ holdings }),
   });
 }
+
+// ── CN market (Phase 3c) ──────────────────────────────────────────────────────
+
+export interface CnSearchResult {
+  symbol: string;
+  name_cn: string;
+  exchange: string;
+}
+
+export async function searchCnStocks(q: string): Promise<CnSearchResult[]> {
+  return fetchApi(`/api/cn/stocks/search?q=${encodeURIComponent(q)}`);
+}
+
+export interface CnIndicatorPoint {
+  date: string;
+  value: number;
+}
+
+export interface CnIndicatorResponse {
+  symbol: string;
+  function: string;
+  points: CnIndicatorPoint[];
+  latest_value: number | null;
+  high: number | null;
+  low: number | null;
+  signal: string | null;
+}
+
+export async function getCnIndicator(
+  symbol: string,
+  func: string,
+  timePeriod: number,
+  range_: string,
+): Promise<CnIndicatorResponse> {
+  return fetchApi(
+    `/api/cn/indicators?symbol=${encodeURIComponent(symbol)}&function=${func}&time_period=${timePeriod}&range=${range_}`,
+  );
+}

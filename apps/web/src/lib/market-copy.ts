@@ -40,6 +40,9 @@ const EN_COPY: Record<string, string> = {
   screener_heading: "Stock Screener",
   footer_disclaimer:
     "Live FMP snapshot powers rankings and prices · EOD history powers 5D context and freshness details · Not financial advice.",
+  // ── CN Stock Search ────────────────────────────────────────────────
+  cn_search_heading: "CN Stock Search",
+  cn_search_placeholder: "Search by name or code…",
 };
 
 const CN_COPY: Record<string, string> = {
@@ -79,6 +82,9 @@ const CN_COPY: Record<string, string> = {
   // ── Footer ─────────────────────────────────────────────────────────
   footer_disclaimer:
     "实时FMP行情驱动排名与价格 · 历史日线数据驱动五日走势 · 不构成投资建议",
+  // ── CN Stock Search ────────────────────────────────────────────────
+  cn_search_heading: "搜索A股",
+  cn_search_placeholder: "输入股票名称或代码…",
 };
 
 export function useMarketCopy(key: string, market: "US" | "CN"): string {

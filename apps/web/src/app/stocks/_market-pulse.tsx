@@ -19,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, RefreshCw } from "lucide-react";
 import { useMarketCopy } from "@/lib/market-copy";
+import { CnStockSearch } from "@/components/market-pulse/CnStockSearch";
 
 import { getMarketPulse } from "@/lib/api";
 import type { MarketPulseResponse, SectorCard } from "@/lib/contracts";
@@ -209,10 +210,12 @@ export function MarketPulsePage() {
           <TopMovers items={moverItems} market={market} />
         )}
 
-        {/* Section 6 — Stock Screener (9 algorithm cards w/ tier badges;
-            preset filter logic wires in Phase 1f). US-only until CN
-            fundamentals (sector, PE, dividend yield) are seeded. */}
-        {market === "US" && <Screener />}
+        {/* Section 6 — Stock Screener (US) · CN Stock Search (CN) */}
+        {market === "US" ? (
+          <Screener />
+        ) : (
+          <CnStockSearch market={market} />
+        )}
 
         {/* Footer */}
         <footer className="border-t border-border/60 pt-4 text-[10px] text-muted-foreground space-y-2">
