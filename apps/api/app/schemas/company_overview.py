@@ -164,3 +164,5 @@ class CompanyOverviewResponse(BaseModel):
     market_position: MarketPositionSection
     financial_check: FinancialCheckSection
     disclaimer: str = DISCLAIMER
+    # CN market — AKShare news (empty for US stocks)
+    cn_news: list[dict] = []

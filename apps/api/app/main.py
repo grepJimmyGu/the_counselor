@@ -8,6 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 logger = logging.getLogger(__name__)
 
 from app.api.routes.backtest import router as backtest_router
+from app.api.routes.cn_company import router as cn_company_router
 from app.api.routes.cn_market import router as cn_market_router
 from app.api.routes.company_overview import router as company_overview_router
 from app.api.routes.fundamental import router as fundamental_router
@@ -469,6 +470,7 @@ app.add_middleware(
 )
 
 app.include_router(admin_router)
+app.include_router(cn_company_router)
 app.include_router(cn_market_router)
 app.include_router(commodities_router)
 app.include_router(strategy_router)
