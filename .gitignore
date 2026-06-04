@@ -18,3 +18,11 @@ coverage/
 # Local logs
 prompt_log.md
 project_log.md
+
+# Local agent state + IDE / deploy configs (never commit)
+.agents/
+.claude/launch.json
+.vercel/
+
+# Generated video assets — too large for git
+build_specs/video_creatives_output/
