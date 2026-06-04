@@ -71,6 +71,15 @@ not improvise rules from training-data assumptions.
   backtest shipped with two bugs (missing auth token, wrong endpoint
   for anonymous users) that a plan review would have caught before the
   first push.
+- **Bug fixes: explain cause → fix → verify.** Every bug fix commit must state:
+  1. What the **symptom** was (user-visible error, log line, status code)
+  2. What the **root cause** was (which line, why it happened)
+  3. What the **fix** was and how it addresses the cause
+  This applies to hotfixes too — production bugs are the most important
+  ones to document clearly. *Why:* 2026-06-04 — the CN company overview
+  returned a 502 for every A-share stock because `FinancialCheckMetrics`
+  takes no `__init__` kwargs; the fix was 5 lines but four commits were
+  needed because the root cause wasn't diagnosed before the first patch.
 - **Wrap up with a goal-vs-result summary.** After every meaningful chunk
   of work, summarize: (1) what the original goal was, (2) what was actually
   achieved, and (3) what was started vs ended with (a before/after table if
