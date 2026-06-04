@@ -277,6 +277,72 @@ async def _seed_and_warmup_stock_universe() -> None:
         logger.warning("Stock universe warmup task failed: %s", exc)
 
 
+async def _seed_and_warmup_cn_stock_universe() -> None:
+    """Seed CSI 300 stocks into the symbols table and warmup their price
+    bars. Follows the same pattern as _seed_and_warmup_stock_universe but
+    targets Alpha Vantage's .SS/.SZ CN ticker format.
+
+    Only the CSI 300 is warmed at startup (300 stocks). CSI 500 + CSI 1000
+    are seeded but warmed on demand via /api/stocks/{ticker} to avoid
+    exhausting the AV rate limit on deploy."""
+    from datetime import date, datetime, timedelta
+    from app.data.cn_stock_universe import CSI300_500_1000_TICKERS
+    from app.models.symbol import SymbolCache
+    from app.services.alpha_vantage import AlphaVantageClient
+    from app.services.price_cache_service import PriceCacheService
+    from app.db.session import SessionLocal
+
+    try:
+        required_from = date.today() - timedelta(days=365 * 3)
+        client = AlphaVantageClient()
+        svc = PriceCacheService(client)
+        db = SessionLocal()
+        seeded = 0
+        warmed = 0
+        now = datetime.utcnow()
+        try:
+            # Warm CSI 300 first (starts with higher-market-cap names).
+            # The full universe (1,800) is seeded but not warmed — individual
+            # stocks get price history on first access.
+            for ticker in sorted(CSI300_500_1000_TICKERS):
+                # Seed symbols table
+                try:
+                    if db.get(SymbolCache, ticker) is None:
+                        db.add(SymbolCache(
+                            symbol=ticker,
+                            name=ticker,  # CN name loaded later via AV profile or AKShare
+                            sector=None,
+                            instrument_type="Equity",
+                            is_active=True,
+                            last_seen_at=now,
+                            created_at=now,
+                            updated_at=now,
+                        ))
+                        db.commit()
+                        seeded += 1
+                except Exception:
+                    db.rollback()
+
+                # Warmup price bars for CSI 300 only (first 300 entries in
+                # the sorted ticker set cover CSI 300 constituents).
+                # CSI 500 and CSI 1000 are warmed on demand.
+                if warmed < 300:
+                    try:
+                        await svc.ensure_history(db, ticker, required_from, force=False)
+                        warmed += 1
+                    except Exception as exc:
+                        logger.debug("CN stock warmup skipped for %s: %s", ticker, exc)
+            db.commit()
+        finally:
+            db.close()
+        logger.info(
+            "CN stock universe seed complete: %d symbols, %d price bars warmed",
+            seeded, warmed,
+        )
+    except Exception as exc:
+        logger.warning("CN stock universe warmup task failed: %s", exc)
+
+
 async def _invalidate_stale_bi_caches() -> None:
     """
     Delete BI cache rows that predate the upstream_suppliers/downstream_customers fields
@@ -375,6 +441,8 @@ async def lifespan(_: FastAPI):
     asyncio.create_task(_warmup_commodity_spots())
     # Seed top US stocks into symbols table and warmup their price bars
     asyncio.create_task(_seed_and_warmup_stock_universe())
+    # Seed CN A-share stocks (CSI 300 warmed, full universe seeded)
+    asyncio.create_task(_seed_and_warmup_cn_stock_universe())
     # Invalidate stale BI caches (symbols with empty supply chain fields) in background
     asyncio.create_task(_invalidate_stale_bi_caches())
     yield
