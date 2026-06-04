@@ -513,8 +513,8 @@ async def lifespan(_: FastAPI):
     asyncio.create_task(_warmup_commodity_spots())
     # Seed top US stocks into symbols table and warmup their price bars
     asyncio.create_task(_seed_and_warmup_stock_universe())
-    # Seed CN A-share stocks (CSI 300 warmed, full universe seeded)
-    asyncio.create_task(_seed_and_warmup_cn_stock_universe())
+    # CN stock universe is seeded + warmed on-demand (first CN page load)
+    # to avoid autovacuum storms on price_bars during deploy startup.
     # Invalidate stale BI caches (symbols with empty supply chain fields) in background
     asyncio.create_task(_invalidate_stale_bi_caches())
     yield

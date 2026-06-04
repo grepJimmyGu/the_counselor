@@ -21,6 +21,7 @@ Results are cached in-memory for 1 hour to avoid re-querying on every request.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field, replace
 from datetime import date, datetime, timedelta
@@ -512,6 +513,28 @@ def _build_cn_top_assets(db: Session, limit: int = 10) -> list[AssetCard]:
     return assets[:limit]
 
 
+_cn_seeded = False  # deploy-lifetime flag — set True after first seed
+
+
+async def _lazy_cn_seed(db: Session) -> None:
+    """Seed CN stock universe on first CN page load. Wraps the startup
+    warmup function that was removed from the lifespan to avoid deploy
+    hangs from Postgres autovacuum on 1.5M price_bars rows."""
+    global _cn_seeded
+    if _cn_seeded:
+        return
+    _cn_seeded = True
+
+    import importlib
+    try:
+        main_mod = importlib.import_module("app.main")
+        fn = getattr(main_mod, "_seed_and_warmup_cn_stock_universe", None)
+        if fn:
+            asyncio.create_task(fn())
+    except Exception:
+        pass  # best-effort; Top Movers works with cached data too
+
+
 US_FEATURED_ETFS = ["SPY", "QQQ", "GLD", "TLT", "XLK", "XLE", "FXI", "USO", "KWEB", "IWM"]
 
 CN_FEATURED_ETFS = []  # CN no longer uses ETF proxies — individual stocks only
@@ -608,6 +631,15 @@ class MarketPulseService:
             return cached_resp
 
         base = self.get_pulse(key, db)
+
+        # Lazy-seed CN stock universe on first CN page load. Avoids the
+        # autovacuum storm that hit deploy startup after seeding 1,800
+        # A-shares into price_bars. Only fires if the symbols table has
+        # zero CN rows — a one-time cost of ~300 AV calls (~2 min), then
+        # cached for the deploy lifetime.
+        if key == "CN":
+            from app.services.market_pulse_service import _lazy_cn_seed
+            await _lazy_cn_seed(db)
 
         symbols = _live_quote_symbols(base)
         if not symbols:
