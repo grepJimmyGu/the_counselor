@@ -33,6 +33,7 @@ import { useMarketCopy } from "@/lib/market-copy";
 
 const isCnTicker = (s: string) => s.toUpperCase().endsWith(".SS") || s.toUpperCase().endsWith(".SZ");
 
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmtMoney(v: number | null | undefined): string {
@@ -53,8 +54,8 @@ function CompanyPageInner() {
   const router = useRouter();
   const activeTab = (searchParams.get("tab") as Tab) || "overview";
 
-  const cn = isCnTicker(ticker);
-  const t = (key: string) => useMarketCopy(key, cn ? "CN" : "US");
+  const isCn = isCnTicker(ticker);
+  const t = (key: string) => useMarketCopy(key, isCn ? "CN" : "US");
 
   const [data, setData] = useState<CompanyOverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -129,10 +130,10 @@ function CompanyPageInner() {
 
   if (error || !data) {
     const isNotConfigured = error?.includes("403") || error?.includes("not configured");
-    const errorTitle = cn
+    const errorTitle = isCn
       ? (isNotConfigured ? "数据源未配置" : "无法加载公司数据")
       : (isNotConfigured ? "Fundamental data unavailable" : "Unable to load company data");
-    const errorDetail = cn
+    const errorDetail = isCn
       ? (isNotConfigured
           ? "FMP API密钥可能未配置"
           : (error || "该公司可能不存在，或后台服务不可达。请重试。"))
