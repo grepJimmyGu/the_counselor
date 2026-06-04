@@ -392,6 +392,11 @@ export async function getFundamentalOverview(symbol: string): Promise<Fundamenta
 }
 
 export async function getCompanyOverview(symbol: string): Promise<import("@/lib/contracts").CompanyOverviewResponse> {
+  // CN A-shares use their own overview endpoint (FMP + AKShare)
+  const isCn = symbol.toUpperCase().endsWith(".SS") || symbol.toUpperCase().endsWith(".SZ");
+  if (isCn) {
+    return fetchApi(`/api/cn/company/${encodeURIComponent(symbol)}/overview`);
+  }
   return fetchApi(`/api/company/${encodeURIComponent(symbol)}/overview`);
 }
 

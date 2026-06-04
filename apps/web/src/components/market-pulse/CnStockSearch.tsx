@@ -13,7 +13,9 @@
  */
 
 import * as React from "react";
-import { Search, TrendingDown, TrendingUp } from "lucide-react";
+import Link from "next/link";
+import type { Route } from "next";
+import { Search, TrendingDown, TrendingUp, ExternalLink } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { searchCnStocks, getCnIndicator, type CnSearchResult, type CnIndicatorPoint } from "@/lib/api";
 import { useMarketCopy } from "@/lib/market-copy";
@@ -163,7 +165,17 @@ export function CnStockSearch({ market }: { market: "US" | "CN" }) {
               >
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-semibold">{r.name_cn}</span>
-                  <span className="text-[10px] text-muted-foreground">{r.exchange}</span>
+                  <div className="flex items-center gap-1.5">
+                    <Link
+                      href={`/stocks/${r.symbol}` as Route}
+                      className="rounded p-0.5 text-muted-foreground hover:bg-muted/20 hover:text-primary"
+                      title="查看公司详情"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <ExternalLink className="h-3.5 w-3.5" />
+                    </Link>
+                    <span className="text-[10px] text-muted-foreground">{r.exchange}</span>
+                  </div>
                 </div>
                 <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">
                   {r.symbol}
@@ -183,6 +195,12 @@ export function CnStockSearch({ market }: { market: "US" | "CN" }) {
               <span className="ml-2 font-mono text-xs text-muted-foreground">
                 {selected.symbol} · {selected.exchange}
               </span>
+              <Link
+                href={`/stocks/${selected.symbol}` as Route}
+                className="ml-2 inline-flex items-center gap-0.5 text-[11px] font-medium text-primary hover:underline"
+              >
+                查看公司 <ExternalLink className="h-3 w-3" />
+              </Link>
             </div>
             <button
               type="button"
