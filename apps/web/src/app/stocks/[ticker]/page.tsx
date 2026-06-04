@@ -29,6 +29,9 @@ import "@/lib/flows/one-asset-mode";
 import { useLiveQuotes } from "@/lib/useLiveQuotes";
 import { dispatchChatSeed } from "@/lib/chat-widget-event-bus";
 import { track } from "@/lib/analytics";
+import { useMarketCopy } from "@/lib/market-copy";
+
+const isCnTicker = (s: string) => s.toUpperCase().endsWith(".SS") || s.toUpperCase().endsWith(".SZ");
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -49,6 +52,9 @@ function CompanyPageInner() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const activeTab = (searchParams.get("tab") as Tab) || "overview";
+
+  const cn = isCnTicker(ticker);
+  const t = (key: string) => useMarketCopy(key, cn ? "CN" : "US");
 
   const [data, setData] = useState<CompanyOverviewResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -123,23 +129,27 @@ function CompanyPageInner() {
 
   if (error || !data) {
     const isNotConfigured = error?.includes("403") || error?.includes("not configured");
+    const errorTitle = cn
+      ? (isNotConfigured ? "数据源未配置" : "无法加载公司数据")
+      : (isNotConfigured ? "Fundamental data unavailable" : "Unable to load company data");
+    const errorDetail = cn
+      ? (isNotConfigured
+          ? "FMP API密钥可能未配置"
+          : (error || "该公司可能不存在，或后台服务不可达。请重试。"))
+      : (isNotConfigured
+          ? "The FMP API key may not be configured or may need a Starter plan."
+          : error || "The company may not exist or the backend is unreachable. Try again.");
     return (
       <main className="min-h-screen bg-background">
         <div className="mx-auto max-w-[1200px] px-4 py-12 text-center">
-          <p className="text-base font-medium text-foreground">
-            {isNotConfigured ? "Fundamental data unavailable" : "Unable to load company data"}
-          </p>
-          <p className="mt-1.5 text-sm text-muted-foreground">
-            {isNotConfigured
-              ? "The FMP API key may not be configured or may need a Starter plan."
-              : error || "The company may not exist or the backend is unreachable. Try again."}
-          </p>
+          <p className="text-base font-medium text-foreground">{errorTitle}</p>
+          <p className="mt-1.5 text-sm text-muted-foreground">{errorDetail}</p>
           <div className="mt-5 flex items-center justify-center gap-3">
             <button
               onClick={() => { setError(null); setLoading(true); getCompanyOverview(ticker.toUpperCase()).then(setData).catch((e) => setError(e.message)).finally(() => setLoading(false)); }}
               className="text-sm font-medium text-primary hover:underline"
             >
-              Retry
+              {t("cmp_retry")}
             </button>
             <span className="text-muted-foreground">·</span>
             <Link href={"/stocks" as Route} className="text-sm text-muted-foreground hover:text-foreground hover:underline">← Back to Screener</Link>
@@ -242,7 +252,7 @@ function CompanyPageInner() {
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
-              {tab === "overview" ? "Overview" : "News & Sentiment"}
+              {tab === "overview" ? t("cmp_overview_tab") : t("cmp_sentiment_tab")}
             </button>
           ))}
         </div>
@@ -258,7 +268,7 @@ function CompanyPageInner() {
           <div className="flex items-center gap-2 border-b border-border px-5 py-3.5">
             <div className="h-2 w-2 rounded-full bg-primary" />
             <h2 className="font-heading text-sm font-semibold">Fundamental Analysis</h2>
-            <Badge variant="outline" className="ml-auto text-[10px] font-mono">Health · Valuation · Trend</Badge>
+            <Badge variant="outline" className="ml-auto text-[10px] font-mono">{t("cmp_health_badge")}</Badge>
           </div>
           <div className="p-5">
             <EvaluationDashboard data={data} />
@@ -269,7 +279,7 @@ function CompanyPageInner() {
         <section className="rounded-xl border border-border bg-white shadow-sm">
           <div className="flex items-center gap-2 border-b border-border px-5 py-3.5">
             <div className="h-2 w-2 rounded-full bg-primary" />
-            <h2 className="font-heading text-sm font-semibold">Business Model</h2>
+            <h2 className="font-heading text-sm font-semibold">{t("cmp_business_model")}</h2>
             <Badge variant="outline" className="ml-auto text-[10px] font-mono">
               {bm.confidence} · {data.revenue_segments.segment_names.length > 0 ? `${data.revenue_segments.segment_names.length} segments` : "FMP data"}
             </Badge>
@@ -283,7 +293,7 @@ function CompanyPageInner() {
         <section className="rounded-xl border border-border bg-white shadow-sm">
           <div className="flex items-center gap-2 border-b border-border px-5 py-3.5">
             <div className="h-2 w-2 rounded-full bg-[var(--warning-amber)]" />
-            <h2 className="font-heading text-sm font-semibold">Market Position</h2>
+            <h2 className="font-heading text-sm font-semibold">{t("cmp_market_position")}</h2>
             <Badge variant="outline" className="ml-auto text-[10px] font-mono">
               {mp.confidence} · {mp.competitor_segments.length > 0 ? `${mp.competitor_segments.length} segments` : "10-K data"}
             </Badge>
@@ -299,7 +309,7 @@ function CompanyPageInner() {
 
         {/* Community sentiment */}
         <section className="rounded-xl border border-border bg-white p-5 shadow-sm">
-          <h2 className="mb-4 font-heading text-sm font-semibold">Community Sentiment</h2>
+          <h2 className="mb-4 font-heading text-sm font-semibold">{t("cmp_community")}</h2>
           <VoteBar symbol={data.symbol} />
         </section>
 
