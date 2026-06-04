@@ -463,24 +463,29 @@ def _build_top_assets(
 
 def _build_cn_top_assets(db: Session, limit: int = 10) -> list[AssetCard]:
     """CN market capital-flow leaders ranked by CMF from the CSI 300+500+1000
-    universe. Filters to .SS/.SZ tickers with recent price_bars, orders by
-    market cap, computes CMF, sorts by CMF descending.
+    universe. Mirrors the US `_build_top_assets` pattern: filter to tickers
+    in the universe where price_bars exists within 30d, order by market cap,
+    compute CMF, sort by CMF descending."""
+    from app.data.cn_stock_universe import CSI300_500_1000_TICKERS
 
-    Avoids a 1,800-element IN clause — Postgres handles LIKE '%.SS' / LIKE
-    '%.SZ' with index support on text_prefix_ops."""
+    universe = list(CSI300_500_1000_TICKERS)
+    if not universe:
+        return []
 
     try:
         cutoff = (date.today() - timedelta(days=30)).isoformat()
-        params = {"cutoff": cutoff}
+        placeholders = ", ".join(f":s{i}" for i in range(len(universe)))
+        params: dict = {f"s{i}": sym for i, sym in enumerate(universe)}
+        params["cutoff"] = cutoff
 
         rows = db.execute(
             text(
                 "SELECT s.symbol, s.name, s.sector, s.market_cap FROM symbols s "
-                "WHERE (s.symbol LIKE '%.SS' OR s.symbol LIKE '%.SZ') "
-                "AND EXISTS ("
+                "WHERE EXISTS ("
                 "  SELECT 1 FROM price_bars pb WHERE pb.symbol = s.symbol "
                 "  AND pb.trading_date >= :cutoff"
                 ") AND s.name IS NOT NULL "
+                f"AND s.symbol IN ({placeholders}) "
                 "ORDER BY s.market_cap DESC NULLS LAST"
             ),
             params,
@@ -609,6 +614,27 @@ class MarketPulseService:
 
         base = self.get_pulse(key, db)
 
+        # For CN: refresh price data before ranking. AV's ensure_history
+        # with force=False only fetches stale symbols, so this is cheap
+        # on second+ page loads of the day.
+        if key == "CN":
+            try:
+                from app.data.cn_stock_universe import CSI300_500_1000_TICKERS
+                from app.services.alpha_vantage import AlphaVantageClient
+                from app.services.price_cache_service import PriceCacheService
+                from datetime import date as _d, timedelta as _td
+
+                _cn_universe = list(CSI300_500_1000_TICKERS)
+                _av = AlphaVantageClient()
+                _svc = PriceCacheService(_av)
+                _required = _d.today() - _td(days=30)
+                for _s in _cn_universe[:300]:
+                    try:
+                        await _svc.ensure_history(db, _s, _required, force=False)
+                    except Exception:
+                        pass
+            except Exception:
+                pass  # best-effort; stale data beats no data
         symbols = _live_quote_symbols(base)
         if not symbols:
             return base
