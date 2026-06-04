@@ -44,7 +44,30 @@ def cn_company_trend(
         sym = symbol.upper()
         td = _trend_svc.get_trend(sym, db)
         td = _trend_svc.get_relative_strength(td, db)
-        return td
+        # td.latest_date is a datetime.date; TrendSection.latest_date is
+        # Optional[str]. Returning td directly hit FastAPI's Pydantic v2
+        # response validation (`string_type` error) and 500'd every CN
+        # request — this mirrors the US handler's explicit isoformat in
+        # company_overview.py:69.
+        return TrendSection(
+            latest_price=td.latest_price,
+            latest_date=td.latest_date.isoformat() if td.latest_date else None,
+            perf_1m=td.perf_1m,
+            perf_3m=td.perf_3m,
+            perf_6m=td.perf_6m,
+            perf_12m=td.perf_12m,
+            ma_50=td.ma_50,
+            ma_200=td.ma_200,
+            price_vs_ma50=td.price_vs_ma50,
+            price_vs_ma200=td.price_vs_ma200,
+            vol_trend=td.vol_trend,
+            avg_vol_20d=td.avg_vol_20d,
+            avg_vol_65d=td.avg_vol_65d,
+            rs_vs_spy_3m=td.rs_vs_spy_3m,
+            rs_vs_spy_12m=td.rs_vs_spy_12m,
+            price_series_90d=td.price_series_90d,
+            bar_count=td.bar_count,
+        )
     except Exception as exc:
         raise HTTPException(
             status_code=502,
