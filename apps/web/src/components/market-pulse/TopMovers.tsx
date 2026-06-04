@@ -29,7 +29,10 @@ import {
 
 export type { MoverItem } from "./top-movers-selection";
 
-export function TopMovers({ items }: { items: MoverItem[] }) {
+import { useMarketCopy } from "@/lib/market-copy";
+
+export function TopMovers({ items, market = "US" as "US" | "CN" }: { items: MoverItem[]; market?: "US" | "CN" }) {
+  const t = (key: string) => useMarketCopy(key, market);
   const [filter, setFilter] = useState<MoverFilter>("all");
   const [sort, setSort] = useState<MoverSort>("gainers");
 
@@ -50,17 +53,17 @@ export function TopMovers({ items }: { items: MoverItem[] }) {
           id="movers-heading"
           className="text-sm font-semibold uppercase tracking-wide text-muted-foreground"
         >
-          Top Movers
+          {t("movers_heading")}
         </h2>
         <select
-          aria-label="Sort top movers by"
+          aria-label={t("movers_sort")}
           value={sort}
           onChange={(e) => setSort(e.target.value as MoverSort)}
           className="rounded-md border border-border bg-white px-2 py-1 text-xs focus-visible:outline-2 focus-visible:outline-primary"
         >
-          <option value="gainers">Sort: Top gainers</option>
-          <option value="losers">Sort: Top losers</option>
-          <option value="cmf">Sort: CMF flow</option>
+          <option value="gainers">{t("movers_gainers")}</option>
+          <option value="losers">{t("movers_losers")}</option>
+          <option value="cmf">CMF flow</option>
         </select>
       </div>
 
@@ -68,17 +71,17 @@ export function TopMovers({ items }: { items: MoverItem[] }) {
         <FilterChip
           active={filter === "all"}
           onClick={() => setFilter("all")}
-          label={`All (${items.length})`}
+          label={`${t("movers_all")} (${items.length})`}
         />
         <FilterChip
           active={filter === "stock"}
           onClick={() => setFilter("stock")}
-          label={`Stocks (${counts.stock})`}
+          label={`${t("movers_stock")} (${counts.stock})`}
         />
         <FilterChip
           active={filter === "etf"}
           onClick={() => setFilter("etf")}
-          label={`ETFs (${counts.etf})`}
+          label={`${t("movers_etf")} (${counts.etf})`}
         />
       </div>
 

@@ -184,6 +184,7 @@ export function MarketPulsePage() {
           data && (
             <SectorRotation
               sectors={data.sectors as SectorCard[]}
+              market={market}
               rotationHeadline={
                 // Phase 1b: prefer LLM-generated rotation interpretation;
                 // fall back to the deterministic template when LLM is off.
@@ -205,7 +206,7 @@ export function MarketPulsePage() {
         {loading ? (
           <TopMoversSkeleton rows={10} />
         ) : (
-          <TopMovers items={moverItems} />
+          <TopMovers items={moverItems} market={market} />
         )}
 
         {/* Section 6 — Stock Screener (9 algorithm cards w/ tier badges;

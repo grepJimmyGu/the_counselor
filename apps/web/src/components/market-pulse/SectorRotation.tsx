@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import type { SectorCard } from "@/lib/contracts";
+import { useMarketCopy } from "@/lib/market-copy";
 import { SectorHeatmap } from "./SectorHeatmap";
 import { SectorTable } from "./SectorTable";
 import { SectorComparisonChart } from "./SectorComparisonChart";
@@ -25,10 +26,13 @@ type Sort = "cmf" | "perf_1d" | "rs_vs_spy";
 export function SectorRotation({
   sectors,
   rotationHeadline,
+  market = "US" as "US" | "CN",
 }: {
   sectors: SectorCard[];
   rotationHeadline?: string;
+  market?: "US" | "CN";
 }) {
+  const t = (key: string) => useMarketCopy(key, market);
   const [view, setView] = useState<View>("heatmap");
   const [sort, setSort] = useState<Sort>("cmf");
   // Per 2026-05-21 feedback: click a heatmap tile → expand inline below
@@ -46,7 +50,7 @@ export function SectorRotation({
             id="sectors-heading"
             className="text-sm font-semibold uppercase tracking-wide text-muted-foreground"
           >
-            Sector rotation
+            {t("sectors_heading")}
           </h2>
           {rotationHeadline && (
             <p className="mt-1 text-sm text-foreground/80">{rotationHeadline}</p>
