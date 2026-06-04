@@ -401,6 +401,10 @@ export async function getCompanyOverview(symbol: string): Promise<import("@/lib/
 }
 
 export async function getStockTrend(symbol: string): Promise<import("@/lib/contracts").StockTrendData> {
+  const isCn = symbol.toUpperCase().endsWith(".SS") || symbol.toUpperCase().endsWith(".SZ");
+  if (isCn) {
+    return fetchApi(`/api/cn/company/${encodeURIComponent(symbol)}/trend`);
+  }
   return fetchApi(`/api/company/${encodeURIComponent(symbol)}/trend`);
 }
 
