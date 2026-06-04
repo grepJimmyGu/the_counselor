@@ -210,8 +210,9 @@ export function MarketPulsePage() {
         )}
 
         {/* Section 6 — Stock Screener (9 algorithm cards w/ tier badges;
-            preset filter logic wires in Phase 1f) */}
-        <Screener />
+            preset filter logic wires in Phase 1f). US-only until CN
+            fundamentals (sector, PE, dividend yield) are seeded. */}
+        {market === "US" && <Screener />}
 
         {/* Footer */}
         <footer className="border-t border-border/60 pt-4 text-[10px] text-muted-foreground space-y-2">
