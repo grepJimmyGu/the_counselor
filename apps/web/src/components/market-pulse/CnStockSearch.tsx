@@ -47,7 +47,8 @@ const RANGES: { id: TimeRange; label: string }[] = [
 ];
 
 export function CnStockSearch({ market }: { market: "US" | "CN" }) {
-  const t = (key: string) => useMarketCopy(key, market);
+  const heading = useMarketCopy("cn_search_heading", market);
+  const placeholder = useMarketCopy("cn_search_placeholder", market);
 
   // ── State ──────────────────────────────────────────────────────────────
   const [query, setQuery] = React.useState("");
@@ -123,7 +124,7 @@ export function CnStockSearch({ market }: { market: "US" | "CN" }) {
   return (
     <section data-testid="cn-stock-search" className="space-y-4">
       <h2 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-        {t("cn_search_heading")}
+        {heading}
       </h2>
 
       {/* ── Search bar ─────────────────────────────────────────────────── */}
@@ -131,7 +132,7 @@ export function CnStockSearch({ market }: { market: "US" | "CN" }) {
         <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <input
           type="text"
-          placeholder={t("cn_search_placeholder")}
+          placeholder={placeholder}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           className="w-full rounded-xl border border-border bg-white py-2.5 pl-10 pr-4 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
@@ -152,7 +153,7 @@ export function CnStockSearch({ market }: { market: "US" | "CN" }) {
               <button
                 key={r.symbol}
                 type="button"
-                onClick={() => { setSelected(r); setResults([]); setQuery(""); }}
+                onClick={() => setSelected(r)}
                 className={cn(
                   "rounded-xl border p-3 text-left transition-all",
                   isSel

@@ -203,19 +203,18 @@ export function MarketPulsePage() {
             cognitive load. */}
         {market === "US" && <HistoryRhymes />}
 
-        {/* Section 5 — Top Movers (2-row × N-col card grid) */}
+        {/* Section 5 — CN Stock Search (replaces Screener on CN) */}
+        {market === "CN" && <CnStockSearch market={market} />}
+
+        {/* Section 6 — Top Movers (2-row × N-col card grid) */}
         {loading ? (
           <TopMoversSkeleton rows={10} />
         ) : (
           <TopMovers items={moverItems} market={market} />
         )}
 
-        {/* Section 6 — Stock Screener (US) · CN Stock Search (CN) */}
-        {market === "US" ? (
-          <Screener />
-        ) : (
-          <CnStockSearch market={market} />
-        )}
+        {/* Section 7 — Stock Screener (US only until CN fundamentals land) */}
+        {market === "US" && <Screener />}
 
         {/* Footer */}
         <footer className="border-t border-border/60 pt-4 text-[10px] text-muted-foreground space-y-2">
