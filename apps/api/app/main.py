@@ -351,24 +351,40 @@ async def _seed_and_warmup_cn_stock_universe() -> None:
                         logger.debug("CN stock warmup skipped for %s: %s", ticker, exc)
             db.commit()
 
-            # Backfill Chinese names for rows seeded before the CSV fix
-            # (where name was set to the ticker string). Idempotent —
-            # UPDATE only touches rows where name = symbol.
+            # Backfill Chinese names for rows seeded before the CSV fix.
+            # Single bulk UPDATE via CASE — 1,800 individual UPDATEs
+            # were ~2min; this is ~50ms on Postgres.
             try:
                 from sqlalchemy import text as _txt
-                backfilled = 0
-                for ticker, cn_name in _cn_name_map.items():
-                    result = db.execute(
-                        _txt("UPDATE symbols SET name = :name WHERE symbol = :sym AND name = :sym"),
-                        {"name": cn_name, "sym": ticker},
-                    )
-                    backfilled += result.rowcount
-                db.commit()
-                if backfilled:
-                    logger.info(
-                        "CN stock name backfill: %d rows updated with Chinese names",
-                        backfilled,
-                    )
+                if _cn_name_map:
+                    # Build WHEN/THEN pairs: WHEN symbol='X' THEN '中文名'
+                    when_clauses = [
+                        f"WHEN '{sym}' THEN '{name}'"
+                        for sym, name in _cn_name_map.items()
+                    ]
+                    # Batch into chunks of 500 to avoid statement-size limits
+                    chunk_size = 500
+                    total_backfilled = 0
+                    for i in range(0, len(when_clauses), chunk_size):
+                        chunk = when_clauses[i:i + chunk_size]
+                        case_expr = " ".join(chunk)
+                        result = db.execute(
+                            _txt(
+                                f"UPDATE symbols SET name = CASE symbol {case_expr} "
+                                "ELSE name END WHERE name = symbol AND symbol IN ("
+                                + ",".join(
+                                    f"'{s}'" for s in list(_cn_name_map.keys())[i:i + chunk_size]
+                                )
+                                + ")"
+                            )
+                        )
+                        total_backfilled += result.rowcount
+                    db.commit()
+                    if total_backfilled:
+                        logger.info(
+                            "CN stock name backfill: %d rows updated with Chinese names",
+                            total_backfilled,
+                        )
             except Exception:
                 db.rollback()
 
