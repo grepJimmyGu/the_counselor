@@ -462,31 +462,53 @@ def _build_top_assets(
 
 
 def _build_cn_top_assets(db: Session, limit: int = 10) -> list[AssetCard]:
-    """
-    CN market capital-flow leaders ranked by CMF.
-    Uses US-listed CN ETF proxies (FXI, KWEB, MCHI, CQQQ, CHIE, FLCH, CNYA)
-    since individual A-share / HK price bars are not in our DB.
-    """
-    cn_proxies = ["FXI", "KWEB", "MCHI", "CQQQ", "CHIE", "FLCH", "CNYA"]
-    meta_map = {**ETF_META, **CN_ETF_META}
+    """CN market capital-flow leaders ranked by CMF from the CSI 300+500+1000
+    universe. Mirrors the US `_build_top_assets` pattern: filter to tickers
+    in the universe where price_bars exists within 30d, order by market cap,
+    compute CMF, sort by CMF descending."""
+    from app.data.cn_stock_universe import CSI300_500_1000_TICKERS
+
+    universe = list(CSI300_500_1000_TICKERS)
+    if not universe:
+        return []
+
+    try:
+        cutoff = (date.today() - timedelta(days=30)).isoformat()
+        placeholders = ", ".join(f":s{i}" for i in range(len(universe)))
+        params: dict = {f"s{i}": sym for i, sym in enumerate(universe)}
+        params["cutoff"] = cutoff
+
+        rows = db.execute(
+            text(
+                "SELECT s.symbol, s.name, s.sector, s.market_cap FROM symbols s "
+                "WHERE EXISTS ("
+                "  SELECT 1 FROM price_bars pb WHERE pb.symbol = s.symbol "
+                "  AND pb.trading_date >= :cutoff"
+                ") AND s.name IS NOT NULL "
+                f"AND s.symbol IN ({placeholders}) "
+                "ORDER BY s.market_cap DESC NULLS LAST"
+            ),
+            params,
+        ).fetchall()
+    except Exception:
+        logger.exception("_build_cn_top_assets query failed")
+        return []
+
     assets: list[AssetCard] = []
-    for sym in cn_proxies:
+    for row in rows:
+        sym, name, sector, mcap = row[0], row[1], row[2], row[3]
         bars = _load_bars(sym, db)
         if not bars:
             continue
         cmf = _compute_cmf(bars)
-        if cmf is None:
-            continue
-        meta = meta_map.get(sym, (sym, "CN Market Proxy"))
-        name, sector = meta
         assets.append(AssetCard(
             symbol=sym,
-            name=name,
+            name=name or sym,
             sector=sector,
             price=float(bars[-1].close),
             perf_1d=_compute_perf(bars, 1),
             cmf_20=cmf,
-            market_cap=None,
+            market_cap=float(mcap) if mcap else None,
             latest_date=_latest_date_str(bars),
             is_stale=_is_stale(bars),
         ))
@@ -497,7 +519,7 @@ def _build_cn_top_assets(db: Session, limit: int = 10) -> list[AssetCard]:
 
 US_FEATURED_ETFS = ["SPY", "QQQ", "GLD", "TLT", "XLK", "XLE", "FXI", "USO", "KWEB", "IWM"]
 
-CN_FEATURED_ETFS = ["FXI", "KWEB", "MCHI", "CQQQ", "CHIE", "FLCH", "CNYA"]
+CN_FEATURED_ETFS = []  # CN no longer uses ETF proxies — individual stocks only
 
 # CN ETF metadata (supplements ETF_META for CN-specific labels)
 CN_ETF_META: dict[str, tuple[str, str]] = {

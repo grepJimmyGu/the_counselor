@@ -295,6 +295,23 @@ async def _seed_and_warmup_cn_stock_universe() -> None:
     from app.db.session import SessionLocal
 
     try:
+        # Preload CN name map from committed CSVs so the seed uses real
+        # Chinese names instead of ticker-as-name.
+        _cn_name_map: dict[str, str] = {}
+        import csv
+        from pathlib import Path
+        csv_dir = Path(__file__).resolve().parent / "data"
+        for fname in ["csi300_constituents.csv", "csi500_constituents.csv",
+                      "csi1000_constituents.csv"]:
+            path = csv_dir / fname
+            if path.exists():
+                with open(path, encoding="utf-8-sig") as fh:
+                    for rec in csv.DictReader(fh):
+                        sym = rec.get("yahoo_ticker", "").strip()
+                        name_cn = rec.get("name_cn", "").strip()
+                        if sym and name_cn:
+                            _cn_name_map[sym] = name_cn
+
         required_from = date.today() - timedelta(days=365 * 3)
         client = AlphaVantageClient()
         svc = PriceCacheService(client)
@@ -303,16 +320,14 @@ async def _seed_and_warmup_cn_stock_universe() -> None:
         warmed = 0
         now = datetime.utcnow()
         try:
-            # Warm CSI 300 first (starts with higher-market-cap names).
-            # The full universe (1,800) is seeded but not warmed — individual
-            # stocks get price history on first access.
             for ticker in sorted(CSI300_500_1000_TICKERS):
-                # Seed symbols table
+                # Seed symbols table with Chinese name when available
+                cn_name = _cn_name_map.get(ticker, ticker)
                 try:
                     if db.get(SymbolCache, ticker) is None:
                         db.add(SymbolCache(
                             symbol=ticker,
-                            name=ticker,  # CN name loaded later via AV profile or AKShare
+                            name=cn_name,
                             sector=None,
                             instrument_type="Equity",
                             is_active=True,
