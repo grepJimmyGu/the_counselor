@@ -368,17 +368,11 @@ async def get_cn_company_overview(symbol: str) -> CompanyOverviewResponse:
 
     # ── 5. Scoring ────────────────────────────────────────────────────
     from app.services.financial_validation_service import FinancialCheckMetrics
-    fc = FinancialCheckMetrics(
-        pe_ratio=pe_ratio,
-        roe=roe,
-        gross_margin=gross_margin,
-        net_margin=net_margin,
-        revenue_yoy=None, eps_yoy=None, eps_growth_years=None,
-        operating_margin=None,
-        free_cash_flow=None, fcf_conversion=None, fcf_margin=None, fcf_yield=None,
-        net_debt=None, debt_to_equity=None, current_ratio=None,
-        ps_ratio=None, peg_ratio=None,
-    )
+    fc = FinancialCheckMetrics()
+    fc.pe_ratio = pe_ratio
+    fc.roe = roe
+    fc.gross_margin = gross_margin
+    fc.net_margin = net_margin
     fin_score = compute_financial_validation_score(fc)
     val_risk = compute_valuation_risk_score(fc)
     overall = compute_overall_score(fin_score, val_risk)
