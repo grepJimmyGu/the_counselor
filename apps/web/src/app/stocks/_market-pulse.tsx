@@ -18,6 +18,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, RefreshCw } from "lucide-react";
+import { useMarketCopy } from "@/lib/market-copy";
 
 import { getMarketPulse } from "@/lib/api";
 import type { MarketPulseResponse, SectorCard } from "@/lib/contracts";
@@ -43,6 +44,7 @@ export function MarketPulsePage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const t = (key: string) => useMarketCopy(key, market);
 
   const load = useCallback(async (m: "US" | "CN", showRefreshing = false) => {
     if (showRefreshing) setRefreshing(true);
@@ -52,9 +54,7 @@ export function MarketPulsePage() {
       const r = await getMarketPulse(m, showRefreshing);
       setData(r);
     } catch {
-      setError(
-        "Market data unavailable — price history may still be loading.",
-      );
+      setError(t("error_unavailable"));
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -124,14 +124,14 @@ export function MarketPulsePage() {
               className="cursor-pointer"
               onClick={() => setMarket("US")}
             >
-              US
+              {t("toggle_us")}
             </Badge>
             <Badge
               variant={market === "CN" ? "default" : "outline"}
               className="cursor-pointer"
               onClick={() => setMarket("CN")}
             >
-              CN
+              {t("toggle_cn")}
             </Badge>
             <Button
               size="sm"
@@ -214,10 +214,7 @@ export function MarketPulsePage() {
 
         {/* Footer */}
         <footer className="border-t border-border/60 pt-4 text-[10px] text-muted-foreground space-y-2">
-          <div>
-            Live FMP snapshot powers rankings and prices · EOD history powers
-            5D context and freshness details · Not financial advice.
-          </div>
+          <div>{t("footer_disclaimer")}</div>
           {/* Phase 1g — per-source freshness report. Replaces the
               previous one-line `Snapshot as of` since the new footer
               already carries that information plus a hover-to-expand

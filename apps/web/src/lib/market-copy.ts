@@ -14,6 +14,26 @@
  * `useFlowCopy` lexicon (separate concern).
  */
 
+const EN_COPY: Record<string, string> = {
+  section_heading: "Market Pulse",
+  toggle_us: "US",
+  toggle_cn: "CN",
+  refresh: "Refresh",
+  error_unavailable: "Market data unavailable — price history may still be loading.",
+  brief_loading: "Loading…",
+  brief_narrative_fallback: "Index performance · sector flows · what to watch",
+  sectors_heading: "Sector Rotation",
+  sectors_chart_vs: "vs S&P 500",
+  movers_heading: "Top Movers",
+  movers_gainers: "Top gainers",
+  movers_losers: "Top losers",
+  movers_etf: "ETF",
+  movers_stock: "Stock",
+  screener_heading: "Stock Screener",
+  footer_disclaimer:
+    "Live FMP snapshot powers rankings and prices · EOD history powers 5D context and freshness details · Not financial advice.",
+};
+
 const CN_COPY: Record<string, string> = {
   // ── Page chrome ───────────────────────────────────────────────────
   section_heading: "市场脉搏",
@@ -46,11 +66,6 @@ const CN_COPY: Record<string, string> = {
 };
 
 export function useMarketCopy(key: string, market: "US" | "CN"): string {
-  if (market === "CN") {
-    return CN_COPY[key] ?? key;
-  }
-  // US: return the key itself — components render their English defaults.
-  // This hook is additive; when market=US, components use their existing
-  // hardcoded English strings unchanged.
-  return key;
+  if (market === "CN") return CN_COPY[key] ?? key;
+  return EN_COPY[key] ?? key;
 }
