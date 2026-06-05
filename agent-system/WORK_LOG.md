@@ -9,6 +9,41 @@
 
 ## Current Session
 
+**Status:** 2026-06-05 (morning) — **Market Pulse cold-path resolved + first reusable learnings doc created.** Jimmy measured Market Pulse loading "quite slow, especially for CN" — diagnosis confirmed both US and CN cold paths took 80–110 seconds because the `_LIVE_CACHE` (5-min TTL) was never pre-warmed: every user landing outside the warm window paid the full cold cost. Plus CN was wasting 15–25s per cold computation calling FMP for `.SZ`/`.SS` tickers FMP doesn't carry.
+
+**Shipped today (2026-06-05):**
+
+*PR #137 — CN trend route 500s → ISO string* (cleanup from yesterday's CN saga)
+- Symptom: every `GET /api/cn/company/{ticker}/trend` returned 500 (Pydantic v2 `ResponseValidationError`)
+- Root cause: `CompanyTrendService` sets `result.latest_date = dates[0]` (a `datetime.date`); schema declares `Optional[str]`. US handler had always converted via `.isoformat()`; CN handler skipped the conversion.
+- Fix: explicit `TrendSection(...)` construction in `cn_company_trend` with `latest_date.isoformat()` (mirrors US pattern). 3 regression tests pin the post-fix invariant + a US regression bar.
+- Production verified: `/api/cn/company/300747.SZ/trend` returned 200 within ~30s of deploy.
+
+*PR #138 — Market Pulse pre-warm + skip FMP overlay for CN*
+- Before: CN cold 78s / US cold 108s / both warm ~2s. `_LIVE_CACHE` TTL is 5 min — any user landing outside that window paid the full cost. CN felt worse only because it gets less ambient traffic to keep the cache warm.
+- Fix A: new `_warmup_market_pulse_loop()` lifespan task — calls `get_live_pulse("US", db)` + `get_live_pulse("CN", db)` every 4 min (inside the 5-min cache TTL). Runs via `_run_async_in_thread` per trap #21; per-iteration `try/except` + `logger.exception` per trap #20.
+- Fix B: CN early-return in `get_live_pulse` — caches base EOD response directly, skips the FMP live overlay entirely (FMP has no CN data; the overlay was 15–25s of network round-trips returning empty).
+- Production verified: CN cold 78s → 1.85s, US cold 108s → 4.2s. Warmup ticks fire on schedule.
+- Test discipline: 3 new tests in `test_market_pulse_cn_skip.py` (CN skips FMP, CN caches base, US still calls FMP regression bar). Full suite: **809 pass, 12 skip** (was 806 pass before).
+
+*Reusable learnings + backlog updates (this PR)*
+- `docs/LEARNINGS.md` created — new file. Reference doc for patterns + principles distilled from real Livermore work. First topic populated: Performance (4 entries from today + a Diagnostic methodology section).
+- `docs/PROJECT_BACKLOG.md` §5 — added 3 deferred items: fix #3+#4 (batched `_load_bars` + candidate pool cap), Option B (CN FMP filter refinement that restores intraday freshness on US-listed China ETFs), Railway bill watch trigger.
+
+**Active branch:** main (HEAD: `0cdecb9` — PR #138 squash merge)
+**Tests:** **809 backend** all green; frontend unchanged
+**Deployed:** Railway auto-deployed both PRs; production verified
+- All prior infra notes from 2026-06-04 still apply
+- Railway monthly cost trajectory: $2.97 spent / $5.10 estimated (right at the $5 included credit on Hobby plan). The new pre-warm contribution is negligible because memory dominates 93% of the bill, not CPU — see `docs/LEARNINGS.md` "Optimize what actually costs money."
+
+**Next actions:**
+- All prior next-action items from 2026-06-04 still apply (CN i18n re-apply, CN backtest support, Sprint 2 PRDs, PR #131 merge)
+- New: revisit Market Pulse perf fixes #3/#4/Option B if Railway bill estimate creeps past ~$7/mo (see `docs/PROJECT_BACKLOG.md` §5 for trigger criteria)
+
+---
+
+## Previous session
+
 **Status:** End of 2026-06-04 (very late) — **CN Market (A-shares) shipped + two production outages, both resolved.** Full Chinese i18n + CN company overview live. The day had **two** Railway outages (not one): the morning's `Base.metadata.create_all` hung on autovacuum locks (fixed by fire-and-forget DB init), and the evening's 14-deploy cascade where the lifespan warmups blocked `/health` because they're `async def` but call sync DB. Both root causes now structurally impossible — DB init AND the 5 warmups run in threads with their own event loops. Production deploy `4291a85` is the first SUCCESS deploy of the day on the post-warmup-fix code; Market Pulse cold-cache latency back to 2s (was 12s during the comment-out interlude).
 
 **Shipped today (2026-06-04):**
