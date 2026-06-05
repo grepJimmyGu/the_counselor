@@ -613,6 +613,17 @@ class MarketPulseService:
             return cached_resp
 
         base = self.get_pulse(key, db)
+
+        # FMP doesn't support CN tickers (.SZ / .SS). The live overlay was
+        # firing serial network calls that returned empty / 404 for every
+        # CN symbol — pure latency cost (15-25s on cold cache) with zero
+        # enrichment. Skip the overlay for CN and cache the EOD snapshot
+        # directly so subsequent requests hit `_LIVE_CACHE` warm-path
+        # (~2s) instead of repeating the wasted overlay work.
+        if key == "CN":
+            _LIVE_CACHE[key] = (now, base)
+            return base
+
         symbols = _live_quote_symbols(base)
         if not symbols:
             return base

@@ -369,6 +369,41 @@ def _db_init(engine):
         logger.warning("_db_init: %s — tables may not be current", exc)
 
 
+async def _warmup_market_pulse_loop() -> None:
+    """Recurring background refresh of `_LIVE_CACHE` for US + CN Market Pulse.
+
+    Without this, the first user request after each 5-minute `_LIVE_CACHE`
+    expiry pays the full cold-cache cost — 80-110 seconds in production
+    against the 1800-element CN universe + N+1 `_load_bars` loop. With
+    the pre-warm running every 4 minutes (just inside the cache TTL),
+    every user request always lands on a warm cache and returns in ~2s.
+
+    This is `async def` and opens `SessionLocal()` with sync DB inside,
+    so it MUST run via `_run_async_in_thread` (trap #21). Each iteration
+    is wrapped in try/except with `logger.exception` (trap #20) so a
+    single transient failure doesn't kill the recurring loop.
+    """
+    from app.db.session import SessionLocal
+    from app.services.market_pulse_service import MarketPulseService
+
+    # Instance is cheap — the caches (_CACHE, _LIVE_CACHE, _NARRATIVE_CACHE)
+    # are module-level dicts shared across all MarketPulseService() instances,
+    # so this warmup populates the same cache the route reads from.
+    svc = MarketPulseService()
+
+    while True:
+        try:
+            with SessionLocal() as db:
+                await svc.get_live_pulse("US", db)
+                await svc.get_live_pulse("CN", db)
+            logger.info("Market Pulse warmup tick complete (US + CN)")
+        except Exception:
+            logger.exception("Market Pulse warmup tick failed")  # trap #20
+        # 4 min — comfortably inside the 5-min `_LIVE_CACHE_TTL_SECONDS`
+        # so the cache is always fresh when a user lands.
+        await asyncio.sleep(240)
+
+
 def _run_async_in_thread(coro) -> None:
     """Run an async coroutine inside a worker thread with its own event loop.
 
@@ -423,6 +458,10 @@ async def lifespan(_: FastAPI):
     asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _warmup_commodity_spots()))
     asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _seed_and_warmup_stock_universe()))
     asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _invalidate_stale_bi_caches()))
+    # Recurring pulse pre-warm — keeps `_LIVE_CACHE` populated so users
+    # never pay the 80-second cold-cache cost. Runs every 4 min on its
+    # own thread + event loop (trap #21 — sync DB inside the service).
+    asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _warmup_market_pulse_loop()))
     yield
 
 
