@@ -1701,3 +1701,146 @@ We're not migrating to async SQLAlchemy. We're not rewriting the warmups. We're 
 It's past 22:00 UTC+08 as I write this. Jimmy's still awake — refused to close the laptop until the codification was on `main`. The discipline that gets you through a 12-hour outage saga: don't ship the code fix without shipping the lesson too. Tomorrow's agent doesn't get to re-learn what tonight cost.
 
 *Last updated: 2026-06-04 (very end of day — Episode 32 added 2026-06-04 22:30 UTC+08).*
+
+### Episode 33 — The cold path was always there, we just never measured it (June 5)
+
+Most performance bugs in this project have been crash-shaped. The DB connection pool drains and everything 500s. The lifespan blocks and `/health` times out. The deploy fails 14 times in a row. The system breaks loudly, you find the broken part, you fix it, the system stops breaking.
+
+Episode 33 is the other kind. The kind where the system was "broken" for **six weeks** in plain sight and nobody noticed, because the way it was broken was invisible inside the development loop.
+
+#### The setup: closing out the night before
+
+Morning after the 14-deploy outage. Jimmy opened with cleanup — the previous night's logs showed `GET /api/cn/company/{ticker}/trend` returning 500 for every A-share. I had triaged it at 04:00 UTC and chipped it for morning, with the diagnosis pre-baked: `CompanyTrendService` sets `result.latest_date = dates[0]` (a `datetime.date`); the response schema declares `latest_date: Optional[str]`; Pydantic v2's strict response validation rejects the mismatch. The US handler had always converted via `.isoformat()` at the route layer. The CN handler skipped the conversion when it was added.
+
+PR #137 landed clean — a 23-line surgical fix in the CN route + 135 lines of regression tests. Production verified ~30 seconds after merge. Trap #17 family ("intermediate state expires ORM-bound values") in spirit, even though this one was specifically about a dataclass field type, not an ORM expire.
+
+That should have been the morning. Instead Jimmy opened a new thread:
+
+> *"Hi, I have noticed the website loading speed is quite slow, could you help me diagnose"*
+
+#### The misdirection I almost walked into
+
+My first instinct was "CN page is slow, look at CN code." I almost spawned an Explore agent to start mapping `cn_market.py` + `cn_overview_service.py` + the CN universe data. That would have been the wrong investigation — and the only reason I didn't take it is the discipline rule of measuring first.
+
+So I curled instead. Six endpoints, cold + warm:
+
+```
+=== /api/market/pulse?market=CN (cold) ===     TTFB: 78.6s | total: 79.1s
+=== /api/market/pulse?market=CN (warm) ===     TTFB: 1.75s
+=== /api/market/pulse?market=US (cold) ===     TTFB: 108.7s | total: 109.1s
+=== /api/market/pulse?market=US (warm) ===     TTFB: 1.78s
+=== /api/market/pulse?market=CN&bypass=true === TTFB: 110.0s
+=== /api/market/history-rhymes?market=CN ===   TTFB: 2.0s
+```
+
+The table flipped the framing in 30 seconds. CN wasn't slower than US. **CN was 30 seconds *faster* than US on cold**. The slowness Jimmy was feeling on CN wasn't a CN-specific bug; it was the dominant Market Pulse cold-path cost combined with CN getting less ambient traffic to keep the cache warm. The diagnosis stopped being "what's broken about CN" and became "why does the cold path take 80+ seconds for either market."
+
+This was the moment that mattered. Without that table I would have spent 90 minutes spelunking through CN-specific code looking for a bottleneck that didn't exist.
+
+#### The shape of the cold path
+
+The 80–110 seconds broke down into a stack of contributors I read off the service code:
+
+- **N+1 query pattern**: `_build_top_assets` / `_build_cn_top_assets` query the symbols table once, then call `_load_bars(sym, db)` for each result. ~500 round-trips per cold compute. ~30–50s.
+- **1800-symbol IN clause** (CN only): one really wide SQL query against the CSI 300/500/1000 universe. ~2s.
+- **FMP live overlay**: for US, one network round-trip per symbol, ~500 stocks. ~10–20s. For CN, the same overlay was firing against `.SZ`/`.SS` tickers — FMP doesn't have those, so the calls returned empty / 404, but the network round-trips still happened. ~15–25s of pure waste.
+- **macro_signals fetch** (Alpha Vantage CPI + Treasury + FRED CFNAI + HY OAS): usually 24h-cached. ~0–5s on cold.
+- **LLM narrative**: one Anthropic call. ~2–8s on cold.
+
+And **no one was pre-warming any of this**. The lifespan warmups (`_warmup_market_etfs`, `_warmup_gspc`, etc.) load price bars into the DB — they don't actually call `get_live_pulse` to populate the response cache. So every 5 minutes when `_LIVE_CACHE` expired, the next user paid the full cold cost.
+
+That last point was the punchline. The cache existed. The TTL was 5 minutes. But the *only* thing populating the cache was user requests. So whichever user happened to land first in any 5-minute window was the involuntary warming agent for everyone else. CN gets fewer of those, so CN users got volunteered for the role more often.
+
+#### The fix that was almost too small
+
+Two changes:
+
+```python
+# A. New lifespan task — runs every 4 min, inside the 5-min TTL
+async def _warmup_market_pulse_loop() -> None:
+    svc = MarketPulseService()
+    while True:
+        try:
+            with SessionLocal() as db:
+                await svc.get_live_pulse("US", db)
+                await svc.get_live_pulse("CN", db)
+            logger.info("Market Pulse warmup tick complete (US + CN)")
+        except Exception:
+            logger.exception("Market Pulse warmup tick failed")
+        await asyncio.sleep(240)
+
+# B. CN early-return in get_live_pulse — skip the wasted FMP overlay
+if key == "CN":
+    _LIVE_CACHE[key] = (now, base)
+    return base
+```
+
+The pre-warm rides the `_run_async_in_thread` bridge from PR #134. Trap #21 made this pattern safe; without that bridge, adding a recurring background task that calls sync DB would have been a healthcheck-blocking deploy bomb. So the architectural fix from one episode unlocked the perf fix in the next.
+
+The PR (#138) was 50 lines of production code + 164 lines of tests. Production verified within 90 seconds of deploy: CN cold 78s → 1.85s, US cold 108s → 4.2s. The warmup tick fires every 4 minutes; the log line proves it. Every user now lands on warm cache, always.
+
+#### Quote that captured the moment
+
+After I reported the speed numbers post-deploy, Jimmy didn't celebrate. He asked:
+
+> *"what's the user experience change, will they see less information?"*
+
+I gave him my best answer: zero information lost, A-shares unchanged, pure speed win.
+
+He didn't accept that — pressed for the deeper "if there's no net loss why didn't we build this in the first place" — and that question made me actually walk through the CN response shape one card type at a time. Indices (`FXI`, `KWEB`, `MCHI`) — US-listed China ETFs. Sectors (`KWEB`, `FXI`, `MCHI`, `CQQQ`, `FLCH`, `CHIE`) — US-listed. Macro (`VXX`, `UUP`, `TLT`, `HYG`) — US-listed.
+
+**FMP DID have all those.** My CN-skip removed not just the wasted A-share calls but also the legitimate enrichment on ~10 US-listed cards. During US trading hours, CN users now see FXI's *yesterday's* close instead of intraday. Typically 0.5–2% drift on a normal day.
+
+I had told him "no information loss" because I'd assumed the entire CN universe was A-shares. It wasn't. The right fix is the one I should have written in the first place — filter `.SZ`/`.SS` out of the symbol list, keep the overlay running for everything else. That landed as a backlog item with a trigger condition: "when a CN user notices stale FXI/KWEB during US trading hours."
+
+The lesson: a clean fix from a developer's POV can have user-visible loss the developer didn't think to check. The discipline that catches it isn't more careful coding — it's the user (Jimmy) asking the second-order question.
+
+#### The cost-axis flip
+
+Then came the optimization question. Jimmy: "should we fix #3 and #4 now?" (the deeper batching + N+1 elimination fixes I'd flagged earlier as "useful but not user-visible if pre-warm runs reliably").
+
+My first answer leaned on my own model of Railway pricing: "yes if your bill is high; the pre-warm burns CPU." Jimmy didn't know his bill. I told him how to check it. He sent a screenshot of the Usage dashboard.
+
+| Resource | Cost | % of bill |
+|---|---|---|
+| Memory | $2.76 | **93%** |
+| CPU | $0.04 | 1.4% |
+| Egress | $0.03 | 1% |
+
+**On the $5 Hobby plan, CPU is essentially free. Memory is the entire bill.** My pre-warm adds ~80s of background compute every 4 min — which I had been modeling as "expensive CPU." It isn't. Cached responses are 220 KB; baseline memory is 1.5 GB. Pre-warm doesn't move the needle on either axis that costs money.
+
+The recommendation flipped. Fixes #3 and #4 would optimize the wrong axis — they save CPU, which Railway is already giving us for free. Doing them for cost reasons would burn 2 hours of code for $0 of savings. The right move was: don't optimize until the bill changes shape.
+
+This wasn't a code lesson. It was a methodology lesson. **Read the dashboard before sizing the fix.** Without that step, I'd have walked Jimmy into 2 hours of optimization work that solved nothing.
+
+#### The lesson that became LEARNINGS.md
+
+Episode 32 closed with a trap added to `apps/api/CLAUDE.md` — the right home for code-level rules that bite repeatedly. Episode 33's lessons were a different shape: not "always do X in code," but "always do Y in methodology." They didn't fit any of the existing docs:
+
+- `KNOWN_ISSUES.md` — for crash post-mortems. Nothing crashed today.
+- `BUILDING_LIVERMORE_JOURNAL.md` — for narrative. (Where you're reading this.)
+- `apps/api/CLAUDE.md` (traps) — for code patterns to avoid. Not what today produced.
+
+So Jimmy asked for "a learning doc I can come back to" and `docs/LEARNINGS.md` got created. Five performance entries, three diagnostic-methodology entries, topic placeholders for Database / Frontend / Operations / Process. Designed to grow organically as different problems teach different lessons.
+
+The shape of it matters as much as the contents: each entry has a one-line TL;DR, a paragraph of reasoning, a "when to apply" trigger, and a link to the original work. Future-Jimmy looking up "how should I diagnose a perf issue" doesn't have to re-read this episode; he reads "Cold paths are invisible in dev — measure them explicitly in production" and knows what to do.
+
+The narrative lives here. The transferable rule lives there. Both matter; the difference matters.
+
+#### Final state at end of session
+
+- ✅ PR #137 — CN trend 500s fixed, deployed, verified
+- ✅ PR #138 — Market Pulse pre-warm + CN FMP skip, CN cold 78s → 1.85s, US cold 108s → 4.2s
+- ✅ PR #139 — WORK_LOG + LEARNINGS.md + PROJECT_BACKLOG updates (this episode + the meta-lesson it produced)
+- ✅ Pre-warm tick firing on a 4-minute cadence, confirmed via curl polling and via Railway log lines
+- ✅ Deferred fixes (#3 batch `_load_bars`, #4 cap CN candidate pool, "Option B" CN FMP filter refinement) all in backlog §5 with explicit trigger conditions, not lost
+- ✅ `docs/LEARNINGS.md` created with first content + extensible skeleton
+- ✅ Railway bill snapshot captured ($2.97 spent / $5.10 estimated, memory dominant) so future cost decisions have a baseline to compare against
+
+The day ended without crisis. No emergency reverts, no late-night debugging, no `gh pr merge` at 03:00. Just a measurement, a diagnosis, a surgical fix, a question that caught an incomplete answer, a methodology pivot, and three docs to make sure none of it has to be re-learned.
+
+#### Content hook
+
+*"Cold paths are invisible in dev. You see your warm response time and assume that's what users get. The only way to know what users actually pay is to curl your production endpoint with `?bypass_cache=true`. We had an 80-second cold path live for six weeks before anyone measured it."*
+
+*Last updated: 2026-06-05 (morning, Episode 33 added).*

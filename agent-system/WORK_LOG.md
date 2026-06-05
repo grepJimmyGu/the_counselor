@@ -27,8 +27,9 @@
 - Test discipline: 3 new tests in `test_market_pulse_cn_skip.py` (CN skips FMP, CN caches base, US still calls FMP regression bar). Full suite: **809 pass, 12 skip** (was 806 pass before).
 
 *Reusable learnings + backlog updates (this PR)*
-- `docs/LEARNINGS.md` created — new file. Reference doc for patterns + principles distilled from real Livermore work. First topic populated: Performance (4 entries from today + a Diagnostic methodology section).
-- `docs/PROJECT_BACKLOG.md` §5 — added 3 deferred items: fix #3+#4 (batched `_load_bars` + candidate pool cap), Option B (CN FMP filter refinement that restores intraday freshness on US-listed China ETFs), Railway bill watch trigger.
+- `docs/LEARNINGS.md` created — new file. Reference doc for patterns + principles distilled from real Livermore work. First topic populated: Performance (5 entries from today + a Diagnostic methodology section).
+- `docs/PROJECT_BACKLOG.md` §5 — added 4 deferred items: fix #3 (batched `_load_bars`), fix #4 (candidate pool cap), Option B (CN FMP filter refinement that restores intraday freshness on US-listed China ETFs), Railway bill watch trigger.
+- `docs/BUILDING_LIVERMORE_JOURNAL.md` — **Episode 33** added: "The cold path was always there, we just never measured it." Narrative of the perf diagnosis + the Railway-bill-flips-the-recommendation moment + the meta-lesson that produced LEARNINGS.md.
 
 **Active branch:** main (HEAD: `0cdecb9` — PR #138 squash merge)
 **Tests:** **809 backend** all green; frontend unchanged
