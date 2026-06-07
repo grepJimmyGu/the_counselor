@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from contextlib import asynccontextmanager
+from typing import Optional
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -369,6 +370,42 @@ def _db_init(engine):
         logger.warning("_db_init: %s — tables may not be current", exc)
 
 
+# Module-level health state for the recurring pulse warmup. Updated by
+# `_warmup_market_pulse_loop` on every tick (success + failure paths). Read by
+# `/health` to surface warmup freshness as a programmatic signal.
+#
+# Why this exists: the 2026-06-07 outage failed every warmup tick for 28+ minutes
+# while only emitting `logger.exception` lines that nobody was watching. By the
+# time Jimmy noticed (via a broken page), 9 user requests were already queued on
+# wedged locks. Surfacing the same failure on `/health` means a one-minute scrape
+# would have flipped to "degraded" within 4 minutes of the first failed tick.
+#
+# Schema:
+#   last_success_at: datetime | None — UTC timestamp of the most recent successful tick
+#   consecutive_failures: int — number of consecutive failures since the last success
+#   last_error: str | None — single-line summary of the most recent exception
+from datetime import datetime as _datetime, timezone as _timezone
+from typing import Any as _Any
+
+_pulse_warmup_state: dict[str, _Any] = {
+    "last_success_at": None,
+    "consecutive_failures": 0,
+    "last_error": None,
+}
+
+
+def _record_pulse_warmup_success() -> None:
+    _pulse_warmup_state["last_success_at"] = _datetime.now(_timezone.utc)
+    _pulse_warmup_state["consecutive_failures"] = 0
+    _pulse_warmup_state["last_error"] = None
+
+
+def _record_pulse_warmup_failure(exc: BaseException) -> None:
+    _pulse_warmup_state["consecutive_failures"] += 1
+    # Single-line summary — full traceback is in the log via `logger.exception`.
+    _pulse_warmup_state["last_error"] = f"{type(exc).__name__}: {exc}"[:500]
+
+
 async def _warmup_market_pulse_loop() -> None:
     """Recurring background refresh of the Market Pulse base `_CACHE` for
     US + CN. Calls `get_pulse` (NOT `get_live_pulse`) — see trap #22.
@@ -416,8 +453,10 @@ async def _warmup_market_pulse_loop() -> None:
                 # MUST NOT call get_live_pulse here (trap #22, see docstring).
                 svc.get_pulse("US", db)
                 svc.get_pulse("CN", db)
+            _record_pulse_warmup_success()  # surfaced via /health
             logger.info("Market Pulse warmup tick complete (base, US + CN)")
-        except Exception:
+        except Exception as exc:
+            _record_pulse_warmup_failure(exc)  # surfaced via /health
             logger.exception("Market Pulse warmup tick failed")  # trap #20
         # 4 min — keeps base _CACHE warm. _LIVE_CACHE still uses 5-min TTL,
         # populated lazily by user requests when they fire the FMP overlay.
@@ -543,6 +582,52 @@ if get_settings().signal_alerts_enabled:
     app.include_router(signals_router)
 
 
+# Thresholds for /health to flip "healthy" → "degraded" on the pulse warmup.
+# Both must hold to stay healthy:
+#   - Most recent successful tick within `_PULSE_WARMUP_MAX_AGE_SECONDS`
+#   - Fewer than `_PULSE_WARMUP_MAX_FAILURES` consecutive failures
+# Picked so a single transient blip doesn't flip the signal but the
+# 2026-06-07 pattern (every tick fails) flips within ~12 minutes.
+_PULSE_WARMUP_MAX_AGE_SECONDS = 600  # 10 min — 2.5× the 4-min tick cadence
+_PULSE_WARMUP_MAX_FAILURES = 3       # 3 consecutive ticks = ~12 min of failure
+
+
 @app.get("/health")
-async def health() -> dict[str, str]:
-    return {"status": "ok"}
+async def health() -> dict[str, _Any]:
+    """Returns service health + the pulse warmup freshness signal.
+
+    Backwards compatible: the top-level `status` field still exists and is
+    `"ok"` when healthy (was a string before; preserves that for Railway's
+    healthcheck which only inspects the response code). Anything degraded
+    surfaces in `pulse_warmup` for external scrapers / the email alerter.
+    """
+    last_success = _pulse_warmup_state["last_success_at"]
+    consecutive_failures = _pulse_warmup_state["consecutive_failures"]
+
+    if last_success is None:
+        age_seconds: Optional[int] = None
+    else:
+        age_seconds = int((_datetime.now(_timezone.utc) - last_success).total_seconds())
+
+    pulse_warmup_healthy = (
+        age_seconds is not None
+        and age_seconds <= _PULSE_WARMUP_MAX_AGE_SECONDS
+        and consecutive_failures < _PULSE_WARMUP_MAX_FAILURES
+    )
+
+    overall_status = "ok" if pulse_warmup_healthy else "degraded"
+
+    return {
+        "status": overall_status,
+        "pulse_warmup": {
+            "healthy": pulse_warmup_healthy,
+            "last_success_at": last_success.isoformat() if last_success else None,
+            "age_seconds": age_seconds,
+            "consecutive_failures": consecutive_failures,
+            "last_error": _pulse_warmup_state["last_error"],
+            "thresholds": {
+                "max_age_seconds": _PULSE_WARMUP_MAX_AGE_SECONDS,
+                "max_consecutive_failures": _PULSE_WARMUP_MAX_FAILURES,
+            },
+        },
+    }
