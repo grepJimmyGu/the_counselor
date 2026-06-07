@@ -28,6 +28,22 @@ def _backend_url() -> str:
     )
 
 
+def _triage_url() -> str:
+    """One-click link to the markdown triage bundle (PR-D). Embeds the
+    `OPS_TRIAGE_TOKEN` so Jimmy can click straight from the email,
+    `curl` the URL, and paste the body into a fresh Claude session.
+
+    Returns empty string when the token isn't configured — caller
+    branches on truthiness to drop the link rather than render a
+    half-broken one.
+    """
+    from app.core.config import get_settings
+    token = (get_settings().ops_triage_token or "").strip()
+    if not token:
+        return ""
+    return f"{_backend_url()}/internal/triage-context?token={token}"
+
+
 def render_health_degraded(payload: dict[str, Any]) -> dict[str, str]:
     """Render the "warmup degraded" alert.
 
@@ -43,6 +59,19 @@ def render_health_degraded(payload: dict[str, Any]) -> dict[str, str]:
 
     age_str = "unknown" if age is None else f"{age // 60} min {age % 60} s ago"
 
+    triage_url = _triage_url()
+    triage_link_text = (
+        f"  - Triage bundle (one-click):  {triage_url}"
+        if triage_url
+        else "  - Triage bundle: set OPS_TRIAGE_TOKEN to enable"
+    )
+    triage_link_html = (
+        f'<a href="{triage_url}" style="color:#0ea5e9;text-decoration:none;font-weight:600;">'
+        f"Triage bundle (paste into Claude) →</a><br>"
+        if triage_url
+        else '<span style="color:#94a3b8;">Triage bundle: set OPS_TRIAGE_TOKEN to enable</span><br>'
+    )
+
     subject = "[Livermore] /health degraded — pulse warmup is stale"
 
     text = f"""Livermore /health flipped to DEGRADED.
@@ -55,6 +84,7 @@ Quick links:
   - /health endpoint:    {_backend_url()}/health
   - Market Pulse page:   {_site_url()}/stocks
   - Railway dashboard:   https://railway.app/dashboard
+{triage_link_text}
 
 This alert fires when the warmup has either gone silent for > 10 min
 or failed 3 consecutive ticks. Repeat alerts are throttled — you'll
@@ -85,6 +115,7 @@ invisible in dev" for the framing.
     <tr><td style="padding:8px 28px 24px 28px;">
       <p style="margin:0 0 10px;font-size:13px;color:#334155;">Quick links:</p>
       <p style="margin:0;font-size:13px;line-height:1.9;">
+        {triage_link_html}
         <a href="{_backend_url()}/health" style="color:#0ea5e9;text-decoration:none;font-weight:600;">/health endpoint →</a><br>
         <a href="{_site_url()}/stocks" style="color:#0ea5e9;text-decoration:none;font-weight:600;">Market Pulse page →</a><br>
         <a href="https://railway.app/dashboard" style="color:#0ea5e9;text-decoration:none;font-weight:600;">Railway dashboard →</a>
