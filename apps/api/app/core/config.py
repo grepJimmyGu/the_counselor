@@ -62,6 +62,12 @@ class Settings(BaseSettings):
     ops_health_alerts_enabled: bool = False
     ops_alert_recipient: str = ""
     ops_health_alert_cooldown_minutes: int = 60
+    # PR-D — triage context bundle. Shared-secret token guards the
+    # /internal/triage-context endpoint, which exposes /health + commit
+    # SHAs + suspected trap matches. Embed in the PR-C alert email's
+    # "Open triage" link so the one-click flow works for Jimmy without
+    # exposing the bundle to anyone with the URL.
+    ops_triage_token: str = ""
     frontend_url: str = "http://localhost:3000"  # used for portal/checkout return URLs
     llm_provider: str = "disabled"
     llm_api_key: str = ""
