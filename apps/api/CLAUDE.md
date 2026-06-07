@@ -686,6 +686,89 @@ Full post-mortem: `docs/KNOWN_ISSUES.md` (2026-06-04 entry, "Lifespan
 warmups blocked the event loop, 14 deploys failed, production served
 by a pre-CN container from before the outage").
 
+### 22. `asyncio` primitives bind to the first event loop that touches them — don't share singletons across thread-bridge warmups
+
+Trap #21's `_run_async_in_thread` bridge correctly keeps sync DB calls
+isolated to the warmup thread's event loop. But it has a subtle second-
+order failure mode: **any `asyncio.Lock`, `asyncio.Semaphore`,
+`asyncio.Queue`, or `asyncio.Event` is bound to the event loop running
+when it's created** (Python 3.10+ `_get_loop()` semantics). Module-level
+singletons that lazily create these primitives are now landmines —
+whichever thread touches them first owns the binding forever.
+
+**The 2026-06-07 Market Pulse outage** (this PR): PR #138's
+`_warmup_market_pulse_loop` ran in a worker thread (per trap #21) and
+called `live_quote_service.get_quotes(symbols)`. `live_quote_service` is
+a module-level singleton with:
+
+```python
+def _lock_for(self, symbol: str) -> asyncio.Lock:
+    lock = self._locks.get(symbol)
+    if lock is None:
+        lock = asyncio.Lock()  # ← binds to current event loop
+        self._locks[symbol] = lock
+    return lock
+```
+
+First warmup tick: locks bound to the warmup thread's loop. Next user
+request on the main loop tries `await lock.acquire()` → `RuntimeError:
+... is bound to a different event loop`. Worse — if the warmup acquired
+a lock but errored before releasing it, the lock is wedged forever; user
+requests pile up as waiters and time out at 180s.
+
+Production impact: **every `GET /api/market/pulse?market=US` returned
+HTTP 000 (connection timeout) for ~28 minutes**. CN was unaffected
+because PR #138's CN early-return never reached `live_quote_service`.
+
+**Pattern: warmup tasks that run via `_run_async_in_thread` MUST NOT
+touch services that hold shared asyncio primitives.** Three safe shapes:
+
+```python
+# SAFE — calls only sync/DB code, no asyncio primitives held by singletons:
+async def _warmup_safe() -> None:
+    while True:
+        try:
+            with SessionLocal() as db:
+                svc.compute_base(db)  # pure compute + DB, no shared locks
+        except Exception:
+            logger.exception("warmup failed")
+        await asyncio.sleep(240)
+
+# ALSO SAFE — warmup uses its own private primitives, doesn't share:
+async def _warmup_with_private_lock() -> None:
+    private_lock = asyncio.Lock()  # bound to THIS thread's loop only
+    while True:
+        async with private_lock:
+            ...
+
+# UNSAFE — touches module-level singleton with shared asyncio.Lock:
+async def _warmup_unsafe() -> None:
+    while True:
+        # If `singleton_service` lazily creates asyncio.Lock() instances
+        # cached at module scope, this call wedges them to this thread's
+        # loop. User requests on the main loop then RuntimeError.
+        await singleton_service.do_thing()
+```
+
+**Audit rule for new warmup tasks (in addition to trap #21):** if the
+warmup calls into a service that's instantiated as a module-level
+singleton, audit that service for `asyncio.Lock`, `Semaphore`, `Queue`,
+or `Event`. If any are present and cached at instance scope, the warmup
+either (a) must not call that service, or (b) the service must be
+refactored to not share primitives across loops (e.g. lock-free, or per-
+loop lock dicts keyed by `id(asyncio.get_running_loop())`).
+
+To find existing singletons that hold asyncio primitives:
+```bash
+grep -rn "asyncio\.\(Lock\|Semaphore\|Queue\|Event\)\(\)" apps/api/app/services/
+```
+
+Each match: trace whether the containing class is instantiated at
+module scope. If yes + the warmup loop touches it → trap #22 latent.
+
+Full post-mortem: this PR's commit message + the 2026-06-07 entry in
+`docs/KNOWN_ISSUES.md`.
+
 ---
 
 ## Cross-dialect quick reference
