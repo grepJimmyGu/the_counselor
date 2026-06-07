@@ -9,6 +9,75 @@
 
 ## Current Session
 
+**Status:** 2026-06-07 (evening) — **Market Pulse outage hotfixed + full A+B+C+D reliability stack shipped.** Jimmy shared a Railway log file showing 8 warmup ticks failing in 28 min with `RuntimeError: ... is bound to a different event loop` — a regression PR #138 introduced two days ago. Production was hard down on US Market Pulse (HTTP 000 / 180s for users) when he caught it. Hotfix (PR #140) restored service within minutes; the rest of the day was spent making sure THE NEXT outage gets detected, cushioned for users, paged to Jimmy, and pre-triaged for the diagnosing agent — all wired end-to-end via four sequential PRs.
+
+**Shipped today (2026-06-07):**
+
+*PR #140 — Hotfix: pulse warmup must not touch live_quote_service (trap #22)*
+- Symptom: `GET /api/market/pulse?market=US` returned HTTP 000 after 180s; Railway logs showed 8 consecutive warmup-tick failures with `RuntimeError: <asyncio.locks.Lock ...> is bound to a different event loop` and `[locked, waiters:9]`.
+- Root cause: PR #138's `_warmup_market_pulse_loop` ran in a worker thread (correct per trap #21) but called `svc.get_live_pulse(...)` → `live_quote_service.get_quotes(...)`. `live_quote_service` lazily creates per-symbol `asyncio.Lock()` instances that bind to whichever event loop touches them first. Warmup thread → locks bound to thread's loop → user requests on main loop got `RuntimeError`. Worse: locks the warmup acquired-but-errored-mid-flight wedged forever; user requests piled up as waiters and timed out.
+- Fix: changed warmup to call `svc.get_pulse(...)` (base computation only, populates 60-min `_CACHE`). User requests still fire the FMP overlay on the main loop where the locks belong. Tradeoff: US users on cold `_LIVE_CACHE` pay ~15-20s for the overlay instead of my PR #138 claim of always-2s — honest walkback, still 4-7× better than the original 80s cold.
+- Codified as **trap #22** in `apps/api/CLAUDE.md` with audit recipe: `grep -rn "asyncio\.\(Lock\|Semaphore\|Queue\|Event\)" apps/api/app/services/`.
+- 2 new tests pin "warmup must not call live_quote_service" + "warmup must call get_pulse for both markets" so the regression can't silently come back.
+
+*PR #141 — PR-A: `/health` warmup freshness signal*
+- `_pulse_warmup_state` module-level dict tracks last success / consecutive failures / last error.
+- `/health` payload extended with `pulse_warmup.healthy / age_seconds / consecutive_failures / last_error / thresholds`.
+- `status: degraded` flips when warmup is stale (>10 min) OR has ≥3 consecutive failures OR never succeeded.
+- Backwards compatible: top-level `status` is still `"ok"` when healthy so Railway healthcheck contract is unchanged.
+- 6 tests pin the success/failure/healthy/degraded transitions + boot window.
+
+*PR #142 — PR-B: Frontend graceful degradation*
+- New `pulse-fallback-cache.ts` writes last-good responses to localStorage per market (24h staleness bar; versioned envelope).
+- New `StaleDataBanner.tsx` — above-the-fold "Live market data temporarily unavailable. Showing the last successful snapshot from HH:MM."
+- `_market-pulse.tsx` state machine: on fetch failure, render fallback + banner; auto-retry every 30s; clear banner on success.
+- `getMarketPulse()` now uses an `AbortController` with a 30s timeout (was infinite) so the page can't hang.
+- 8 tests pin the cache contract (round-trip, staleness bar, corrupt JSON safety, quota safety, version mismatch).
+
+*PR #143 — PR-C: Email alerter polling `/health`*
+- New `health_monitor_job` cron (every minute) reads `compute_health_state()` directly in-process — no HTTP round-trip.
+- State machine: boot window (first 5 min) suppresses alerts but tracks `degraded_since`; onset transitions fire immediately; persistent degraded throttles to cooldown (60 min default); ok-after-degraded fires a recovery email.
+- Emails via Resend transactional sender (existing infra). `ops_email_service.send_ops_email()` bypasses User/prefs because alerts must always deliver.
+- Gated by `OPS_HEALTH_ALERTS_ENABLED` env var (default false); safe to land without committing to the notification flow.
+- 7 tests pin the state machine: disabled-flag, first-degraded, cooldown throttle, cooldown-elapsed reminder, recovery, boot window, ok-to-ok no-op.
+
+*PR #144 — PR-D: Triage context bundle + one-click Claude link*
+- New `/internal/triage-context?token=<OPS_TRIAGE_TOKEN>` endpoint returns markdown with /health snapshot + suspected trap matches + last 5 commits + a "your task" rubric.
+- `_match_traps_for_error()` keyword matcher: 13 keyword groups → traps #3/#7/#10/#11/#12/#17/#20/#21/#22. Today's `RuntimeError ... different event loop` correctly surfaces trap #22.
+- PR-C's alert email now embeds the triage URL as the first quick link. Falls back to "set `OPS_TRIAGE_TOKEN` to enable" copy when the token isn't configured.
+- 11 tests pin matcher / composer / endpoint (token-gated: 403 unconfigured, 401 wrong, 200 + markdown on correct).
+
+*Reliability stack docs (this PR)*
+- `agent-system/WORK_LOG.md` — current session refreshed; previous demoted.
+- `docs/LEARNINGS.md` — four new entries under Diagnostic methodology / Operations / Documentation+process; Operations section newly populated.
+- `docs/BUILDING_LIVERMORE_JOURNAL.md` — Episode 34 "The reliability stack" (the day's narrative + the meta-lesson).
+- `CLAUDE.md` — one new soft rule about verifying post-deploy under concurrent load (not single-curl).
+
+**Active branch:** main (HEAD: `70b14a6` — PR #144 squash merge)
+**Tests:** **835 backend** + **75 frontend vitest** all green (+38 tests today)
+**Deployed:** Railway auto-deployed all 5 PRs; production verified: US Market Pulse responding 200 (warm ~1.7s, cold-after-LIVE-CACHE-expiry ~15-20s); `/health` reports `status: ok` with pulse_warmup payload; `/internal/triage-context` returns 403 (no token configured yet — intentional).
+- All prior infra notes still apply
+- Railway monthly cost still tracking ~$5 estimated; memory dominates, today's additions are negligible (one cron + a few in-memory dicts)
+
+**Three env vars to flip the alert loop on** (none required for code to be safe):
+```
+OPS_HEALTH_ALERTS_ENABLED=true
+OPS_ALERT_RECIPIENT=<your email>
+OPS_TRIAGE_TOKEN=$(openssl rand -hex 16)
+```
+
+**Merge protocol note:** Per PARALLEL_WORK.md, deepseek-main is the master merger since 2026-06-01. Today's 5 merges (PR #140-#144) were each authorized by Jimmy explicitly ("merge", "1 merge a", etc.) — the "fall back to Jimmy" escape valve from PARALLEL_WORK.md, not a role change. No PARALLEL_WORK.md update needed.
+
+**Next actions (post 2026-06-07):**
+- All prior next actions from 2026-06-05 still apply (CN i18n re-apply, CN backtest support, Sprint 2 PRDs PRD-15/16/17/18, PR #131 merge if Jimmy signals)
+- New: set the 3 ops env vars on Railway when ready to actually receive alerts. Until then, the wiring is inert (safe).
+- New: monitor if a future incident actually surfaces a trap via the matcher — extend `_TRAP_KEYWORD_MAP` in `triage_context_service.py` as new patterns emerge.
+- Consider: stack E+F+G (auto-remediation, auto-rollback) if traffic ever grows to the point where minutes of outage cost real money. Held back today because false-positive cost > saved minutes at current scale.
+
+---
+
+## Previous session
+
 **Status:** 2026-06-05 (morning) — **Market Pulse cold-path resolved + first reusable learnings doc created.** Jimmy measured Market Pulse loading "quite slow, especially for CN" — diagnosis confirmed both US and CN cold paths took 80–110 seconds because the `_LIVE_CACHE` (5-min TTL) was never pre-warmed: every user landing outside the warm window paid the full cold cost. Plus CN was wasting 15–25s per cold computation calling FMP for `.SZ`/`.SS` tickers FMP doesn't carry.
 
 **Shipped today (2026-06-05):**

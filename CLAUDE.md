@@ -120,6 +120,19 @@ not improvise rules from training-data assumptions.
   foreground. *Why:* 2026-05-24 — a SameSite=None deploy poll sat in the
   "Running" list for 128 minutes after its condition was met because the
   harness never received the success signal from the dead OS process.
+- **Verify post-deploy under concurrent load, not single-curl, when your
+  change touches shared mutable state across loops or threads.** A single
+  sequential curl after deploy can't generate the conditions for
+  concurrency bugs (cross-loop locks, race conditions, pool exhaustion)
+  to manifest — they need overlapping requests. The cheap version: 10
+  parallel curls or two browser tabs hammering refresh; if any hangs,
+  the sequential check was lying. *Why:* 2026-06-07 — PR #138's "verified
+  live in production" was one curl that landed warm; the cross-loop
+  `asyncio.Lock` bug only manifested under concurrent traffic 48 hours
+  later, taking US Market Pulse down for 28+ minutes. Trap #22 codifies
+  the code-level pattern; this rule covers the verification gap.
+  Full discussion: `docs/LEARNINGS.md` "Single-user post-deploy
+  verification can't catch concurrency bugs by design."
 
 ---
 

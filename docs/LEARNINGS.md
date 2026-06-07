@@ -205,6 +205,30 @@ deferred follow-up.
 
 ## Diagnostic methodology
 
+### Single-user post-deploy verification can't catch concurrency bugs by design
+**TL;DR:** "I curled it once after deploy and it returned 200" is necessary but not sufficient. Concurrency bugs need concurrent load to manifest.
+
+The 2026-06-07 outage walked through this directly. PR #138 introduced a recurring background warmup that called a singleton holding `asyncio.Lock` instances. The lock-collision bug only fires when:
+1. The warmup is mid-flight (lock acquired) on event loop A
+2. A user request lands on event loop B and tries to acquire the same lock
+
+A single sequential curl after deploy — one user, no concurrency — cannot create those conditions. PR #138's "verified live in production" curl returned 200 in 2s and looked perfect. The bug detonated 48 hours later when concurrent US traffic finally hit the lock-contention pattern, taking the page down for 28+ minutes.
+
+The lesson is not "write a load test for every PR" — that's overkill. It's "**if your change interacts with locks, queues, connection pools, or any shared mutable state across event loops or threads, your post-deploy verification has to be concurrent**." Two browser tabs hammering refresh, or:
+
+```bash
+# Cheapest "real concurrency" check — 10 parallel curls:
+for i in $(seq 1 10); do curl -s -o /dev/null -w "%{time_total}s | %{http_code}\n" "$URL" & done; wait
+```
+
+If any of them hangs, your sequential curl was lying to you.
+
+**When to apply:** any PR that touches an `asyncio.Lock`, `asyncio.Queue`, `asyncio.Semaphore`, `asyncio.Event`, DB connection pool, thread-bridge warmup, or a service singleton that holds any of the above.
+
+**See also:** PR #140 hotfix, trap #22 in `apps/api/CLAUDE.md`, Episode 34 in `docs/BUILDING_LIVERMORE_JOURNAL.md`.
+
+---
+
 ### Time cold + warm separately to see what your users actually pay
 **TL;DR:** "the page is slow" is not measurable. Cold latency, warm latency, and cache hit rate are.
 
@@ -318,7 +342,58 @@ For Next.js 16 specifics that diverge from training data, see
 
 ## Operations
 
-*(empty — add entries as we accumulate them)*
+### Logs you don't watch aren't observability — surface to `/health`
+**TL;DR:** `logger.exception(...)` is necessary but not sufficient. If nobody scrapes the log, the failure is invisible.
+
+Trap #20 (in `apps/api/CLAUDE.md`) gave us "use `logger.exception` not `logger.warning` so the traceback survives." We followed it correctly in PR #138. Result: when the warmup started failing every 4 minutes on 2026-06-07, the tracebacks were present in Railway logs — and **nobody read them**. The failure ran silently for 28+ minutes before Jimmy noticed users hitting a broken page.
+
+The fix isn't more logging; it's surfacing the same signal somewhere a one-minute external scraper can poll. PR #141 (`/health` warmup freshness) does this: the same warmup failure that wrote a traceback ALSO updates `_pulse_warmup_state["consecutive_failures"]`, which flips `/health` to `status: degraded` within ~12 minutes. A cron / monitor / external uptime checker sees the change immediately.
+
+**Pattern:** for every background task whose silent failure would degrade users, expose its health on `/health` (or a similar always-on programmatic surface). Not just logs.
+
+**When to apply:** any new cron, warmup loop, periodic refresh, or background poller. Add a "last success at" timestamp + a "consecutive failures" counter, expose both on a route an external monitor can hit.
+
+**See also:** PR #141, `_pulse_warmup_state` in `apps/api/app/main.py`, the A+B+C+D arc on 2026-06-07.
+
+---
+
+### The reliability stack pattern: detect → cushion → notify → guide
+**TL;DR:** Four distinct layers, each cheap, each independently shippable. Don't skip the cheap layers because you're worried about the expensive ones.
+
+When the 2026-06-07 outage exposed how brittle the previous "we'll notice when users complain" model was, the natural temptation was to leap straight to auto-remediation. Instead we shipped four narrower PRs that each solve one layer:
+
+| Layer | What | Cost | Risk if absent |
+|---|---|---|---|
+| **A. Detect** | `/health` exposes warmup freshness as a programmatic signal | ~1h, read-only | Silent failures stay silent |
+| **B. Cushion** | Frontend renders cached fallback + banner when backend fails | ~2-3h, UX-only | Users see broken pages during incidents |
+| **C. Notify** | Cron polls `/health`, emails on degraded | ~2-3h, opt-in | You learn from users, not telemetry |
+| **D. Guide** | Triage bundle endpoint returns markdown ready to paste into Claude | ~3-4h, low risk | The 3 AM incident response is slow because nobody has context |
+
+Each layer is cheap individually. Together they convert outage UX from "broken page, panicked debugging" to "stale snapshot, paged within 12 min, agent diagnosing within a click." We explicitly did NOT do auto-remediation (rollback / restart on alert) because the false-positive cost outweighs the time saved at this traffic scale.
+
+**When to apply:** any critical surface that doesn't yet have a detect/cushion/notify/guide stack. New product surfaces (PRD-15 Thesis Builder, PRD-16 Custom Build) should consider all four layers before shipping if they touch external APIs or DB heavily.
+
+**See also:** PRs #141, #142, #143, #144 — each one is the canonical reference for its layer.
+
+---
+
+### Env-var-gated rollout: ship the wiring, gate the activation
+**TL;DR:** Let the code land in production with the behavior change defaulting OFF. Flip the env var when you're ready, no redeploy needed.
+
+PR-C (email alerter) was a perfect example. Landing the cron + email pipeline meant the wiring was complete — code reviewed, tests pinning the state machine, route registered, Railway deployed. But the actual notification only fires when `OPS_HEALTH_ALERTS_ENABLED=true` AND `OPS_ALERT_RECIPIENT` is set.
+
+Benefits:
+- **Decouple "code shipped" from "behavior changed"** — landing is low-stakes; flipping is the high-stakes moment, but it's a 30-second Railway dashboard click, not a redeploy.
+- **PR review focuses on what changed** — the cron logic and the email template, not "did we accidentally break something downstream."
+- **Easy rollback without revert** — if the alerter misbehaves, set the env var to false. Code stays as-is.
+
+Anti-pattern: shipping the wiring + flipping the switch in the same PR. That bundles two distinct risks (does the code work? does the behavior change make sense?) into one verification step.
+
+**When to apply:** any new notification, scheduled job, or behavior-changing background task. The default for a fresh env var should be the previous behavior (off / disabled / no-op).
+
+**See also:** PR #143 (`ops_health_alerts_enabled`), PR #144 (`ops_triage_token`), and earlier examples like `GATING_ENABLED` (Stage 1) and `signal_alerts_enabled` (Stage 8).
+
+---
 
 For production post-mortems and Railway/Postgres operational gotchas,
 see **[`docs/KNOWN_ISSUES.md`](KNOWN_ISSUES.md)**.

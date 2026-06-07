@@ -1844,3 +1844,116 @@ The day ended without crisis. No emergency reverts, no late-night debugging, no 
 *"Cold paths are invisible in dev. You see your warm response time and assume that's what users get. The only way to know what users actually pay is to curl your production endpoint with `?bypass_cache=true`. We had an 80-second cold path live for six weeks before anyone measured it."*
 
 *Last updated: 2026-06-05 (morning, Episode 33 added).*
+
+### Episode 34 — The reliability stack: what "never have this outage again" actually looks like (June 7)
+
+Episode 33 ended with the line "*the cold path was always there, we just never measured it.*" Episode 34 is what happens when you discover that the fix you shipped for the thing you finally measured had a regression you didn't measure either, and then you decide to make that whole class of failure structurally impossible.
+
+Two days. One regression. One hotfix. Four PRs of architectural plumbing. Five merges. Thirty-eight new tests. Production back to normal by lunch, and a reliability stack live in production by dinner.
+
+#### The discovery: a log file, and what it confessed
+
+Jimmy showed up with a JSON log dump and the line "**it seems market pulse page run into a problem.**"
+
+The first hundred bytes of the file were enough:
+
+```
+RuntimeError: <asyncio.locks.Lock object at 0x7f85b44039d0
+              [locked, waiters:9]>
+              is bound to a different event loop
+market_pulse live quote overlay failed
+  File "/app/app/services/market_pulse_service.py", line 632, in get_live_pulse
+    quotes = await live_quote_service.get_quotes(symbols)
+```
+
+`[locked, waiters:9]` — nine user requests piled up on a wedged asyncio lock. The cross-loop error was from PR #138's warmup thread; the wedge was from the warmup acquiring locks and then erroring mid-flight without releasing them. Each warmup tick poisoned a few more symbols' locks. Over 48 hours, enough accumulated that any concurrent US Market Pulse traffic ran into them.
+
+I curled production. 30s timeout. HTTP 000. Curled again. HTTP 000. CN: 200 OK in 2.7s. The PR #138 CN early-return saved CN — it never touched `live_quote_service` — but US was completely down.
+
+#### The hotfix: surgical, but with an honest walkback
+
+I had verified PR #138 on 2026-06-05 with a single curl that returned 200 in 2 seconds. The verification was a lie by omission — a sequential request from one user can't generate the conditions for the bug. Concurrency was required, and concurrency only showed up 48 hours later when real traffic arrived.
+
+PR #140 changed one line in the warmup: `svc.get_live_pulse(...)` → `svc.get_pulse(...)`. The warmup now populates only the base 60-min `_CACHE`; user requests on the main event loop fire the FMP overlay themselves (where the locks belong). Side effect: US users on cold `_LIVE_CACHE` now pay ~15-20s for the overlay instead of my PR #138 claim of always-2s. Still 4-7× better than the original 80s cold path. Honest walkback in the PR body and the WORK_LOG.
+
+Added trap #22 to `apps/api/CLAUDE.md` with the audit recipe:
+
+```bash
+grep -rn "asyncio\.\(Lock\|Semaphore\|Queue\|Event\)" apps/api/app/services/
+```
+
+If any match is a module-level singleton, no warmup loop is allowed to touch it.
+
+#### The conversation that produced the reliability stack
+
+After the hotfix landed and US Market Pulse was back, the conversation didn't end. Jimmy asked the question that mattered:
+
+> *"Is there any possibility we have hidden some other potential bugs because of introducing #138? given there are many more automated loadings created."*
+
+Honest answer: yes, in classes I hadn't checked. I walked through them:
+1. Other singletons (`cn_overview_service`) with `asyncio.Lock` — latent landmine if any future warmup calls them
+2. Lifespan startup concentration — six warmups starting in parallel could exhaust the DB pool under autovacuum stress
+3. Cold-cache cost for US users (1-in-5-min pays the overlay)
+4. Theoretical: the recurring loop has no restart mechanism if it ever crashes outside the try/except
+5. Cosmetic: `as_of` timestamp drift on CN cached responses
+
+I ranked them by likelihood × severity and told Jimmy the biggest miss was none of those — it was that the bug had been running for 28 minutes before he noticed, because we had **observability** for traps #20 / #21 in the log file but no **alerting**. Logs you don't watch aren't observability.
+
+Jimmy's next message contained the seed for the whole afternoon:
+
+> *"I think we should do scope out #1 meanwhile are able to notify users and quickly act on with some precautious solution, or a 'fix agent' in place ready to handle backend bug? I don't know, just discussion."*
+
+That word "discussion" is load-bearing. He wasn't asking for a fix; he was asking what the right shape of fix even is. I laid out a seven-layer reliability spectrum from "observability" through "auto-merge AI fix" and ranked each by cost / risk / value at his actual scale. Then I asked which channels he'd want for notification (Slack / Telegram / email / SMS) and how ambitious the triage layer should be.
+
+He picked email (uses existing Resend infra) and the minimum-viable triage (context bundle + one-click Claude link, not auto-invocation). That conversation took five minutes. The execution took the rest of the afternoon.
+
+#### The four-PR arc
+
+PR #141 (A — observability), #142 (B — graceful degradation), #143 (C — email alerter), #144 (D — triage bundle). Each one in its own worktree, its own branch, its own CI cycle, its own merge. Jimmy approved each one explicitly and I merged them in sequence. They're meant to be read in order:
+
+- **A** says: when something breaks, there's a programmatic signal anyone can scrape.
+- **B** says: when A says something is broken, users see yesterday's snapshot with a banner instead of a hung spinner.
+- **C** says: when A says something is broken for ~12 minutes, Jimmy gets an email before users start complaining.
+- **D** says: the email Jimmy gets contains a one-click link to a markdown bundle pre-loaded with `/health` snapshot + suspected-trap matches + recent commits, ready to paste into a fresh Claude session.
+
+You can ship A alone and get value. You can stop after B and have a better outage UX. You can stop after C and never miss an incident. D shortens the time from "Jimmy received the alert" to "agent is diagnosing" from minutes to seconds.
+
+We did not ship E (auto-remediation), F (auto-rollback), or G (auto-merge AI fix). At Jimmy's traffic — measured in tens of daily users, not thousands — the false-positive cost of automation outweighs the minutes saved. Worth revisiting if scale changes.
+
+#### The decision that crystallized in the cost dashboard
+
+A subtle moment: when planning the multi-PR sequence, I'd recommended doing additional perf fixes (batched SQL, cap candidate pool) "for the cost savings." Jimmy asked how to check his Railway bill. He sent a screenshot.
+
+Memory was 93% of the cost. CPU was 1%. The "perf fixes for cost" recommendation was wrong-axis. Reading the dashboard before optimizing flipped my recommendation immediately.
+
+That's now a diagnostic-methodology entry in `docs/LEARNINGS.md`: **read the dashboard before you size the fix.** If memory dominates, batch-SQL won't save you a dollar. If CPU dominates, it might.
+
+#### Quote that captured the day
+
+After PR-A verified live on production:
+
+> *"That makes a lot of sense."*
+
+Three short messages later: "merge a," "merge b," "merge c," "merge." Each one a different PR. By the time the fourth merge landed at the end of the working day, the reliability stack was code-complete, production-deployed, and inert behind three env vars Jimmy can flip whenever he's ready. The discipline that defines the day: **ship the wiring; gate the activation**.
+
+#### Final state at end of session
+
+- ✅ PR #140 — hotfix merged + production verified (US Market Pulse responding ~1.4–1.8s warm)
+- ✅ Trap #22 codified in `apps/api/CLAUDE.md` with audit recipe
+- ✅ PR #141 (A — observability) — `/health` payload live, returning `status: ok` + `pulse_warmup` block
+- ✅ PR #142 (B — graceful degradation) — frontend renders `StaleDataBanner` + cached fallback when backend fails; 30s client timeout
+- ✅ PR #143 (C — email alerter) — cron registered, polling /health every minute; opt-in via `OPS_HEALTH_ALERTS_ENABLED`
+- ✅ PR #144 (D — triage bundle) — `/internal/triage-context` endpoint live (returns 403 until token configured); email template links to it
+- ✅ Test suite grew 806 → 835 backend + 67 → 75 frontend (+38 tests today)
+- ✅ This journal entry written
+- ✅ `docs/LEARNINGS.md` updated with four new entries (one diagnostic methodology, three operations)
+- ✅ `agent-system/WORK_LOG.md` refreshed; previous session demoted
+- ✅ `CLAUDE.md` soft rules extended with concurrent-load verification discipline
+
+Three env vars away from a fully active end-to-end alert + triage loop. Held back on auto-remediation deliberately at this traffic scale.
+
+#### Content hook
+
+*"PR #138's 'verified live in production' was one curl that returned 2 seconds. The bug needed concurrency to manifest. It took two days to find users. The fix took 30 minutes. The four PRs to make sure I find the NEXT bug myself — before users do — took the rest of the day. Reliability isn't a feature; it's the four cheap layers between 'something broke' and 'someone is diagnosing.'"*
+
+*Last updated: 2026-06-07 (evening, Episode 34 added).*
