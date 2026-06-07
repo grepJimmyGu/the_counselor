@@ -370,13 +370,31 @@ def _db_init(engine):
 
 
 async def _warmup_market_pulse_loop() -> None:
-    """Recurring background refresh of `_LIVE_CACHE` for US + CN Market Pulse.
+    """Recurring background refresh of the Market Pulse base `_CACHE` for
+    US + CN. Calls `get_pulse` (NOT `get_live_pulse`) — see trap #22.
 
-    Without this, the first user request after each 5-minute `_LIVE_CACHE`
-    expiry pays the full cold-cache cost — 80-110 seconds in production
-    against the 1800-element CN universe + N+1 `_load_bars` loop. With
-    the pre-warm running every 4 minutes (just inside the cache TTL),
-    every user request always lands on a warm cache and returns in ~2s.
+    The expensive part of the cold path is the base computation itself
+    (~30–50s of N+1 `_load_bars` queries against the SP500 / CSI universes).
+    Pre-warming `_CACHE` (60-min TTL) keeps the DB cost paid in the
+    background; user requests still trigger their own FMP live overlay
+    on the main event loop where `live_quote_service`'s per-symbol
+    asyncio.Locks belong.
+
+    **Why not `get_live_pulse`?** (See trap #22 for the full post-mortem.)
+    The warmup runs in a worker thread with its own event loop (via
+    `_run_async_in_thread`, per trap #21). `live_quote_service` is a
+    module-level singleton that lazily creates per-symbol `asyncio.Lock`
+    objects on first touch — those locks bind to whichever event loop
+    creates them. Calling `get_live_pulse` from the warmup's thread loop
+    binds the locks to that thread's loop; subsequent user requests on
+    the main loop then raise `RuntimeError: ... is bound to a different
+    event loop`. Worse, locks the warmup managed to acquire-but-never-
+    release stay wedged forever, queuing real user requests as waiters
+    until they time out (PR #138 → 2026-06-07 outage).
+
+    The fix: stop touching `live_quote_service` from this thread. Users
+    fire the overlay themselves on cold `_LIVE_CACHE` (~15-20s cost on
+    cold; warm path stays ~2s for 5 minutes after).
 
     This is `async def` and opens `SessionLocal()` with sync DB inside,
     so it MUST run via `_run_async_in_thread` (trap #21). Each iteration
@@ -394,13 +412,15 @@ async def _warmup_market_pulse_loop() -> None:
     while True:
         try:
             with SessionLocal() as db:
-                await svc.get_live_pulse("US", db)
-                await svc.get_live_pulse("CN", db)
-            logger.info("Market Pulse warmup tick complete (US + CN)")
+                # Base computation only — populates _CACHE (60-min TTL).
+                # MUST NOT call get_live_pulse here (trap #22, see docstring).
+                svc.get_pulse("US", db)
+                svc.get_pulse("CN", db)
+            logger.info("Market Pulse warmup tick complete (base, US + CN)")
         except Exception:
             logger.exception("Market Pulse warmup tick failed")  # trap #20
-        # 4 min — comfortably inside the 5-min `_LIVE_CACHE_TTL_SECONDS`
-        # so the cache is always fresh when a user lands.
+        # 4 min — keeps base _CACHE warm. _LIVE_CACHE still uses 5-min TTL,
+        # populated lazily by user requests when they fire the FMP overlay.
         await asyncio.sleep(240)
 
 
