@@ -412,9 +412,35 @@ export async function getCommodityTrend(commodity: string): Promise<import("@/li
   return fetchApi(`/api/commodities/${encodeURIComponent(commodity)}/trend`);
 }
 
-export async function getMarketPulse(market: "US" | "CN" = "US", bypassCache = false): Promise<import("@/lib/contracts").MarketPulseResponse> {
+/**
+ * Max time the browser waits for `/api/market/pulse` before aborting.
+ *
+ * **Why 30 seconds:** during the 2026-06-07 outage, the backend held
+ * connections open for ~180s waiting on wedged asyncio locks. Without
+ * a client-side timeout, `fetch` inherits the browser's default
+ * (often 5+ minutes) and the page hangs that long for users. 30s is a
+ * generous ceiling for the warm path (~2s) and the worst observed cold
+ * path (~20s with overlay) while still aborting fast enough that the
+ * page's fallback-cache UI (`StaleDataBanner`) kicks in promptly when
+ * something is wrong.
+ */
+const MARKET_PULSE_TIMEOUT_MS = 30_000;
+
+export async function getMarketPulse(
+  market: "US" | "CN" = "US",
+  bypassCache = false,
+): Promise<import("@/lib/contracts").MarketPulseResponse> {
   const qs = bypassCache ? `&bypass_cache=true` : "";
-  return fetchApi(`/api/market/pulse?market=${market}${qs}`);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), MARKET_PULSE_TIMEOUT_MS);
+  try {
+    return await fetchApi<import("@/lib/contracts").MarketPulseResponse>(
+      `/api/market/pulse?market=${market}${qs}`,
+      { signal: controller.signal },
+    );
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 export async function getSectorComparison(

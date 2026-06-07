@@ -14,7 +14,7 @@
  * badges. Phases 1b–1f progressively replace each.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Loader2, RefreshCw } from "lucide-react";
@@ -24,6 +24,7 @@ import { CnStockSearch } from "@/components/market-pulse/CnStockSearch";
 import { getMarketPulse } from "@/lib/api";
 import type { MarketPulseResponse, SectorCard } from "@/lib/contracts";
 import { buildNarrative } from "@/lib/market-pulse-narrative";
+import { readCachedPulse, writeCachedPulse } from "@/lib/pulse-fallback-cache";
 
 import { MarketBrief } from "@/components/market-pulse/MarketBrief";
 import { MacroPulseTable } from "@/components/market-pulse/MacroPulseTable";
@@ -33,11 +34,15 @@ import { TopMovers, type MoverItem } from "@/components/market-pulse/TopMovers";
 import { Screener } from "@/components/market-pulse/Screener";
 import { StickySubNav } from "@/components/market-pulse/StickySubNav";
 import { DataFreshnessFooter } from "@/components/market-pulse/DataFreshnessFooter";
+import { StaleDataBanner } from "@/components/market-pulse/StaleDataBanner";
 import {
   BriefSkeleton,
   TopMoversSkeleton,
   SectorHeatmapSkeleton,
 } from "@/components/market-pulse/SkeletonStates";
+
+/** How often to silently retry the live fetch when we're showing stale fallback data. */
+const STALE_RETRY_INTERVAL_MS = 30_000;
 
 export function MarketPulsePage() {
   const [market, setMarket] = useState<"US" | "CN">("US");
@@ -45,7 +50,15 @@ export function MarketPulsePage() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // 2026-06-07 outage hardening: when the backend fails, surface the last
+  // successful response from localStorage with a banner instead of an
+  // empty-state. `staleFetchedAt` is the original fetch timestamp from
+  // the cached envelope; null means we're not in fallback mode.
+  const [staleFetchedAt, setStaleFetchedAt] = useState<Date | null>(null);
   const t = (key: string) => useMarketCopy(key, market);
+  // Auto-retry timer id — kept in a ref so consecutive failures cancel
+  // the previous timer instead of stacking them.
+  const retryTimer = useRef<number | null>(null);
 
   const load = useCallback(async (m: "US" | "CN", showRefreshing = false) => {
     if (showRefreshing) setRefreshing(true);
@@ -54,8 +67,21 @@ export function MarketPulsePage() {
     try {
       const r = await getMarketPulse(m, showRefreshing);
       setData(r);
+      setStaleFetchedAt(null);  // back to live — clear the stale banner
+      writeCachedPulse(m, r);
     } catch {
-      setError(t("error_unavailable"));
+      // Fallback path. Prefer surfacing yesterday's data with a banner
+      // over a useless empty error state — see 2026-06-07 outage notes.
+      const cached = readCachedPulse(m);
+      if (cached) {
+        setData(cached.data);
+        setStaleFetchedAt(cached.fetchedAt);
+        setError(null);  // banner replaces the inline error string
+      } else {
+        setData(null);
+        setStaleFetchedAt(null);
+        setError(t("error_unavailable"));
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -68,6 +94,30 @@ export function MarketPulsePage() {
     }, 0);
     return () => window.clearTimeout(id);
   }, [market, load]);
+
+  // Background auto-retry: while we're showing stale data, ping the
+  // backend every `STALE_RETRY_INTERVAL_MS`. On success we'll exit
+  // fallback mode automatically via `setStaleFetchedAt(null)` inside
+  // `load`. The timer is canceled on unmount, market switch, or
+  // recovery.
+  useEffect(() => {
+    if (staleFetchedAt === null) {
+      if (retryTimer.current !== null) {
+        window.clearTimeout(retryTimer.current);
+        retryTimer.current = null;
+      }
+      return;
+    }
+    retryTimer.current = window.setTimeout(() => {
+      void load(market, true);
+    }, STALE_RETRY_INTERVAL_MS);
+    return () => {
+      if (retryTimer.current !== null) {
+        window.clearTimeout(retryTimer.current);
+        retryTimer.current = null;
+      }
+    };
+  }, [staleFetchedAt, market, load]);
 
   // ── Top Movers list assembly ────────────────────────────────────────────────
   // Merge top_assets (stocks) + featured_etfs (ETFs). Commodities dropped
@@ -150,6 +200,10 @@ export function MarketPulsePage() {
             </Button>
           </div>
         </header>
+
+        {staleFetchedAt && (
+          <StaleDataBanner fetchedAt={staleFetchedAt} retrying={refreshing} />
+        )}
 
         {error && (
           <div className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs text-amber-900">
