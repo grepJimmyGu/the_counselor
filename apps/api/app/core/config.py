@@ -54,6 +54,14 @@ class Settings(BaseSettings):
     resend_from_transactional: str = "team@livermorealpha.com"
     resend_from_marketing: str = "growth@livermorealpha.com"
     email_unsub_signing_key: str = ""  # 32-byte hex; HMAC-signs unsub tokens
+    # Ops health alerts (PR-C of 2026-06-07 reliability stack). When
+    # enabled, a 1-minute cron polls the in-process /health state and
+    # fires an email to `ops_alert_recipient` when the pulse warmup flips
+    # to degraded. Off by default — turn on only when an `ops_alert_recipient`
+    # mailbox exists. Cooldown prevents spamming when degraded persists.
+    ops_health_alerts_enabled: bool = False
+    ops_alert_recipient: str = ""
+    ops_health_alert_cooldown_minutes: int = 60
     frontend_url: str = "http://localhost:3000"  # used for portal/checkout return URLs
     llm_provider: str = "disabled"
     llm_api_key: str = ""

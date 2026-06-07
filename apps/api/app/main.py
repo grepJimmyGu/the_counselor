@@ -352,6 +352,12 @@ def _start_scheduler() -> None:
         # Offset to 02:30 UTC so it doesn't race the 02:00 LLM auditor for
         # DB connections.
         scheduler.add_job(audit_chat_tool_errors_job, "cron", hour=2, minute=30)
+        # PR-C — health monitor: poll /health every minute, fire ops
+        # email when pulse warmup flips to degraded. Job no-ops when
+        # `OPS_HEALTH_ALERTS_ENABLED` is false (default), so registering
+        # unconditionally is safe.
+        from app.jobs.health_monitor_job import health_monitor_job
+        scheduler.add_job(health_monitor_job, "cron", minute="*", id="health_monitor")
         scheduler.start()
     except Exception as exc:
         logger.warning("APScheduler failed to start: %s", exc)
@@ -592,14 +598,11 @@ _PULSE_WARMUP_MAX_AGE_SECONDS = 600  # 10 min — 2.5× the 4-min tick cadence
 _PULSE_WARMUP_MAX_FAILURES = 3       # 3 consecutive ticks = ~12 min of failure
 
 
-@app.get("/health")
-async def health() -> dict[str, _Any]:
-    """Returns service health + the pulse warmup freshness signal.
-
-    Backwards compatible: the top-level `status` field still exists and is
-    `"ok"` when healthy (was a string before; preserves that for Railway's
-    healthcheck which only inspects the response code). Anything degraded
-    surfaces in `pulse_warmup` for external scrapers / the email alerter.
+def compute_health_state() -> dict[str, _Any]:
+    """Compute the /health response payload from the current pulse
+    warmup state. Extracted from the `/health` handler so the email
+    alerter cron (`health_monitor_job`, PR-C) can read the same payload
+    without an HTTP round-trip.
     """
     last_success = _pulse_warmup_state["last_success_at"]
     consecutive_failures = _pulse_warmup_state["consecutive_failures"]
@@ -631,3 +634,15 @@ async def health() -> dict[str, _Any]:
             },
         },
     }
+
+
+@app.get("/health")
+async def health() -> dict[str, _Any]:
+    """Returns service health + the pulse warmup freshness signal.
+
+    Backwards compatible: the top-level `status` field still exists and is
+    `"ok"` when healthy (was a string before; preserves that for Railway's
+    healthcheck which only inspects the response code). Anything degraded
+    surfaces in `pulse_warmup` for external scrapers / the email alerter.
+    """
+    return compute_health_state()
