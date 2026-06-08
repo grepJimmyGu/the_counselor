@@ -51,6 +51,10 @@ class DigestEvent:
     headline_counter: str           # "1 changed · 4 stable · 0 new alerts"
     strategy_rows: list[dict] = field(default_factory=list)
     # Each row: {name, slug, signal_display, status: "changed"|"stable"|"cash", ytd_return}
+    # PRD-19 Step 4b: cash bucket is its own counter for the headline +
+    # PostHog payload. Default 0 so old callers don't break, but new
+    # callers (daily_digest_job) pass it explicitly.
+    cash_count: int = 0
 
 
 # ── Dispatchers ──────────────────────────────────────────────────────────────
@@ -108,32 +112,33 @@ def dispatch_signal_change_email(event: SignalChangeEvent, db, user) -> bool:
 
 def dispatch_digest_email(event: DigestEvent, db, user) -> bool:
     """Render and send the daily digest email. Returns True if send_email
-    attempted dispatch. Same signature-fix story as
-    `dispatch_signal_change_email` — Step 4 lands the real renderer."""
-    subject = f"Your morning brief: {event.headline_counter}"
-    body = _render_digest_email(event)
+    attempted dispatch. PRD-19 Step 4b — uses the real `render_daily_digest`
+    template (signed unsub URL + CAN-SPAM footer + html+text pair),
+    replacing the inline `{{base_url}}` / `{{settings_url}}` token render
+    that would never substitute."""
+    from app.emails.daily_digest import render_daily_digest, DigestPayload
+
+    payload = DigestPayload(
+        as_of_date=event.as_of_date,
+        changed_count=event.changed_count,
+        stable_count=event.stable_count,
+        cash_count=event.cash_count,
+        strategy_rows=event.strategy_rows,
+    )
+    rendered = render_daily_digest(user, payload)
     try:
         return send_email(
             db,
             user,
             template="daily_digest",
-            subject=subject,
-            html=body,
-            text=_strip_html(body),
+            subject=rendered["subject"],
+            html=rendered["html"],
+            text=rendered["text"],
             category="marketing",
         )
     except Exception:
         _log.exception("Failed to send digest email to %s", user.id)
         return False
-
-
-def _strip_html(html: str) -> str:
-    """Minimal HTML → plain-text for the digest fallback. Step 4 replaces
-    this with a real plain-text render. Until then, this strips tags and
-    collapses whitespace so the text body isn't empty (Resend rejects)."""
-    import re
-    no_tags = re.sub(r"<[^>]+>", " ", html)
-    return re.sub(r"\s+", " ", no_tags).strip()
 
 
 def dispatch_in_app_banner(event: SignalChangeEvent) -> bool:
@@ -161,41 +166,8 @@ def dispatch_in_app_banner(event: SignalChangeEvent) -> bool:
         return False
 
 
-# ── Email rendering (inline templates — html files land in step 4) ──────────
-
-
-def _render_digest_email(event: DigestEvent) -> str:
-    """Render the daily digest email body. Kept inline until step 4."""
-    rows_html = ""
-    for row in event.strategy_rows:
-        color = {"changed": "#d97706", "stable": "#16a34a", "cash": "#6b7280"}.get(
-            row["status"], "#6b7280"
-        )
-        icon = {"changed": "⚠", "stable": "📈", "cash": "💤"}.get(row["status"], "")
-        rows_html += (
-            f'<li style="border-left:3px solid {color}; padding:8px; margin:4px 0;">'
-            f"<strong>{icon} {row['name']}</strong> — {row['signal_display']}"
-        )
-        if row.get("ytd_return"):
-            rows_html += f' · <span style="color: {color};">{row["ytd_return"]}</span>'
-        rows_html += "</li>\n"
-
-    return f"""\
-<h3>{event.headline_counter}</h3>
-<p>Your morning brief for {event.as_of_date.strftime('%B %-d, %Y')}.</p>
-
-<ul style="list-style:none;padding:0;">{rows_html}</ul>
-
-<p>
-  <a href="{{base_url}}/strategies">Open My Strategies →</a>
-  &nbsp;·&nbsp;
-  <a href="{{settings_url}}">Notification settings</a>
-</p>
-
-<hr>
-<p style="font-size:11px;color:#6a7282;">
-  Sent because you opted in to daily digests.
-  <a href="{{settings_url}}">Change cadence</a>
-  · <a href="{{settings_url}}">Pause all digests</a>
-</p>
-"""
+# Step 4b: digest rendering moved to `app/emails/daily_digest.py`.
+# The previous inline `_render_digest_email` with `{{base_url}}` /
+# `{{settings_url}}` literal tokens is gone — `dispatch_digest_email`
+# now calls `render_daily_digest(user, payload)` for a real html+text pair
+# with signed unsub URLs.
