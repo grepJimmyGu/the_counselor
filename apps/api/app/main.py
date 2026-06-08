@@ -43,6 +43,7 @@ from app.api.routes.community_publish import (
 from app.api.routes.email import prefs_router as email_prefs_router, unsub_router as email_unsub_router
 from app.api.routes.saved_strategies import router as saved_strategies_router
 from app.api.routes.signals import router as signals_router
+from app.api.routes.notifications import router as notifications_router
 from app.api.routes.triage import router as triage_router  # PR-D — ops triage bundle
 from app.api.routes.portfolio import router as portfolio_router  # PRD-13b — Portfolio Mode
 from app.core.config import get_settings
@@ -359,6 +360,14 @@ def _start_scheduler() -> None:
         # unconditionally is safe.
         from app.jobs.health_monitor_job import health_monitor_job
         scheduler.add_job(health_monitor_job, "cron", minute="*", id="health_monitor")
+        # PRD-19 — daily signal recompute cron (populates signal state + live perf)
+        from app.jobs.signal_cron import compute_all_signals
+        scheduler.add_job(
+            compute_all_signals, "cron", hour=22, minute=0,
+            id="signal_recompute",
+            max_instances=1,               # prevent overlap if prev run is slow
+            misfire_grace_time=3600,       # fire within 1h of scheduled time
+        )
         scheduler.start()
     except Exception as exc:
         logger.warning("APScheduler failed to start: %s", exc)
@@ -587,6 +596,9 @@ app.include_router(portfolio_router)  # PRD-13b — Portfolio Mode
 # disclaimer copy is complete (build_specs/research_execution_v0_signals_and_alerts.md §11).
 if get_settings().signal_alerts_enabled:
     app.include_router(signals_router)
+
+# PRD-19 — notification endpoints (always mounted)
+app.include_router(notifications_router)
 
 # PR-D — triage context bundle. Always mounted (the route gates on the
 # token at request time + 403's if no token is configured). Mounting
