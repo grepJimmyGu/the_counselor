@@ -211,8 +211,8 @@ def mark_strategy_executed(
     # `notification_executed` with `latency_seconds`. Best-effort — never
     # blocks the response, never raises.
     try:
-        from app.services.posthog_service import ph_capture  # type: ignore[attr-defined]
-        ph_capture(
+        from app.services import posthog_service
+        posthog_service.capture(
             user_id=user_id,
             event="notification_executed",
             properties={

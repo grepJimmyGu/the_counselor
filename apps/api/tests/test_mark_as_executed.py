@@ -269,9 +269,10 @@ def test_mark_executed_captures_posthog_event_on_first_click(
     def fake_ph_capture(*, user_id: str, event: str, properties: dict) -> None:
         captured.append({"user_id": user_id, "event": event, "properties": properties})
 
-    # Patch on the import path the route uses.
+    # Patch the actual exported name (`capture`) — the route imports the
+    # module and calls `posthog_service.capture(...)`.
     import app.services.posthog_service as ph_mod
-    monkeypatch.setattr(ph_mod, "ph_capture", fake_ph_capture, raising=False)
+    monkeypatch.setattr(ph_mod, "capture", fake_ph_capture)
 
     user = make_user(email="posthog@test.com")
     strategy = _save_strategy(db, user)
@@ -307,7 +308,7 @@ def test_mark_executed_does_NOT_capture_posthog_on_idempotent_click(
         captured.append({"event": event})
 
     import app.services.posthog_service as ph_mod
-    monkeypatch.setattr(ph_mod, "ph_capture", fake_ph_capture, raising=False)
+    monkeypatch.setattr(ph_mod, "capture", fake_ph_capture)
 
     user = make_user(email="posthog-idem@test.com")
     strategy = _save_strategy(db, user)
@@ -329,7 +330,7 @@ def test_mark_executed_survives_posthog_failure(
         raise RuntimeError("PostHog is down")
 
     import app.services.posthog_service as ph_mod
-    monkeypatch.setattr(ph_mod, "ph_capture", angry_ph_capture, raising=False)
+    monkeypatch.setattr(ph_mod, "capture", angry_ph_capture)
 
     user = make_user(email="posthog-fail@test.com")
     strategy = _save_strategy(db, user)
