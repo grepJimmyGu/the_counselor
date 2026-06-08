@@ -12,7 +12,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -60,15 +60,27 @@ def list_pending_banners(
     ]
 
 
-@router.post("/notifications/{entry_id}/ack", status_code=204)
+@router.post(
+    "/notifications/{entry_id}/ack",
+    status_code=204,
+    response_class=Response,
+)
 def acknowledge_banner(
     entry_id: int,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> None:
-    """Mark a banner entry as acknowledged (soft-delete)."""
+) -> Response:
+    """Mark a banner entry as acknowledged (soft-delete).
+
+    Trap #7 (apps/api/CLAUDE.md): FastAPI 0.115+ asserts at import time
+    that routes coded 204 can't serialize a body. The original `-> None`
+    signature tripped the assertion, breaking app startup. Returning an
+    explicit `Response(status_code=204)` with `response_class=Response`
+    keeps the route valid.
+    """
     row = db.get(NotificationBannerEntry, entry_id)
     if row is None or row.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Not found")
     row.acknowledged_at = datetime.utcnow()
     db.commit()
+    return Response(status_code=204)
