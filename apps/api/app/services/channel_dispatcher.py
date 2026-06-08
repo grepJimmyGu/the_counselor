@@ -56,29 +56,84 @@ class DigestEvent:
 # ── Dispatchers ──────────────────────────────────────────────────────────────
 
 
-def dispatch_signal_change_email(event: SignalChangeEvent) -> bool:
-    """Render and send the signal-change email. Returns True on success."""
-    subject = _signal_change_subject(event)
-    body = _render_signal_change_email(event)
+def dispatch_signal_change_email(event: SignalChangeEvent, db, user) -> bool:
+    """Render and send the signal-change email. Returns True if `send_email`
+    attempted the dispatch (matches its fire-and-forget contract — the
+    actual Resend call may still no-op if the user has globally
+    unsubscribed or Resend isn't configured).
+
+    PRD-19 Step 3b note: this used to call `send_email(to=..., subject=...,
+    body_html=...)` — a signature that never existed. The real
+    `email_service.send_email` takes `(db, user, *, template, subject,
+    html, text, category)`. Step 3a/3b is the first wiring that actually
+    reaches the dispatcher; the broken signature would have raised
+    TypeError on every invocation, been swallowed by this function's
+    try/except, and logged once per cron tick. The fix is to call
+    `send_email` correctly + render via `render_signal_change` (a real
+    Jinja-free html+text pair, not the inline body fragment that used
+    `{{unsubscribe_url}}` literals).
+
+    Signal-change emails are marked `category="transactional"` because the
+    user explicitly subscribed via `SignalAlertSubscription` — that path
+    bypasses the marketing unsubscribe flag in `_prefs_allow` while still
+    honoring the per-category flags Step 4 will add."""
+    from app.emails.signal_change import render_signal_change, SignalChangePayload
+
+    payload = SignalChangePayload(
+        strategy_name=event.strategy_name,
+        strategy_id=event.strategy_slug,
+        change_type=event.change_type,
+        new_signal_display=event.new_signal_display,
+        as_of_date=event.as_of_date,
+        reference_prices=event.reference_prices,
+        rule_context=event.rule_context,
+        risk_context=event.risk_context,
+    )
+    rendered = render_signal_change(user, payload)
     try:
-        send_email(to=event.user_email, subject=subject, body_html=body)
-        return True
+        return send_email(
+            db,
+            user,
+            template="signal_change",
+            subject=rendered["subject"],
+            html=rendered["html"],
+            text=rendered["text"],
+            category="transactional",
+        )
     except Exception:
         _log.exception("Failed to send signal-change email to %s for %s",
-                       event.user_email, event.strategy_slug)
+                       user.id, event.strategy_slug)
         return False
 
 
-def dispatch_digest_email(event: DigestEvent) -> bool:
-    """Render and send the daily digest email. Returns True on success."""
+def dispatch_digest_email(event: DigestEvent, db, user) -> bool:
+    """Render and send the daily digest email. Returns True if send_email
+    attempted dispatch. Same signature-fix story as
+    `dispatch_signal_change_email` — Step 4 lands the real renderer."""
     subject = f"Your morning brief: {event.headline_counter}"
     body = _render_digest_email(event)
     try:
-        send_email(to=event.user_email, subject=subject, body_html=body)
-        return True
+        return send_email(
+            db,
+            user,
+            template="daily_digest",
+            subject=subject,
+            html=body,
+            text=_strip_html(body),
+            category="marketing",
+        )
     except Exception:
-        _log.exception("Failed to send digest email to %s", event.user_email)
+        _log.exception("Failed to send digest email to %s", user.id)
         return False
+
+
+def _strip_html(html: str) -> str:
+    """Minimal HTML → plain-text for the digest fallback. Step 4 replaces
+    this with a real plain-text render. Until then, this strips tags and
+    collapses whitespace so the text body isn't empty (Resend rejects)."""
+    import re
+    no_tags = re.sub(r"<[^>]+>", " ", html)
+    return re.sub(r"\s+", " ", no_tags).strip()
 
 
 def dispatch_in_app_banner(event: SignalChangeEvent) -> bool:
@@ -107,56 +162,6 @@ def dispatch_in_app_banner(event: SignalChangeEvent) -> bool:
 
 
 # ── Email rendering (inline templates — html files land in step 4) ──────────
-
-
-def _signal_change_subject(event: SignalChangeEvent) -> str:
-    """Subject line. No 'buy' or 'sell' verbs per compliance rules."""
-    action_words = {
-        "flip_to_cash": "went to cash",
-        "flip_to_long": "entered position",
-        "rotation": "rebalanced",
-        "rebalance": "rebalanced",
-    }
-    action = action_words.get(event.change_type, "updated")
-    return f"⚡ {event.strategy_name} {action} — {event.as_of_date.strftime('%b %-d')}"
-
-
-def _render_signal_change_email(event: SignalChangeEvent) -> str:
-    """Render the signal-change email body. Kept as inline HTML until
-    the full Jinja2 template (step 4) lands. Contains all 8 info-architecture
-    fields from the framework doc §2."""
-    prices_html = "".join(
-        f"<li>{sym}: ${price:.2f}</li>"
-        for sym, price in event.reference_prices.items()
-    )
-    return f"""\
-<h3>⚡ {event.strategy_name} — {event.new_signal_display}</h3>
-<p>As of {event.as_of_date.strftime('%B %-d, %Y')} at 4:00 PM ET close.</p>
-
-<h4>What changed</h4>
-<p>{event.rule_context}</p>
-
-<h4>Reference prices</h4>
-<ul>{prices_html}</ul>
-
-<h4>Risk context</h4>
-<p>{event.risk_context}</p>
-
-<p>
-  <a href="{event.executed_url}">View strategy detail →</a>
-  &nbsp;·&nbsp;
-  <a href="{event.executed_url}&action=executed">I executed this</a>
-</p>
-
-<hr>
-<p style="font-size:11px;color:#6a7282;">
-  Not investment advice. Past performance does not guarantee future results.
-  Livermore does not place trades on your behalf. You decide whether to act
-  on this signal.<br/>
-  <a href="{{unsubscribe_url}}">Unsubscribe from this strategy</a>
-  · <a href="{{settings_url}}">Notification settings</a>
-</p>
-"""
 
 
 def _render_digest_email(event: DigestEvent) -> str:
