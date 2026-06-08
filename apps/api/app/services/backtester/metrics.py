@@ -87,7 +87,7 @@ def compute_metrics(
     benchmark_total_return = benchmark_curve.iloc[-1] - 1.0
 
     annualized_return = equity_curve.iloc[-1] ** (252 / max(len(equity_curve), 1)) - 1.0
-    annualized_volatility = portfolio_returns.std(ddof=0) * math.sqrt(252)
+    annualized_volatility = portfolio_returns.std(ddof=1) * math.sqrt(252)
     downside = portfolio_returns.clip(upper=0)
     sortino_denominator = downside.std(ddof=0) * math.sqrt(252)
     sharpe_ratio = annualized_return / annualized_volatility if annualized_volatility else 0.0
@@ -128,7 +128,7 @@ def compute_metrics(
         "excess_return_vs_benchmark": float(total_return - benchmark_total_return),
         "alpha_vs_benchmark": float(alpha),
         "beta_vs_benchmark": float(beta),
-        "turnover": float(turnover_series.mean()),
+        "turnover": float(turnover_series[turnover_series > 0].mean()) if (turnover_series > 0).any() else 0.0,
         "time_in_market": float(time_in_market_series.mean()),
         **diagnostics,
     }

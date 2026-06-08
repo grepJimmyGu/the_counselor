@@ -927,8 +927,11 @@ class BacktestEngine:
 
         return weights
 
-    def _extract_trade_log(self, close_matrix: pd.DataFrame, weights: pd.DataFrame) -> list[TradeLogItem]:
+    def _extract_trade_log(
+        self, close_matrix: pd.DataFrame, weights: pd.DataFrame, cost_bps: float = 0.0
+    ) -> list[TradeLogItem]:
         trades: list[TradeLogItem] = []
+        cost_factor = cost_bps / 10000  # bps → decimal
         for symbol in close_matrix.columns:
             in_trade = False
             entry_date: Optional[date] = None
@@ -941,14 +944,16 @@ class BacktestEngine:
                 elif in_trade and weight == 0 and entry_date is not None:
                     exit_date = dt.date()
                     exit_price = float(close_matrix.loc[dt, symbol])
+                    gross_return = (exit_price / entry_price) - 1.0
+                    net_return = gross_return - cost_factor * 2  # cost on entry + exit
                     trades.append(
                         TradeLogItem(
                             symbol=symbol,
                             entry_date=entry_date,
                             exit_date=exit_date,
                             entry_price=entry_price,
-                            exit_price=exit_price,
-                            return_pct=(exit_price / entry_price) - 1.0,
+                            exit_price=round(exit_price * (1 - cost_factor * 2), 4),
+                            return_pct=round(net_return, 6),
                             holding_period_days=(exit_date - entry_date).days,
                         )
                     )
@@ -956,14 +961,16 @@ class BacktestEngine:
             if in_trade and entry_date is not None:
                 last_dt = close_matrix.index[-1].date()
                 exit_price = float(close_matrix.iloc[-1][symbol])
+                gross_return = (exit_price / entry_price) - 1.0
+                net_return = gross_return - cost_factor * 2
                 trades.append(
                     TradeLogItem(
                         symbol=symbol,
                         entry_date=entry_date,
                         exit_date=last_dt,
                         entry_price=entry_price,
-                        exit_price=exit_price,
-                        return_pct=(exit_price / entry_price) - 1.0,
+                        exit_price=round(exit_price * (1 - cost_factor * 2), 4),
+                        return_pct=round(net_return, 6),
                         holding_period_days=(last_dt - entry_date).days,
                     )
                 )
@@ -1014,6 +1021,20 @@ class BacktestEngine:
         # Microcap warning for PEAD strategies (requires DB access)
         if strategy.strategy_type == "pead_drift":
             warnings.extend(await self._check_microcap(strategy, db))
+
+        # CN A-share detection: if every ticker in the universe is a CN
+        # stock (.SS / .SZ), swap the benchmark from SPY to a CN proxy
+        # (FXI — iShares China Large-Cap ETF). SPY returns are
+        # meaningless as a benchmark for Shanghai/Shenzhen stocks.
+        universe_suffixes = {s.split(".")[-1].upper() if "." in s else "" for s in strategy.universe}
+        if universe_suffixes.issubset({"SS", "SZ"}):
+            old_benchmark = strategy.benchmark
+            strategy = strategy.model_copy(update={"benchmark": "FXI"})
+            warnings.append(
+                "CN stock universe detected — benchmark switched from "
+                f"{old_benchmark} to FXI (iShares China Large-Cap ETF). "
+                "S&P 500 returns are not meaningful for A-share stocks."
+            )
 
         universe_frames, benchmark_frame = await self._load_prices(db, strategy)
         close_matrix, aligned_frames = self._build_price_matrix(universe_frames)
@@ -1110,7 +1131,9 @@ class BacktestEngine:
         equity_curve = strategy.initial_capital * (1.0 + portfolio_returns).cumprod()
         benchmark_curve = strategy.initial_capital * (1.0 + benchmark_returns).cumprod()
         drawdown_curve = compute_drawdown(equity_curve)
-        trade_log = self._extract_trade_log(close_matrix, weights)
+        trade_log = self._extract_trade_log(
+            close_matrix, weights, strategy.transaction_cost_bps + strategy.slippage_bps
+        )
         trade_returns = [trade.return_pct for trade in trade_log]
         holding_periods = [trade.holding_period_days for trade in trade_log]
 
