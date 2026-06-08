@@ -1586,6 +1586,52 @@ def run_startup_migrations(engine: Engine) -> None:
                 "ON notification_banner_entries (user_id, acknowledged_at)"
             ))
 
+        # PRD-19 — mark_as_executed_events (retention metric loop)
+        # User-attested signal action log. One row per "Mark as executed"
+        # click. Latency from the linked SignalEvent's created_at to
+        # executed_at is the retention metric (HANDOFF §7). The
+        # (user_id, signal_event_id) UNIQUE index enforces idempotency
+        # — a second click on the same notification returns the existing
+        # row rather than creating a duplicate.
+        if is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS mark_as_executed_events (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    signal_event_id VARCHAR(36) NOT NULL,
+                    saved_strategy_id VARCHAR(36) NOT NULL,
+                    executed_at DATETIME NOT NULL DEFAULT (datetime('now')),
+                    user_note VARCHAR(560)
+                )
+            """))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_executed_user_signal "
+                "ON mark_as_executed_events (user_id, signal_event_id)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_executed_strategy "
+                "ON mark_as_executed_events (saved_strategy_id, executed_at)"
+            ))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS mark_as_executed_events (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    signal_event_id VARCHAR(36) NOT NULL,
+                    saved_strategy_id VARCHAR(36) NOT NULL,
+                    executed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    user_note VARCHAR(560)
+                )
+            """))
+            conn.execute(text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_executed_user_signal "
+                "ON mark_as_executed_events (user_id, signal_event_id)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_executed_strategy "
+                "ON mark_as_executed_events (saved_strategy_id, executed_at)"
+            ))
+
         # PRD-19 — notification banner entries (in-app surface)
         if is_sqlite:
             conn.execute(text("""
