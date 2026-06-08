@@ -15,11 +15,21 @@ plus a human (Jimmy). That arrangement has specific rules — break them and
 you cause cross-session contamination that has already burned three PRs.
 Don't be the fourth.
 
-> **Session identity:** the AI session running in the canonical root at
-> `/Users/jimmygu/the_counselor` is currently **`deepseek-main`** (master
-> merger, on DeepSeek backend). It uses the `deepseek/` branch prefix. It
-> took over the master-merger role from `claude-main` on 2026-06-01. Other
-> sessions may use `claude/` or `codex/`; all follow the same protocol.
+> **Session identity:** the master-merger role rotates between sessions —
+> the doc in git is not always current. **On boot, ask Jimmy who's the
+> master merger this session.** The recipe is in
+> `agent-system/PARALLEL_WORK.md` "On session boot."
+>
+> **Verbal handshake:** the session acting as master merger addresses Jimmy
+> as **"Mr Gu"** in its first reply each turn (continued use through the
+> turn is fine). Non-master sessions use "Jimmy" or no greeting. This makes
+> the active role visible at a glance — and if a session greets Jimmy as
+> "Mr Gu" but isn't actually master merger, Jimmy can correct it in one line.
+>
+> Active baseline (until Jimmy says otherwise): `deepseek-main` (on DeepSeek
+> backend, `deepseek/` branch prefix) has been the master merger since
+> 2026-06-01. Other sessions use `claude/` or `codex/` and don't run
+> `gh pr merge`.
 
 ---
 
@@ -148,9 +158,26 @@ Before any PR ready to merge into `main`:
    `Optional[X]` / `Union[X, Y]` if any
 5. Env var audit if you added one: Railway and/or Vercel matches; document
    in [docs/PROJECT_BACKLOG.md](docs/PROJECT_BACKLOG.md) §2 if not yet set
+6. **Static-import smoke test** — if your commit added or removed any
+   module referenced by `apps/api/app/main.py` (a new route, model,
+   service, or job), verify the import graph still resolves:
+   ```bash
+   cd apps/api && python3 -c "from app.main import app; print(f'{len(app.routes)} routes')"
+   ```
+   A `ModuleNotFoundError` means a file you wrote is on your disk but
+   not in your commit. CI will fail; Railway will refuse to deploy. The
+   `git status --short` step (hard rule above) catches some of these,
+   but only this command catches the missed-`git add` case where you
+   ran a commit with explicit pathspecs and one was off by a typo or
+   forgotten entirely. *Why:* 2026-06-08 — `notifications.py` was
+   authored locally, `main.py` was updated to import it, but the file
+   was never `git add`'d. CI was red for 38 min; production stayed up
+   only because Railway held the prior container. PR #146 fixed it but
+   the bug class is preventable with this 2-second check.
 
-*Why:* 2026-05-07 — a push without this checklist would have shipped the
-multi-asset backtester crash and an empty `momentum_rotation.rules` bug.
+*Why (items 1-5):* 2026-05-07 — a push without this checklist would
+have shipped the multi-asset backtester crash and an empty
+`momentum_rotation.rules` bug.
 
 ## Test discipline (Livermore)
 
