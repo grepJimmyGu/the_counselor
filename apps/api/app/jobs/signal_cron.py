@@ -11,6 +11,7 @@ Throttle: per-strategy max 1 signal-change email/day, per-user max 3/day.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import date, datetime, timedelta
 from typing import Optional
@@ -39,8 +40,37 @@ from app.services.channel_dispatcher import (
 _log = logging.getLogger("livermore.signal_cron")
 
 
-async def compute_all_signals() -> dict:
-    """Main cron entry point. Returns {total, changed, dispatched, errors}."""
+def compute_all_signals() -> dict:
+    """Public cron entry point for APScheduler. Synchronous wrapper around
+    the async implementation below.
+
+    **Trap #21** (apps/api/CLAUDE.md): APScheduler's `BackgroundScheduler`
+    does not natively await coroutines. Registering an `async def` as a
+    cron job means APScheduler calls the function, receives a coroutine,
+    and drops it on the floor without awaiting — the body never executes
+    and the cron silently does nothing. The original implementation
+    (registered via `scheduler.add_job(compute_all_signals, "cron", ...)`
+    in `main.py:366`) had this exact shape and would have shipped a
+    no-op cron to production once the rest of PRD-19 landed.
+
+    The fix: keep the body `async def` (the implementation can `await`
+    BacktestEngine calls if needed) but expose a sync wrapper as the
+    public entry point. `asyncio.run` creates a fresh event loop on
+    APScheduler's worker thread, drives the coroutine to completion,
+    and returns the result. Sync DB calls inside the coroutine block
+    only this worker-thread loop — safe because nothing else is driven
+    by it.
+
+    Returns {total, changed, dispatched, errors}.
+    """
+    return asyncio.run(_compute_all_signals_async())
+
+
+async def _compute_all_signals_async() -> dict:
+    """Async implementation. See `compute_all_signals` (the public sync
+    wrapper) for the trap #21 context and rationale.
+
+    Returns {total, changed, dispatched, errors}."""
     from app.services.backtester.engine import BacktestEngine
 
     engine = BacktestEngine()
