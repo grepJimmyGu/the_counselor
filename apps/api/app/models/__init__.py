@@ -5,6 +5,7 @@ from app.models.chat import ChatConversation, ChatMessage  # noqa: F401
 from app.models.creator import Creator, CreatorApplication, CreatorPayout  # noqa: F401
 from app.models.email_preference import EmailPreference  # noqa: F401
 from app.models.data_fetch_log import DataFetchLog
+from app.models.notification_banner import NotificationBannerEntry  # noqa: F401
 from app.models.price_bar import PriceBar
 from app.models.published_strategy import PublishedStrategy  # noqa: F401
 from app.models.robustness_job import RobustnessJob
@@ -30,6 +31,7 @@ __all__ = [
     "DataFetchLog",
     "EmailPreference",
     "MonthlyUsage",
+    "NotificationBannerEntry",
     "Plan",
     "PriceBar",
     "PublishedStrategy",

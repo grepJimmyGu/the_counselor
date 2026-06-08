@@ -1551,6 +1551,75 @@ def run_startup_migrations(engine: Engine) -> None:
                 )
             """))
 
+
+        # PRD-19 — notification banner entries (in-app surface)
+        if is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS notification_banner_entries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id VARCHAR(36) NOT NULL,
+                    title VARCHAR(280) NOT NULL,
+                    body VARCHAR(500) NOT NULL,
+                    strategy_slug VARCHAR(120),
+                    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+                    acknowledged_at DATETIME
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_banner_user_unack "
+                "ON notification_banner_entries (user_id, acknowledged_at)"
+            ))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS notification_banner_entries (
+                    id SERIAL PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    title VARCHAR(280) NOT NULL,
+                    body VARCHAR(500) NOT NULL,
+                    strategy_slug VARCHAR(120),
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    acknowledged_at TIMESTAMPTZ
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_banner_user_unack "
+                "ON notification_banner_entries (user_id, acknowledged_at)"
+            ))
+
+        # PRD-19 — notification banner entries (in-app surface)
+        if is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS notification_banner_entries (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id VARCHAR(36) NOT NULL,
+                    title VARCHAR(280) NOT NULL,
+                    body VARCHAR(500) NOT NULL,
+                    strategy_slug VARCHAR(120),
+                    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+                    acknowledged_at DATETIME
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_banner_user_unack "
+                "ON notification_banner_entries (user_id, acknowledged_at)"
+            ))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS notification_banner_entries (
+                    id SERIAL PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    title VARCHAR(280) NOT NULL,
+                    body VARCHAR(500) NOT NULL,
+                    strategy_slug VARCHAR(120),
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    acknowledged_at TIMESTAMPTZ
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_banner_user_unack "
+                "ON notification_banner_entries (user_id, acknowledged_at)"
+            ))
+
     # ── Post-create cleanup (isolated; runs AFTER all CREATE TABLE statements) ──
     # Purge bad revenue_segments rows from PRD-08d parser bug. Isolated so a
     # missing table on fresh DB can't poison the shared transaction above.
