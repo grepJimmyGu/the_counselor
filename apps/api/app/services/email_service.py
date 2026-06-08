@@ -74,7 +74,23 @@ def get_or_create_prefs(db: Session, user_id: str) -> EmailPreference:
 
 def _prefs_allow(prefs: EmailPreference, template: str, category: str) -> bool:
     """Decide whether to send. Transactional always sends (unless globally
-    unsubscribed via Resend complaint). Marketing respects per-category toggle."""
+    unsubscribed via Resend complaint). Marketing respects per-category toggle.
+
+    PRD-19 Step 4a: the `signal_change` + `daily_digest` templates honor
+    `prefs.signal_alerts_enabled` / `prefs.daily_digest_enabled` BEFORE
+    falling through to the transactional default. These two are opt-in
+    products — the user explicitly subscribed; explicit opt-out via the
+    settings page is honored. Legally-required transactional email
+    (password reset, payment failed, account verification) still bypasses
+    `unsubscribed_at` because that's CAN-SPAM table stakes.
+    """
+    # PRD-19 — per-template explicit toggles. Evaluated FIRST so the user's
+    # explicit choice wins over the transactional bypass.
+    if template == "signal_change" and not prefs.signal_alerts_enabled:
+        return False
+    if template == "daily_digest" and not prefs.daily_digest_enabled:
+        return False
+
     # Globally unsubscribed = no marketing, but transactional still goes through
     # (legally required for things like password reset, payment failed).
     if category == "transactional":
