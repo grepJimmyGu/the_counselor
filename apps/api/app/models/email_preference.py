@@ -38,6 +38,35 @@ class EmailPreference(Base):
         Boolean, default=True, server_default="true", nullable=False,
     )
 
+    # PRD-19 Step 4a: signal alerts + daily digest + silent-days flag.
+    #
+    # `signal_alerts_enabled` is a GLOBAL kill-switch for signal-change emails
+    # (Step 3b's `dispatch_signal_change_email`). The per-strategy mute happens
+    # at `SignalAlertSubscription.email_enabled` (Step 4c will route the
+    # signed `signal_alerts_<strategy_id>` unsub tokens to it). This flag lets
+    # the user nuke ALL signal emails in one toggle from the settings page.
+    #
+    # `daily_digest_enabled` is the morning-brief opt-in (PRD-19 trigger #2 —
+    # distinct from `weekly_digest` above, which is the legacy Stage 6a
+    # marketing newsletter). Step 4b's `daily_digest_job` reads this flag.
+    #
+    # `silent_days_enabled` is the "only when there's news" toggle — when on,
+    # the daily digest skips days where no subscribed strategy changed signal.
+    # `notification_throttle.should_skip_digest` already implements the check;
+    # this flag is the user-facing input it reads.
+    #
+    # All three default to True so existing users keep getting alerts after
+    # the migration. The migration uses ADD COLUMN with server_default true.
+    signal_alerts_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False,
+    )
+    daily_digest_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False,
+    )
+    silent_days_enabled: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default="false", nullable=False,
+    )
+
     # Set when the user globally unsubscribes (one-click CAN-SPAM link).
     # Resend webhook also sets this on hard bounce + complained.
     unsubscribed_at: Mapped[Optional[datetime]] = mapped_column(

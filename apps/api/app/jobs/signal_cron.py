@@ -78,7 +78,14 @@ async def _compute_all_signals_async() -> dict:
 
     engine = BacktestEngine()
     db = SessionLocal()
-    today = date.today()
+    # Compute "today" in UTC, not local TZ — `email_dispatched_at` is
+    # written via `datetime.utcnow()`, so the throttle-seeding window
+    # must be in UTC to match (trap #16). Without this, agents running
+    # the cron in local TZ ahead of UTC would seed an empty window and
+    # the throttle would silently reset across cron ticks (the same
+    # bug Step 3b's test caught — but the test runs in container UTC
+    # only because of CI; running locally with local TZ != UTC fails).
+    today = datetime.utcnow().date()
 
     stats = {"total": 0, "changed": 0, "dispatched": 0, "errors": 0}
     # Throttle counters. Pre-seeded from the DB so the per-strategy / per-user

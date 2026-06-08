@@ -154,6 +154,43 @@ def _run_stage1_isolated_ddl(engine: Engine, is_sqlite: bool) -> None:
     except Exception:
         pass  # column already exists
 
+    # ── 3f. PRD-19 Step 4a: email_preferences signal_alerts + daily_digest +
+    # silent_days columns ────────────────────────────────────────────────────
+    # Existing prod users with email_preferences rows need these new columns
+    # back-filled to a sane default. `signal_alerts_enabled` + `daily_digest_enabled`
+    # default TRUE so the migration doesn't silently disable any subscriber's
+    # alerts; `silent_days_enabled` defaults FALSE so existing digest subscribers
+    # don't suddenly stop receiving digests on quiet days.
+    #
+    # Each in its own engine.begin() per trap #3 — SQLite raises if the column
+    # exists; the per-statement isolation prevents the conn from being poisoned
+    # if any one column was already added by a half-completed earlier migration.
+    for col_stmt_sqlite, col_stmt_pg in [
+        (
+            "ALTER TABLE email_preferences "
+            "ADD COLUMN signal_alerts_enabled BOOLEAN NOT NULL DEFAULT 1",
+            "ALTER TABLE email_preferences "
+            "ADD COLUMN IF NOT EXISTS signal_alerts_enabled BOOLEAN NOT NULL DEFAULT TRUE",
+        ),
+        (
+            "ALTER TABLE email_preferences "
+            "ADD COLUMN daily_digest_enabled BOOLEAN NOT NULL DEFAULT 1",
+            "ALTER TABLE email_preferences "
+            "ADD COLUMN IF NOT EXISTS daily_digest_enabled BOOLEAN NOT NULL DEFAULT TRUE",
+        ),
+        (
+            "ALTER TABLE email_preferences "
+            "ADD COLUMN silent_days_enabled BOOLEAN NOT NULL DEFAULT 0",
+            "ALTER TABLE email_preferences "
+            "ADD COLUMN IF NOT EXISTS silent_days_enabled BOOLEAN NOT NULL DEFAULT FALSE",
+        ),
+    ]:
+        try:
+            with engine.begin() as c:
+                c.execute(text(col_stmt_sqlite if is_sqlite else col_stmt_pg))
+        except Exception:
+            pass  # column already exists
+
     # ── 4. Indexes that depend on columns added above ─────────────────────────
     # These live here (not in main conn) because IF NOT EXISTS still aborts a Postgres
     # transaction if the referenced COLUMN is missing — even though the INDEX might not exist.

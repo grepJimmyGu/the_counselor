@@ -28,6 +28,10 @@ class EmailPreferenceResponse(BaseModel):
     weekly_digest: bool
     upsell_nudges: bool
     creator_program: bool
+    # PRD-19 Step 4a — signal alerts + daily digest + silent days
+    signal_alerts_enabled: bool
+    daily_digest_enabled: bool
+    silent_days_enabled: bool
     unsubscribed_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
@@ -37,6 +41,11 @@ class EmailPreferenceUpdate(BaseModel):
     weekly_digest: Optional[bool] = None
     upsell_nudges: Optional[bool] = None
     creator_program: Optional[bool] = None
+    # PRD-19 Step 4a — partial-update support for the three new flags. Each
+    # is independently togglable; `None` means "don't change this flag."
+    signal_alerts_enabled: Optional[bool] = None
+    daily_digest_enabled: Optional[bool] = None
+    silent_days_enabled: Optional[bool] = None
 
 
 @prefs_router.get("", response_model=EmailPreferenceResponse)
@@ -61,8 +70,22 @@ def update_email_preferences(
         prefs.upsell_nudges = payload.upsell_nudges
     if payload.creator_program is not None:
         prefs.creator_program = payload.creator_program
-    # If user re-enables anything, clear the global unsubscribe.
-    if any(x is True for x in (payload.weekly_digest, payload.upsell_nudges, payload.creator_program)):
+    # PRD-19 Step 4a — apply signal-alert + digest + silent-days toggles.
+    if payload.signal_alerts_enabled is not None:
+        prefs.signal_alerts_enabled = payload.signal_alerts_enabled
+    if payload.daily_digest_enabled is not None:
+        prefs.daily_digest_enabled = payload.daily_digest_enabled
+    if payload.silent_days_enabled is not None:
+        prefs.silent_days_enabled = payload.silent_days_enabled
+    # If user re-enables ANY category (legacy marketing or PRD-19 alerts),
+    # clear the global unsubscribe — re-enabling implies they want email again.
+    if any(x is True for x in (
+        payload.weekly_digest,
+        payload.upsell_nudges,
+        payload.creator_program,
+        payload.signal_alerts_enabled,
+        payload.daily_digest_enabled,
+    )):
         if prefs.unsubscribed_at is not None:
             prefs.unsubscribed_at = None
     db.commit()
@@ -74,6 +97,9 @@ def update_email_preferences(
             "weekly_digest": prefs.weekly_digest,
             "upsell_nudges": prefs.upsell_nudges,
             "creator_program": prefs.creator_program,
+            "signal_alerts_enabled": prefs.signal_alerts_enabled,
+            "daily_digest_enabled": prefs.daily_digest_enabled,
+            "silent_days_enabled": prefs.silent_days_enabled,
         })
     except Exception:
         pass
