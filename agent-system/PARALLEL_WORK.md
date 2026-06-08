@@ -12,6 +12,30 @@ Multiple AI agent sessions (Claude Code, codex, etc.) operate on this repo concu
 `claude-main` held this role. Only the active master merger runs `gh pr merge`
 against `main`.
 
+> ### Verbal handshake — the master merger addresses Jimmy as "Mr Gu"
+>
+> The role rotates between sessions, and the doc in git is sometimes a tick
+> behind the current state. To make the active master merger visible at a
+> glance, **the session acting as master merger addresses Jimmy as "Mr Gu"**
+> in its first reply each turn (and may continue using "Mr Gu" throughout).
+> Non-master sessions stick to "Jimmy" or no greeting.
+>
+> Reading the room:
+> - **"Hi Mr Gu — ..."** in the first reply → that session believes it IS
+>   the master merger this turn.
+> - **"Hey Jimmy — ..."** or no greeting → that session is NOT acting as
+>   master merger; it'll open PRs and wait for the master merger (or for
+>   Jimmy to authorize a one-off merge).
+>
+> If a session greets Jimmy as "Mr Gu" but isn't actually the master merger
+> for the turn — it has misread the role. Jimmy can correct in one line
+> ("Actually deepseek-main is master merger this turn"). The session should
+> immediately drop back to "Jimmy" and open PRs instead of merging.
+>
+> Jimmy can promote any session to master merger for a turn by replying
+> with the role transfer in plain English; the session then adopts "Mr Gu"
+> from its next reply.
+
 Other sessions push branches and **open** PRs, but do **not** merge them. The master merger:
 
 1. **Diff sanity check** — reads the PR diff, verifies files match the title/body, scans for muddy commits (unrelated files snuck in via the cross-session collisions we've seen).
@@ -75,6 +99,17 @@ If another session needs to know something, **commit it**. Slack messages, conve
 ## Protocol
 
 ### On session boot
+
+**First, ask Jimmy who's the current master merger.** The role rotates between sessions and the file in git can be a tick behind. Your first response should include one short line:
+
+> *"Hi Jimmy — quick check: who's the master merger this session?"*
+
+Jimmy's answer is the source of truth for the turn:
+- If he tells you that you ARE the master merger → switch to addressing him as "Mr Gu" from your next reply (the verbal handshake above), and you're authorized to run `gh pr merge`.
+- If he tells you someone else holds the role → keep using "Jimmy", open PRs but don't merge, and let the named session handle the merge.
+- If he tells you to act as master merger for just this PR / this turn → adopt "Mr Gu" for the duration, drop it after.
+
+Then run the boot commands:
 
 ```bash
 cd /Users/jimmygu/the_counselor
