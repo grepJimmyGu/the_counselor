@@ -25,6 +25,7 @@ from app.models.saved_strategy import SavedStrategy
 from app.models.saved_strategy_signal_state import SavedStrategySignalState
 from app.models.signal_event import SignalEvent
 from app.models.signal_alert_subscription import SignalAlertSubscription
+from app.models.user import User
 from app.services.signal_service import signals_equal, classify_change
 from app.services.notification_throttle import (
     throttle_strategy_daily,
@@ -35,7 +36,9 @@ from app.services.notification_throttle import (
 from app.services.channel_dispatcher import (
     SignalChangeEvent,
     dispatch_in_app_banner,
+    dispatch_signal_change_email,
 )
+from app.services import posthog_service
 
 _log = logging.getLogger("livermore.signal_cron")
 
@@ -78,8 +81,17 @@ async def _compute_all_signals_async() -> dict:
     today = date.today()
 
     stats = {"total": 0, "changed": 0, "dispatched": 0, "errors": 0}
+    # Throttle counters. Pre-seeded from the DB so the per-strategy / per-user
+    # caps survive cron restarts and misfire-recovery double-fires. Without
+    # this seeding the counters would reset to 0 on every tick and the
+    # throttle would only protect against multi-strategy dispatch in a single
+    # tick — leaving the user vulnerable to "cron ran 5 times today, sent 5
+    # emails for the same strategy."
     strategy_daily_counts: dict[str, int] = {}
     user_daily_counts: dict[str, int] = {}
+    _seed_throttle_counters(
+        db, today, strategy_daily_counts, user_daily_counts,
+    )
 
     try:
         # Only recompute strategies the user subscribed to. Saves compute
@@ -162,11 +174,33 @@ async def _compute_all_signals_async() -> dict:
                         strategy_today = strategy_daily_counts.get(t_key, 0)
                         user_today = user_daily_counts.get(u_key, 0)
 
-                        if (not throttle_strategy_daily(strategy_today)
-                                and not throttle_user_daily(user_today)):
-                            # Dispatch in-app banner (always, no throttle)
-                            dispatched = dispatch_in_app_banner(SignalChangeEvent(
-                                user_email="",  # filled by email dispatch (future step)
+                        if (throttle_strategy_daily(strategy_today)
+                                or throttle_user_daily(user_today)):
+                            # Throttled — PostHog captures the suppression
+                            # so we can see "X notifications skipped" in the
+                            # dashboard. PRD-19 §7 names this event.
+                            posthog_service.capture(
+                                user_id=user_id,
+                                event="notification_throttled",
+                                properties={
+                                    "saved_strategy_id": strat.id,
+                                    "signal_event_id": event.id,
+                                    "strategy_today": strategy_today,
+                                    "user_today": user_today,
+                                    "reason": (
+                                        "user_daily_cap"
+                                        if throttle_user_daily(user_today)
+                                        else "strategy_daily_cap"
+                                    ),
+                                },
+                            )
+                        else:
+                            # Look up the user once so the email dispatcher
+                            # has the address + a real User object for
+                            # `send_email`'s pref check.
+                            user = db.get(User, user_id)
+                            channel_event = SignalChangeEvent(
+                                user_email=user.email if user else "",
                                 user_id=user_id,
                                 strategy_name=strat.title or sj.strategy_name,
                                 strategy_slug=strat.id,
@@ -177,11 +211,44 @@ async def _compute_all_signals_async() -> dict:
                                 rule_context=_rule_context(sj),
                                 risk_context=_risk_context(result),
                                 executed_url=f"/strategies/{strat.id}?action=executed",
-                            ))
-                            if dispatched:
-                                strategy_daily_counts[t_key] = strategy_today + 1
-                                user_daily_counts[u_key] = user_today + 1
-                                stats["dispatched"] += 1
+                            )
+
+                            # In-app banner — fires regardless of email
+                            # delivery so the user has a record next time
+                            # they open the site.
+                            dispatch_in_app_banner(channel_event)
+
+                            # Email — only when we resolved a User.
+                            email_sent = False
+                            if user is not None:
+                                email_sent = dispatch_signal_change_email(
+                                    channel_event, db, user
+                                )
+                                if email_sent:
+                                    event.email_dispatched_at = datetime.utcnow()
+                                    event.email_dispatch_count = (
+                                        event.email_dispatch_count or 0
+                                    ) + 1
+
+                            strategy_daily_counts[t_key] = strategy_today + 1
+                            user_daily_counts[u_key] = user_today + 1
+                            stats["dispatched"] += 1
+
+                            # PostHog `notification_dispatched` — Sprint A
+                            # retention dashboard joins this against
+                            # `notification_executed` on `signal_event_id`
+                            # to compute action latency.
+                            posthog_service.capture(
+                                user_id=user_id,
+                                event="notification_dispatched",
+                                properties={
+                                    "saved_strategy_id": strat.id,
+                                    "signal_event_id": event.id,
+                                    "change_type": change_type,
+                                    "email_sent": email_sent,
+                                    "in_app_banner_sent": True,
+                                },
+                            )
 
                 db.add(state)
 
@@ -202,6 +269,48 @@ async def _compute_all_signals_async() -> dict:
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
+
+
+def _seed_throttle_counters(
+    db: Session,
+    today: date,
+    strategy_counts: dict[str, int],
+    user_counts: dict[str, int],
+) -> None:
+    """Prefill the throttle dicts from SignalEvents already dispatched today.
+
+    A SignalEvent with `email_dispatched_at` falling on today's date counts
+    as one dispatch against both its strategy's daily cap and the strategy
+    owner's user-wide daily cap.
+
+    Without this, restarting the cron (deploy, OOM kill, APScheduler
+    misfire) would reset the in-memory counters to 0 and let the daily cap
+    quietly fire 2-3 emails for the same strategy in one day. The
+    SignalEvent table is the source of truth — the in-memory dicts are
+    just a cache for "what's already happened today."
+    """
+    # Range matters more than date equality because email_dispatched_at is
+    # a DateTime, not a Date. Use a UTC window: [today 00:00 UTC, tomorrow
+    # 00:00 UTC). Times outside US market hours are fine — the cron writes
+    # at ~22:00 UTC, well inside the window.
+    start = datetime(today.year, today.month, today.day)
+    end = start + timedelta(days=1)
+    rows = db.execute(
+        select(SignalEvent, SavedStrategy.user_id)
+        .join(SavedStrategy, SavedStrategy.id == SignalEvent.saved_strategy_id)
+        .where(SignalEvent.email_dispatched_at >= start)
+        .where(SignalEvent.email_dispatched_at < end)
+    ).all()
+    for evt, user_id in rows:
+        t_key = throttle_key(evt.saved_strategy_id, today)
+        u_key = user_throttle_key(user_id, today)
+        # Each dispatched event counts as 1 against both caps. The
+        # `email_dispatch_count` field may be >1 only if a future retry path
+        # increments it (Phase B Sprint B); for today we count distinct
+        # SignalEvents to stay aligned with `throttle_strategy_daily`'s
+        # contract ("1 signal-change email per strategy per day").
+        strategy_counts[t_key] = strategy_counts.get(t_key, 0) + 1
+        user_counts[u_key] = user_counts.get(u_key, 0) + 1
 
 
 def _extract_signal(result, sj) -> dict:
@@ -247,14 +356,36 @@ def _signal_display(signal: dict, sj) -> str:
 
 
 def _price_snapshot(result) -> dict:
-    """Reference price snapshot from the backtest result."""
-    # Use the last bar prices from the result's equity curve
-    return {}
+    """Reference price snapshot stored on SignalEvent.reference_price_snapshot.
+    Same shape as `_reference_prices` — symbol → close price — kept as a
+    distinct function in case Step 4 distinguishes "stored snapshot" from
+    "email-rendered prices" (e.g. truncates the basket for the email but
+    keeps the full snapshot in the DB)."""
+    return _reference_prices(result)
 
 
 def _reference_prices(result) -> dict:
-    """Close prices for the signal date from the backtest."""
-    return {}
+    """Close prices for the universe on (or near) the signal date,
+    extracted from the most recent trade per symbol in the result.
+
+    Used by the email template + in-app banner so the user sees the
+    price they would have transacted at. Returns {} silently if the
+    result has no trade log (e.g. brand-new strategy that hasn't entered
+    any positions yet) — the renderer falls back to "no reference prices
+    available" copy."""
+    if not getattr(result, "trade_log", None):
+        return {}
+    # Latest trade per symbol wins. The trade_log is ordered chronologically;
+    # iterate and let later entries overwrite earlier ones.
+    latest: dict[str, float] = {}
+    for trade in result.trade_log:
+        # exit_price reflects the most recent close we have for this symbol;
+        # for trades still open the engine fills exit_price = current close.
+        if trade.exit_price and trade.exit_price > 0:
+            latest[trade.symbol] = float(trade.exit_price)
+        elif trade.entry_price and trade.entry_price > 0:
+            latest[trade.symbol] = float(trade.entry_price)
+    return latest
 
 
 def _rule_context(sj) -> str:
