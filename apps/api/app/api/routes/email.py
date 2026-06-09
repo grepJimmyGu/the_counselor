@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.models.email_preference import EmailPreference
+from app.models.signal_alert_subscription import SignalAlertSubscription
 from app.models.user import User
 from app.services.email_service import get_or_create_prefs, verify_unsub_token
 
@@ -145,10 +146,17 @@ def unsubscribe(
     prefs = get_or_create_prefs(db, user_id)
 
     if category == "all":
-        # Global unsubscribe — flip every marketing category off.
+        # Global unsubscribe — flip every marketing category off, plus the
+        # PRD-19 categories that the user explicitly subscribed to. The
+        # signal-change emails are `category="transactional"`; the legacy
+        # `unsubscribed_at` set here does NOT block them on its own, but
+        # `signal_alerts_enabled=False` does (via Step 4a's _prefs_allow).
+        # Same for `daily_digest_enabled=False`.
         prefs.weekly_digest = False
         prefs.upsell_nudges = False
         prefs.creator_program = False
+        prefs.signal_alerts_enabled = False
+        prefs.daily_digest_enabled = False
         prefs.unsubscribed_at = datetime.utcnow()
         msg = "We won't send you marketing email anymore."
     elif category == "weekly_digest":
@@ -160,6 +168,28 @@ def unsubscribe(
     elif category == "creator_program":
         prefs.creator_program = False
         msg = "You won't receive creator-program emails anymore."
+    elif category == "daily_digest":
+        # PRD-19 Step 4c — `daily_digest` unsub token (from the daily-digest
+        # email footer). Flips the global digest flag; the daily_digest_job
+        # checks this on every tick and skips the user.
+        prefs.daily_digest_enabled = False
+        msg = "You won't receive the daily digest anymore."
+    elif category.startswith("signal_alerts_"):
+        # PRD-19 Step 4c — per-strategy mute. Token category is
+        # `signal_alerts_<strategy_id>`; the suffix is the saved-strategy
+        # UUID this token authorizes muting. Because the HMAC binds
+        # (user_id, category) and the signing key is server-side, the
+        # only way to land here is with a token Livermore itself
+        # generated for THIS user + THIS strategy. So flipping
+        # `SignalAlertSubscription.email_enabled = False` is safe — we
+        # don't need to re-check ownership of the strategy.
+        strategy_id = category[len("signal_alerts_"):]
+        sub = db.get(SignalAlertSubscription, (user_id, strategy_id))
+        if sub is not None:
+            sub.email_enabled = False
+        # Generic message either way — anti-enumeration: same response
+        # whether the subscription existed or had already been muted.
+        msg = "You won't receive alerts for that strategy anymore."
     else:
         msg = "The link has expired or is invalid."
 
