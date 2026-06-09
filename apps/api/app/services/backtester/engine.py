@@ -1152,6 +1152,94 @@ class BacktestEngine:
                 )
         return trades
 
+    def _apply_exit_ladder(
+        self,
+        weights: pd.DataFrame,
+        close_matrix: pd.DataFrame,
+        exit_ladder: list,
+    ) -> pd.DataFrame:
+        """PRD-16c: post-process the weight matrix with a multi-tier exit
+        ladder. For each position, track entry price (first bar where the
+        weight goes from 0 → > 0), then on each subsequent bar evaluate
+        each tier in ascending `trigger_pct` order. When a tier triggers:
+
+          - `sell_all`  → zero out the weight until the next entry
+          - `sell_fraction` → multiply the weight by (1 - fraction) until
+            the next entry or the next firing tier; the position remains
+            open and subsequent tiers can still fire.
+
+        Each tier fires AT MOST ONCE per entry. An external close (weight
+        returns to 0 from the strategy rules) clears the entry + fired-tier
+        state so the next entry starts fresh.
+
+        This runs after `_generate_weights` and before the returns
+        computation, so the equity curve + trade log reflect the
+        ladder-adjusted positions.
+        """
+        if not exit_ladder:
+            return weights
+        new_weights = weights.copy()
+        for symbol in weights.columns:
+            if symbol not in close_matrix.columns:
+                continue
+            w = new_weights[symbol].to_numpy(copy=True)
+            prices = close_matrix[symbol].to_numpy()
+            entry_price: Optional[float] = None
+            fired: set[int] = set()
+            partial_factor = 1.0  # cumulative scaling for active sell_fraction tiers
+
+            for i in range(len(w)):
+                price = prices[i] if i < len(prices) else None
+                if price is None or pd.isna(price):
+                    continue
+
+                if entry_price is None and w[i] > 0:
+                    # New entry: snapshot entry price, reset state.
+                    entry_price = float(price)
+                    fired.clear()
+                    partial_factor = 1.0
+                    continue
+
+                if entry_price is not None and w[i] > 0:
+                    pct = (float(price) - entry_price) / entry_price
+                    for j, tier in enumerate(exit_ladder):
+                        if j in fired:
+                            continue
+                        triggered = (
+                            (tier.trigger_pct < 0 and pct <= tier.trigger_pct)
+                            or (tier.trigger_pct > 0 and pct >= tier.trigger_pct)
+                        )
+                        if not triggered:
+                            continue
+                        fired.add(j)
+                        if tier.action == "sell_all":
+                            # Zero the position forward until the next entry.
+                            k = i
+                            while k < len(w) and w[k] > 0:
+                                w[k] = 0.0
+                                k += 1
+                            entry_price = None
+                            fired.clear()
+                            partial_factor = 1.0
+                            break  # position closed; move to next bar
+                        # sell_fraction: apply cumulative scaling forward.
+                        fraction = tier.fraction or 0.0
+                        partial_factor *= (1.0 - fraction)
+                        k = i
+                        while k < len(w) and w[k] > 0:
+                            w[k] *= (1.0 - fraction)
+                            k += 1
+                    continue
+
+                if entry_price is not None and w[i] == 0:
+                    # Strategy closed the position itself; reset state.
+                    entry_price = None
+                    fired.clear()
+                    partial_factor = 1.0
+
+            new_weights[symbol] = w
+        return new_weights
+
     async def _check_microcap(self, strategy: StrategyJSON, db: Session) -> list[str]:
         """
         For pead_drift strategies: warn if the universe consists of microcaps
@@ -1179,7 +1267,32 @@ class BacktestEngine:
             logger.debug("Microcap check failed: %s", exc)
         return []
 
-    async def run(self, db: Session, strategy: StrategyJSON) -> BacktestResult:
+    async def run(
+        self,
+        db: Session,
+        strategy: StrategyJSON,
+        bar_resolution: str = "daily",
+    ) -> BacktestResult:
+        """Run the backtest. `bar_resolution` is one of 'daily', '5min',
+        '15min', '30min', or '60min' (PRD-16c). Default 'daily' preserves
+        all existing 22 strategy_types' behavior.
+
+        Intraday bar_resolution is not yet wired through `_load_prices`
+        (PRD-16c-3 lands the intraday data path); calling with a non-daily
+        resolution raises `NotImplementedError` so the contract is clear
+        and the API surface is forward-compatible. The composer's
+        bar_resolution selector and the engine's `exit_ladder`
+        post-processor both work today on daily bars.
+        """
+        if bar_resolution != "daily":
+            # The parameter is accepted on the public surface so the
+            # composer + frontend can persist a strategy with
+            # bar_resolution='15min' today. The intraday load + engine
+            # path is gated on PRD-16c-3 (intraday monitor + dashboard).
+            raise NotImplementedError(
+                f"Intraday backtests (bar_resolution={bar_resolution!r}) "
+                "land in PRD-16c-3. Use bar_resolution='daily' for now."
+            )
         # PRD-13b: For portfolio overlays, the user's holdings (inherited_universe)
         # ARE the universe. Swap once at the top so every downstream helper
         # (_load_prices, _generate_weights, _check_microcap, trade log, etc.)
@@ -1298,6 +1411,16 @@ class BacktestEngine:
             )
 
         weights = self._generate_weights(strategy, close_matrix, aligned_frames, precomputed_signals)
+
+        # PRD-16c: apply multi-tier exit ladder (if configured) before
+        # computing returns. Position-aware: tracks entry price + which
+        # tiers have fired per open position. No-op when exit_ladder is
+        # None — existing strategies keep their behavior.
+        if strategy.risk_management.exit_ladder:
+            weights = self._apply_exit_ladder(
+                weights, close_matrix, strategy.risk_management.exit_ladder
+            )
+
         asset_returns = close_matrix.pct_change().fillna(0.0)
         turnover = weights.diff().abs().sum(axis=1).fillna(0.0)
         costs = turnover * ((strategy.transaction_cost_bps + strategy.slippage_bps) / 10000)

@@ -190,10 +190,86 @@ class PositionSizing(BaseModel):
     signal_power: Optional[float] = None
 
 
+class ExitTier(BaseModel):
+    """One tier in a multi-tier exit ladder (PRD-16c).
+
+    Trigger is % change from entry: positive for take-profit, negative
+    for stop. Action is either `sell_all` (close the whole position) or
+    `sell_fraction` (partial out — `fraction` is the share of the
+    current position to liquidate, e.g. 0.33 = 1/3 out).
+
+    Each tier fires AT MOST ONCE per entry: after `TP1` partial-outs,
+    the position remains open and `TP2` can still fire later. Once a
+    `sell_all` tier fires, the position is closed and subsequent tiers
+    do not apply until a new entry occurs.
+
+    Tiers are evaluated in ascending order of `trigger_pct`, so the
+    `Stop` tier (most negative) is checked first on each bar.
+    """
+
+    trigger_pct: float  # e.g. -0.10 = -10% stop, +0.30 = +30% TP
+    action: Literal["sell_all", "sell_fraction"]
+    # Required when action='sell_fraction'; must satisfy 0 < f < 1.
+    fraction: Optional[float] = None
+    # Plain-English label for the dashboard / trade log ("Stop", "TP1", "TP2").
+    label: Optional[str] = None
+
+    @model_validator(mode="after")
+    def validate_fraction(self) -> "ExitTier":
+        if self.action == "sell_fraction":
+            if self.fraction is None:
+                raise ValueError(
+                    "ExitTier with action='sell_fraction' requires `fraction`."
+                )
+            if not (0.0 < self.fraction < 1.0):
+                raise ValueError(
+                    f"ExitTier `fraction` must satisfy 0 < f < 1 (got {self.fraction})."
+                )
+        # `fraction` on a sell_all tier is harmless but confusing — reject.
+        if self.action == "sell_all" and self.fraction is not None:
+            raise ValueError(
+                "ExitTier with action='sell_all' must not set `fraction`."
+            )
+        return self
+
+
 class RiskManagement(BaseModel):
     max_drawdown_stop: Optional[float] = None
     stop_loss_pct: Optional[float] = None
     take_profit_pct: Optional[float] = None
+    # PRD-16c: multi-tier exit ladder. When set, the backtest engine
+    # forces position-level exits on the bars where each tier triggers
+    # — supersedes the single-stop / single-TP behavior of
+    # `stop_loss_pct` + `take_profit_pct` for that strategy. Existing
+    # strategies that don't set `exit_ladder` are unaffected.
+    #
+    # Validator below enforces:
+    #   - at least one stop tier (`trigger_pct < 0` with `action='sell_all'`)
+    #   - tiers ordered ascending by `trigger_pct`
+    #   - sell_fraction tiers carry a valid `fraction`
+    exit_ladder: Optional[list[ExitTier]] = None
+
+    @model_validator(mode="after")
+    def validate_exit_ladder(self) -> "RiskManagement":
+        if self.exit_ladder is None:
+            return self
+        if not self.exit_ladder:
+            raise ValueError("`exit_ladder`, when set, must contain at least 1 tier.")
+        triggers = [t.trigger_pct for t in self.exit_ladder]
+        if triggers != sorted(triggers):
+            raise ValueError(
+                "exit_ladder tiers must be ordered ascending by `trigger_pct`."
+            )
+        has_stop = any(
+            t.trigger_pct < 0 and t.action == "sell_all"
+            for t in self.exit_ladder
+        )
+        if not has_stop:
+            raise ValueError(
+                "exit_ladder must include at least one stop tier "
+                "(trigger_pct < 0 with action='sell_all')."
+            )
+        return self
 
 
 class CashManagement(BaseModel):
