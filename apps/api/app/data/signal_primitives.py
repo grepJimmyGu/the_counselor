@@ -1161,9 +1161,53 @@ _CROSS_SECTIONAL: list[SignalPrimitive] = [
 ]
 
 
+# ── PRD-16c-4 editorial: intraday-eligible primitives ──────────────────────
+#
+# Technical indicators that work on any bar series (price-derived, no
+# calendar-tied data) get `resolution=["daily", "intraday"]`. Everything
+# else stays `["daily"]` because:
+#   - Fundamentals don't change tick-to-tick (FCF yield, F-score, etc.)
+#   - Sentiment + earnings events are daily-cadence at finest
+#   - Cross-sectional rankings need a fixed snapshot window
+#
+# Add an id here when (a) the provider can run on intraday bars without
+# semantic change, AND (b) the resulting signal is actually useful at
+# that timescale. SAR + ParabolicSAR are eligible mechanically but
+# tuned for daily — leave them daily-only unless someone validates the
+# intraday parameter defaults. Same logic for KAMA.
+_INTRADAY_ELIGIBLE_IDS: frozenset[str] = frozenset({
+    # Trend (10): pure MA-based indicators work the same on any bar.
+    "sma", "ema", "wma", "dema", "tema",
+    "ma_crossover", "macd", "adx", "aroon", "ht_trendline",
+    # Mean-reversion / momentum oscillators (16): price-derived, work
+    # on any frame. Bollinger, RSI, Stochastics are the SpaceX-style
+    # ladder's natural intraday building blocks.
+    "rsi", "stoch", "stochrsi", "willr", "cci", "cmo", "bbands",
+    "mfi", "ultosc", "roc", "mom", "trix", "apo", "ppo",
+    "donchian_breakout", "bop",
+    # Volume (5): all OHLCV-derived; VWAP is intraday-canonical.
+    "obv", "ad", "adosc", "vwap", "avg_dollar_volume",
+    # Volatility (4): bar-window-based; valid at any resolution.
+    "atr", "natr", "trange", "realized_vol",
+})
+
+
+def _apply_intraday_resolution(primitives: list[SignalPrimitive]) -> list[SignalPrimitive]:
+    """Bump `resolution` to `['daily', 'intraday']` for the editorially-
+    chosen subset. Returns the same list — mutation is in-place since
+    the items are mutable Pydantic models."""
+    for p in primitives:
+        if p.id in _INTRADAY_ELIGIBLE_IDS:
+            # Preserve `daily` first for backwards-compat with the
+            # ETag-cached frontend payload from PRD-16a (which ships
+            # with `["daily"]` order).
+            p.resolution = ["daily", "intraday"]
+    return primitives
+
+
 # ── Full catalog ──────────────────────────────────────────────────────────────
 
-SIGNAL_PRIMITIVES: list[SignalPrimitive] = [
+SIGNAL_PRIMITIVES: list[SignalPrimitive] = _apply_intraday_resolution([
     *_TREND,
     *_MEAN_REVERSION,
     *_MOMENTUM,
@@ -1172,7 +1216,7 @@ SIGNAL_PRIMITIVES: list[SignalPrimitive] = [
     *_FUNDAMENTAL,
     *_SENTIMENT,
     *_CROSS_SECTIONAL,
-]
+])
 
 
 def get_catalog_version_hash() -> str:
