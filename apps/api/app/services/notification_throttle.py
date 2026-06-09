@@ -44,3 +44,35 @@ def throttle_key(strategy_id: str, d: date) -> str:
 def user_throttle_key(user_id: str, d: date) -> str:
     """Return the tracking key for per-user daily throttle."""
     return f"{user_id}:{d.isoformat()}"
+
+
+# ── PRD-16c-3b: per-position throttle ───────────────────────────────────────
+#
+# Active-execution strategies fire per-symbol per-tier events: a stop on AAPL
+# is distinct from a TP1 on AAPL is distinct from a stop on NVDA. The
+# (strategy_id, date) keying that signal_change uses would batch all of them
+# under one cap and drop legitimate events.
+#
+# The position throttle is keyed by (strategy_id, symbol, trigger_type, date)
+# — one cap per ladder rung per symbol per day. Same TP1 hit on the same
+# symbol on the same day is still noise; a stop on a different symbol is not.
+
+
+def position_throttle_key(
+    strategy_id: str, symbol: str, trigger_type: str, d: date
+) -> str:
+    """Return the per-position daily throttle key.
+
+    `trigger_type` is one of 'stop_hit' | 'tp1_hit' | 'tp2_hit' | ... —
+    the position-event names the monitor cron emits.
+    """
+    return f"{strategy_id}:{symbol}:{trigger_type}:{d.isoformat()}"
+
+
+def throttle_position_daily(today_count: int) -> bool:
+    """Return True if this position+tier's daily cap is hit.
+
+    Same shape as `throttle_strategy_daily`: 1 per day per
+    (strategy, symbol, trigger_type). Caller branches on this before
+    dispatching the email / banner."""
+    return today_count >= 1
