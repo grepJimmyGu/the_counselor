@@ -379,6 +379,24 @@ def _start_scheduler() -> None:
             max_instances=1,
             misfire_grace_time=3600,
         )
+        # PRD-16c — intraday position monitor. Every 5 minutes during US
+        # market hours (M-F, 14:00-20:55 UTC ≈ 10am-4:55pm ET; one hour
+        # ahead of NYSE open to cover any pre-market positions). The job
+        # itself is cheap when there's nothing to do: it iterates
+        # SavedStrategy rows, skips any without bar_resolution != 'daily'
+        # or without exit_ladder, and only fetches bars for open
+        # PositionState rows. Most ticks will return strategies_checked=0.
+        # The function is a sync wrapper around asyncio.run(...) (trap #21
+        # safe). Trap #22 is honored — `IntradayBarService` holds no
+        # asyncio primitives so it's safe to use from the cron loop.
+        from app.jobs.intraday_jobs import monitor_active_positions
+        scheduler.add_job(
+            monitor_active_positions, "cron",
+            day_of_week="mon-fri", hour="14-20", minute="*/5",
+            id="intraday_monitor",
+            max_instances=1,
+            misfire_grace_time=120,
+        )
         scheduler.start()
     except Exception as exc:
         logger.warning("APScheduler failed to start: %s", exc)

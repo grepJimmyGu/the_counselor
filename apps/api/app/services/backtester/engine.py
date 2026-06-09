@@ -1271,27 +1271,38 @@ class BacktestEngine:
         self,
         db: Session,
         strategy: StrategyJSON,
-        bar_resolution: str = "daily",
+        bar_resolution: Optional[str] = None,
     ) -> BacktestResult:
         """Run the backtest. `bar_resolution` is one of 'daily', '5min',
-        '15min', '30min', or '60min' (PRD-16c). Default 'daily' preserves
-        all existing 22 strategy_types' behavior.
+        '15min', '30min', or '60min' (PRD-16c).
 
-        Intraday bar_resolution is not yet wired through `_load_prices`
-        (PRD-16c-3 lands the intraday data path); calling with a non-daily
-        resolution raises `NotImplementedError` so the contract is clear
-        and the API surface is forward-compatible. The composer's
-        bar_resolution selector and the engine's `exit_ladder`
-        post-processor both work today on daily bars.
+        Resolution priority:
+          1. Explicit `bar_resolution=...` kwarg (caller wins; useful for
+             monitor / robustness reruns at a forced resolution).
+          2. `strategy.bar_resolution` (composer writes this; default
+             'daily' for the 22 pre-existing strategy_types).
+
+        Non-daily today: the engine soft-degrades to daily bars and
+        prepends a warning to the BacktestResult explaining why. The
+        intraday data path through `_load_prices` is the remaining gap
+        before backtests run on the actual intraday bars from
+        `IntradayBarService`. The user's choice is still persisted on
+        the saved strategy and consumed by the intraday monitor cron;
+        only the BACKTEST surface degrades.
         """
-        if bar_resolution != "daily":
-            # The parameter is accepted on the public surface so the
-            # composer + frontend can persist a strategy with
-            # bar_resolution='15min' today. The intraday load + engine
-            # path is gated on PRD-16c-3 (intraday monitor + dashboard).
-            raise NotImplementedError(
-                f"Intraday backtests (bar_resolution={bar_resolution!r}) "
-                "land in PRD-16c-3. Use bar_resolution='daily' for now."
+        # Resolution priority: explicit kwarg overrides the strategy's
+        # persisted choice. Defaults to the strategy field which is
+        # 'daily' for everything except PRD-16c custom builds.
+        resolution = bar_resolution if bar_resolution is not None else getattr(
+            strategy, "bar_resolution", "daily"
+        )
+        intraday_warning: Optional[str] = None
+        if resolution != "daily":
+            intraday_warning = (
+                f"Backtest was requested at bar_resolution={resolution!r}, "
+                "but intraday backtests fall back to daily bars today. "
+                "Your bar resolution choice is still saved on the strategy and "
+                "consumed by the live monitor cron once the strategy is saved."
             )
         # PRD-13b: For portfolio overlays, the user's holdings (inherited_universe)
         # ARE the universe. Swap once at the top so every downstream helper
@@ -1306,6 +1317,11 @@ class BacktestEngine:
             )
 
         warnings = list(validate_strategy(strategy))
+        # PRD-16c soft-degrade: surface the intraday->daily fallback so
+        # the user knows their non-daily choice was persisted but the
+        # backtest ran on daily bars.
+        if intraday_warning is not None:
+            warnings.append(intraday_warning)
 
         # Microcap warning for PEAD strategies (requires DB access)
         if strategy.strategy_type == "pead_drift":
