@@ -327,10 +327,24 @@ export interface PositionSizing {
   signal_power?: number;
 }
 
+/** PRD-16c — multi-tier exit ladder tier. Mirrors backend `ExitTier`.
+ *  Validator on the backend enforces: ≥1 stop tier (`trigger_pct<0` +
+ *  `sell_all`), tiers ordered ascending by trigger_pct, sell_fraction
+ *  fractions in (0, 1). */
+export interface ExitTier {
+  trigger_pct: number;
+  action: "sell_all" | "sell_fraction";
+  fraction?: number;
+  label?: string;
+}
+
 export interface RiskManagement {
   max_drawdown_stop?: number;
   stop_loss_pct?: number;
   take_profit_pct?: number;
+  /** PRD-16c — when set, supersedes single stop/TP. Empty list = null
+   *  on the backend (drop before sending). */
+  exit_ladder?: ExitTier[];
 }
 
 export interface CashManagement {

@@ -95,7 +95,20 @@ export function buildCustomBuildStrategyJson(
   const benchmark = opts.benchmark ?? "SPY";
   const rules: StrategyRule[] = context.rules.map(_toStrategyRule);
 
-  return {
+  // PRD-16c: when active execution is on AND the user has at least one
+  // tier, attach exit_ladder. Empty ladder = omit (backend treats
+  // `exit_ladder: null` the same as not setting it, but the validator
+  // would reject `exit_ladder: []`).
+  const risk_management: StrategyJson["risk_management"] = {};
+  if (
+    context.active_execution_enabled &&
+    Array.isArray(context.exit_ladder) &&
+    context.exit_ladder.length > 0
+  ) {
+    risk_management.exit_ladder = context.exit_ladder;
+  }
+
+  const out: StrategyJson = {
     strategy_name:
       opts.strategy_name ??
       `Custom build — ${context.rules.map((r) => r.primitive.family).join(" + ")}`,
@@ -110,9 +123,21 @@ export function buildCustomBuildStrategyJson(
     slippage_bps: 5,
     rules,
     position_sizing: { method: "equal_weight" },
-    risk_management: {},
+    risk_management,
     cash_management: { hold_cash_when_no_signal: true },
   };
+
+  // bar_resolution is persisted as a top-level key on the JSON, NOT on
+  // StrategyJson itself — the backend reads it off `strategy_json` in
+  // the cron + the engine's run() call (PRD-16c-2 + 16c-3b). Active
+  // execution off → bar_resolution defaults to 'daily' (the only
+  // currently-supported resolution in the engine path).
+  if (context.active_execution_enabled && context.bar_resolution !== "daily") {
+    (out as unknown as Record<string, unknown>).bar_resolution =
+      context.bar_resolution;
+  }
+
+  return out;
 }
 
 /**

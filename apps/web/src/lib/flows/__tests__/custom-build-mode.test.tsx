@@ -137,6 +137,8 @@ describe("custom_build_mode flow registration", () => {
       rules: [],
       symbol: null,
       active_execution_enabled: false,
+      bar_resolution: "daily" as const,
+      exit_ladder: [],
     } satisfies CustomBuildModeContext;
     expect(step.validate?.(ctxEmpty)).toBe("Add at least one rule.");
 
@@ -268,6 +270,8 @@ function _renderCanvas(initial?: Partial<CustomBuildModeContext>) {
     symbol: null,
     rules: [],
     active_execution_enabled: false,
+    bar_resolution: "daily",
+    exit_ladder: [],
     ...initial,
   };
   const updateContext = (patch: Partial<CustomBuildModeContext>) => {
