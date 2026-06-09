@@ -1,0 +1,190 @@
+/**
+ * PRD-16b-2 — CustomBuildCanvas.
+ *
+ * The compose-signals step in the `custom_build_mode` flow. Three-pane
+ * layout:
+ *   - Left: <SignalCatalogBrowser /> (PRD-16a) for picking primitives.
+ *     Clicking a card appends a `BuildRule` to context.rules.
+ *   - Center: the user's rules list with `<CustomBuildRuleCard>` +
+ *     `<CustomBuildRuleComposer>` (AND/OR) between them, plus the
+ *     `<CustomBuildActiveExecutionScaffold>` (pitfall B placeholder).
+ *   - Right: <RecommendedDefaultsPanel /> placeholder. PRD-16b-3
+ *     wraps PRD-16a's <TemplateMatchSuggestion> here.
+ *
+ * State lives in the flow context (mutated via `updateContext`). Auto-
+ * save / draft sync is a future polish item — for now the runtime
+ * already persists context to sessionStorage with a 250ms debounce, so
+ * a quick tab-close-then-reopen restores work.
+ */
+"use client";
+
+import { useCallback, useMemo } from "react";
+
+import { SignalCatalogBrowser } from "@/components/signal-library/signal-catalog-browser";
+import { TemplateMatchSuggestion } from "@/components/signal-library/template-match-suggestion";
+import type {
+  SignalPrimitive,
+} from "@/lib/contracts";
+import type {
+  BuildRule,
+  CustomBuildModeContext,
+} from "@/lib/flows/custom-build-mode-context";
+import type { FlowStepProps } from "@/lib/flows/types";
+import { cn } from "@/lib/utils";
+
+import { CustomBuildActiveExecutionScaffold } from "./custom-build-active-execution-scaffold";
+import { CustomBuildRuleCard } from "./custom-build-rule-card";
+import { CustomBuildRuleComposer } from "./custom-build-rule-composer";
+
+// Default threshold for a freshly added rule. The primitive's
+// `default_thresholds` may have keys like "upper" / "lower" / "min_yield";
+// for v1 we keep the threshold field unset on add and let the user fill
+// it in — that surfaces the choice instead of pretending we know it.
+function newBuildRule(primitive: SignalPrimitive): BuildRule {
+  return {
+    uid: `${primitive.id}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    primitive_id: primitive.id,
+    primitive,
+    primitive_params: {},
+    operator: "gt",
+    threshold: undefined,
+    logic_with_prior: null,
+  };
+}
+
+export function CustomBuildCanvas({
+  context,
+  updateContext,
+}: FlowStepProps<CustomBuildModeContext>) {
+  const selectedIds = useMemo(
+    () => new Set(context.rules.map((r) => r.primitive_id)),
+    [context.rules],
+  );
+
+  const handlePick = useCallback(
+    (primitive: SignalPrimitive) => {
+      const isFirst = context.rules.length === 0;
+      const next = newBuildRule(primitive);
+      if (!isFirst) next.logic_with_prior = "AND";
+      updateContext({ rules: [...context.rules, next] });
+    },
+    [context.rules, updateContext],
+  );
+
+  const updateRule = useCallback(
+    (uid: string, patch: BuildRule) => {
+      updateContext({
+        rules: context.rules.map((r) => (r.uid === uid ? patch : r)),
+      });
+    },
+    [context.rules, updateContext],
+  );
+
+  const removeRule = useCallback(
+    (uid: string) => {
+      const nextRules = context.rules.filter((r) => r.uid !== uid);
+      // After removal, the new rules[0] must have logic_with_prior=null
+      // (backend validator enforces this).
+      if (nextRules.length > 0 && nextRules[0].logic_with_prior !== null) {
+        nextRules[0] = { ...nextRules[0], logic_with_prior: null };
+      }
+      updateContext({ rules: nextRules });
+    },
+    [context.rules, updateContext],
+  );
+
+  const setComposerForIndex = useCallback(
+    (index: number, value: "AND" | "OR") => {
+      const nextRules = [...context.rules];
+      nextRules[index] = { ...nextRules[index], logic_with_prior: value };
+      updateContext({ rules: nextRules });
+    },
+    [context.rules, updateContext],
+  );
+
+  const primitiveIds = useMemo(
+    () => context.rules.map((r) => r.primitive_id),
+    [context.rules],
+  );
+
+  return (
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1.2fr_320px]">
+      {/* Left — catalog browser */}
+      <section
+        data-testid="custom-build-catalog"
+        className="rounded-lg border border-slate-200 bg-white p-4"
+      >
+        <header className="mb-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            Pick primitives
+          </p>
+          <h2 className="text-sm font-semibold text-slate-900">
+            Drag any signal from the catalog
+          </h2>
+        </header>
+        <SignalCatalogBrowser onPick={handlePick} selectedIds={selectedIds} />
+      </section>
+
+      {/* Center — composer canvas */}
+      <section
+        data-testid="custom-build-rules"
+        className="flex flex-col gap-3"
+      >
+        <header>
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            Your rules
+          </p>
+          <h2 className="text-sm font-semibold text-slate-900">
+            Compose your strategy
+          </h2>
+        </header>
+
+        {context.rules.length === 0 ? (
+          <p
+            data-testid="custom-build-empty"
+            className="rounded-lg border border-dashed border-slate-300 bg-slate-50 p-6 text-center text-[13px] text-slate-500"
+          >
+            Pick a primitive from the catalog on the left to add your first
+            rule.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-0">
+            {context.rules.map((rule, index) => (
+              <div key={rule.uid} className="flex flex-col gap-0">
+                {index > 0 ? (
+                  <CustomBuildRuleComposer
+                    value={rule.logic_with_prior === "OR" ? "OR" : "AND"}
+                    onChange={(next) => setComposerForIndex(index, next)}
+                  />
+                ) : null}
+                <CustomBuildRuleCard
+                  rule={rule}
+                  index={index}
+                  onChange={(next) => updateRule(rule.uid, next)}
+                  onRemove={() => removeRule(rule.uid)}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+
+        <CustomBuildActiveExecutionScaffold
+          value={context.active_execution_enabled}
+          onChange={(next) =>
+            updateContext({ active_execution_enabled: next })
+          }
+          // PRD-16b ships disabled. PRD-16c will pass `disabled={false}`.
+          disabled
+        />
+      </section>
+
+      {/* Right — recommended defaults */}
+      <aside data-testid="custom-build-recommendations">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+          Suggestions
+        </p>
+        <TemplateMatchSuggestion primitiveIds={primitiveIds} />
+      </aside>
+    </div>
+  );
+}
