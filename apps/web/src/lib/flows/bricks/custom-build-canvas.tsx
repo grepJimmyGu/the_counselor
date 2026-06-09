@@ -24,7 +24,9 @@ import { SignalCatalogBrowser } from "@/components/signal-library/signal-catalog
 import { TemplateMatchSuggestion } from "@/components/signal-library/template-match-suggestion";
 import type {
   SignalPrimitive,
+  TemplateMatch,
 } from "@/lib/contracts";
+import { applyTemplateThresholdsToRules } from "@/lib/flows/custom-build-strategy-json";
 import type {
   BuildRule,
   CustomBuildModeContext,
@@ -102,13 +104,50 @@ export function CustomBuildCanvas({
     [context.rules, updateContext],
   );
 
+  const handleUseTemplateDefaults = useCallback(
+    (match: TemplateMatch) => {
+      const nextRules = applyTemplateThresholdsToRules(
+        context.rules,
+        match.thresholds_for_user_primitives,
+      );
+      updateContext({ rules: nextRules });
+    },
+    [context.rules, updateContext],
+  );
+
   const primitiveIds = useMemo(
     () => context.rules.map((r) => r.primitive_id),
     [context.rules],
   );
 
   return (
-    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1.2fr_320px]">
+    <div className="flex flex-col gap-4">
+      {/* Symbol picker — single-asset for v1; PRD-16c may extend to multi. */}
+      <section
+        data-testid="custom-build-symbol-picker"
+        className="rounded-lg border border-slate-200 bg-white p-4"
+      >
+        <label className="flex flex-col gap-1">
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+            Backtest symbol
+          </span>
+          <input
+            type="text"
+            value={context.symbol ?? ""}
+            placeholder="SPY, NVDA, GOOGL…"
+            onChange={(e) =>
+              updateContext({ symbol: e.target.value.toUpperCase() })
+            }
+            data-testid="custom-build-symbol-input"
+            className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium uppercase tracking-wider placeholder:font-normal placeholder:tracking-normal placeholder:lowercase focus:border-slate-400 focus:outline-none"
+          />
+          <p className="text-[11px] text-slate-500">
+            v1 is single-asset — multi-symbol composer lands in a follow-up.
+          </p>
+        </label>
+      </section>
+
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1.2fr_320px]">
       {/* Left — catalog browser */}
       <section
         data-testid="custom-build-catalog"
@@ -183,8 +222,12 @@ export function CustomBuildCanvas({
         <p className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
           Suggestions
         </p>
-        <TemplateMatchSuggestion primitiveIds={primitiveIds} />
+        <TemplateMatchSuggestion
+          primitiveIds={primitiveIds}
+          onPickTemplate={handleUseTemplateDefaults}
+        />
       </aside>
+      </div>
     </div>
   );
 }
