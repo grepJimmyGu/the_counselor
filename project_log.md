@@ -8,6 +8,36 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-06-09 (evening, continued) — PRD-16b (Custom Build composer) complete in three sequential PRs (#167 → #168 → #169)
+
+Same continuous session as the PRD-16a closeout below. Three slices, all base=main:
+
+| Slice | PR | Scope | New tests |
+|---|---|---|---|
+| 16b-1 | #167 | Backend `StrategyRule` additive fields (`primitive_id`, `primitive_params`, `logic_with_prior`) + `custom_build` strategy_type + `_evaluate_custom_build_block` engine path + backwards-compat tests | +18 backend |
+| 16b-2 | #168 | `<CustomBuildCanvas>` + `<CustomBuildRuleCard>` + `<CustomBuildRuleComposer>` + `<CustomBuildActiveExecutionScaffold>` (pitfall B) + `custom_build_mode` FlowDefinition | +15 frontend |
+| 16b-3 | #169 | `buildCustomBuildStrategyJson` converter + `applyTemplateThresholdsToRules` + symbol picker + canvas "Use these defaults" wiring | +15 frontend |
+
+Cumulative: **1334 backend tests** (was 1316), **151 frontend tests** (was 121), **0 regressions** on 22 existing strategy types (pitfall C verified).
+
+### Architecture decisions worth recording
+
+**The synchronous-engine constraint.** PRD-16a-2's `SignalProvider` impls are async (they fetch price data via `PriceDataService.get_price_frame`). The backtest engine is synchronous. For v1, `_compute_primitive_on_close_matrix` calls `TechnicalSignalProvider._compute` directly with a frame synthesized from the close_matrix (close-only; OHLCV approximated). AV-endpoint primitives explicitly raise — out of scope for v1's synchronous engine. Test `test_av_endpoint_primitive_raises_in_custom_build_v1` pins the documented limitation.
+
+**First-rule contract has a UX consequence.** When the user removes the first rule, the new `rules[0]` must have its `logic_with_prior` cleared to null. The canvas's `removeRule` handles this. Tested.
+
+**Lenient threshold-key mapper.** `applyTemplateThresholdsToRules` doesn't strictly enumerate which keys are threshold-shaped — it uses a regex (`enter_*` / `exit_*` / `upper` / `lower` / `threshold` / `min` / `max` / `strong_buy` / `positive` / `breakout` / `trending`). The lenience is intentional: PRD-16a-3's per-template metadata is editorial copy, and a strict mapper would couple this code to copy choices in another file. First match wins for the threshold; other keys become `primitive_params`.
+
+### Cross-cutting trap surfaced
+
+**Test pollution via `getByText` ambiguity.** Initial canvas tests used `screen.getByText("rsi")` to wait for the catalog to render — but the SignalPrimitiveCard renders the primitive name in both the catalog browser and the (newly added) rule card on the right. Switched to `screen.getByTestId("primitive-card-rsi")` for unambiguous waits. Same lesson as earlier in the session: prefer test IDs over text matchers when the same string appears in multiple surfaces.
+
+### PRD-16b status: complete
+
+PRD-16c (intraday + active execution) remains in the packet. PRD-19 (notifications) + PRD-16a (catalog) + PRD-16b (composer) — all three prerequisites — are now on main.
+
+---
+
 ## 2026-06-09 (very late) — PRD-16a (Signal Library) complete in four sequential PRs (#161 → #163 → #164 → #165)
 
 Same continuous session as the PRD-19 closeout below. After Mr Gu queued the Custom Mode 3-PRD packet in PROJECT_BACKLOG (#159) and landed the spec docs in git (#160), we executed PRD-16a end-to-end in four sequential slices, each base=main, no stacked PRs.
