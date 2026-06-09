@@ -48,6 +48,12 @@ StrategyType = Literal[
     "portfolio_defensive_overlay",
     "portfolio_rotation_overlay",
     "portfolio_rebalance_overlay",
+    # ── Custom Build composer (PRD-16b) ───────────────────────────────────────
+    # User composes any combination of PRD-16a catalog primitives via the
+    # composer UI. Each rule references a primitive_id + threshold; rules
+    # are folded left-to-right via `logic_with_prior` (AND/OR). Falls back
+    # to single-rule evaluation for backwards compatibility.
+    "custom_build",
     # ── Portfolio overlay expansion (PRD-13c) ──────────────────────────────────
     "portfolio_dual_momentum_overlay",
     "portfolio_defense_first_overlay",
@@ -149,6 +155,30 @@ class StrategyRule(BaseModel):
     top_pct: Optional[float] = None
     holding_window_days: Optional[int] = None   # PEAD: trading days to hold post-announcement
     factor_weights: Optional[dict[str, float]] = None  # multi_factor_composite: factor → weight
+
+    # ── PRD-16b: Custom Build composer fields ─────────────────────────────────
+    # Both fields are ADDITIVE — existing 22 strategy types never set them and
+    # are unaffected. Only `strategy_type="custom_build"` activates the
+    # multi-rule fold path that consumes these. Pitfall C (per HANDOFF §6):
+    # the engine's existing branches MUST continue to produce identical
+    # output for every existing template.
+    primitive_id: Optional[str] = None
+    """Catalog primitive ID this rule evaluates. References an entry in
+    `app/data/signal_primitives.py:SIGNAL_PRIMITIVES`. Required for
+    custom_build rules; ignored by other strategy types."""
+
+    primitive_params: Optional[dict[str, Union[float, int, str]]] = None
+    """Runtime parameter overrides for the primitive (e.g. {"period": 21}
+    for RSI(21)). Falls back to the catalog entry's defaults if omitted."""
+
+    logic_with_prior: Optional[Literal["AND", "OR"]] = None
+    """Operator joining THIS rule to the previous rule in the parent list.
+    First rule in a list has `logic_with_prior=None`. AND means both must
+    be true; OR means either must be true. Evaluated left-to-right.
+
+    For `WHEN IN` blocks the final boolean Series after fold determines
+    entry; for `WHEN OUT` blocks, same for exit. Single-rule blocks (the
+    existing 22 templates) ignore this — the validator below enforces it."""
 
 
 class PositionSizing(BaseModel):
@@ -266,6 +296,39 @@ class StrategyJSON(BaseModel):
                 raise ValueError(
                     "portfolio_stability_tilt_overlay needs at least 2 holdings "
                     "(cross-sectional vol weighting requires multiple candidates)"
+                )
+
+        # ── PRD-16b: custom_build + logic_with_prior validation ───────────────
+        if self.strategy_type == "custom_build":
+            if not self.rules:
+                raise ValueError(
+                    "custom_build requires at least one rule (a primitive + threshold)"
+                )
+            for i, rule in enumerate(self.rules):
+                if rule.primitive_id is None:
+                    raise ValueError(
+                        f"custom_build rule {i} missing primitive_id "
+                        "(every rule references a catalog primitive)"
+                    )
+        # Logic-with-prior contract — applies to ANY strategy type (not just
+        # custom_build): first rule must NOT have logic_with_prior; subsequent
+        # rules with logic_with_prior set are folded via the multi-rule path.
+        # Existing 22 templates never set logic_with_prior so this is a no-op
+        # for them.
+        for i, rule in enumerate(self.rules):
+            if i == 0 and rule.logic_with_prior is not None:
+                raise ValueError(
+                    "First rule in a block cannot have logic_with_prior "
+                    "(it joins TO the previous rule, but there is none)"
+                )
+            if i > 0 and rule.logic_with_prior is None and self.strategy_type == "custom_build":
+                # Lax for legacy strategy_types — only custom_build enforces
+                # the fold contract. Other types may have legitimate
+                # multi-rule blocks (e.g. rsi_mean_reversion uses buy_rule +
+                # sell_rule) where rules[1:] aren't folded.
+                raise ValueError(
+                    f"custom_build rule {i} must have logic_with_prior set "
+                    "(AND or OR) — rules in a custom block are folded"
                 )
         return self
 
