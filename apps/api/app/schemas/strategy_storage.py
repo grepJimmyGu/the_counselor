@@ -38,6 +38,17 @@ class SavedStrategyResponse(BaseModel):
     drawdown_curve: list[dict]
     trade_log: list[dict]
     warnings: list[str]
+    # PRD-16c dashboard bridge: the saved-strategy UUID, when a
+    # SavedStrategy row references the same BacktestRecord (i.e. the
+    # current signed-in user — or another user — saved this backtest).
+    # `None` for unsaved/community-only BacktestRecords. The frontend
+    # uses this to gate the `<ActiveExecutionDashboard>` render — the
+    # dashboard's endpoints are owner-only and key on this UUID.
+    #
+    # Why optional: not every BacktestRecord has a matching
+    # SavedStrategy. Community-published backtests, anonymous runs, and
+    # ad-hoc workspace runs all live as BacktestRecord-only.
+    saved_strategy_id: Optional[str] = None
 
 
 class LivePerformanceResponse(BaseModel):

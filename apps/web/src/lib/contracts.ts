@@ -220,6 +220,12 @@ export interface SavedStrategy {
   drawdown_curve: CurvePoint[];
   trade_log: TradeLogItem[];
   warnings: string[];
+  /** PRD-16c — the saved-strategy UUID when a SavedStrategy references
+   *  this BacktestRecord. `null` for community-only backtests + ad-hoc
+   *  workspace runs. The strategy detail page reads this to render the
+   *  `<ActiveExecutionDashboard>` (owner-only on the UUID-keyed
+   *  /api/saved-strategies endpoints). */
+  saved_strategy_id?: string | null;
 }
 
 export interface ResearchTemplate {
