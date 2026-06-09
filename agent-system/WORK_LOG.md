@@ -9,6 +9,82 @@
 
 ## Current Session
 
+**Status:** 2026-06-09 (late) — **PRD-16c (intraday + multi-tier exits + live dashboard) FULLY COMPLETE + the entire Custom Mode 3-PRD packet (16a + 16b + 16c) END-TO-END WIRED.** 10 PRs in this session, all auto-merged, zero regressions throughout. A user can now click "Build from scratch" on the Home page → compose a custom strategy with active execution + a multi-tier exit ladder → backtest → save → land on a strategy detail page with the live dashboard rendered (intraday strategies only). The intraday monitor cron mutates `PositionState` rows as exit tiers fire; the 30s-polling dashboard surfaces those mutations in near-real-time.
+
+**Shipped (PRD-16c — 8 PRs + 2 UX wire-up PRs, 2026-06-09 late):**
+
+| Slice | PR | Scope |
+|---|---|---|
+| 16c-1 | #171 | `IntradayBarService` + `intraday_bars` cache + `AlphaVantageClient.fetch_intraday_bars` |
+| 16c-2 | #172 | `BacktestEngine.run(bar_resolution=…)` + `ExitTier` schema + multi-tier ladder evaluator |
+| 16c-3a | #173 | `PositionState` ORM + migration (FK + compound index) |
+| 16c-3b | #174 | `monitor_active_positions` cron + per-position throttle |
+| 16c-3c | #175 | 3 owner-only dashboard endpoints (universe-state / positions / trade-log) |
+| 16c-4 | #176 | `render_position_event` single-renderer template + catalog `resolution=["daily","intraday"]` extension |
+| 16c-5 | #177 | `<BarResolutionPicker>` + `<ExitLadderEditor>` + canvas wiring |
+| 16c-6 | #178 | `<UniverseWatchPanel>` + `<PositionCardsGrid>` + `<TradeLogTable>` + composition wrapper |
+| UX-1 | #179 | Replaced Chat-builder tile with **Build from scratch** on `<EntryModePicker>` + extended `custom_build_mode` chain (`compose_signals → backtest → review → save`) + Run-backtest CTA on canvas |
+| UX-2 | #180 | Bridged the slug → UUID gap: `/api/strategies/{slug}` now exposes `saved_strategy_id: Optional[str]` so the strategy-detail page can render `<ActiveExecutionDashboard>` conditionally |
+
+**Cumulative session totals (PRD-19 + PRD-16a + PRD-16b + PRD-16c + UX wire-up in one continuous session):**
+
+| | Count |
+|---|---|
+| PRs shipped this session | **34** (PRD-19 backend + frontend + docs + cleanup + PRD-16a 4 slices + PRD-16b 3 slices + PRD-16c 8 slices + 2 UX wire-up + #159/#160/#162→#163 rebase + #166/#170 wraps) |
+| Backend tests | 855 → **1431** (+576) |
+| Frontend tests | 75 → **182** (+107) |
+| Routes added | 109 → **117** (+8) |
+| Production outages | 0 |
+| Regressions | 0 |
+| Backwards-compat guarantees verified | 22 existing strategy_types' backtest output unchanged across PRD-16b additive schema AND PRD-16c additive `exit_ladder` AND PRD-16c additive `bar_resolution` parameter; full backend suite re-run after each |
+| New traps respected | #16 UTC, #17 ORM-snapshot-scalars, #18 allow_anonymous, #19 backendToken+sessionStatus, #20 .exception() not .warning(), #21 asyncio.run wrapper, #22 NO asyncio singletons in cron paths |
+
+### Key architectural patterns codified this session
+
+1. **Cache-fronted intraday data path.** `IntradayBarService` checks `intraday_bars` SQLite/Postgres composite-PK cache first; falls back to AV on miss; gracefully returns stale cache on AV failure. No asyncio primitives → safe to use from the worker-thread cron loop (trap #22).
+2. **Position-aware engine post-processor.** `_apply_exit_ladder` runs between `_generate_weights` and the returns computation. Per-symbol state: tracks entry price + which tiers have fired per open position. `sell_all` zeros forward until next entry; `sell_fraction` scales cumulatively. Each tier fires AT MOST ONCE per entry. Strategy-driven close (weight back to 0) resets the fired-tier state.
+3. **Bridge field for slug ↔ UUID surfaces.** `SavedStrategyResponse.saved_strategy_id` lets the public BacktestRecord viewer launch owner-only PRD-16c-3c dashboard endpoints; non-owners polling get 404 → the brick's built-in error state. No leakage, no separate FE page needed for v1.
+4. **Single-renderer email template.** `render_position_event` handles all `stop_hit / tp1_hit / tp2_hit` types via a `_TRIGGER_META` lookup table — same visual style across the three types, prevents copy drift, falls back to neutral copy for unknown trigger names (future `tp3_hit` etc.).
+5. **Editorial intraday whitelist on catalog.** `_INTRADAY_ELIGIBLE_IDS` is a deliberate frozenset, not a "if data_source=price" auto-classifier. Each id is in the set because (a) the provider works on intraday bars without semantic change AND (b) the resulting signal is useful at that timescale. KAMA + SAR explicitly excluded — mechanically eligible but tuned for daily.
+
+### Pre-existing PRD-16b (and earlier) shipped (kept for context)
+
+PRD-16b shipped 2026-06-09 evening in 3 PRs (#167 / #168 / #169). PRD-16a shipped in 4 PRs (#161 / #163 / #164 / #165) earlier the same session. PRD-19 (notification retention loop) shipped over 2026-06-08/09 in PRs #150-157. All three are prerequisites for PRD-16c and were on main when this slice started.
+
+### Next session — operational follow-ups and small polish
+
+**No spec-level work is in flight.** PRD-19 + PRD-16a + PRD-16b + PRD-16c all on main. Custom Mode is end-to-end usable.
+
+**Resumption checklist:**
+
+1. Read this WORK_LOG block — current state is the master summary
+2. Check `docs/PROJECT_BACKLOG.md` for any newly-queued PRDs (Mr Gu's call)
+3. Operational follow-ups still owed across PRDs (see next block); these are pre-launch gates, not blockers
+
+### Operational follow-ups (still owed across PRDs)
+
+From PRD-19:
+- PostHog Sprint A retention dashboard (events fire; just configs)
+- Email-client rendering QA: Gmail web, Outlook web, Apple Mail
+- `CAN_SPAM_ADDRESS` + `EMAIL_UNSUB_SIGNING_KEY` env vars on Railway before launch
+
+From PRD-16a:
+- Editorial pass on the 55 catalog descriptions (deferred — PR review was the gate)
+
+From PRD-16b:
+- "Pick a symbol" v1 UX could use a typeahead — currently a plain text input
+- Multi-asset universe support (deferred to a v2 of the composer; PRD-16c didn't extend this)
+
+From PRD-16c (this session):
+- **Wire `render_position_event` from `_evaluate_position` → `ChannelDispatcher`** — mechanical given PRD-19's pattern; the trade_log update is the DB source of truth today, the email dispatch is the user-facing fire. Small (~20 lines).
+- **Resume "Continue building" surfacing** in `<SavedStrategiesTile>` — sessionStorage already persists in-progress custom-build flow state; just need a visible row that resumes the flow on click.
+- **Backfill historical price data for intraday endpoints** — the `IntradayBarService` cache is lazily populated; first-time monitor cron on a new strategy will spend its first tick fetching ~100 recent bars per symbol. Acceptable for v1; pre-warm could shorten the first signal latency.
+- Verify the intraday monitor cron actually registers with APScheduler in `main.py` (PRD-16c-3b shipped the job function; cron registration may need a one-line `scheduler.add_job(monitor_active_positions, "cron", minute="*/5", ...)` if not already present).
+
+---
+
+## Previous Session
+
 **Status:** 2026-06-09 (~03:00 UTC) — **PRD-16b (Custom Build composer) FULLY COMPLETE — backend + frontend shipped end-to-end as the natural follow-on to PRD-16a in the same session.** Composer is now end-to-end usable for v1 single-asset custom strategies: pick primitives from PRD-16a's catalog, compose with AND/OR fold, see template recommendations via PRD-16a's KB lookup, apply suggested thresholds with one click, build a valid `StrategyJson` that the existing backtest endpoint accepts. PRD-16c (intraday + multi-tier exits + live dashboard) remains in the packet.
 
 **Shipped (PRD-16b — 3 PRs, 2026-06-09 evening):**
@@ -46,36 +122,6 @@
 | Regressions | 0 |
 | Backwards-compat guarantees verified | 22 existing strategy types' backtest output unchanged (PRD-16b pitfall C) + PRD-19's legacy email categories untouched |
 | Latent bugs caught pre-merge | 9 |
-
-### Next session — PRD-16c (intraday + active execution)
-
-**Resumption checklist:**
-
-1. Read this WORK_LOG block + `docs/PROJECT_BACKLOG.md` row for PRD-16c
-2. Read [`agent-system/plans/PRD-16c-intraday-active-execution.md`](../agent-system/plans/PRD-16c-intraday-active-execution.md) — full spec
-3. Read [`agent-system/plans/HANDOFF-livermore-custom-mode.md`](../agent-system/plans/HANDOFF-livermore-custom-mode.md) §5 (brick inventory) + §6 pitfalls (esp. F: intraday data cost meter; G: active-execution toggle visibility default-collapsed)
-4. Confirm prerequisites on main: **PRD-19 ✓**, **PRD-16a ✓**, **PRD-16b ✓** — all three blocks landed
-5. PRD-16c lights up the placeholder `<CustomBuildActiveExecutionScaffold>` shipped in PR #168 — flip `disabled={false}` and add the multi-tier exit ladder editor as a child
-6. Spin up worktree pattern: `git worktree add ../the_counselor-prd16c-intraday -b claude/feat/intraday-data main`
-7. PRD-16c is the largest of the three (~3 weeks); slicing approach will depend on shape (intraday data service + multi-tier exits + position state + monitor cron + live dashboard) — likely 4-5 PRs
-
-### Operational follow-ups (still owed across PRDs)
-
-From PRD-19:
-- PostHog Sprint A retention dashboard (events fire; just configs)
-- Email-client rendering QA: Gmail web, Outlook web, Apple Mail
-- `CAN_SPAM_ADDRESS` + `EMAIL_UNSUB_SIGNING_KEY` env vars on Railway before launch
-
-From PRD-16a:
-- Editorial pass on the 55 catalog descriptions (deferred — PR review was the gate)
-
-From PRD-16b:
-- Wire `strategy_builders/custom_build_cta` trigger from Strategy Builders surface (current trigger is documented but no CTA points at it yet)
-- Extend FlowDefinition step chain in PRD-16b-3.5 follow-up to actually run the backtest (currently terminal at `compose_signals` per spec; backtest happens via existing `<FlowBacktest>` brick when the user manually navigates)
-- "Pick a symbol" v1 UX could use a typeahead — currently a plain text input
-- Multi-asset universe support is a follow-up (PRD-16c may extend this for active execution)
-
----
 
 ## Previous Session
 

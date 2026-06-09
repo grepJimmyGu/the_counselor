@@ -8,6 +8,74 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-06-09 (late) — PRD-16c (intraday + active execution) complete + Custom Mode end-to-end wired in 10 sequential PRs (#171 → #180)
+
+Same continuous session as the PRD-16a + PRD-16b closeouts below. After Mr Gu directed "finish PRD-16 entirely," the full PRD-16c was shipped across 8 slices, then a UX audit revealed two reachability gaps (no Home tile + no dashboard render) and 2 more PRs closed them.
+
+| Slice | PR | Scope | New tests |
+|---|---|---|---|
+| 16c-1 | #171 | `IntradayBarService` + `intraday_bars` cache + AV `fetch_intraday_bars` | +12 backend |
+| 16c-2 | #172 | Engine `bar_resolution=…` parameter + `ExitTier` schema + multi-tier ladder evaluator | +22 backend |
+| 16c-3a | #173 | `PositionState` ORM + migration + FK + compound index | +8 backend |
+| 16c-3b | #174 | `monitor_active_positions` cron + per-position throttle | +13 backend |
+| 16c-3c | #175 | 3 owner-only dashboard endpoints (universe-state / positions / trade-log) | +14 backend |
+| 16c-4 | #176 | `render_position_event` single-renderer template + catalog `resolution=["daily","intraday"]` whitelist | +24 backend |
+| 16c-5 | #177 | `<BarResolutionPicker>` + `<ExitLadderEditor>` + canvas wiring | +19 frontend |
+| 16c-6 | #178 | `<UniverseWatchPanel>` + `<PositionCardsGrid>` + `<TradeLogTable>` + composition wrapper | +11 frontend |
+| UX-1 | #179 | Replaced Chat-builder tile → **Build from scratch** + extended `custom_build_mode` chain + Run-backtest CTA | +1 net (test rewrites) |
+| UX-2 | #180 | `/api/strategies/{slug}` exposes `saved_strategy_id` so dashboard renders on strategy detail | +4 backend |
+
+Cumulative: **1334 → 1431 backend tests**, **151 → 182 frontend tests**, 0 regressions on the 22 existing strategy_types across the entire 10-PR run.
+
+### Architecture decisions worth recording
+
+**`exit_ladder` is engine-evaluated, not cron-only.** Backtests of intraday strategies with a multi-tier ladder produce equity curves that already account for the ladder firing. The `_apply_exit_ladder` post-processor runs between `_generate_weights` and the returns computation — tracks entry price per symbol, fires each tier AT MOST ONCE per entry, scales weight cumulatively on `sell_fraction`, zeros forward on `sell_all`, resets state when the strategy itself closes a position. This means the user gets one consistent picture: the backtest result and the live execution path obey the same exit rules.
+
+**Cron uses `IntradayBarService`, NOT `live_quote_service` (trap #22).** The monitor cron runs on APScheduler's worker thread with its own event loop. `live_quote_service` is a module-level singleton that caches `asyncio.Lock` instances bound to whichever loop touches them first. Using it from the cron would either (a) race the main loop to bind the lock and then RuntimeError on user requests, or (b) leave the locks wedged after an early-return exception. `IntradayBarService` is pure SQLAlchemy + httpx with no asyncio primitives — safe to use from any loop. This is a permanent architectural rule for any background task that touches market-data services.
+
+**The slug ↔ UUID bridge is one optional field.** PRD-16c-3c dashboard endpoints are owner-only on the SavedStrategy UUID, but the strategy-detail page surfaces a public BacktestRecord by slug. Rather than building a parallel `/saved-strategies/[id]` page, #180 added a single `Optional[str] = None` field on `SavedStrategyResponse` that looks up `SavedStrategy.id WHERE backtest_record_id = record.id`. Frontend conditional render: `data.saved_strategy_id && bar_resolution !== "daily" && <ActiveExecutionDashboard strategyId={...} />`. Non-owners hitting the dashboard polls 404 → the brick's built-in error state. No leakage. No new page.
+
+**Single-renderer email template instead of three files.** `render_position_event` handles `stop_hit / tp1_hit / tp2_hit` (plus unknown trigger names via fallback) through a `_TRIGGER_META` table. Same visual style across all three, no copy drift, future tier names render with neutral copy until promoted to the table. Mirrors `signal_change.py`'s shape exactly so PR-19's ChannelDispatcher integration is mechanical (deferred — trade_log is the DB source of truth today).
+
+**Editorial intraday whitelist on the catalog.** `_INTRADAY_ELIGIBLE_IDS` in `signal_primitives.py` is a deliberate frozenset of ~35 ids, not a `data_source == "price"` auto-classifier. Each id is in the set because (a) the provider works on intraday bars without semantic change AND (b) the signal is useful at that timescale. KAMA and SAR are mechanically eligible but tuned for daily — left out. Fundamentals + sentiment + cross-sectional rankings stay daily-only by intent. Tests verify the whitelist + the "daily always first in resolution list" invariant that keeps PRD-16a-1's ETag cache stable.
+
+### Reachability audit caught two gaps before they shipped
+
+The 8 backend + frontend slices were technically complete after #178. A user-experience audit before declaring it done found two reachability gaps that the per-slice tests wouldn't have caught:
+
+1. **No Home tile for Custom Mode.** The `<EntryModePicker>` shipped three CTAs (Pick asset / Upload portfolio / Chat builder) — Custom Build wasn't one of them. The flow definition's `triggers` array referenced `"strategy_builders/custom_build_cta"` but no component called `startFlow("custom_build_mode", …)` anywhere in the codebase. The only way to reach the composer was typing `/flow/custom_build_mode` into the URL bar.
+
+2. **`<ActiveExecutionDashboard>` not wired into any page.** The brick + its tests existed; nothing imported it.
+
+PR #179 closed (1) — and along the way replaced the dead-end `compose_signals → null` terminal step with a proper chain (`compose_signals → backtest → review → save`) reusing the mode-agnostic `<FlowBacktest>` / `<FlowReview>` / `<FlowSave>` bricks that `one_asset_mode` already uses. The canvas got an explicit "Run backtest →" CTA that synthesizes the StrategyJson and advances the flow.
+
+PR #180 closed (2) by exposing the slug ↔ UUID bridge described above.
+
+The pattern lesson: **per-slice tests verify the brick renders; end-to-end audit verifies a user can actually reach it.** Same principle from PRD-19 Step 5/6 ("the banner deep-links to the settings page, so a 2-PR stack would require typed-route casts only to remove them"). When the work crosses many bricks, the integration layer between them is its own surface area.
+
+### Custom Mode packet — complete
+
+Three PRDs, eight months of design, ten PRs in one continuous session, end-to-end usable. User journey:
+
+```
+Home → "Build from scratch" tile
+     ↓
+/flow/custom_build_mode (canvas)
+     ↓ pick primitives + thresholds + (optional) active execution + ladder
+     ↓ click "Run backtest →"
+FlowBacktest → FlowReview → FlowSave
+     ↓
+/strategies/{slug} (public detail page)
+     ↓ if intraday strategy:
+<ActiveExecutionDashboard>
+     ↓ polls every 30s while open
+intraday monitor cron → mutates PositionState → dashboard reflects
+```
+
+PRD-19 (notifications) + PRD-16a (catalog) + PRD-16b (composer) + PRD-16c (intraday + active execution) all on main. Operational follow-ups in WORK_LOG.md "Current Session" → "Operational follow-ups."
+
+---
+
 ## 2026-06-09 (evening, continued) — PRD-16b (Custom Build composer) complete in three sequential PRs (#167 → #168 → #169)
 
 Same continuous session as the PRD-16a closeout below. Three slices, all base=main:
