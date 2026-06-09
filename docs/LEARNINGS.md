@@ -205,6 +205,50 @@ deferred follow-up.
 
 ## Diagnostic methodology
 
+### Per-slice tests verify the brick renders; end-to-end audit verifies a user can reach it
+**TL;DR:** if the work crosses many bricks, the integration layer between them is its own surface area. Before declaring a feature done, ask "how does the user reach this?" — and answer it by tracing the route, not by trusting that the bricks compose.
+
+PRD-16c shipped 8 backend + frontend slices over one continuous session. Each slice had its own tests; each brick rendered correctly; the backend tests went 1334 → 1431 with zero regressions. Technically complete after PR #178.
+
+Then the wrap-up question:
+
+> "How does the user enter Custom Mode?"
+
+Two reachability gaps the per-slice tests couldn't catch:
+
+1. **No Home tile.** `<EntryModePicker>` had three CTAs (Pick asset / Upload portfolio / Chat builder). Custom Build wasn't one of them. The flow definition's `triggers` array referenced `"strategy_builders/custom_build_cta"` but `grep -rn "startFlow.*custom_build_mode"` returned zero matches. The only way to reach the composer was typing the URL by hand. And even then, the flow's `compose_signals → null` terminal step would drop the user on the floor with a `"completed (v1 no-op)"` console log.
+
+2. **`<ActiveExecutionDashboard>` had tests but no page imported it.** Strategy detail page didn't render it.
+
+Same pattern bit PRD-19 Step 5/6: the `<MarkAsExecutedButton>` brick rendered correctly, but on the wrong surface — until the audit caught that the banner had to deep-link to the settings page for the round-trip to work. The lesson is symmetric.
+
+**The discipline:** after the last brick PR but before declaring done, write the user journey end-to-end in plain English. Trace each click. For every "the user clicks X" sentence, `grep` for the call site. Missing call sites = reachability gaps. Wrong call sites = integration mismatches. This audit is cheap (~10 minutes) and catches a category of bug that no unit test can.
+
+**When to apply:** any multi-PR feature that crosses brick + page + flow boundaries. Especially when the bricks are wired through a runtime indirection layer (FlowDefinition, FlowShell, event bus, etc.) where the integration is "trigger fires → flow advances" rather than "component imports component."
+
+**See also:** PRs #179 + #180 (the two PRs that closed the gaps for PRD-16c); same pattern at PRD-19's banner→settings deep-link in PR #157; `agent-system/WORK_LOG.md` Current Session "Reachability audit caught two gaps before they shipped."
+
+---
+
+### The right small backend field can save a whole frontend page
+**TL;DR:** when a feature spans two backend surfaces with different identity keys, don't build a parallel frontend page — extend one of the response shapes with the bridging id, gate the render on its presence.
+
+PRD-16c-6's `<ActiveExecutionDashboard>` polls three owner-only endpoints under `/api/saved-strategies/{id}/…`. The id is the SavedStrategy UUID. The natural place to render the dashboard is the strategy-detail page at `/strategies/[slug]` — which fetches `/api/strategies/{slug}` and gets back a `BacktestRecord` keyed by slug, not by UUID. There's no UUID anywhere on the page.
+
+Two paths to bridge it:
+
+(a) **Backend field.** Add `saved_strategy_id: Optional[str] = None` to the `SavedStrategyResponse`. Look up the matching `SavedStrategy` row by `backtest_record_id` FK. Frontend conditionally renders the dashboard when the field is non-null. Non-owners hitting the dashboard's polls get 404 → the brick's built-in error state. ~10 lines total.
+
+(b) **New page.** Build `/saved-strategies/[id]/` as an owner-only surface that fetches via the UUID-keyed route. Duplicate the strategy-detail page's layout. Build a new route, new auth check, new layout. ~80 lines.
+
+(a) won. The right small backend field saved a whole frontend page. The contract is: "if a SavedStrategy exists for this BacktestRecord, give us a UUID we can probe" — the response surfaces existence + probe-ability without revealing ownership. Non-owners get the same 404 they'd get on the parallel page; owners get the dashboard. No leakage, no duplication.
+
+**When to apply:** when a brick or component needs an id that lives on a parallel data model, and you're considering a new page. Check whether a single optional bridging field can defer the page until a real reason emerges. The parallel page often turns out to never be needed.
+
+**See also:** PR #180 (`SavedStrategyResponse.saved_strategy_id`); `apps/api/app/api/routes/strategy_storage.py::get_saved_strategy`; the strategy-detail page's conditional render gate.
+
+---
+
 ### Additive schema changes must be verified by re-running every existing test, not by reading the diff
 **TL;DR:** if a PR adds a new field that existing code doesn't set, "the existing code is unaffected" is a hypothesis until proven by 1000+ green tests. Don't ship the assumption; prove it.
 
