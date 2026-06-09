@@ -2620,3 +2620,106 @@ export interface EmailPreferencesUpdate {
   daily_digest_enabled?: boolean;
   silent_days_enabled?: boolean;
 }
+
+// ── PRD-16a Signal Library contracts ────────────────────────────────────────
+
+/** 8 fixed categories — frontend filter sidebar renders one button per
+ *  value. Mirrors `SignalCategory` in
+ *  `apps/api/app/schemas/signal_primitive.py`. */
+export type SignalCategory =
+  | "trend"
+  | "mean_reversion"
+  | "momentum"
+  | "volume"
+  | "volatility"
+  | "fundamental"
+  | "sentiment"
+  | "cross_sectional";
+
+/** Display labels + short blurbs for the category filter sidebar.
+ *  Centralized here so the catalog browser + the chip on a primitive
+ *  card render the same copy. */
+export const SIGNAL_CATEGORY_LABEL: Record<SignalCategory, string> = {
+  trend: "Trend",
+  mean_reversion: "Mean Reversion",
+  momentum: "Momentum",
+  volume: "Volume",
+  volatility: "Volatility",
+  fundamental: "Fundamental",
+  sentiment: "Sentiment",
+  cross_sectional: "Cross-Sectional",
+};
+
+/** One tunable knob on a primitive. Mirrors `Parameter` in the backend
+ *  schema. `default` is JSON-unknown because params can be int/float/str. */
+export interface SignalPrimitiveParameter {
+  name: string;
+  default: number | string | boolean;
+  min_value: number | null;
+  max_value: number | null;
+  description: string;
+}
+
+/** One catalog row. Mirrors `SignalPrimitive` in the backend schema. */
+export interface SignalPrimitive {
+  id: string;
+  category: SignalCategory;
+  family: string;
+  name: string;
+  description: string;
+  long_description: string | null;
+  parameters: SignalPrimitiveParameter[];
+  default_thresholds: Record<string, number>;
+  asset_compat: ("equity" | "etf" | "commodity" | "fx" | "crypto")[];
+  evidence_tier: "A" | "B" | "C";
+  provider_impl: string;
+  data_source: "price" | "fundamental" | "sentiment" | "event";
+  resolution: ("daily" | "intraday")[];
+  is_ranking: boolean;
+  compute_strategy: "local" | "av_endpoint";
+}
+
+/** Response for `GET /api/signal-primitives`. The `version_hash` is the
+ *  catalog's content fingerprint — frontend localStorage keys catalog
+ *  payloads by this hash so a new deploy invalidates cleanly. */
+export interface SignalPrimitivesResponse {
+  primitives: SignalPrimitive[];
+  categories: SignalCategory[];
+  version_hash: string;
+}
+
+/** One (date, value) pair from a preview series. `value` is null when
+ *  the indicator hasn't warmed up yet for that date. */
+export interface SignalPreviewPoint {
+  date: string;
+  value: number | null;
+}
+
+/** Response for `GET /api/signal-primitives/{id}/preview`. */
+export interface SignalPreviewResponse {
+  primitive_id: string;
+  symbol: string;
+  parameters: Record<string, number | string | boolean>;
+  series: SignalPreviewPoint[];
+}
+
+/** Request body for `POST /api/signal-combos/match-templates`. */
+export interface MatchTemplatesRequest {
+  primitive_ids: string[];
+  top_n?: number;
+}
+
+/** One template match. The composer (PRD-16b) renders these as
+ *  suggested starting points. */
+export interface TemplateMatch {
+  template_id: string;
+  similarity: number;
+  shared_categories: SignalCategory[];
+  /** Map from primitive_id → suggested thresholds. Filtered to only the
+   *  primitives the user actually selected. */
+  thresholds_for_user_primitives: Record<string, Record<string, number | string>>;
+}
+
+export interface MatchTemplatesResponse {
+  matches: TemplateMatch[];
+}

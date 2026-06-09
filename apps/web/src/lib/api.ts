@@ -829,6 +829,105 @@ export async function getCnIndicator(
   );
 }
 
+// ── PRD-16a Signal Library helpers ──────────────────────────────────────────
+
+import type {
+  MatchTemplatesRequest,
+  MatchTemplatesResponse,
+  SignalPreviewResponse,
+  SignalPrimitivesResponse,
+} from "./contracts";
+import {
+  readCachedVersionHash,
+  readCatalogCache,
+  writeCatalogCache,
+} from "./signal-library/catalog-cache";
+
+/** Fetch the signal-primitive catalog. Uses localStorage cache + ETag
+ *  conditional GET to minimize cold-load cost.
+ *
+ *  Flow:
+ *    1. Send `If-None-Match: "<cached_version_hash>"` if we have one.
+ *    2. If server responds 304, reuse the cached payload (zero bytes
+ *       deserialized from network).
+ *    3. If server responds 200, store the new payload in localStorage
+ *       (keyed by its content hash).
+ *
+ *  When localStorage is empty + server responds 200, we just write the
+ *  cache. When localStorage has stale content + server responds 200, we
+ *  overwrite. The two paths converge: after this function returns, the
+ *  cache reflects the server's truth.
+ */
+export async function getSignalPrimitives(): Promise<SignalPrimitivesResponse> {
+  const cachedHash = readCachedVersionHash();
+  const headers: Record<string, string> = {};
+  if (cachedHash) headers["If-None-Match"] = `"${cachedHash}"`;
+
+  const response = await fetch(`${API_BASE_URL}/api/signal-primitives`, {
+    method: "GET",
+    headers,
+  });
+
+  if (response.status === 304) {
+    const cached = readCatalogCache();
+    if (cached) return cached.payload;
+    // Cache claimed the hash matched but the body wasn't there —
+    // shouldn't happen, but force a re-fetch without the header.
+    const fresh = await fetch(`${API_BASE_URL}/api/signal-primitives`);
+    const body = (await fresh.json()) as SignalPrimitivesResponse;
+    writeCatalogCache(body);
+    return body;
+  }
+
+  if (!response.ok) {
+    throw new Error(`Catalog fetch failed: ${response.status}`);
+  }
+  const body = (await response.json()) as SignalPrimitivesResponse;
+  writeCatalogCache(body);
+  return body;
+}
+
+/** Fetch a sample series for one primitive — used by the preview chart
+ *  in the catalog browser. `paramOverrides` are passed as query-string
+ *  values; the backend accepts known param names per the primitive's
+ *  schema (e.g. `period=21` on RSI). */
+export async function previewSignalPrimitive(
+  primitiveId: string,
+  opts: {
+    symbol?: string;
+    days?: number;
+    paramOverrides?: Record<string, string | number>;
+  } = {},
+): Promise<SignalPreviewResponse> {
+  const query = new URLSearchParams();
+  if (opts.symbol) query.set("symbol", opts.symbol);
+  if (opts.days) query.set("days", String(opts.days));
+  if (opts.paramOverrides) {
+    for (const [k, v] of Object.entries(opts.paramOverrides)) {
+      query.set(k, String(v));
+    }
+  }
+  const qs = query.toString();
+  const path = `/api/signal-primitives/${encodeURIComponent(primitiveId)}/preview${
+    qs ? `?${qs}` : ""
+  }`;
+  return fetchApi<SignalPreviewResponse>(path);
+}
+
+/** Send the user's selected primitive IDs to the KB matcher; receive
+ *  top-N template suggestions with per-primitive thresholds.
+ *  Deterministic and pure on the backend — same request always gets
+ *  the same response. */
+export async function matchSignalCombosToTemplates(
+  body: MatchTemplatesRequest,
+): Promise<MatchTemplatesResponse> {
+  return fetchApi<MatchTemplatesResponse>("/api/signal-combos/match-templates", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
 // ── PRD-19 Step 5: notification surface API helpers ─────────────────────────
 
 import type {
