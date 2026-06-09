@@ -34,9 +34,11 @@ import type {
 import type { FlowStepProps } from "@/lib/flows/types";
 import { cn } from "@/lib/utils";
 
+import { BarResolutionPicker } from "./bar-resolution-picker";
 import { CustomBuildActiveExecutionScaffold } from "./custom-build-active-execution-scaffold";
 import { CustomBuildRuleCard } from "./custom-build-rule-card";
 import { CustomBuildRuleComposer } from "./custom-build-rule-composer";
+import { ExitLadderEditor } from "./exit-ladder-editor";
 
 // Default threshold for a freshly added rule. The primitive's
 // `default_thresholds` may have keys like "upper" / "lower" / "min_yield";
@@ -212,9 +214,26 @@ export function CustomBuildCanvas({
           onChange={(next) =>
             updateContext({ active_execution_enabled: next })
           }
-          // PRD-16b ships disabled. PRD-16c will pass `disabled={false}`.
-          disabled
+          // PRD-16c flips this from `true` (PRD-16b shipped disabled) to
+          // `false` so the toggle is live. The bar-resolution picker and
+          // exit-ladder editor reveal below when the toggle is on.
+          disabled={false}
         />
+        {context.active_execution_enabled && (
+          <div
+            data-testid="active-execution-controls"
+            className="space-y-4 rounded-lg border border-emerald-100 bg-emerald-50/30 p-4"
+          >
+            <BarResolutionPicker
+              value={context.bar_resolution}
+              onChange={(next) => updateContext({ bar_resolution: next })}
+            />
+            <ExitLadderEditor
+              value={context.exit_ladder}
+              onChange={(next) => updateContext({ exit_ladder: next })}
+            />
+          </div>
+        )}
       </section>
 
       {/* Right — recommended defaults */}
