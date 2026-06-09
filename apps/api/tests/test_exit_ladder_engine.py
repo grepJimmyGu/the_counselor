@@ -82,13 +82,25 @@ async def test_run_default_bar_resolution_is_daily() -> None:
 
 
 @pytest.mark.asyncio
-async def test_run_intraday_resolution_not_yet_supported() -> None:
-    """The forward-compatible parameter raises until PRD-16c-3 wires the
-    intraday data path."""
+async def test_run_intraday_resolution_soft_degrades_with_warning() -> None:
+    """Non-daily backtests no longer raise — they soft-degrade to daily
+    bars and surface the fallback as a BacktestResult.warning. The user
+    keeps a usable backtest result + a clear message; the bar_resolution
+    choice still flows through to the saved strategy for the monitor cron.
+    """
     engine = BacktestEngine()
     db = MagicMock()
+    # Synthetic price data for the smoke run.
+    close = pd.DataFrame(
+        {"AAA": np.linspace(100, 120, 250)},
+        index=pd.date_range("2023-01-02", periods=250, freq="B"),
+    )
+    universe_frames = {"AAA": pd.DataFrame(
+        {"adjusted_close": close["AAA"].values, "high": (close["AAA"] * 1.01).values},
+        index=close.index,
+    )}
     strategy = StrategyJSON(
-        strategy_name="Smoke",
+        strategy_name="Intraday smoke",
         strategy_type="moving_average_filter",
         universe=["AAA"],
         benchmark="AAA",
@@ -102,9 +114,59 @@ async def test_run_intraday_resolution_not_yet_supported() -> None:
         position_sizing=PositionSizing(method="equal_weight"),
         risk_management=RiskManagement(),
         cash_management=CashManagement(),
+        bar_resolution="15min",
     )
-    with pytest.raises(NotImplementedError, match="PRD-16c-3"):
-        await engine.run(db, strategy, bar_resolution="15min")
+    with patch.object(
+        engine, "_load_prices",
+        new=AsyncMock(return_value=(universe_frames, universe_frames["AAA"])),
+    ):
+        result = await engine.run(db, strategy)
+    # Result is usable.
+    assert result.metrics is not None
+    # And the warning explains the soft-degrade so the user knows.
+    assert any("daily bars" in w and "15min" in w for w in result.warnings), (
+        f"expected an intraday->daily warning; got {result.warnings!r}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_run_resolution_kwarg_overrides_strategy_field() -> None:
+    """Explicit `bar_resolution=` overrides what's on the strategy. Used
+    by the monitor cron / robustness reruns at a forced resolution."""
+    engine = BacktestEngine()
+    db = MagicMock()
+    close = pd.DataFrame(
+        {"AAA": np.linspace(100, 120, 250)},
+        index=pd.date_range("2023-01-02", periods=250, freq="B"),
+    )
+    universe_frames = {"AAA": pd.DataFrame(
+        {"adjusted_close": close["AAA"].values, "high": (close["AAA"] * 1.01).values},
+        index=close.index,
+    )}
+    # Strategy field says daily — kwarg forces 5min and we see the warning.
+    strategy = StrategyJSON(
+        strategy_name="Override test",
+        strategy_type="moving_average_filter",
+        universe=["AAA"],
+        benchmark="AAA",
+        start_date=date(2023, 1, 2),
+        end_date=date(2023, 12, 29),
+        initial_capital=100_000,
+        rebalance_frequency="monthly",
+        transaction_cost_bps=0,
+        slippage_bps=0,
+        rules=[StrategyRule(ma_window=50)],
+        position_sizing=PositionSizing(method="equal_weight"),
+        risk_management=RiskManagement(),
+        cash_management=CashManagement(),
+        bar_resolution="daily",
+    )
+    with patch.object(
+        engine, "_load_prices",
+        new=AsyncMock(return_value=(universe_frames, universe_frames["AAA"])),
+    ):
+        result = await engine.run(db, strategy, bar_resolution="5min")
+    assert any("5min" in w for w in result.warnings)
 
 
 # ── _apply_exit_ladder — pure unit ──────────────────────────────────────────

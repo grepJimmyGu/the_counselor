@@ -297,6 +297,16 @@ class StrategyJSON(BaseModel):
     # the engine uses this list instead of `universe`. Optional + defaulted
     # so the 22 pre-existing strategy_types continue to ignore it.
     inherited_universe: Optional[list[str]] = None
+    # PRD-16c: bar resolution for active execution. Default "daily"
+    # preserves all 22 existing strategy_types' behavior. Non-daily
+    # values flag the strategy for the intraday monitor cron AND tell
+    # the engine which bar series to backtest against. The engine
+    # currently soft-degrades non-daily backtests to daily with a
+    # warning (the intraday data path through `_load_prices` is the
+    # remaining gap before non-daily backtests run on the actual
+    # intraday bars from `IntradayBarService`). The composer's
+    # `<BarResolutionPicker>` writes this field.
+    bar_resolution: Literal["daily", "5min", "15min", "30min", "60min"] = "daily"
 
     @field_validator("universe", mode="before")
     @classmethod
