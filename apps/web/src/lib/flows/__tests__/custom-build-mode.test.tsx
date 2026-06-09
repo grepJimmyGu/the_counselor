@@ -121,16 +121,19 @@ describe("custom_build_mode flow registration", () => {
     );
   });
 
-  it("has the compose_signals step as terminal v1 entry", () => {
+  it("chains compose_signals → backtest → review → save", () => {
     expect(CustomBuildModeFlow.initialStepId).toBe("compose_signals");
-    const step = CustomBuildModeFlow.steps.find(
+    const ids = CustomBuildModeFlow.steps.map((s) => s.id);
+    expect(ids).toEqual(["compose_signals", "backtest", "review", "save"]);
+    const compose = CustomBuildModeFlow.steps.find(
       (s) => s.id === "compose_signals",
     );
-    expect(step).toBeTruthy();
-    expect(step?.next?.({} as CustomBuildModeContext)).toBeNull();
+    expect(compose?.next?.({} as CustomBuildModeContext)).toBe("backtest");
+    const save = CustomBuildModeFlow.steps.find((s) => s.id === "save");
+    expect(save?.next?.({} as CustomBuildModeContext)).toBeNull();
   });
 
-  it("validates that at least one rule has been picked", () => {
+  it("validate gates compose_signals on rules + symbol + strategyJson", () => {
     const step = CustomBuildModeFlow.steps[0];
     const ctxEmpty = {
       fromTrigger: "test",
@@ -142,8 +145,25 @@ describe("custom_build_mode flow registration", () => {
     } satisfies CustomBuildModeContext;
     expect(step.validate?.(ctxEmpty)).toBe("Add at least one rule.");
 
-    const ctxFilled = { ...ctxEmpty, rules: [_rule("u1")] };
-    expect(step.validate?.(ctxFilled)).toBe(true);
+    const ctxWithRule = {
+      ...ctxEmpty,
+      rules: [_rule("u1")],
+    } satisfies CustomBuildModeContext;
+    expect(step.validate?.(ctxWithRule)).toBe("Pick a backtest symbol.");
+
+    const ctxWithSymbol = {
+      ...ctxWithRule,
+      symbol: "NVDA",
+    } satisfies CustomBuildModeContext;
+    expect(step.validate?.(ctxWithSymbol)).toBe(
+      "Click Run backtest to build the strategy.",
+    );
+
+    const ctxReady = {
+      ...ctxWithSymbol,
+      strategyJson: { strategy_type: "custom_build" } as unknown,
+    } as CustomBuildModeContext;
+    expect(step.validate?.(ctxReady)).toBe(true);
   });
 });
 

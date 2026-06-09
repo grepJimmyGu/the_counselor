@@ -356,6 +356,18 @@ export default function SavedStrategyPage() {
           </section>
         )}
 
+        {/* TODO(PRD-16c): wire <ActiveExecutionDashboard> here when
+            the backend exposes the SavedStrategy UUID via the slug
+            route. Today /api/strategies/{slug} returns a BacktestRecord
+            with `slug` only; the dashboard endpoints (PRD-16c-3c) are
+            owner-only and key on `saved_strategy_id` (UUID). Either:
+              (a) extend the response with `saved_strategy_id: str|None`
+                  for slugs that have a matching SavedStrategy, OR
+              (b) add a dedicated `/saved-strategies/[id]` page on the
+                  frontend that fetches via the auth'd UUID-keyed route.
+            (b) is the cleaner long-term shape; (a) is the small
+            unblocker. Tracked: PRD-16c §"Wire dashboard surface". */}
+
         {/* Community — comments */}
         <section className="rounded-xl border border-border bg-white p-5 shadow-sm">
           <CommentsSection slug={slug} />

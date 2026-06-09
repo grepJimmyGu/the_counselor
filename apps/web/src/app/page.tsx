@@ -19,7 +19,6 @@ import { CapabilityGlossary } from "@/components/home/capability-glossary";
 import { researchTemplates, type ResearchTemplate } from "@/lib/contracts";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
 import { ChatWidget } from "@/components/ChatWidget";
-import { dispatchChatSeed } from "@/lib/chat-widget-event-bus";
 import { EntryModePicker } from "@/lib/flows/bricks/entry-mode-picker";
 import { NotificationBanner } from "@/components/notifications/notification-banner";
 
@@ -119,8 +118,11 @@ export default function HomePage() {
         initialIdea={builderIdea}
       />
 
-      {/* Floating chat widget — mounted on Home so the PRD-11 picker's
-          "Chat builder" CTA has a subscriber for `dispatchChatSeed`. */}
+      {/* Floating chat widget — mounted on Home as the always-on
+          assistant. The PRD-11 picker's third tile is now Custom
+          Build (PRD-16), but the chat is still reachable via the
+          floating launcher; surfaces like the stock page also
+          subscribe to `dispatchChatSeed`. */}
       <ChatWidget />
 
       {/* ── Hero ─────────────────────────────────────────────────────────── */}
@@ -236,16 +238,7 @@ export default function HomePage() {
         {/* ── PRD-11: Saved-strategies tile (or sign-in prompt) + entry-mode picker ── */}
         <section className="space-y-5">
           <SavedStrategiesTile />
-          <EntryModePicker
-            from="home"
-            onChatBuilderOpen={() =>
-              dispatchChatSeed({
-                greeting:
-                  "I can turn a plain-English trading idea into a backtest. Tell me what you want to test — a ticker, a signal, a holding period — and I'll structure it.",
-                contextHint: "home/chat_builder",
-              })
-            }
-          />
+          <EntryModePicker from="home" />
         </section>
 
         {/* ── Capability Glossary (collapsed by default) ─────────────────── */}

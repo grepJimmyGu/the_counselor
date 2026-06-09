@@ -18,21 +18,27 @@
  */
 "use client";
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import { SignalCatalogBrowser } from "@/components/signal-library/signal-catalog-browser";
 import { TemplateMatchSuggestion } from "@/components/signal-library/template-match-suggestion";
 import type {
   SignalPrimitive,
+  StrategyJson,
   TemplateMatch,
 } from "@/lib/contracts";
-import { applyTemplateThresholdsToRules } from "@/lib/flows/custom-build-strategy-json";
+import {
+  applyTemplateThresholdsToRules,
+  buildCustomBuildStrategyJson,
+} from "@/lib/flows/custom-build-strategy-json";
 import type {
   BuildRule,
   CustomBuildModeContext,
 } from "@/lib/flows/custom-build-mode-context";
 import type { FlowStepProps } from "@/lib/flows/types";
+import { useFlowCopy } from "@/lib/flows/copy";
 import { cn } from "@/lib/utils";
+import { validateExitLadder } from "./exit-ladder-editor";
 
 import { BarResolutionPicker } from "./bar-resolution-picker";
 import { CustomBuildActiveExecutionScaffold } from "./custom-build-active-execution-scaffold";
@@ -59,7 +65,14 @@ function newBuildRule(primitive: SignalPrimitive): BuildRule {
 export function CustomBuildCanvas({
   context,
   updateContext,
+  advance,
 }: FlowStepProps<CustomBuildModeContext>) {
+  const [runError, setRunError] = useState<string | null>(null);
+  const runBacktestLabel = useFlowCopy(
+    "custom_build_mode",
+    "compose_run_backtest",
+  );
+
   const selectedIds = useMemo(
     () => new Set(context.rules.map((r) => r.primitive_id)),
     [context.rules],
@@ -234,6 +247,53 @@ export function CustomBuildCanvas({
             />
           </div>
         )}
+
+        {/* Run backtest CTA. PRD-16 UX wire-up: synthesizes the
+            StrategyJson from the canvas state, writes it onto the
+            flow context, then calls advance() — the runtime hands off
+            to FlowBacktest → FlowReview → FlowSave. */}
+        <div
+          data-testid="custom-build-run-backtest-row"
+          className="mt-2 flex flex-col gap-2"
+        >
+          <button
+            type="button"
+            data-testid="custom-build-run-backtest"
+            disabled={
+              context.rules.length === 0 ||
+              !context.symbol ||
+              (context.active_execution_enabled &&
+                !validateExitLadder(context.exit_ladder).ok)
+            }
+            onClick={() => {
+              try {
+                setRunError(null);
+                const strategyJson: StrategyJson = buildCustomBuildStrategyJson(
+                  context,
+                );
+                updateContext({
+                  strategyJson,
+                } as Partial<CustomBuildModeContext>);
+                advance();
+              } catch (e) {
+                setRunError(
+                  (e as Error).message ?? "Couldn't build the strategy.",
+                );
+              }
+            }}
+            className="self-end rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {runBacktestLabel}
+          </button>
+          {runError && (
+            <p
+              data-testid="custom-build-run-backtest-error"
+              className="self-end rounded-md border border-rose-200 bg-rose-50 px-3 py-1.5 text-[12px] text-rose-700"
+            >
+              {runError}
+            </p>
+          )}
+        </div>
       </section>
 
       {/* Right — recommended defaults */}
