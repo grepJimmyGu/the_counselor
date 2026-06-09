@@ -25,7 +25,10 @@ import { CustomBuildCanvas } from "./bricks/custom-build-canvas";
 import { FlowBacktest } from "./bricks/flow-backtest";
 import { FlowReview } from "./bricks/flow-review";
 import { FlowSave } from "./bricks/flow-save";
-import type { CustomBuildModeContext } from "./custom-build-mode-context";
+import {
+  INITIAL_CUSTOM_BUILD_CONTEXT,
+  type CustomBuildModeContext,
+} from "./custom-build-mode-context";
 
 registerModeCopy("custom_build_mode", {
   flow_name: "Custom Build",
@@ -64,6 +67,12 @@ export const CustomBuildModeFlow: FlowDefinition<CustomBuildModeContext> = {
     "strategy_builders/custom_build_cta",
     "stock_page/customize_template",
   ],
+  // Defaults applied on BOTH the startFlow path (under the caller's
+  // overrides) AND the direct-URL / refresh path (under
+  // `fromTrigger: "direct"`). Without this, the canvas crashes on
+  // direct URL access because `context.rules.map(...)` dereferences
+  // undefined. See FlowDefinition.initialContext.
+  initialContext: INITIAL_CUSTOM_BUILD_CONTEXT,
   initialStepId: "compose_signals",
   steps: [
     {

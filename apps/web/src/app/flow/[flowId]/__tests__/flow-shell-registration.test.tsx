@@ -64,9 +64,16 @@ describe("flow shell side-effect imports", () => {
     // shipped without a corresponding shell import fails here loudly.
     // The vitest jsdom environment doesn't have fs, but we can read the
     // import.meta.glob — Vite/Vitest resolves this at transform time.
-    const modules = import.meta.glob("@/lib/flows/*-mode.ts", {
-      eager: false,
-    });
+    // `import.meta.glob` is a Vite/Vitest built-in not in the stock
+    // ImportMeta type; cast to surface it without polluting global types.
+    const modules = (
+      import.meta as unknown as {
+        glob: (
+          pattern: string,
+          opts?: { eager?: boolean },
+        ) => Record<string, unknown>;
+      }
+    ).glob("@/lib/flows/*-mode.ts", { eager: false });
     // Filter out test-only mock-flow which lives under `__tests__/fixtures/`,
     // not at lib/flows/. import.meta.glob already excludes that path.
     const filenames = Object.keys(modules).map((p) => {

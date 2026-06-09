@@ -36,6 +36,7 @@ import { registerModeCopy, useFlowCopy } from "../copy";
 import "../portfolio-mode";
 import "../one-asset-mode";
 import "../custom-build-mode";
+import { INITIAL_CUSTOM_BUILD_CONTEXT } from "../custom-build-mode-context";
 
 registerModeCopy("home_picker", {
   section_eyebrow: "Get started",
@@ -99,8 +100,17 @@ export function EntryModePicker({
   }
 
   function launchCustomBuildFlow() {
+    // Spread the mode's INITIAL_*_CONTEXT defaults — unlike one_asset_mode
+    // and portfolio_mode (whose initial bricks tolerate undefined optional
+    // fields), CustomBuildCanvas dereferences `context.rules` on its first
+    // render. Without these defaults the brick crashes with "Cannot read
+    // properties of undefined (reading 'map')" and the user sees Next.js's
+    // "This page couldn't load" boundary.
     startFlow("custom_build_mode", {
-      initialContext: { fromTrigger: `${from}/custom_build` },
+      initialContext: {
+        ...INITIAL_CUSTOM_BUILD_CONTEXT,
+        fromTrigger: `${from}/custom_build`,
+      },
     });
   }
 

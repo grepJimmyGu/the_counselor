@@ -103,11 +103,17 @@ export function startFlow<TCtx extends FlowContextBase>(
       `startFlow: unknown flowId "${flowId}". Did you import the mode's FlowDefinition file?`
     );
   }
+  // Spread the mode's defaults UNDER the caller's overrides so callers can
+  // pass just `{ fromTrigger }` and get the rest of the per-mode shape
+  // filled in. See `FlowDefinition.initialContext` for rationale.
   const initial: RuntimeState<TCtx> = {
     schemaVersion: SCHEMA_VERSION,
     flowId,
     currentStepId: flow.initialStepId,
-    context: opts.initialContext,
+    context: {
+      ...(flow.initialContext as object | undefined),
+      ...opts.initialContext,
+    } as TCtx,
   };
   persistState(initial);
   if (typeof window !== "undefined") {
@@ -157,6 +163,10 @@ export const FlowProvider: React.FC<{
 
   // Load initial state. If sessionStorage has prior state for this flow,
   // resume; otherwise start fresh at the definition's initialStepId.
+  // The fresh-mount path applies to direct URL access / browser refresh /
+  // deep links — paths that bypass `startFlow`. Spread the mode's
+  // `initialContext` defaults under `fromTrigger: "direct"` so bricks
+  // that dereference non-optional context fields don't crash here.
   const [state, setState] = React.useState<RuntimeState<FlowContextBase>>(() => {
     const resumed = resumeState<FlowContextBase>(flowId);
     if (resumed) {
@@ -167,7 +177,10 @@ export const FlowProvider: React.FC<{
       schemaVersion: SCHEMA_VERSION,
       flowId,
       currentStepId: flow.initialStepId,
-      context: { fromTrigger: "direct" } as FlowContextBase,
+      context: {
+        ...(flow.initialContext as object | undefined),
+        fromTrigger: "direct",
+      } as FlowContextBase,
     };
   });
 
