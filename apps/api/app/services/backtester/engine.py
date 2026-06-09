@@ -319,6 +319,157 @@ class BacktestEngine:
 
         return weights
 
+    def _evaluate_custom_build_block(
+        self,
+        rules: "list[StrategyRule]",
+        close_matrix: pd.DataFrame,
+        symbol: str,
+    ) -> pd.Series:
+        """PRD-16b multi-rule fold — evaluates a list of composer rules
+        against a single symbol's price history and returns a boolean
+        Series indexed by the close_matrix dates.
+
+        Each rule:
+          1. Computes the primitive's value series via its registered
+             SignalProvider (PRD-16a-2). Reuses `close_matrix[symbol]`
+             where the SignalProvider expects price data; deeper
+             primitive_params are forwarded via `with_params`.
+          2. Applies the rule's `operator` + `threshold` to produce a
+             boolean Series (or 0/1 numeric if the primitive itself
+             already returns a binary signal — e.g. `donchian_breakout`).
+          3. Folds via `logic_with_prior` (left-to-right; first rule
+             contributes directly, subsequent rules AND/OR into the
+             accumulator).
+
+        Returns a boolean Series. NaN values in the underlying primitive
+        (warmup window) are treated as False — the strategy is "out"
+        until every constituent primitive has warmed up.
+        """
+        from app.data.signal_primitives import SIGNAL_PRIMITIVES
+        from app.services.backtester.signal_provider import get_signal_provider
+        from app.services.backtester.technical_signal_providers import (
+            TechnicalSignalProvider,
+        )
+
+        catalog_by_id = {p.id: p for p in SIGNAL_PRIMITIVES}
+        accumulator: Optional[pd.Series] = None
+
+        for i, rule in enumerate(rules):
+            if rule.primitive_id is None:
+                raise ValueError(f"custom_build rule {i} missing primitive_id")
+            primitive = catalog_by_id.get(rule.primitive_id)
+            if primitive is None:
+                raise ValueError(
+                    f"custom_build rule {i} references unknown primitive_id "
+                    f"'{rule.primitive_id}'"
+                )
+
+            # Build the provider with runtime params if supplied.
+            base = get_signal_provider(primitive.provider_impl)
+            if rule.primitive_params and isinstance(base, TechnicalSignalProvider):
+                provider = type(base).with_params(**rule.primitive_params)
+            else:
+                provider = base
+
+            # Compute on this symbol via the close_matrix dates.
+            value_series = self._compute_primitive_on_close_matrix(
+                provider, close_matrix, symbol,
+            )
+
+            # Apply threshold + operator → boolean.
+            bool_series = self._apply_rule_threshold(rule, value_series)
+
+            if accumulator is None:
+                accumulator = bool_series
+            elif rule.logic_with_prior == "AND":
+                accumulator = accumulator & bool_series
+            elif rule.logic_with_prior == "OR":
+                accumulator = accumulator | bool_series
+            else:
+                # Schema validator should have caught this. Defense-in-depth.
+                raise ValueError(
+                    f"custom_build rule {i} missing logic_with_prior — "
+                    "schema validator should have rejected this"
+                )
+
+        if accumulator is None:
+            return pd.Series(False, index=close_matrix.index)
+        return accumulator.fillna(False)
+
+    def _compute_primitive_on_close_matrix(
+        self,
+        provider,
+        close_matrix: pd.DataFrame,
+        symbol: str,
+    ) -> pd.Series:
+        """Compute a primitive's value series over the close_matrix's
+        date range. The signal_provider's `get_signal_frame` expects a
+        DB session — but for the v1 custom_build path we already have
+        the price data loaded (close_matrix), so we call the provider's
+        `_compute` (TechnicalSignalProvider) directly when available."""
+        from app.services.backtester.technical_signal_providers import (
+            TechnicalSignalProvider,
+            AVTechnicalSignalProvider,
+        )
+
+        if isinstance(provider, TechnicalSignalProvider) and not isinstance(
+            provider, AVTechnicalSignalProvider
+        ):
+            # Local pandas provider — synthesize an OHLCV frame from
+            # close_matrix. We only have closes here; high/low/volume are
+            # approximated from the close. Composer v1 supports primitives
+            # that need only close prices; richer OHLCV primitives need
+            # the full PriceDataService fetch (TODO when intraday lands).
+            close = close_matrix[symbol]
+            frame = pd.DataFrame({
+                "open": close,
+                "high": close,
+                "low": close,
+                "close": close,
+                "adjusted_close": close,
+                "volume": pd.Series(1.0, index=close.index),
+            })
+            return provider._compute(frame)
+
+        # AV-endpoint providers + non-technical providers need the full
+        # async DB path; for v1 we don't support them in custom_build's
+        # synchronous engine call. Future scope.
+        raise ValueError(
+            f"Provider '{provider.name}' is not supported in custom_build v1 "
+            "(requires async DB path). Use a local-pandas primitive."
+        )
+
+    def _apply_rule_threshold(
+        self,
+        rule: "StrategyRule",
+        value_series: pd.Series,
+    ) -> pd.Series:
+        """Apply the rule's operator + threshold to a primitive's value
+        Series, producing a boolean Series.
+
+        Operators supported: gt, gte, lt, lte. crosses_above / crosses_below
+        and equality-class are out of scope for v1 (the composer UI
+        renders gt/gte/lt/lte chips only).
+
+        When the rule's `threshold` is None, we treat the primitive's
+        own value as the boolean (e.g. donchian_breakout returns 0/1
+        already)."""
+        if rule.threshold is None:
+            return value_series.astype(bool)
+        threshold = float(rule.threshold)
+        op = rule.operator or "gt"
+        if op == "gt":
+            return value_series > threshold
+        if op == "gte":
+            return value_series >= threshold
+        if op == "lt":
+            return value_series < threshold
+        if op == "lte":
+            return value_series <= threshold
+        raise ValueError(
+            f"custom_build operator '{op}' not supported (use gt/gte/lt/lte)"
+        )
+
     def _generate_weights(
         self,
         strategy: StrategyJSON,
@@ -864,6 +1015,31 @@ class BacktestEngine:
                 for sym, w in raw_weights.items():
                     if sym in weights.columns:
                         weights.loc[dt, sym] = w
+
+        elif strategy.strategy_type == "custom_build":
+            # ── PRD-16b: composer-driven strategy ─────────────────────────────
+            # Single-symbol primitive evaluation with multi-rule fold via
+            # `logic_with_prior`. The composer (PRD-16b frontend) produces
+            # rules each pointing at a PRD-16a catalog primitive_id with
+            # `operator` + `threshold` + (optional) `primitive_params`.
+            #
+            # Engine path:
+            #   1. For each rule, compute the primitive's value series via
+            #      its registered SignalProvider (cached price frame).
+            #   2. Apply the rule's operator + threshold to get a boolean
+            #      Series (True = condition met).
+            #   3. Fold left-to-right via `logic_with_prior`.
+            #   4. Final boolean → weight on the single-symbol universe.
+            #
+            # Multi-symbol universes for custom_build are a follow-up (the
+            # composer's v1 UX is single-symbol). Multi-asset support
+            # composes via additional strategy_types or via per-symbol
+            # rule blocks — out of scope for 16b-1.
+            symbol = strategy.universe[0]
+            block = self._evaluate_custom_build_block(
+                strategy.rules, close_matrix, symbol,
+            )
+            weights[symbol] = block.astype(float)
 
         # ── Post-processing (shared for all strategies) ───────────────────────
 
