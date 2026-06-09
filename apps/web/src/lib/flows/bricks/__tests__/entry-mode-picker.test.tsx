@@ -108,6 +108,25 @@ describe("EntryModePicker", () => {
     expect(parsed.context.fromTrigger).toBe("home/custom_build");
   });
 
+  it("seeds the custom_build_mode context with full INITIAL_CUSTOM_BUILD_CONTEXT defaults (regression: rules undefined crashed canvas)", () => {
+    // <CustomBuildCanvas> dereferences `context.rules.map(...)` on its
+    // first render. If the picker only seeds `{ fromTrigger }` (the
+    // pre-fix shape), `rules` arrives undefined and the canvas crashes
+    // with "Cannot read properties of undefined (reading 'map')" —
+    // surfaced to the user as Next.js's "This page couldn't load" boundary.
+    render(<EntryModePicker from="home" />);
+    fireEvent.click(screen.getByTestId("entry-mode-custom-build"));
+
+    const parsed = JSON.parse(
+      window.sessionStorage.getItem(STORAGE_KEY("custom_build_mode"))!,
+    );
+    expect(parsed.context.rules).toEqual([]);
+    expect(parsed.context.symbol).toBeNull();
+    expect(parsed.context.active_execution_enabled).toBe(false);
+    expect(parsed.context.bar_resolution).toBe("daily");
+    expect(parsed.context.exit_ladder).toEqual([]);
+  });
+
   it("composes the fromTrigger from the surface prop", () => {
     render(<EntryModePicker from="reengagement_modal" />);
 

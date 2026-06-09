@@ -63,6 +63,21 @@ export interface FlowDefinition<TCtx extends FlowContextBase = FlowContextBase> 
   steps: FlowStep<TCtx>[];
   initialStepId: string;
   /**
+   * Optional mode-specific defaults. The runtime spreads these underneath
+   * (a) the caller's `opts.initialContext` in `startFlow` AND (b) the
+   * fresh-mount path in `<FlowProvider>` when there's no sessionStorage
+   * state to resume (direct URL access / browser refresh / deep link).
+   *
+   * Without this, a brick whose first render dereferences a non-optional
+   * context field (e.g. `context.rules.map(...)`) crashes on direct URL
+   * access because the fresh-mount context is only `{ fromTrigger }`.
+   *
+   * Modes that get away without setting this are modes whose initial step's
+   * brick only accesses optional fields with `??` fallbacks. New modes
+   * should set this to be safe — it's cheap insurance.
+   */
+  initialContext?: Omit<TCtx, "fromTrigger">;
+  /**
    * Called when the user completes the terminal step. Use to navigate to
    * a result page, save state, fire analytics, etc.
    */
