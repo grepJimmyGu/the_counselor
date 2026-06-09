@@ -762,38 +762,18 @@ export async function trackAttributionVisit(
   });
 }
 
-// ── Email preferences (Stage 6a) ──────────────────────────────────────────────
-
-export interface EmailPreferencesResponse {
-  transactional: boolean;
-  weekly_digest: boolean;
-  upsell_nudges: boolean;
-  creator_program: boolean;
-  unsubscribed_at: string | null;
-}
-
-export async function getEmailPreferences(
-  backendToken: string,
-): Promise<EmailPreferencesResponse> {
-  return fetchApi("/api/me/email-preferences", {
-    headers: { Authorization: `Bearer ${backendToken}` },
-  });
-}
-
-export async function updateEmailPreferences(
-  payload: {
-    weekly_digest?: boolean;
-    upsell_nudges?: boolean;
-    creator_program?: boolean;
-  },
-  backendToken: string,
-): Promise<EmailPreferencesResponse> {
-  return fetchApi("/api/me/email-preferences", {
-    method: "PATCH",
-    headers: { Authorization: `Bearer ${backendToken}` },
-    body: JSON.stringify(payload),
-  });
-}
+// ── Email preferences (Stage 6a → extended by PRD-19 Step 4a) ────────────────
+// Canonical types live in `contracts.ts` (EmailPreferences,
+// EmailPreferencesUpdate). PRD-19 Step 4a extended the shape with
+// `signal_alerts_enabled`, `daily_digest_enabled`, `silent_days_enabled`.
+//
+// `EmailPreferencesResponse` kept here as a legacy alias for any caller
+// that imported the Stage 6a name. New callers should import
+// `EmailPreferences` from `contracts.ts` directly. Helpers
+// (`getEmailPreferences`, `updateEmailPreferences`) live in the PRD-19
+// section below.
+import type { EmailPreferences as EmailPreferencesAlias } from "./contracts";
+export type EmailPreferencesResponse = EmailPreferencesAlias;
 
 // PRD-13b — Portfolio Mode diagnose endpoint.
 export async function diagnosePortfolio(
@@ -847,4 +827,94 @@ export async function getCnIndicator(
   return fetchApi(
     `/api/cn/indicators?symbol=${encodeURIComponent(symbol)}&function=${func}&time_period=${timePeriod}&range=${range_}`,
   );
+}
+
+// ── PRD-19 Step 5: notification surface API helpers ─────────────────────────
+
+import type {
+  EmailPreferences,
+  EmailPreferencesUpdate,
+  MarkAsExecutedRequest,
+  MarkAsExecutedResponse,
+  PendingNotificationBanner,
+} from "./contracts";
+
+/** Fetch pending in-app banner entries for the current user.
+ *  Returns the empty array when the user is unauthenticated (401 from
+ *  backend), so callers can treat "no banners" and "not signed in"
+ *  identically at the render layer. */
+export async function getPendingNotifications(
+  backendToken: string,
+): Promise<PendingNotificationBanner[]> {
+  try {
+    return await fetchApi<PendingNotificationBanner[]>(
+      "/api/me/notifications/pending",
+      {
+        headers: { Authorization: `Bearer ${backendToken}` },
+      },
+    );
+  } catch {
+    // 401 / 404 → render as empty. Banner is non-critical; never blocks page.
+    return [];
+  }
+}
+
+/** Acknowledge (soft-delete) a banner entry. Backend returns 204 with no
+ *  body, which fetchApi tolerates. */
+export async function ackNotificationBanner(
+  entryId: number,
+  backendToken: string,
+): Promise<void> {
+  await fetchApi<unknown>(`/api/me/notifications/${entryId}/ack`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${backendToken}` },
+  });
+}
+
+/** Log that the user acted on the latest signal for this strategy.
+ *  Idempotent — second click on the same notification returns
+ *  `idempotent: true` and the existing row's `executed_at`. */
+export async function markStrategyExecuted(
+  strategyId: string,
+  body: MarkAsExecutedRequest,
+  backendToken: string,
+): Promise<MarkAsExecutedResponse> {
+  return fetchApi<MarkAsExecutedResponse>(
+    `/api/saved-strategies/${encodeURIComponent(strategyId)}/mark-executed`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${backendToken}`,
+      },
+      body: JSON.stringify(body),
+    },
+  );
+}
+
+/** Read the current user's notification preferences — `EmailPreference`
+ *  row with the 3 legacy marketing flags + the 3 PRD-19 flags. */
+export async function getEmailPreferences(
+  backendToken: string,
+): Promise<EmailPreferences> {
+  return fetchApi<EmailPreferences>("/api/me/email-preferences", {
+    headers: { Authorization: `Bearer ${backendToken}` },
+  });
+}
+
+/** Partial-update the user's notification preferences. Omit fields to
+ *  leave unchanged. PATCHing a re-enable on ANY flag clears the global
+ *  `unsubscribed_at`; disabling a single flag does NOT. */
+export async function updateEmailPreferences(
+  payload: EmailPreferencesUpdate,
+  backendToken: string,
+): Promise<EmailPreferences> {
+  return fetchApi<EmailPreferences>("/api/me/email-preferences", {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${backendToken}`,
+    },
+    body: JSON.stringify(payload),
+  });
 }
