@@ -368,6 +368,16 @@ def _start_scheduler() -> None:
             max_instances=1,               # prevent overlap if prev run is slow
             misfire_grace_time=3600,       # fire within 1h of scheduled time
         )
+        # PRD-19 Step 4b — morning brief digest cron. Fires ~9am ET so the
+        # previous trading day's signal_cron tick (22:00 UTC ≈ 6pm ET) has
+        # already written SignalEvents for the daily aggregation.
+        from app.jobs.daily_digest_job import run_daily_digest_job
+        scheduler.add_job(
+            run_daily_digest_job, "cron", hour=13, minute=0,
+            id="daily_digest",
+            max_instances=1,
+            misfire_grace_time=3600,
+        )
         scheduler.start()
     except Exception as exc:
         logger.warning("APScheduler failed to start: %s", exc)
