@@ -9,6 +9,79 @@
 
 ## Current Session
 
+**Status:** 2026-06-09 (00:10 UTC) — **PRD-19 backend complete end-to-end.** Continuing from the 2026-06-08 build-break (Sonnet 4.6 session shipped `notifications.py` without `git add` — fixed in PR #146, codified as pre-push checklist item #6 via PR #147), this session executed Steps 3a → 4c of PRD-19 in five sequential single-PR slices, all under the "claude/" prefix with `claude-main` as master merger. Backend retention-metric loop is now closed (subscribe → cron dispatch → user clicks Mark-as-Executed → PostHog `notification_dispatched` joins against `notification_executed` on `signal_event_id`). User-facing controls (3 EmailPreference flags, daily digest at 13:00 UTC, signed per-strategy + per-category unsub URLs) all wired and tested. Three latent bugs from the reverted PR #88 reshape caught pre-merge: wrong `send_email` signature in dispatcher, literal `{{unsubscribe_url}}` tokens in compliance footer, in-memory throttle counters resetting across cron ticks. Plus a drive-by trap #16 fix in signal_cron (local TZ → UTC date) that surfaced only because the worktree TZ ≠ container TZ.
+
+**Shipped today (2026-06-08 → 2026-06-09):**
+
+*PR #150 — Step 3a: Mark-as-Executed retention metric loop*
+- New `MarkAsExecutedEvent` model (String(36) PK per trap #2, no FK to users.id per trap #1, FK to signal_events + saved_strategies, `user_note` Optional[str(560)]).
+- Migration with UNIQUE index on `(user_id, signal_event_id)` for idempotency.
+- `POST /api/saved-strategies/{strategy_id}/mark-executed` endpoint: ownership-checked, idempotent (UNIQUE index backs it), returns `latency_seconds` (signal_event.created_at → executed_at).
+- PostHog `notification_executed` capture on first click; idempotent re-clicks do NOT re-fire (preserves retention metric integrity).
+- 12 tests covering happy path, idempotency, latest-not-earliest signal selection, 404 cases, latency clamp against clock skew, PostHog capture + failure survival.
+- Fix-up commit caught a real production bug: route imported `ph_capture` but module only exports `capture`; `try/except` swallowed the ImportError silently. Tests passed via monkeypatch creating the attribute — only the production codepath would have failed. Switched to `posthog_service.capture(...)`.
+
+*PR #152 — Step 3b: signal_cron dispatch wiring (re-push of #151)*
+- New `app/emails/signal_change.py` with `render_signal_change(user, payload)` — real html+text pair, `make_unsub_token(user.id, f"signal_alerts_{strategy_id}")` signed unsub URL, CAN-SPAM footer + compliance boilerplate.
+- `dispatch_signal_change_email(event, db, user)` refactored to use the new renderer + correct `send_email(db, user, *, template, subject, html, text, category)` signature. Dead inline `_render_signal_change_email` (with `{{unsubscribe_url}}` literal tokens) deleted.
+- signal_cron looks up `User` once per subscribed flip; on send-success sets `SignalEvent.email_dispatched_at = utcnow()` and `email_dispatch_count += 1`.
+- PostHog `notification_dispatched` captured on every attempted send (`email_sent` + `in_app_banner_sent` + joinable `signal_event_id`).
+- PostHog `notification_throttled` captured with `reason: strategy_daily_cap | user_daily_cap` so suppressed dispatches are visible (silent throttling is invisible throttling).
+- `_seed_throttle_counters` pre-fills the throttle dicts from any `SignalEvent.email_dispatched_at` rows landing in today's UTC window — throttle now survives cron restarts.
+- `_reference_prices` actually reads `result.trade_log` latest-per-symbol close (was returning `{}`).
+- 4 integration tests caught the cross-tick-reset bug pre-merge.
+- PR #151 was opened, CI'd green, then closed by Jimmy and head-ref-deleted at 11:20 UTC. Re-pushed as #152 under a fresh branch name (per CLAUDE.md fresh-branch-rebase pattern); same commit, same scope. Mr Gu authorized re-merge after asking what reshape he wanted; turned out to be a no-op close. Lesson logged.
+
+*PR #153 — Step 4a: notification-preferences flags + signal_cron UTC fix*
+- 3 new boolean fields on `EmailPreference`: `signal_alerts_enabled` (default TRUE), `daily_digest_enabled` (default TRUE), `silent_days_enabled` (default FALSE).
+- Migration per trap #6 (SQLite try/except, Postgres `IF NOT EXISTS`), each in its own `engine.begin()` mini-tx (trap #3).
+- `GET/PATCH /api/me/email-preferences` extended to read + write the new fields. Partial-update semantics preserved. PATCH that re-enables ANY flag clears `unsubscribed_at`; PATCH that disables a per-template flag does NOT set `unsubscribed_at` (no bleed into global).
+- `_prefs_allow(prefs, template, category)` extended so `signal_alerts_enabled=False` / `daily_digest_enabled=False` win over the transactional default. Legally-required transactional templates (`password_reset`, `payment_failed`) still bypass.
+- **Drive-by trap #16 fix**: `signal_cron.py` computed `today = date.today()` (local TZ) but wrote `email_dispatched_at = datetime.utcnow()`. The 3b throttle test was passing in CI (containers run UTC) but failed the moment the 4a worktree opened in local TZ. Fix: `today = datetime.utcnow().date()`. That's the bug catching its own regression.
+- 12 new tests.
+
+*PR #154 — Step 4b: daily_digest_job + cron registration + real render*
+- New `app/emails/daily_digest.py` with `render_daily_digest(user, payload)` modeled on signal_change.py. Color-coded strategy rows (amber=changed, green=stable, slate=cash). Signed `daily_digest` unsub URL.
+- New `app/jobs/daily_digest_job.py` — enumerates users with active SignalAlertSubscriptions, gates on `daily_digest_enabled` + `unsubscribed_at`, buckets strategies as changed/stable/cash, honors `silent_days_enabled` via `notification_throttle.should_skip_digest`. PostHog `daily_digest_dispatched` / `daily_digest_skipped_silent_day` events.
+- `DigestEvent` extended with `cash_count: int = 0` (the bucketing test caught the missing field). Dead inline `_render_digest_email` (with `{{base_url}}` tokens) deleted.
+- main.py scheduler — `run_daily_digest_job` registered at 13:00 UTC (~9am ET), after signal_cron's 22:00 UTC tick. Same APScheduler config (max_instances=1, misfire_grace_time=3600) per trap #21.
+- 8 integration tests.
+
+*PR #155 — Step 4c: route signal_alerts_<id> + daily_digest unsub tokens*
+- `category == "daily_digest"` → flips `prefs.daily_digest_enabled = False`.
+- `category.startswith("signal_alerts_")` → parses strategy_id suffix, flips `SignalAlertSubscription.email_enabled = False` for `(user_id, strategy_id)` composite-PK lookup. Missing rows no-op silently (token may post-date subscription deletion).
+- `category == "all"` (global unsubscribe) now also flips `signal_alerts_enabled` + `daily_digest_enabled`. Otherwise a user clicking "Unsubscribe from all marketing" would keep getting signal alerts (`category=transactional`) and digests.
+- Anti-enumeration preserved: every code path returns HTTP 200 with the same friendly HTML page. Bad signature, unknown category, missing subscription all indistinguishable to the caller.
+- 9 tests including HMAC-tamper rejection.
+
+**Tests:** **855 → 884** (+29 across 5 PRs). Zero regressions across the sequence.
+
+**Master-merger handshake convention** (codified earlier this session in PR #147 → merged): the session acting as master merger addresses Jimmy as **"Mr Gu"** in its first reply each turn. Non-master sessions use "Jimmy" or no greeting. Active baseline confirmed at session start: claude-main (this session) is master merger for the PRD-19 push, demoting deepseek-main for the duration.
+
+**Pre-push checklist item #6** — the static-import smoke test added in PR #147 caught nothing new this session (every commit was clean), but was run as part of every PR's verification. Net cost ~2 seconds per PR.
+
+### Next session — Step 5 + 6 (frontend)
+
+**Resumption checklist for the next agent:**
+
+1. Read this WORK_LOG block + `docs/PROJECT_BACKLOG.md` row 6 (PRD-19 frontend slice)
+2. Read [`build_specs/PRD-19_notification_phase_b.md`](../build_specs/PRD-19_notification_phase_b.md) §6 (frontend bricks)
+3. Confirm backend surface stable: `GET /api/me/email-preferences` returns the 3 PRD-19 flags; `POST /api/saved-strategies/{id}/mark-executed` returns 200; the in-app banner row appears in `notification_banner_entries` after a flip
+4. Spin up worktree under `/Users/jimmygu/the_counselor-prd19-frontend-bricks/` on branch `claude/feat/notification-bricks` (or `deepseek/` if that session is master merger again)
+5. Step 5 bricks needed:
+   - `NotificationBanner.tsx` — reads `GET /api/me/notifications/pending`, dismisses via `POST /api/me/notifications/{id}/ack` (already shipped in PR #146)
+   - `MarkAsExecutedButton.tsx` — POSTs to `/api/saved-strategies/{id}/mark-executed`. Must read `backendToken` off `useSession()` per trap #19. Show "Marked at HH:MM" optimistically; gracefully no-op on idempotent re-click
+   - `NotInvestmentAdviceFooter.tsx` — reusable compliance brick for any AI-generated strategy output
+6. Integrate Steps 5 bricks on Home (top of feed) + Strategy-detail page
+7. Step 6 — `/account/notifications` page with `NotificationSettingsForm.tsx` brick calling `GET/PATCH /api/me/email-preferences`. Show all 3 PRD-19 toggles + the legacy 3.
+8. Frontend tests: types-first in `apps/web/src/lib/contracts.ts`; component tests for each brick
+
+**Step 5 + 6 do not block anything backend.** PRD-19 backend is a closed system; the cron + retention loop work today. The frontend slices are about surfacing the data, not changing the contract.
+
+---
+
+## Previous Session
+
 **Status:** 2026-06-07 (evening) — **Market Pulse outage hotfixed + full A+B+C+D reliability stack shipped.** Jimmy shared a Railway log file showing 8 warmup ticks failing in 28 min with `RuntimeError: ... is bound to a different event loop` — a regression PR #138 introduced two days ago. Production was hard down on US Market Pulse (HTTP 000 / 180s for users) when he caught it. Hotfix (PR #140) restored service within minutes; the rest of the day was spent making sure THE NEXT outage gets detected, cushioned for users, paged to Jimmy, and pre-triaged for the diagnosing agent — all wired end-to-end via four sequential PRs.
 
 **Shipped today (2026-06-07):**

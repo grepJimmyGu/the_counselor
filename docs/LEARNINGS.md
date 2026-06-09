@@ -205,6 +205,67 @@ deferred follow-up.
 
 ## Diagnostic methodology
 
+### Template literals that look like substituted strings — grep them BEFORE shipping
+**TL;DR:** if your email body contains `{{unsubscribe_url}}` and you never wrote substitution code for it, the recipient gets `{{unsubscribe_url}}` in their inbox. Tests that snapshot the rendered html catch it; tests that snapshot the template don't.
+
+PRD-19 Step 3b's signal-change email body had `<a href="{{unsubscribe_url}}">` in its compliance footer. The pattern was inherited from `welcome.py` — but `welcome.py` actually built `unsub_url` with `make_unsub_token(...)` and interpolated it via an f-string at render time. The signal-change render forgot the f-string + the token mint. The literal `{{unsubscribe_url}}` shipped to recipients (would have, if PRD-19 hadn't been paused for reshape first).
+
+Same bug class hit Step 4b's digest renderer (`{{base_url}}/strategies`, `{{settings_url}}`). Same class hit Step 4c's unsub endpoint, where the switch ladder didn't know about `daily_digest` or `signal_alerts_<id>` so the signed token (correctly minted upstream) fell through to "expired or invalid."
+
+The cross-cutting pattern: when a feature defines NEW categories / templates / token shapes, every GATE / SWITCH / RENDER that handled the OLD shapes has to grow a new branch. If the new branch is missing, the new shapes silently fall through to a no-op or a default — and "no-op" looks identical to "shipped" until a user clicks.
+
+**Audit step before shipping a feature with new categories:**
+
+1. Grep for the new category name in the codebase. Every render / switch / dispatch must mention it.
+2. Render the actual rendered output (not the template source) in a test. Look for `{{` and `}}` — those are unsubstituted placeholders.
+3. If your CAN-SPAM webhook has a switch ladder, the new category must appear in it. Default-to-friendly-page anti-enumeration hides bugs here — silence looks identical to success.
+
+```python
+# In your render test:
+rendered = render_signal_change(user, payload)
+assert "{{" not in rendered["html"], "unsubstituted placeholder in html"
+assert "{{" not in rendered["text"], "unsubstituted placeholder in text"
+```
+
+**When to apply:** any PR that adds a new template / email category / signed-token kind / switch arm. Especially when porting / extending an existing renderer — the inherited code may have `{{...}}` placeholders that the original render path handled via inline f-string substitution; if you copy the template but forget the substitution, the placeholder ships verbatim.
+
+**See also:** PR #152 (Step 3b — caught + fixed), PR #154 (Step 4b — same pattern with `{{base_url}}`), PR #155 (Step 4c — switch-ladder fall-through). Originated from PR #88's reshape — three latent bugs all sharing the same shape.
+
+---
+
+### Tests in CI containers (UTC) silently pass code that breaks in local TZ — and vice versa
+**TL;DR:** if `today` is local-TZ but `utcnow()` is UTC, the test catches the bug at the local-vs-UTC boundary. Run your test in the worktree's TZ before merging.
+
+The 2026-06-08 throttle test in PRD-19 Step 3b passed in CI (containers run UTC) but failed the moment Step 4a's worktree opened in local TZ. The throttle-seeding query computed a window from `date.today()` (local) but read events with `email_dispatched_at = datetime.utcnow()` (UTC) — at 23:42 UTC the events fell INTO the previous local day's window AND OUT of the current local day's window, so the seeding query returned 0 rows and the throttle silently reset across cron ticks.
+
+This is trap #16's mirror image: trap #16 is about a verification script computing today wrong; this one is the application code itself computing two different "today"s. The same fix applies: compute `today` in the TZ the data was written in.
+
+```python
+# WRONG — local-TZ today vs UTC writes
+today = date.today()
+events_today = db.execute(
+    select(SignalEvent).where(
+        SignalEvent.email_dispatched_at >= datetime(today.year, today.month, today.day)
+    )
+).all()
+
+# RIGHT — UTC today AND UTC writes
+today = datetime.utcnow().date()
+events_today = db.execute(
+    select(SignalEvent).where(
+        SignalEvent.email_dispatched_at >= datetime(today.year, today.month, today.day)
+    )
+).all()
+```
+
+**The test-catching-its-own-regression property:** the throttle test's premise was "second same-day flip should be throttled." With local TZ ahead of UTC, the test's first-tick events were dispatched at "today-1 UTC," but the test computed "today local" for the throttle window. The window missed the events, the throttle didn't seed, the second tick fired. The test failed — but only because it actually exercised the cross-tick path. Tests that only run inside a single cron tick (and thus only check the in-memory dict, not the seeded version) would have passed silently.
+
+**When to apply:** any cron / scheduled job whose state straddles ticks via the DB. Audit any `date.today()` against any `datetime.utcnow()` writes that the same code path later reads. Either pick one TZ for both, or pass `today` in explicitly as a function argument so tests can vary it.
+
+**See also:** PR #153 fix in `app/jobs/signal_cron.py`, trap #16 in `apps/api/CLAUDE.md`, the 2026-05-26 SP500 verification false-alarm that originally codified trap #16.
+
+---
+
 ### Single-user post-deploy verification can't catch concurrency bugs by design
 **TL;DR:** "I curled it once after deploy and it returned 200" is necessary but not sufficient. Concurrency bugs need concurrent load to manifest.
 
