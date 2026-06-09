@@ -3,13 +3,23 @@
 /**
  * /flow/[flowId] — the universal flow shell route.
  *
- * Every entry mode (Portfolio, Thesis, Custom Build…) lands here when
- * launched via `startFlow(flowId, …)`. The page is intentionally thin:
- * it pulls the dynamic param, hands it to <FlowProvider>, and renders
- * whatever <FlowShell /> resolves from the current step.
+ * Every entry mode (Portfolio, One-Asset, Custom Build, …) lands here
+ * when launched via `startFlow(flowId, …)`. The page is intentionally
+ * thin: it pulls the dynamic param, hands it to <FlowProvider>, and
+ * renders whatever <FlowShell /> resolves from the current step.
  *
- * PRD-13b ships the first real flow (`portfolio_mode`); until then the
- * mock flow below is what dev smokes against at `/flow/mock_flow`.
+ * **CRITICAL — every registered FlowDefinition module MUST be imported
+ * here as a side-effect.** The registry is populated only when the
+ * module's top-level `registerFlow(...)` call runs, which only happens
+ * when something `import`s the module. The Home picker and other
+ * triggers side-effect-import their target modules too, but a user
+ * landing on `/flow/<id>` via deep link / browser refresh / direct URL
+ * paste goes through this page ALONE — without these imports the
+ * registry is empty and the "Flow not found" branch fires.
+ *
+ * A regression test in `__tests__/flow-shell-registration.test.tsx`
+ * pins this list against the actual files in `lib/flows/`. If you add
+ * a new mode module, add it here AND update that test.
  */
 
 import { useParams } from "next/navigation";
@@ -20,9 +30,10 @@ import type { FlowEvent } from "@/lib/flows/types";
 
 // Self-registering FlowDefinition modules. Each import has the
 // side-effect of `registerFlow(...)` at module load. New modes append
-// to this list (e.g. PRD-15 thesis_mode, PRD-16 custom_build_mode).
-import "@/lib/flows/portfolio-mode";   // PRD-13b
-import "@/lib/flows/one-asset-mode";   // Sprint 2 — Mode 1 refactor
+// to this list (e.g. PRD-15 thesis_mode).
+import "@/lib/flows/portfolio-mode";    // PRD-13b
+import "@/lib/flows/one-asset-mode";    // Sprint 2 — Mode 1 refactor
+import "@/lib/flows/custom-build-mode"; // PRD-16 — Custom Build composer
 
 function handleEvent(event: FlowEvent): void {
   if (process.env.NODE_ENV !== "production") {
