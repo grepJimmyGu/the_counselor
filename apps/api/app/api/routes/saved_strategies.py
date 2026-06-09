@@ -7,7 +7,7 @@ DELETE /api/strategies/{id}     — delete (owner only)
 """
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -234,4 +234,304 @@ def mark_strategy_executed(
         signal_event_id=latest_event.id,
         executed_at=now,
         idempotent=False,
+    )
+
+
+# ── PRD-16c-3c: Live dashboard endpoints ────────────────────────────────────
+#
+# Three GETs feed the strategy-detail "active execution" dashboard:
+#
+#   /{strategy_id}/universe-state — one row per universe ticker with the
+#                                   latest price + price source (intraday
+#                                   bar for active strategies; future:
+#                                   live quote)
+#   /{strategy_id}/positions      — open + recently-closed PositionState
+#                                   rows with distance-to-tier indicators
+#   /{strategy_id}/trade-log      — flattened paginated event log across
+#                                   all positions for the strategy
+#
+# Owner-only. Public strategies don't expose this surface — positions
+# belong to the owner who's actively running the strategy. Anonymous +
+# non-owner authed callers get 404 (same shape as `get_saved_strategy`).
+
+
+class UniverseSymbolState(BaseModel):
+    symbol: str
+    latest_price: Optional[float] = None
+    latest_at: Optional[datetime] = None
+    # Source so the UI can distinguish "live" (intraday cache, within
+    # last hour) from "stale" (no recent bar — strategy not actively
+    # monitored, or AV returned no bar today).
+    source: str  # 'intraday' | 'no_data'
+
+
+class UniverseStateResponse(BaseModel):
+    strategy_id: str
+    bar_resolution: str
+    universe: list[UniverseSymbolState]
+    generated_at: datetime
+
+
+class PositionView(BaseModel):
+    """One row in the dashboard's positions grid. Includes the
+    distance-to-tier ratios that the UI renders as bars."""
+    id: str
+    symbol: str
+    entered_at: datetime
+    entry_price: float
+    shares_initial: float
+    shares_remaining: float
+    is_open: bool
+    closed_at: Optional[datetime] = None
+    final_pnl: Optional[float] = None
+    latest_price: Optional[float] = None
+    pct_change_from_entry: Optional[float] = None
+    trade_log: list[dict]
+
+
+class PositionsResponse(BaseModel):
+    strategy_id: str
+    positions: list[PositionView]
+    open_count: int
+    closed_count: int
+
+
+class TradeEvent(BaseModel):
+    """One row in the chronological trade-log table."""
+    position_id: str
+    symbol: str
+    event: str  # entry | stop_hit | tp1_hit | tp2_hit | ...
+    timestamp: datetime
+    price: Optional[float] = None
+    shares: Optional[float] = None
+    shares_sold: Optional[float] = None
+    tier_label: Optional[str] = None
+
+
+class TradeLogResponse(BaseModel):
+    strategy_id: str
+    events: list[TradeEvent]
+    total: int
+    # Pagination cursor — events are sorted newest-first; next page is
+    # `?before=<timestamp>` for the next 100. Simpler than offset-based
+    # for an append-only event stream.
+    next_before: Optional[datetime] = None
+
+
+def _resolve_owned_strategy(
+    db: Session, strategy_id: str, current_user: User
+):
+    """Common owner-only resolver. Returns the SavedStrategy row or
+    raises 404 (404 not 403 — don't leak existence)."""
+    from app.models.saved_strategy import SavedStrategy
+    row = db.get(SavedStrategy, strategy_id)
+    if row is None or row.user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Strategy not found.")
+    return row
+
+
+@router.get(
+    "/{strategy_id}/universe-state",
+    response_model=UniverseStateResponse,
+)
+async def get_universe_state(
+    strategy_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> UniverseStateResponse:
+    """Latest price per universe ticker for the active-execution dashboard.
+
+    For intraday strategies (`bar_resolution != 'daily'`), reads from the
+    `intraday_bars` cache via `IntradayBarService`. For daily strategies
+    OR when no intraday bar is cached, returns `latest_price=None` with
+    `source='no_data'`. Daily strategies' "current price" comes from
+    elsewhere (the existing Market Pulse / live_quote_service path) and
+    isn't this endpoint's concern.
+    """
+    from app.services.intraday_bar_service import IntradayBarService
+
+    strategy = _resolve_owned_strategy(db, strategy_id, current_user)
+    sj_dict = strategy.strategy_json or {}
+    universe = sj_dict.get("universe") or sj_dict.get("inherited_universe") or []
+    bar_resolution = sj_dict.get("bar_resolution", "daily")
+
+    rows: list[UniverseSymbolState] = []
+    if bar_resolution == "daily" or not universe:
+        # Daily strategies: this endpoint returns the symbols with no
+        # intraday price. Frontend's dashboard renders these as "EOD only."
+        for sym in universe:
+            rows.append(UniverseSymbolState(
+                symbol=sym, latest_price=None, latest_at=None,
+                source="no_data",
+            ))
+        return UniverseStateResponse(
+            strategy_id=strategy_id,
+            bar_resolution=bar_resolution,
+            universe=rows,
+            generated_at=datetime.utcnow(),
+        )
+
+    bar_svc = IntradayBarService()
+    # Read from cache only — never fetch from AV on the GET path. The
+    # monitor cron is responsible for keeping the cache fresh. A cold
+    # cache is reported truthfully (source='no_data') rather than
+    # gating the UI on a 2-second AV roundtrip.
+    end = datetime.utcnow()
+    start = end - timedelta(hours=4)
+    for sym in universe:
+        cached = bar_svc._read_cached(db, sym.upper(), bar_resolution, start, end)
+        if cached:
+            last = cached[-1]
+            rows.append(UniverseSymbolState(
+                symbol=sym,
+                latest_price=float(last.close),
+                latest_at=last.bar_time,
+                source="intraday",
+            ))
+        else:
+            rows.append(UniverseSymbolState(
+                symbol=sym, latest_price=None, latest_at=None,
+                source="no_data",
+            ))
+    return UniverseStateResponse(
+        strategy_id=strategy_id,
+        bar_resolution=bar_resolution,
+        universe=rows,
+        generated_at=datetime.utcnow(),
+    )
+
+
+@router.get(
+    "/{strategy_id}/positions",
+    response_model=PositionsResponse,
+)
+def get_strategy_positions(
+    strategy_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> PositionsResponse:
+    """Open + recently-closed positions for the active-execution
+    dashboard. Includes `latest_price` + `pct_change_from_entry` so the
+    UI can render distance-to-tier bars without a second request."""
+    from sqlalchemy import select, desc
+    from app.models.intraday_bar import IntradayBar
+    from app.models.position_state import PositionState
+
+    _ = _resolve_owned_strategy(db, strategy_id, current_user)
+
+    rows = db.execute(
+        select(PositionState)
+        .where(PositionState.saved_strategy_id == strategy_id)
+        .order_by(desc(PositionState.is_open), desc(PositionState.updated_at))
+    ).scalars().all()
+
+    # Latest price per symbol — read from the intraday cache. The query
+    # picks the most recent bar across all resolutions; the dashboard
+    # cares about "most recent price we have," not which resolution.
+    sym_to_price: dict[str, tuple[float, datetime]] = {}
+    if rows:
+        symbols = {pos.symbol for pos in rows}
+        for sym in symbols:
+            latest = db.execute(
+                select(IntradayBar)
+                .where(IntradayBar.symbol == sym)
+                .order_by(desc(IntradayBar.bar_time))
+                .limit(1)
+            ).scalar_one_or_none()
+            if latest:
+                sym_to_price[sym] = (float(latest.close), latest.bar_time)
+
+    positions: list[PositionView] = []
+    open_count = 0
+    closed_count = 0
+    for pos in rows:
+        latest = sym_to_price.get(pos.symbol)
+        latest_price = latest[0] if latest else None
+        pct_change: Optional[float] = None
+        if latest_price is not None and pos.entry_price:
+            pct_change = (latest_price - pos.entry_price) / pos.entry_price
+        positions.append(PositionView(
+            id=pos.id,
+            symbol=pos.symbol,
+            entered_at=pos.entered_at,
+            entry_price=pos.entry_price,
+            shares_initial=pos.shares_initial,
+            shares_remaining=pos.shares_remaining,
+            is_open=pos.is_open,
+            closed_at=pos.closed_at,
+            final_pnl=pos.final_pnl,
+            latest_price=latest_price,
+            pct_change_from_entry=pct_change,
+            trade_log=list(pos.trade_log or []),
+        ))
+        if pos.is_open:
+            open_count += 1
+        else:
+            closed_count += 1
+
+    return PositionsResponse(
+        strategy_id=strategy_id,
+        positions=positions,
+        open_count=open_count,
+        closed_count=closed_count,
+    )
+
+
+@router.get(
+    "/{strategy_id}/trade-log",
+    response_model=TradeLogResponse,
+)
+def get_strategy_trade_log(
+    strategy_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    limit: int = 100,
+    before: Optional[datetime] = None,
+) -> TradeLogResponse:
+    """Chronological trade events flattened across every PositionState
+    row for this strategy. Newest first; paginated via `?before=<iso8601>`.
+    `total` is the unfiltered count so the UI can show "247 events."""
+    from sqlalchemy import select
+    from app.models.position_state import PositionState
+
+    _ = _resolve_owned_strategy(db, strategy_id, current_user)
+    # Cap limit to keep payload bounded.
+    limit = max(1, min(limit, 500))
+
+    rows = db.execute(
+        select(PositionState)
+        .where(PositionState.saved_strategy_id == strategy_id)
+    ).scalars().all()
+
+    flat: list[TradeEvent] = []
+    for pos in rows:
+        for event in (pos.trade_log or []):
+            ts_raw = event.get("timestamp")
+            if not ts_raw:
+                continue
+            try:
+                ts = datetime.fromisoformat(ts_raw)
+            except (TypeError, ValueError):
+                continue
+            flat.append(TradeEvent(
+                position_id=pos.id,
+                symbol=pos.symbol,
+                event=event.get("event") or "unknown",
+                timestamp=ts,
+                price=event.get("price"),
+                shares=event.get("shares"),
+                shares_sold=event.get("shares_sold"),
+                tier_label=event.get("tier_label"),
+            ))
+    flat.sort(key=lambda e: e.timestamp, reverse=True)
+    total = len(flat)
+    if before is not None:
+        flat = [e for e in flat if e.timestamp < before]
+    page = flat[:limit]
+    next_before = page[-1].timestamp if len(flat) > limit else None
+    return TradeLogResponse(
+        strategy_id=strategy_id,
+        events=page,
+        total=total,
+        next_before=next_before,
     )
