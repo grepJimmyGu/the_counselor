@@ -9,6 +9,81 @@
 
 ## Current Session
 
+**Status:** 2026-06-09 (02:30 UTC) — **PRD-16a (Signal Library) FULLY COMPLETE — backend + frontend shipped end-to-end in one continuous session.** Same session as the PRD-19 closeout (see "Previous Session"). After Mr Gu shared the Custom Mode HANDOFF, I queued the packet in PROJECT_BACKLOG (#159), landed the 3 PRD docs in git (#160), and then executed PRD-16a in 4 sequential slices: 16a-1 catalog + schema + GET endpoint (#161), 16a-2 46 SignalProvider impls + preview endpoint (#163; #162 was rebased before merge), 16a-3 KB match-templates endpoint + per-template metadata (#164), 16a-4 frontend bricks + standalone `/signal-library` page (#165). PRD-16b (composer) + PRD-16c (intraday + active execution) remain in the packet.
+
+**Shipped (2026-06-09, late):**
+
+*PRDs queued / landed (PRs #159, #160)*
+- #159 — backlog row for the 3-PRD Custom Mode packet (PRD-16a/b/c).
+- #160 — landed the HANDOFF + 3 PRD docs in `agent-system/plans/` (they were authored on Mr Gu's canonical root but untracked).
+
+*PR #161 — Step 16a-1: catalog + schema + GET endpoint (editorial gate)*
+- `SignalCategory` enum (8 values, set in stone) + `Parameter` + `SignalPrimitive` Pydantic models.
+- **55 hand-authored primitives** spanning all 8 categories (12 trend, 9 mean reversion, 10 momentum, 5 volume, 5 volatility, 7 fundamental, 3 sentiment, 4 cross-sectional). Voice rule: descriptive ("Measures overbought/oversold extremes…"), NOT prescriptive ("Buy when RSI < 30") — enforced by `test_no_prescriptive_language_in_description`.
+- `GET /api/signal-primitives` endpoint with ETag conditional GET + 1h Cache-Control.
+- 297 new tests (per-primitive parametrized validators × 55 + catalog invariants + endpoint behaviors).
+- Pre-push trap caught: Python `str | None` syntax used in route signature; CI runs 3.9, so the static-import smoke test (pre-push #6) caught it before commit. Fixed with `Optional[str]` + `Union[X, Y]`.
+
+*PR #163 — Step 16a-2: 46 SignalProvider impls + preview endpoint*
+- Generic `AlphaVantageClient.fetch_technical_indicator(function, symbol, params, interval)` wrapper for AV's TA endpoints.
+- `TechnicalSignalProvider` base class + `AVTechnicalSignalProvider` subclass; ~38 local-pandas impls (SMA, EMA, MACD, RSI, BBands, ATR, ROC, OBV, etc.) + 8 AV-endpoint impls (KAMA, SAR, HT_TRENDLINE, ULTOSC, TRIX, ADXR, ADOSC, TRANGE) + 1 placeholder (AnalystRatingChange).
+- Lazy registration via `_ensure_technical_providers_registered()` — avoids circular import that would happen at module-top. First `get_signal_provider()` triggers the fold; subsequent calls short-circuit.
+- `GET /api/signal-primitives/{id}/preview?symbol=...&days=...` with query-string parameter overrides per Mr Gu's call (paid AV tier, no rate-limit concern).
+- 63 new tests (per-family deep tests + parametrized smoke).
+- **Merge-conflict trap encountered**: PR #162 was opened from a branch that still carried the pre-squash 16a-1 commit; rebased onto current main as a fresh branch (#163), closed #162, merged #163. CLAUDE.md "Force-push blocked by classifier → fresh-branch rebase" recipe followed verbatim.
+- **Test-pollution trap handled**: preview endpoint's `Depends(get_db)` opens a real `SessionLocal` in TestClient. Test file overrides `get_db` to yield None and patches `PriceDataService.get_price_frame` at the class level (not the import) so already-instantiated registry providers pick up the stub.
+
+*PR #164 — Step 16a-3: KB match-templates endpoint + per-template metadata*
+- Per-template metadata for the 19 backend templates: category set + per-primitive thresholds (the suggested defaults the matcher returns).
+- `match_templates(primitive_ids, top_n=3)` — pure Jaccard-on-categories per PRD spec. Tie-break by template_id asc for stable ordering. Unknown primitive IDs silently dropped (best-effort).
+- `POST /api/signal-combos/match-templates` endpoint with `top_n` clamped to [1, 10].
+- 72 new tests including the canonical PRD examples (RSI+BBANDS → bollinger-mean-reversion top, SMA+Donchian+ATR → trend-following top).
+
+*PR #165 — Step 16a-4: Frontend bricks for the Signal Library*
+- 4 new bricks: `<SignalPrimitiveCard>` + `<SignalCatalogBrowser>` (8-category sidebar + search + responsive grid) + `<SignalPreviewChart>` (lazy-loaded recharts) + `<TemplateMatchSuggestion>` (debounced KB lookup with "Use these defaults" CTA).
+- Cache helper `lib/signal-library/catalog-cache.ts` — version-stamped localStorage envelope; SSR-safe; quota-safe.
+- API helpers: `getSignalPrimitives` (conditional GET via `If-None-Match`), `previewSignalPrimitive` (with paramOverrides), `matchSignalCombosToTemplates`.
+- Types-first in `contracts.ts` + standalone `/signal-library` page.
+- 22 new vitest tests across 4 files. Build clean — fix was for the recharts Tooltip formatter generic-constraint annotation.
+
+**Cumulative session totals (PRD-19 + PRD-16a in one session):**
+
+| | Count |
+|---|---|
+| PRs shipped this session | **18** (PRD-19 backend + frontend + docs + #146/#147 cleanup + PRD-16a 4 slices + #159/#160/#162→#163 rebase) |
+| Backend tests | 855 → **1316** (+461) |
+| Frontend tests | 75 → **121** (+46) |
+| Routes | 109 → **114** (+5) |
+| Production outages | 0 |
+| Regressions | 0 |
+| Latent bugs caught pre-merge | 8 (PRD-19's 5 + PRD-16a's Python 3.9 syntax + merge-conflict rebase + test pollution / `Depends(get_db)`) |
+
+### Next session — PRD-16b (Custom Build composer)
+
+**Resumption checklist:**
+
+1. Read this WORK_LOG block + `docs/PROJECT_BACKLOG.md` row for PRD-16b
+2. Read [`agent-system/plans/PRD-16b-custom-build-composer.md`](../agent-system/plans/PRD-16b-custom-build-composer.md) — full spec
+3. Read [`agent-system/plans/HANDOFF-livermore-custom-mode.md`](../agent-system/plans/HANDOFF-livermore-custom-mode.md) §5 (brick inventory) + §6 pitfalls (esp. B: leave-room scaffold for PRD-16c's active-execution toggle, C: `logic_with_prior` schema field must be additive)
+4. Confirm prerequisites on main: PRD-13a flow runtime ✓, PRD-16a's bricks ✓ (`<SignalCatalogBrowser>` etc.)
+5. Spin up worktree under `/Users/jimmygu/the_counselor-prd16b-composer/` on branch `claude/feat/custom-build-composer` (or matching agent prefix if claude-main not the master merger)
+6. Slicing approach (mirrors PRD-16a's): 16b-1 schema + engine multi-rule fold, 16b-2 composer canvas + canvas-related bricks, 16b-3 `FlowDefinition` registration + integration
+7. Frontend bricks types-first in `contracts.ts`; reuse existing PRD-16a `<SignalPrimitiveCard>` verbatim
+
+### Operational follow-ups (still owed across PRDs)
+
+From PRD-19:
+- PostHog Sprint A retention dashboard (events fire; just configs)
+- Email-client rendering QA: Gmail web, Outlook web, Apple Mail
+- `CAN_SPAM_ADDRESS` + `EMAIL_UNSUB_SIGNING_KEY` env vars on Railway before launch
+
+From PRD-16a:
+- Editorial pass on the 55 catalog descriptions when convenient (PR review was the gate, but Mr Gu may want to refine voice on individual entries before PRD-16b's composer surfaces them to users)
+
+---
+
+## Previous Session
+
 **Status:** 2026-06-09 (01:10 UTC) — **PRD-19 FULLY COMPLETE — backend + frontend shipped end-to-end in one session.** Followed the backend stack (Steps 3a/3b/4a/4b/4c — see "Previous Session" below) with the frontend bricks + settings page bundled as one PR (#157, merged via auto-merge once CI cleared). The retention loop the backend wired now has a user-facing surface on Home (notification banner with inline Mark-as-Executed) + `/account/notifications` (settings form covering the 3 PRD-19 flags + the legacy 3). Final session counts: 9 PRs shipped, **+29 backend tests (855 → 884)** and **+24 frontend tests (75 → 99)**, 0 production outages, 0 regressions, 5 latent bugs caught pre-merge.
 
 **Shipped (2026-06-09, late):**

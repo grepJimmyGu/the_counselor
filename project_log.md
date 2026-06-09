@@ -8,6 +8,43 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-06-09 (very late) — PRD-16a (Signal Library) complete in four sequential PRs (#161 → #163 → #164 → #165)
+
+Same continuous session as the PRD-19 closeout below. After Mr Gu queued the Custom Mode 3-PRD packet in PROJECT_BACKLOG (#159) and landed the spec docs in git (#160), we executed PRD-16a end-to-end in four sequential slices, each base=main, no stacked PRs.
+
+### What landed
+
+| Slice | PR | Scope | New tests |
+|---|---|---|---|
+| 16a-1 | #161 | Schema + 55-entry hand-authored catalog + `GET /api/signal-primitives` with ETag | +297 backend |
+| 16a-2 | #163 | 46 new `SignalProvider` impls (38 local pandas + 8 AV-endpoint + 4 stubs + 1 placeholder) + `GET /preview` endpoint | +63 backend |
+| 16a-3 | #164 | KB matcher service + 19-template metadata + `POST /api/signal-combos/match-templates` | +72 backend |
+| 16a-4 | #165 | 4 frontend bricks + localStorage cache + types + standalone `/signal-library` page | +22 frontend |
+
+Cumulative: **1316 backend tests** (was 884), **121 frontend tests** (was 99), **114 routes** (was 111), 0 regressions, 0 outages.
+
+### Architecture decisions worth recording
+
+**Lazy registry registration to avoid circular imports.** `technical_signal_providers.py` imports `SignalProvider` from `signal_provider.py`. If `signal_provider.py` tried to import + register the technical providers at module-top, we'd get a partial-init `ImportError`. Solution: `_ensure_technical_providers_registered()` is called on the first `get_signal_provider()` lookup, with a module-level flag short-circuiting subsequent calls. Tests trigger it via the new `all_registered_provider_names()` helper.
+
+**Hand-authored catalog is the editorial product.** The 55 primitive descriptions are intentionally **not LLM-generated free text**. The voice rule — descriptive ("Measures overbought/oversold extremes…") not prescriptive ("Buy when RSI < 30") — is enforced by `test_no_prescriptive_language_in_description`, which fails CI on word-list matches like `buy when` / `sell when` / `enter when`. PR review is the editorial gate; the test is the safety net.
+
+**Two-layer test-pollution fix for the preview endpoint.** `Depends(get_db)` fires real `SessionLocal()` in TestClient. Override via `app.dependency_overrides[get_db]` to short-circuit the dep. But the registry instantiates providers at module load, so an import-level patch of `PriceDataService` never reaches them — instead, `patch.object(PriceDataService, "get_price_frame", fake_get)` at the class level so already-constructed instances pick up the stub.
+
+**Standalone `/signal-library` page** ships for marketing/SEO and pre-composer browsing. The composer (PRD-16b) will wrap `<SignalCatalogBrowser>` with its own `onPick` callback; standalone mode passes no callback and clicks no-op.
+
+### Cross-cutting traps surfaced
+
+- **Python 3.9 `str | None` syntax** — same trap as PRD-19 Step 3a's `ph_capture` import error a few hours earlier. Caught pre-commit by the static-import smoke test (pre-push #6).
+- **Merge-conflict-rebase scenario** — PR #162 was opened from a branch carrying the pre-squash 16a-1 commit (`d81c767`); main had the squashed version (`ab761aa`). CLAUDE.md "Force-push blocked by classifier → fresh-branch rebase" recipe applied verbatim: cherry-pick onto a fresh branch, close #162, open #163. Third or fourth time this codebase has used this pattern.
+- **recharts Tooltip formatter generic constraint** — annotating `(v: number | string)` violates the `Formatter<ValueType, NameType>` constraint; letting TS infer compiles.
+
+### PRD-16a status: complete
+
+PRD-16b (composer UI + multi-rule fold) + PRD-16c (intraday + active execution) remain in the packet. Specs already in `agent-system/plans/`; PRD-16a's bricks are reusable verbatim. PRD-16c blocks on PRD-16b + PRD-19 (done).
+
+---
+
 ## 2026-06-09 (late) — PRD-19 frontend: closing the loop in one PR (PR #157)
 
 Same session as the backend complete entry below — the natural follow-up. Step 5 + Step 6 bundled into one PR because the banner's overflow counter deep-links to `/account/notifications` (Step 6 territory); a 2-PR stack would have needed `as Route` casts to remove in the follow-up.
