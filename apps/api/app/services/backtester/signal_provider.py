@@ -572,6 +572,32 @@ _REGISTRY: dict[str, SignalProvider] = {
     "insider_net_buy":  InsiderSignalProvider(),
 }
 
+# PRD-16a-2 — fold ~46 technical-indicator providers into the registry
+# lazily. We can't import `technical_signal_providers` at module-top
+# because that module imports `SignalProvider` from this file — circular.
+# Instead, the FIRST `get_signal_provider()` call (or anyone reading
+# `_REGISTRY`) ensures the technical providers are registered. Subsequent
+# calls are no-ops (the flag short-circuits).
+
+_TECHNICAL_PROVIDERS_REGISTERED: bool = False
+
+
+def _ensure_technical_providers_registered() -> None:
+    """Fold the technical providers into `_REGISTRY` on first need.
+    Idempotent — the flag prevents re-import."""
+    global _TECHNICAL_PROVIDERS_REGISTERED
+    if _TECHNICAL_PROVIDERS_REGISTERED:
+        return
+    _TECHNICAL_PROVIDERS_REGISTERED = True  # set BEFORE the import to
+    # short-circuit any re-entry mid-import (defense for the same kind
+    # of cycle we hit before).
+    from app.services.backtester.technical_signal_providers import (
+        get_technical_providers,
+    )
+    for name, provider in get_technical_providers().items():
+        if name not in _REGISTRY:
+            _REGISTRY[name] = provider
+
 
 def get_signal_provider(name: str) -> SignalProvider:
     """
@@ -580,7 +606,13 @@ def get_signal_provider(name: str) -> SignalProvider:
     Raises KeyError when the name is not registered.  Use this instead of
     instantiating providers directly so that configuration (lag days, etc.)
     is centralised.
+
+    Triggers lazy registration of PRD-16a-2's technical providers on
+    first call (no-op after that). Same-loaded module, same `_REGISTRY`
+    dict — the trick avoids the circular-import that would happen if we
+    tried to register at module-top.
     """
+    _ensure_technical_providers_registered()
     try:
         return _REGISTRY[name]
     except KeyError:
@@ -588,3 +620,10 @@ def get_signal_provider(name: str) -> SignalProvider:
         raise KeyError(
             f"Unknown signal provider '{name}'. Supported: {supported}"
         ) from None
+
+
+def all_registered_provider_names() -> list[str]:
+    """Helper for tests / introspection. Triggers the lazy-registration
+    side effect so callers see the full registry."""
+    _ensure_technical_providers_registered()
+    return sorted(_REGISTRY.keys())

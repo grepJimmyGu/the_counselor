@@ -177,20 +177,31 @@ def test_provider_impls_pointing_to_existing_registry_actually_exist() -> None:
                 )
 
 
-def test_unimplemented_provider_keys_listed_but_not_yet_in_registry() -> None:
-    """Sanity: PRD-16a-1 catalog ships ~46 `provider_impl` keys that
-    PRD-16a-2 will wire up. None of them should already be in the
-    registry — if they are, the catalog has a name collision we'd
-    rather catch here than at runtime."""
-    from app.services.backtester.signal_provider import _REGISTRY
+def test_all_catalog_provider_impls_are_registered() -> None:
+    """PRD-16a-2 ships all ~46 new SignalProvider impls. Every catalog
+    entry's `provider_impl` should now resolve via `get_signal_provider`.
+
+    Before 16a-2 this test asserted the opposite ("not yet in registry");
+    16a-2 flipped the semantics. The catalog and the registry should
+    stay in lockstep — adding a new primitive without a provider impl
+    is a contract violation.
+
+    Uses `all_registered_provider_names()` instead of `_REGISTRY` directly
+    so the lazy-registration trigger fires (`_REGISTRY` is initially
+    only fundamentals + sentiment until the technical providers are
+    folded in on first call).
+    """
+    from app.services.backtester.signal_provider import (
+        all_registered_provider_names,
+    )
 
     catalog_keys = {p.provider_impl for p in SIGNAL_PRIMITIVES}
-    new_keys = catalog_keys - _EXISTING_PROVIDER_KEYS
-    accidentally_registered = new_keys & set(_REGISTRY)
-    assert not accidentally_registered, (
-        f"Catalog references provider keys {accidentally_registered} "
-        "as 'new' but they're already in _REGISTRY. Either "
-        "EXISTING_PROVIDER_KEYS is stale, or there's a name collision."
+    registered = set(all_registered_provider_names())
+    missing = catalog_keys - registered
+    assert not missing, (
+        f"Catalog references provider impls {missing} that are not "
+        "in _REGISTRY. Either the technical_signal_providers module "
+        "didn't register them, or the catalog has a typo."
     )
 
 
