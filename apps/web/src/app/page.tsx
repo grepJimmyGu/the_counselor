@@ -21,6 +21,7 @@ import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-bui
 import { ChatWidget } from "@/components/ChatWidget";
 import { dispatchChatSeed } from "@/lib/chat-widget-event-bus";
 import { EntryModePicker } from "@/lib/flows/bricks/entry-mode-picker";
+import { NotificationBanner } from "@/components/notifications/notification-banner";
 
 // ── Three main pillars (simplified — no feature bullet lists) ──────────────────
 
@@ -228,6 +229,9 @@ export default function HomePage() {
             ))}
           </div>
         </section>
+
+        {/* ── PRD-19 Step 5: in-app notification banner (signed-in users only) ── */}
+        <NotificationBanner />
 
         {/* ── PRD-11: Saved-strategies tile (or sign-in prompt) + entry-mode picker ── */}
         <section className="space-y-5">

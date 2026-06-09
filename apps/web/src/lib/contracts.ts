@@ -2540,3 +2540,83 @@ export interface AssetBehaviorFingerprint {
    *  forward-looking claims. */
   strategy_implication: string;
 }
+
+// ── PRD-19 Step 5: notification surface contracts ─────────────────────────
+
+/** One row in the response from `GET /api/me/notifications/pending`.
+ *  Mirrors `PendingBannerItem` in
+ *  `apps/api/app/api/routes/notifications.py`. */
+export interface PendingNotificationBanner {
+  /** Auto-increment integer PK. Used in the ack endpoint. */
+  id: number;
+  /** Short headline — e.g. "⚡ My MA Filter — LONG NVDA". Already formatted
+   *  by the backend; render as-is. */
+  title: string;
+  /** Plain-English rule context — e.g. "Price vs 200-day moving average."
+   *  Renderable inline; no markdown. */
+  body: string;
+  /** Saved-strategy ID the banner is about. Renders as a deep-link target
+   *  for `/strategies/{slug}` when present. */
+  strategy_slug: string | null;
+  /** ISO-8601 UTC timestamp; used for "n minutes ago" rendering. */
+  created_at: string;
+}
+
+/** Request body for `POST /api/saved-strategies/{strategy_id}/mark-executed`.
+ *  Mirrors `MarkAsExecutedRequest` in `routes/saved_strategies.py`. */
+export interface MarkAsExecutedRequest {
+  /** Optional free-text note ("filled at 4:05 via Schwab"). Bounded to
+   *  560 chars by Pydantic on the backend side. */
+  user_note: string | null;
+}
+
+/** Response body for the mark-executed endpoint. Mirrors
+ *  `MarkAsExecutedResponse` in `routes/saved_strategies.py`. */
+export interface MarkAsExecutedResponse {
+  ok: boolean;
+  /** Time from `signal_event.created_at` to the user's click, clamped to
+   *  non-negative. Sprint A's retention metric is the histogram of this. */
+  latency_seconds: number;
+  /** The SignalEvent the attestation was recorded against. The frontend
+   *  doesn't display this; useful only for debugging + PostHog joins. */
+  signal_event_id: string;
+  /** ISO-8601 UTC timestamp of the row's `executed_at` column. */
+  executed_at: string;
+  /** True when the user had already marked this signal event as executed.
+   *  The endpoint short-circuits and returns the existing row's data.
+   *  Frontend may render "Already marked at HH:MM" instead of a fresh
+   *  confirmation. */
+  idempotent: boolean;
+}
+
+/** Response from `GET /api/me/email-preferences`. Mirrors
+ *  `EmailPreferenceResponse` in `apps/api/app/api/routes/email.py`. */
+export interface EmailPreferences {
+  /** Legally-required transactional. Always true; stored for symmetry. */
+  transactional: boolean;
+  /** Legacy Stage 6a marketing flags. */
+  weekly_digest: boolean;
+  upsell_nudges: boolean;
+  creator_program: boolean;
+  /** PRD-19 Step 4a — global signal-alert kill-switch. Default true. */
+  signal_alerts_enabled: boolean;
+  /** PRD-19 Step 4a — daily morning brief opt-in. Default true. */
+  daily_digest_enabled: boolean;
+  /** PRD-19 Step 4a — when on, the digest skips no-change days. Default false. */
+  silent_days_enabled: boolean;
+  /** Set when the user clicked "Unsubscribe from all marketing" — also
+   *  flips the PRD-19 flags off as of Step 4c. ISO-8601 timestamp. */
+  unsubscribed_at: string | null;
+}
+
+/** Partial-update payload for `PATCH /api/me/email-preferences`. Every
+ *  field is optional — omit to leave unchanged. Mirrors
+ *  `EmailPreferenceUpdate`. */
+export interface EmailPreferencesUpdate {
+  weekly_digest?: boolean;
+  upsell_nudges?: boolean;
+  creator_program?: boolean;
+  signal_alerts_enabled?: boolean;
+  daily_digest_enabled?: boolean;
+  silent_days_enabled?: boolean;
+}
