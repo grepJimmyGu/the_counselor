@@ -9,6 +9,46 @@
 
 ## Current Session
 
+**Status:** 2026-06-09 (01:10 UTC) — **PRD-19 FULLY COMPLETE — backend + frontend shipped end-to-end in one session.** Followed the backend stack (Steps 3a/3b/4a/4b/4c — see "Previous Session" below) with the frontend bricks + settings page bundled as one PR (#157, merged via auto-merge once CI cleared). The retention loop the backend wired now has a user-facing surface on Home (notification banner with inline Mark-as-Executed) + `/account/notifications` (settings form covering the 3 PRD-19 flags + the legacy 3). Final session counts: 9 PRs shipped, **+29 backend tests (855 → 884)** and **+24 frontend tests (75 → 99)**, 0 production outages, 0 regressions, 5 latent bugs caught pre-merge.
+
+**Shipped (2026-06-09, late):**
+
+*PR #157 — Steps 5+6: notification bricks + /account/notifications page*
+- 4 new bricks under `apps/web/src/components/notifications/`:
+  - `NotificationBanner` — polls `GET /api/me/notifications/pending` every 60s; renders amber-pill rows with inline `<MarkAsExecutedButton />`; auto-hides for anonymous; rolls back failed dismisses by re-fetching.
+  - `MarkAsExecutedButton` — `POST /api/saved-strategies/{id}/mark-executed` with optimistic UI; idempotent re-clicks render "Already marked at HH:MM"; sign-in hint when anonymous.
+  - `NotInvestmentAdviceFooter` — reusable disclaimer (full + compact variants). Copy intentionally mirrors `signal_change.py` / `daily_digest.py` server footers.
+  - `NotificationSettingsForm` — `GET/PATCH /api/me/email-preferences` with optimistic toggles for the 3 PRD-19 flags; legacy Stage 6a flags collapsed; rollback on PATCH failure.
+- Integration: `<NotificationBanner />` above PRD-11 entry-mode picker on Home; new `/account/notifications` page sibling to the existing `/account/email`.
+- Types-first in `contracts.ts` (`PendingNotificationBanner`, `MarkAsExecutedRequest`/`Response`, extended `EmailPreferences`, `EmailPreferencesUpdate`); legacy `EmailPreferencesResponse` kept as type alias.
+- Architectural decision: the strategy detail page at `/strategies/[slug]` serves legacy `BacktestRecord` rows (slug-based), but the mark-executed endpoint takes `SavedStrategy.id` (new table). The banner's `strategy_slug` field carries `SavedStrategy.id` per Step 3b's `dispatch_in_app_banner`, so inlining `MarkAsExecutedButton` on the banner row works without threading two IDs through the detail page. Cleaner than the PRD's original spec which placed the button on the detail page.
+- 24 new component tests across 4 test files. Full vitest suite: 99 passed (15 files), 0 regressions. `npm run build` clean.
+
+### Session totals (2026-06-08 → 2026-06-09)
+
+| | Count |
+|---|---|
+| PRs shipped | **9** (8 feature + 1 doc) |
+| Backend tests | 855 → **884** (+29) |
+| Frontend tests | 75 → **99** (+24) |
+| Production outages | 0 |
+| Regressions | 0 |
+| Latent bugs caught pre-merge | 5 (3 from PR #88 reshape + 1 PostHog import + 1 trap #16 + 1 DigestEvent.cash_count) |
+
+### Next session — operational follow-ups
+
+PRD-19 backend + frontend are both complete. What remains is operational, not implementation:
+
+1. **PostHog dashboard wiring.** The events all fire (`notification_dispatched`, `notification_throttled`, `notification_executed`, `daily_digest_dispatched`, `daily_digest_skipped_silent_day`, `email_preferences_updated`). Build the Sprint A retention dashboard joining `notification_dispatched` against `notification_executed` on `signal_event_id` for `latency_seconds`.
+2. **Email-client rendering QA.** Send each template (`signal_change`, `daily_digest`) to a test account and verify in Gmail web / Outlook web / Apple Mail. Document any quirks in the PRD-19 doc.
+3. **Production smoke after Railway redeploy.** Subscribe to a strategy, force-trigger `compute_all_signals()` via the admin shell, verify (a) email arrives at the test account, (b) banner appears at `/`, (c) click-through to Mark-as-Executed updates the row.
+4. **`CAN_SPAM_ADDRESS` env var.** The footer placeholder reads "Livermore Alpha · [Update CAN_SPAM_ADDRESS env var before launch] · USA". Set the real postal address on Railway before scaling >100 users.
+5. **`EMAIL_UNSUB_SIGNING_KEY` env var.** Production unsubscribe URLs need a non-default signing key — otherwise tokens are trivially forgeable. Set on Railway before launch.
+
+---
+
+## Previous Session
+
 **Status:** 2026-06-09 (00:10 UTC) — **PRD-19 backend complete end-to-end.** Continuing from the 2026-06-08 build-break (Sonnet 4.6 session shipped `notifications.py` without `git add` — fixed in PR #146, codified as pre-push checklist item #6 via PR #147), this session executed Steps 3a → 4c of PRD-19 in five sequential single-PR slices, all under the "claude/" prefix with `claude-main` as master merger. Backend retention-metric loop is now closed (subscribe → cron dispatch → user clicks Mark-as-Executed → PostHog `notification_dispatched` joins against `notification_executed` on `signal_event_id`). User-facing controls (3 EmailPreference flags, daily digest at 13:00 UTC, signed per-strategy + per-category unsub URLs) all wired and tested. Three latent bugs from the reverted PR #88 reshape caught pre-merge: wrong `send_email` signature in dispatcher, literal `{{unsubscribe_url}}` tokens in compliance footer, in-memory throttle counters resetting across cron ticks. Plus a drive-by trap #16 fix in signal_cron (local TZ → UTC date) that surfaced only because the worktree TZ ≠ container TZ.
 
 **Shipped today (2026-06-08 → 2026-06-09):**

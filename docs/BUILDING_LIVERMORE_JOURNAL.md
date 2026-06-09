@@ -1329,6 +1329,39 @@ Anti-enumeration preserved throughout: every code path returns HTTP 200 with the
 
 ---
 
+### Episode 36 — PRD-19 frontend: closing the loop in one sitting (June 9, late)
+
+After Episode 35 wrapped the PRD-19 backend, the natural follow-up was the user-facing surface — bricks for the notification banner, the Mark-as-Executed button, the not-investment-advice disclaimer, and the settings form. The plan was two PRs (Step 5 bricks + integration; Step 6 settings page). Halfway through, the build failed on a typed-route check: the banner's overflow counter linked to `/account/notifications`, which didn't exist yet because that's Step 6 territory. Two options: cast as `Route` with a note to clean up later, or bundle both steps into one PR. The bundle was honest about the dependency, so we collapsed Step 5 + Step 6 into PR #157.
+
+The most interesting decision was where to put `<MarkAsExecutedButton />`. The PRD spec said "Strategy detail page — Execute panel." But the strategy detail page at `/strategies/[slug]` serves **legacy `BacktestRecord` rows** (slug-based), while the mark-executed endpoint takes **`SavedStrategy.id`** (the new table). Two different ID surfaces on two different data models. Threading both through the detail page would have required either a slug-to-id resolver call on page load, or denormalizing `SavedStrategy.id` onto the BacktestRecord — both ugly. The cleaner move was inlining the button directly on each banner row, because the banner's `strategy_slug` field (named `strategy_slug` for historical reasons) actually carries the `SavedStrategy.id` per Step 3b's `dispatch_in_app_banner`. The retention loop closes without ever touching the legacy detail page. Same user experience; better architecture.
+
+Trap #19 (`backendToken` from `useSession()`, effect guards on `sessionStatus`) was the rhythm pattern. Every brick repeated the same three lines:
+
+```tsx
+const { data: session, status: sessionStatus } = useSession();
+const backendToken = (session as unknown as { backendToken?: string } | null)?.backendToken;
+// then in any useEffect that fires the API call:
+if (sessionStatus === "loading") return;
+if (!backendToken) return;
+```
+
+This isn't a one-off — every Livermore brick that calls an authed endpoint needs it. PR #132 codified it as trap #19 back in May; this session it ran on autopilot. The cost of having the trap documented + an example brick (`portfolio-diagnosis.tsx`) to copy from: ~30 seconds per brick. The cost of forgetting: a quiet auth-window bug that QA misses + frontend logs that look fine + an anonymous request firing where a signed-in one was expected.
+
+Next 16's typed routes caught the things they're supposed to catch. The build refused to compile a `Link` whose `href` was a runtime string (`/strategies/${id}`) without `as Route` — exactly the kind of "is this a known route?" check that prevents typoed dead-end URLs. The escape hatch (`as Route`) is fine for runtime-known good routes, but every cast is a deliberate "yes, I really mean this URL" annotation. Three casts in the banner + form, all justified, all commented inline.
+
+Vitest + jsdom paid off: the test mocking pattern from `portfolio-diagnosis.test.tsx` ported directly (mock `@/lib/api`, mock `next-auth/react`, mock `next/link`). Total test setup boilerplate per file: ~20 lines. Total test time: 99 specs in 1.36 seconds. The mock-everything-and-render approach kept tests deterministic and fast; no real API calls, no auth flows to fake.
+
+The auto-merge dance was a small upgrade in flow: instead of monitoring CI manually + asking "ready?" + running `gh pr merge`, I queued auto-merge with `gh pr merge --auto --squash` and let it fire when the last check landed. Same outcome; Mr Gu didn't have to context-switch back to authorize the merge.
+
+**Session totals: 9 PRs (PRD-19 backend + frontend + 2 docs), +29 backend tests, +24 frontend tests, 0 outages, 0 regressions, 5 latent bugs caught before merge.**
+
+What's left for PRD-19 is operational, not implementation:
+- PostHog Sprint A retention dashboard (events all fire; just configs)
+- Email-client rendering QA across Gmail / Outlook / Apple Mail
+- `CAN_SPAM_ADDRESS` + `EMAIL_UNSUB_SIGNING_KEY` env vars on Railway before scaling
+
+---
+
 ## Recurring journeys (themes)
 
 ### "Scope-cut every stage"
