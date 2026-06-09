@@ -312,6 +312,19 @@ def get_saved_strategy(slug: str, db: Session = Depends(get_db)) -> SavedStrateg
     if not record:
         raise HTTPException(status_code=404, detail="Strategy not found.")
 
+    # PRD-16c dashboard bridge: if a SavedStrategy references this
+    # BacktestRecord, surface its UUID so the frontend can render the
+    # ActiveExecutionDashboard (which is owner-only on the UUID-keyed
+    # /api/saved-strategies/{id} endpoints — a non-owner viewing the
+    # public slug will simply get 404 on the dashboard polls, which the
+    # brick already handles as an error state).
+    from app.models.saved_strategy import SavedStrategy as SavedStrategyModel
+    saved_strategy_id = db.scalar(
+        select(SavedStrategyModel.id).where(
+            SavedStrategyModel.backtest_record_id == record.id
+        )
+    )
+
     p = record.result_payload
     return SavedStrategyResponse(
         slug=record.slug,  # type: ignore[arg-type]
@@ -325,4 +338,5 @@ def get_saved_strategy(slug: str, db: Session = Depends(get_db)) -> SavedStrateg
         drawdown_curve=p.get("drawdown_curve", []),
         trade_log=p.get("trade_log", []),
         warnings=p.get("warnings", []),
+        saved_strategy_id=saved_strategy_id,
     )

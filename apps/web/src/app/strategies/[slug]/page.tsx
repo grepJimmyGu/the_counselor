@@ -7,6 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Loader2 } from "lucide-react";
 import { getSavedStrategy, updateStrategyVisibility, getStrategyLivePerformance } from "@/lib/api";
 import { EquityCurveChart, DrawdownChart } from "@/components/workspace/charts";
+import { ActiveExecutionDashboard } from "@/components/active-execution/active-execution-dashboard";
 import type { BacktestResult, LivePerformance, SavedStrategy } from "@/lib/contracts";
 import { UpvoteButton } from "@/components/community/upvote-button";
 import { CommentsSection } from "@/components/community/comments-section";
@@ -356,17 +357,17 @@ export default function SavedStrategyPage() {
           </section>
         )}
 
-        {/* TODO(PRD-16c): wire <ActiveExecutionDashboard> here when
-            the backend exposes the SavedStrategy UUID via the slug
-            route. Today /api/strategies/{slug} returns a BacktestRecord
-            with `slug` only; the dashboard endpoints (PRD-16c-3c) are
-            owner-only and key on `saved_strategy_id` (UUID). Either:
-              (a) extend the response with `saved_strategy_id: str|None`
-                  for slugs that have a matching SavedStrategy, OR
-              (b) add a dedicated `/saved-strategies/[id]` page on the
-                  frontend that fetches via the auth'd UUID-keyed route.
-            (b) is the cleaner long-term shape; (a) is the small
-            unblocker. Tracked: PRD-16c §"Wire dashboard surface". */}
+        {/* Active execution dashboard — owner-only, rendered when the
+            BacktestRecord's matching SavedStrategy uses a non-daily
+            bar_resolution. The dashboard polls /api/saved-strategies/{id}/...
+            endpoints; non-owners get 404 (the brick surfaces that as an
+            error state without crashing). PRD-16c-3c + PRD-16c-6. */}
+        {data.saved_strategy_id &&
+          (s as unknown as { bar_resolution?: string })?.bar_resolution &&
+          (s as unknown as { bar_resolution: string }).bar_resolution !==
+            "daily" && (
+          <ActiveExecutionDashboard strategyId={data.saved_strategy_id} />
+        )}
 
         {/* Community — comments */}
         <section className="rounded-xl border border-border bg-white p-5 shadow-sm">
