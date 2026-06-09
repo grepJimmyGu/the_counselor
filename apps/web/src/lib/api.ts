@@ -636,6 +636,98 @@ export async function deleteSavedStrategy(
   });
 }
 
+// ── PRD-16c-3c — Active execution dashboard endpoints ──────────────────────
+
+export interface UniverseSymbolState {
+  symbol: string;
+  latest_price: number | null;
+  latest_at: string | null;
+  source: "intraday" | "no_data" | string;
+}
+
+export interface UniverseStateResponse {
+  strategy_id: string;
+  bar_resolution: string;
+  universe: UniverseSymbolState[];
+  generated_at: string;
+}
+
+export interface PositionView {
+  id: string;
+  symbol: string;
+  entered_at: string;
+  entry_price: number;
+  shares_initial: number;
+  shares_remaining: number;
+  is_open: boolean;
+  closed_at: string | null;
+  final_pnl: number | null;
+  latest_price: number | null;
+  pct_change_from_entry: number | null;
+  trade_log: Array<Record<string, unknown>>;
+}
+
+export interface PositionsResponse {
+  strategy_id: string;
+  positions: PositionView[];
+  open_count: number;
+  closed_count: number;
+}
+
+export interface TradeEvent {
+  position_id: string;
+  symbol: string;
+  event: string;
+  timestamp: string;
+  price?: number | null;
+  shares?: number | null;
+  shares_sold?: number | null;
+  tier_label?: string | null;
+}
+
+export interface TradeLogResponse {
+  strategy_id: string;
+  events: TradeEvent[];
+  total: number;
+  next_before: string | null;
+}
+
+export async function getUniverseState(
+  strategyId: string,
+  backendToken: string,
+): Promise<UniverseStateResponse> {
+  return fetchApi<UniverseStateResponse>(
+    `/api/saved-strategies/${strategyId}/universe-state`,
+    { headers: { Authorization: `Bearer ${backendToken}` } },
+  );
+}
+
+export async function getStrategyPositions(
+  strategyId: string,
+  backendToken: string,
+): Promise<PositionsResponse> {
+  return fetchApi<PositionsResponse>(
+    `/api/saved-strategies/${strategyId}/positions`,
+    { headers: { Authorization: `Bearer ${backendToken}` } },
+  );
+}
+
+export async function getStrategyTradeLog(
+  strategyId: string,
+  backendToken: string,
+  opts: { limit?: number; before?: string } = {},
+): Promise<TradeLogResponse> {
+  const params = new URLSearchParams();
+  if (opts.limit) params.set("limit", String(opts.limit));
+  if (opts.before) params.set("before", opts.before);
+  const qs = params.toString();
+  const suffix = qs ? `?${qs}` : "";
+  return fetchApi<TradeLogResponse>(
+    `/api/saved-strategies/${strategyId}/trade-log${suffix}`,
+    { headers: { Authorization: `Bearer ${backendToken}` } },
+  );
+}
+
 // ── Signal alerts (PR #83 endpoints, wired into UI by PR-E) ──────────────────
 // All three require `SIGNAL_ALERTS_ENABLED=true` on Railway. Without it,
 // the routes 404.
