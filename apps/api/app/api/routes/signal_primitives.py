@@ -1,7 +1,8 @@
-"""Signal primitive catalog routes — PRD-16a Slices 1 + 2.
+"""Signal primitive catalog routes — PRD-16a Slices 1 / 2 / 3.
 
   GET  /api/signal-primitives                       — full catalog + ETag
   GET  /api/signal-primitives/{id}/preview          — sample series on a symbol
+  POST /api/signal-combos/match-templates           — KB lookup (top-N templates)
 
 The catalog itself is a static Python module (`app/data/signal_primitives.py`)
 loaded into memory once at import. There's no DB read for the catalog
@@ -228,3 +229,57 @@ async def preview_signal_primitive(
         parameters=final_params,
         series=points,
     )
+
+
+# ── PRD-16a-3: POST /api/signal-combos/match-templates ─────────────────────
+
+
+class MatchTemplatesRequest(BaseModel):
+    """User's selected primitive IDs from the composer. Unknown IDs are
+    silently dropped — the matcher is best-effort to keep the composer's
+    autocomplete UX forgiving."""
+    primitive_ids: list[str]
+    top_n: int = 3
+
+
+class TemplateMatch(BaseModel):
+    """One template match. The composer renders these as suggested
+    starting points; clicking 'Use this template' applies the
+    `thresholds_for_user_primitives` map as default parameter values
+    on the user's selected primitives."""
+    template_id: str
+    similarity: float
+    shared_categories: list[str]
+    thresholds_for_user_primitives: dict
+
+
+class MatchTemplatesResponse(BaseModel):
+    matches: list[TemplateMatch]
+
+
+@router.post("/signal-combos/match-templates", response_model=MatchTemplatesResponse)
+def match_signal_combos(payload: MatchTemplatesRequest) -> MatchTemplatesResponse:
+    """KB lookup — match the user's signal combo against the template
+    catalog. Returns the top-N templates ranked by Jaccard similarity on
+    category sets.
+
+    No auth — the matching algorithm is pure (catalog + template metadata,
+    both content). Future tier-gated variants (e.g. paid-only templates)
+    would gate at this layer.
+
+    The `shared_categories` field returns enum *values* (strings like
+    "mean_reversion") rather than the enum instances, since the response
+    is JSON-serialized.
+    """
+    from app.services.signal_combo_matcher import match_templates
+
+    rows = match_templates(payload.primitive_ids, top_n=max(1, min(payload.top_n, 10)))
+    return MatchTemplatesResponse(matches=[
+        TemplateMatch(
+            template_id=row["template_id"],
+            similarity=row["similarity"],
+            shared_categories=[c.value for c in row["shared_categories"]],
+            thresholds_for_user_primitives=row["thresholds_for_user_primitives"],
+        )
+        for row in rows
+    ])
