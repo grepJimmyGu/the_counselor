@@ -170,6 +170,67 @@ class AlphaVantageClient:
             raise AlphaVantageError("No CPI data returned.")
         return list(reversed(data))
 
+    async def fetch_technical_indicator(
+        self,
+        function: str,
+        symbol: str,
+        params: dict,
+        interval: str = "daily",
+    ) -> list[dict]:
+        """Generic wrapper for Alpha Vantage's TA indicator endpoints.
+
+        function: e.g. 'KAMA', 'SAR', 'HT_TRENDLINE', 'AROON', 'ULTOSC',
+                  'TRIX', 'ADXR', 'ADOSC', 'TRANGE' — anything from AV's
+                  technical-indicators surface.
+        symbol:   ticker to compute the indicator for.
+        params:   indicator-specific parameters (e.g. {"time_period": 14}
+                  for RSI). AV's required+optional params vary by function;
+                  pass the raw param names AV expects.
+        interval: 'daily' | 'weekly' | 'monthly' | '60min' | etc.
+                  Daily is the default for PRD-16a; PRD-16c extends to
+                  intraday intervals.
+
+        Returns the parsed payload as a list of {"date": date, **values}
+        dicts sorted oldest→newest. AV's response shape differs per
+        indicator — most use a single value key (e.g. "RSI"), some use
+        multiple (MACD has "MACD", "MACD_Signal", "MACD_Hist"). Callers
+        get the raw values and pick the column they want.
+
+        Raises `AlphaVantageError` on payload errors (rate limit,
+        invalid symbol, missing data).
+        """
+        request_params = {
+            "function": function,
+            "symbol": symbol,
+            "interval": interval,
+            "datatype": "json",
+            **{k: str(v) for k, v in params.items()},
+        }
+        payload = await self._request(request_params)
+
+        # AV returns the time series under a key like "Technical Analysis: RSI".
+        # Find it by prefix-matching rather than hard-coding per indicator.
+        series_key = next(
+            (k for k in payload.keys() if k.startswith("Technical Analysis:")),
+            None,
+        )
+        if series_key is None:
+            raise AlphaVantageError(
+                f"No technical-indicator series returned for {function}({symbol})."
+            )
+        raw_series = payload[series_key]
+
+        rows = []
+        for trading_date, values in raw_series.items():
+            parsed = {"date": datetime.strptime(trading_date, "%Y-%m-%d").date()}
+            for col_name, val_str in values.items():
+                try:
+                    parsed[col_name] = float(val_str)
+                except (TypeError, ValueError):
+                    parsed[col_name] = None
+            rows.append(parsed)
+        return sorted(rows, key=lambda item: item["date"])
+
     async def search_symbols(self, query: str) -> list[dict]:
         payload = await self._request({"function": "SYMBOL_SEARCH", "keywords": query})
         matches = payload.get("bestMatches", [])
