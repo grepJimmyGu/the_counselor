@@ -44,6 +44,7 @@ from app.api.routes.email import prefs_router as email_prefs_router, unsub_route
 from app.api.routes.saved_strategies import router as saved_strategies_router
 from app.api.routes.signals import router as signals_router
 from app.api.routes.notifications import router as notifications_router
+from app.api.routes.signal_primitives import router as signal_primitives_router
 from app.api.routes.triage import router as triage_router  # PR-D — ops triage bundle
 from app.api.routes.portfolio import router as portfolio_router  # PRD-13b — Portfolio Mode
 from app.core.config import get_settings
@@ -609,6 +610,10 @@ if get_settings().signal_alerts_enabled:
 
 # PRD-19 — notification endpoints (always mounted)
 app.include_router(notifications_router)
+
+# PRD-16a — signal primitive catalog endpoint (always mounted; the catalog
+# is content, not user data, and the same for every visitor).
+app.include_router(signal_primitives_router)
 
 # PR-D — triage context bundle. Always mounted (the route gates on the
 # token at request time + 403's if no token is configured). Mounting
