@@ -1712,6 +1712,63 @@ def run_startup_migrations(engine: Engine) -> None:
                 "ON intraday_bars (symbol, resolution, bar_time DESC)"
             ))
 
+        # PRD-16c-3 — position_states: per-symbol live-trading state for
+        # active-execution strategies. saved_strategy_id FK is SAFE because
+        # both columns are String(36); ON DELETE CASCADE keeps positions
+        # in sync when a user deletes a strategy.
+        if is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS position_states (
+                    id VARCHAR(36) PRIMARY KEY,
+                    saved_strategy_id VARCHAR(36) NOT NULL REFERENCES saved_strategies(id) ON DELETE CASCADE,
+                    symbol VARCHAR(10) NOT NULL,
+                    entered_at DATETIME NOT NULL,
+                    entry_price FLOAT NOT NULL,
+                    shares_initial FLOAT NOT NULL,
+                    shares_remaining FLOAT NOT NULL,
+                    trade_log TEXT NOT NULL DEFAULT '[]',
+                    is_open BOOLEAN NOT NULL DEFAULT 1,
+                    closed_at DATETIME,
+                    final_pnl FLOAT,
+                    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+                    updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_position_open_per_strategy "
+                "ON position_states (saved_strategy_id, is_open)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_position_states_symbol "
+                "ON position_states (symbol)"
+            ))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS position_states (
+                    id VARCHAR(36) PRIMARY KEY,
+                    saved_strategy_id VARCHAR(36) NOT NULL REFERENCES saved_strategies(id) ON DELETE CASCADE,
+                    symbol VARCHAR(10) NOT NULL,
+                    entered_at TIMESTAMP NOT NULL,
+                    entry_price DOUBLE PRECISION NOT NULL,
+                    shares_initial DOUBLE PRECISION NOT NULL,
+                    shares_remaining DOUBLE PRECISION NOT NULL,
+                    trade_log JSONB NOT NULL DEFAULT '[]'::jsonb,
+                    is_open BOOLEAN NOT NULL DEFAULT TRUE,
+                    closed_at TIMESTAMP,
+                    final_pnl DOUBLE PRECISION,
+                    created_at TIMESTAMP NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMP NOT NULL DEFAULT now()
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_position_open_per_strategy "
+                "ON position_states (saved_strategy_id, is_open)"
+            ))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS ix_position_states_symbol "
+                "ON position_states (symbol)"
+            ))
+
         # PRD-19 — notification banner entries (in-app surface)
         if is_sqlite:
             conn.execute(text("""
