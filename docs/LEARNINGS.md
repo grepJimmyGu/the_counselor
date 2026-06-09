@@ -205,6 +205,86 @@ deferred follow-up.
 
 ## Diagnostic methodology
 
+### When the editorial product IS the code, the editorial rules should be CI tests
+**TL;DR:** if a 55-row catalog of plain-English descriptions is the load-bearing UX of the feature, encode the voice rules ("descriptive, not prescriptive") as parametrized tests that fail CI on drift — not as PR-review checklists.
+
+PRD-16a-1 shipped a 55-row signal-primitive catalog where each entry is a 1-line plain-English description. Pitfall A in the spec was *"no prescriptive language — `Measures X` not `Buy when Y`."* The cost of a prescriptive description slipping through is a compliance problem (Livermore signaling "Buy at threshold Z") + a UX problem (the catalog primes the user toward a specific strategy, not a building block).
+
+Two ways to enforce the rule:
+
+1. **PR review only.** Reviewer reads every catalog entry on every PR. Works for ~5 entries; breaks at 55.
+2. **PR review + CI tests** that grep descriptions for trigger phrases.
+
+The CI test is one parametrized check:
+
+```python
+@pytest.mark.parametrize("primitive", SIGNAL_PRIMITIVES, ids=lambda p: p.id)
+def test_no_prescriptive_language_in_description(primitive):
+    triggers = {"buy when", "sell when", "long when", "exit when", "enter when"}
+    matches = [w for w in triggers if w in primitive.description.lower()]
+    assert not matches, f"Primitive {primitive.id} uses {matches}"
+```
+
+It's 10 lines and runs in milliseconds. PR review now spot-checks **voice and accuracy**; the test enforces the **rule that's mechanical**. Each catches what the other can't: tests can't tell if "Measures the ratio of fast EMA to slow EMA" describes MACD accurately (a reviewer can), but PR review can't reliably catch a `buy when` slipping in on PR #163 of a 12-month build (the test always does).
+
+**When to apply:** any feature where content is the product — catalog metadata, email templates, copy strings, error messages, glossaries. If a rule about the content can be expressed as a grep / format check / length constraint, it should be a CI test. The reviewer's attention is the scarce resource; spend it on what tests can't catch.
+
+**See also:** PR #161 — `tests/test_signal_catalog.py` enforces voice + length + parameter presence + asset-class non-emptiness across all 55 entries. PR-G (May 2026) was the precedent: `whenInCopy`/`whenOutCopy` review at the PR layer caught half the issues; parametrized tests caught the other half.
+
+---
+
+### Lazy registration breaks circular imports — module-load side effects are the pattern, not bugs
+**TL;DR:** when module A imports module B and B needs to register back into A, defer the registration to first use, not module load. Set a flag, run on first call, idempotent afterward.
+
+PRD-16a-2 needed `signal_provider.py:_REGISTRY` (the existing 9 providers) to grow by ~46 entries from a new `technical_signal_providers.py` module. The natural shape — register at module load — broke immediately:
+
+```python
+# signal_provider.py
+class SignalProvider: ...
+_REGISTRY = {...}
+from .technical_signal_providers import get_technical_providers  # ← imports A
+_REGISTRY.update(get_technical_providers())
+
+# technical_signal_providers.py
+from .signal_provider import SignalProvider  # ← imports B
+class SmaSignalProvider(SignalProvider): ...
+def get_technical_providers(): return {...}
+```
+
+When Python first loads `signal_provider.py`, it tries to import `technical_signal_providers`, which tries to import `signal_provider` back — getting a half-initialized module. Result: `ImportError: cannot import name 'SignalProvider' from partially initialized module`.
+
+The fix is to **defer the registration** until something actually needs the registry:
+
+```python
+# signal_provider.py
+_TECHNICAL_PROVIDERS_REGISTERED = False
+
+def _ensure_technical_providers_registered() -> None:
+    global _TECHNICAL_PROVIDERS_REGISTERED
+    if _TECHNICAL_PROVIDERS_REGISTERED:
+        return
+    _TECHNICAL_PROVIDERS_REGISTERED = True  # set BEFORE the import
+    from .technical_signal_providers import get_technical_providers
+    for name, provider in get_technical_providers().items():
+        if name not in _REGISTRY:
+            _REGISTRY[name] = provider
+
+def get_signal_provider(name):
+    _ensure_technical_providers_registered()
+    return _REGISTRY[name]
+```
+
+Three things make this robust:
+1. **Flag set BEFORE the import.** Defense for the same kind of re-entry the cycle was trying to cause.
+2. **Idempotent.** Subsequent calls are O(1) flag check + dict lookup.
+3. **Lazy.** Module load is fast; the cost only materializes on first use, and only once.
+
+**When to apply:** any module that builds a runtime registry / dispatcher / plugin table where the entries live in a sibling module that needs to import the base class. The same pattern works for: event handler registries, schema validators, frontend route resolvers, ORM model auto-discovery.
+
+**See also:** PR #163 (`apps/api/app/services/backtester/signal_provider.py:_ensure_technical_providers_registered`). The trap is documented as a Python idiom in `PEP 328`-ish discussions of import-time side effects but rarely flagged as a *design pattern*. It IS the pattern.
+
+---
+
 ### When two data models share a UI surface, place the action on the model that owns the data
 **TL;DR:** if model A has the field your action needs but the spec puts the action on model B, move the action — don't thread A's field through B's page.
 

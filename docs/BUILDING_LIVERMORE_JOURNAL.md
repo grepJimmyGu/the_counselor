@@ -1362,6 +1362,34 @@ What's left for PRD-19 is operational, not implementation:
 
 ---
 
+### Episode 37 — PRD-16a in one continuous session: 55 primitives, 4 PRs, two trap patterns the harness already knew about (June 9)
+
+Same session as Episodes 35 + 36 (the PRD-19 closeout). After Mr Gu queued the Custom Mode packet in the backlog with the HANDOFF doc as the only spec, we landed all three PRD docs in git (#160) and then went straight into PRD-16a — the Signal Library that PRD-16b's composer will compose strategies from.
+
+Four sequential slices, all base=main, no stacked PRs:
+
+**16a-1 — the editorial gate** (#161). 55 hand-authored primitives across 8 categories, hand-mapped to existing template descriptions + standard finance reference. Voice rule per PRD pitfall A: descriptive ("Measures overbought/oversold extremes…"), NOT prescriptive ("Buy when RSI < 30"). Enforced by `test_no_prescriptive_language_in_description` at CI time — the test greps the description for `buy when`, `sell when`, `enter when`, etc. and fails if it finds any. Plus per-primitive parametrized × 55 validators for description length (≥30 chars), parameter presence (≥1), asset compatibility (≥1). 297 new tests on the catalog alone.
+
+Pre-commit trap caught by the static-import smoke test (pre-push #6): I used `str | None` in the route signature (Python 3.10+ union syntax). CI runs 3.9; FastAPI's Pydantic resolver evaluates the annotation at import time and falls over. Two-second smoke test caught it before commit. Same trap, same fix as PRD-19 Step 3a's `ph_capture` import error a few hours earlier — the harness was already conditioned to catch the kind of bug that ships green locally and fails in CI.
+
+**16a-2 — the heavy slice** (#163, after #162 was rebased and dropped). 46 new SignalProvider concrete classes: ~38 local pandas implementations + 8 Alpha Vantage endpoint wrappers + 1 placeholder for analyst ratings + 4 single-symbol stubs for cross-sectional primitives that need universe context (the rank_* family). Plus a generic `AlphaVantageClient.fetch_technical_indicator` wrapper, the preview endpoint with query-string parameter overrides, and lazy provider registration that avoids the circular-import that would happen if `technical_signal_providers.py` were imported at module-top.
+
+Two traps surfaced. First: PR #162 was opened from a branch that still carried the pre-squash 16a-1 commit (`d81c767`); main had the squashed-merged version (`ab761aa`); merge conflict on `signal_primitives.py`. CLAUDE.md's "Force-push blocked by classifier → fresh-branch rebase" recipe handled it cleanly — cherry-pick onto a fresh branch off main, close the old PR, open the new one as #163. No data loss, no destructive ops. The harness has been trained on this exact scenario from PR-63→#64 and PR-76→#79 in the May 2026 sprint; the recipe is now muscle memory.
+
+Second: the preview endpoint's `Depends(get_db)` opens a real `SessionLocal` in `TestClient`, polluting state across tests. The fix was a two-part override: `app.dependency_overrides[get_db] = lambda: None` to short-circuit the FastAPI dep, plus `patch.object(PriceDataService, "get_price_frame", fake_get)` at the class level (not the import) so the already-instantiated registry providers pick up the stub. The instance-level patch was the gotcha — the registry constructs providers at module load, before any test fixture runs; an import-path patch never reaches them.
+
+**16a-3 — the load-bearing UX piece** (#164). Per-template metadata for the 19 backend templates: category set (for the Jaccard input) + per-primitive suggested thresholds (for the composer's "Use these defaults" CTA). Plus the `match_templates` service (pure Jaccard, tie-break by template_id asc for stable results across calls) and the `POST /api/signal-combos/match-templates` endpoint. 72 new tests including the canonical PRD examples: `{RSI, BBANDS}` → bollinger-mean-reversion at the top; `{SMA, donchian_breakout, ATR}` → trend-following at the top.
+
+**16a-4 — the frontend bricks** (#165). Four reusable bricks the composer will consume verbatim: `<SignalPrimitiveCard>`, `<SignalCatalogBrowser>` (8-category sidebar + search + responsive grid), `<SignalPreviewChart>` (lazy-loaded recharts), `<TemplateMatchSuggestion>` (debounced KB-lookup wrapper). Plus a version-stamped localStorage cache (the cache key is the catalog's content hash from the backend ETag), API helpers with conditional GET via `If-None-Match`, types-first in `contracts.ts`, and a standalone `/signal-library` page for browsing.
+
+One build trap: recharts' Tooltip `formatter` prop has a generic-constrained signature `(value: ValueType, name, item, index, payload) => any`. Annotating the first param as `number | string` violates the constraint; letting TS infer from the generic type compiles. The kind of error that takes you from "this looks fine" to "oh, the recharts types are doing something specific" in about three seconds once you see the error message.
+
+**The lesson the session reinforces: harnessed-by-traps work amortizes.** PRD-19 caught five latent bugs from PR #88's reshape pre-merge. PRD-16a caught three: the Python 3.9 syntax (twice — once in PRD-19's Mark-as-Executed endpoint, once here), the merge-conflict-rebase scenario (third or fourth time in this codebase), and the `Depends(get_db)` test pollution (first time hitting the pattern, but the fix recipe — `dependency_overrides` + class-level patch — generalized cleanly). Every trap the codebase documents pre-merge costs less than the same bug debugged in production.
+
+**Cumulative session totals across PRD-19 + PRD-16a: 18 PRs, +461 backend tests, +46 frontend tests, 0 outages, 0 regressions, 8 latent bugs caught pre-merge.** PRD-16b (composer) and PRD-16c (intraday + active execution) remain in the packet — both queued in PROJECT_BACKLOG with the existing PRD docs as specs.
+
+---
+
 ## Recurring journeys (themes)
 
 ### "Scope-cut every stage"
