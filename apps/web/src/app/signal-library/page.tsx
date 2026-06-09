@@ -28,8 +28,15 @@ export default function SignalLibraryPage() {
         <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
           Browse 55 signal primitives across eight categories. Each card
           explains what the signal measures in plain English — descriptions
-          are deliberately not prescriptive. The Composer (coming soon)
-          lets you combine these into custom strategies.
+          are deliberately not prescriptive. Combine these into custom
+          strategies with the{" "}
+          <a
+            href="/flow/custom_build_mode"
+            className="underline underline-offset-2 hover:text-foreground"
+          >
+            Custom Build composer
+          </a>
+          .
         </p>
       </header>
 
