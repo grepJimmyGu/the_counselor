@@ -9,6 +9,76 @@
 
 ## Current Session
 
+**Status:** 2026-06-09 (~03:00 UTC) — **PRD-16b (Custom Build composer) FULLY COMPLETE — backend + frontend shipped end-to-end as the natural follow-on to PRD-16a in the same session.** Composer is now end-to-end usable for v1 single-asset custom strategies: pick primitives from PRD-16a's catalog, compose with AND/OR fold, see template recommendations via PRD-16a's KB lookup, apply suggested thresholds with one click, build a valid `StrategyJson` that the existing backtest endpoint accepts. PRD-16c (intraday + multi-tier exits + live dashboard) remains in the packet.
+
+**Shipped (PRD-16b — 3 PRs, 2026-06-09 evening):**
+
+*PR #167 — Step 16b-1: backend schema + engine fold*
+- 3 new optional fields on `StrategyRule`: `primitive_id`, `primitive_params`, `logic_with_prior` ("AND" | "OR"). Additive — existing 22 strategy_types never set them, validators are no-ops for them.
+- New `"custom_build"` value in `StrategyType` literal.
+- Validators on `StrategyJSON`: first rule cannot have `logic_with_prior`; for `custom_build`, every rule must have `primitive_id` and subsequent rules must have `logic_with_prior` set.
+- New `_evaluate_custom_build_block(rules, close_matrix, symbol)` method on `BacktestEngine` — folds left-to-right via `logic_with_prior`, evaluates each rule via PRD-16a-2's SignalProvider registry, applies operator + threshold, AND/OR accumulator.
+- `_compute_primitive_on_close_matrix` — synchronous bridge to `TechnicalSignalProvider._compute` with a frame synthesized from close_matrix (close-only; OHLCV approximated). AV-endpoint primitives explicitly raise — out of scope for v1's synchronous engine.
+- 18 new tests; backwards-compat verified — 1316 → 1334 backend tests, 0 regressions on all 22 existing templates.
+
+*PR #168 — Step 16b-2: composer canvas + FlowDefinition*
+- Flow context: `BuildRule` mirrors backend StrategyRule; `CustomBuildModeContext` extends FlowContextBase.
+- 4 new bricks: `<CustomBuildCanvas>` (3-pane: catalog left / rules center / recommendations right) + `<CustomBuildRuleCard>` (parameter editors + threshold editor; hidden threshold for binary primitives) + `<CustomBuildRuleComposer>` (AND/OR toggle) + `<CustomBuildActiveExecutionScaffold>` (pitfall B placeholder — visible, disabled, "Coming soon" for PRD-16c).
+- `custom_build_mode` FlowDefinition registered via PRD-13a runtime. Single step (`compose_signals`, terminal) for v1. Triggers: `strategy_builders/custom_build_cta` + future `stock_page/customize_template`.
+- 15 new vitest tests.
+
+*PR #169 — Step 16b-3: converter + symbol picker + Use-these-defaults wiring*
+- Types: `StrategyType` + `StrategyRule` extended in frontend `contracts.ts` to mirror backend (additive).
+- `buildCustomBuildStrategyJson(context, opts)` produces a valid `StrategyJson` from canvas state — mirrors backend validators (first-rule-no-logic, subsequent-must-have-logic, ≥1 rule, symbol required), sensible defaults (3-year window, $100k capital, monthly rebalance). `primitive_params` only attached when non-empty (compact payload).
+- `applyTemplateThresholdsToRules(rules, thresholds)` — implements "Use these defaults" CTA from PRD-16a's `<TemplateMatchSuggestion>`. Threshold-shaped keys (`enter_*`, `exit_*`, `upper`, `lower`) → `rule.threshold` + matching operator. Other keys → `rule.primitive_params`. Non-matching rules unchanged.
+- Canvas now has a symbol picker at top + wired `onPickTemplate` callback.
+- 15 new vitest tests.
+
+**Cumulative session totals (PRD-19 + PRD-16a + PRD-16b in one continuous session):**
+
+| | Count |
+|---|---|
+| PRs shipped this session | **24** (PRD-19 backend + frontend + docs + cleanup + PRD-16a 4 slices + #159/#160/#162→#163 rebase + #166 wrap + PRD-16b 3 slices) |
+| Backend tests | 855 → **1334** (+479) |
+| Frontend tests | 75 → **151** (+76) |
+| Routes added | 109 → **114** (+5) |
+| Production outages | 0 |
+| Regressions | 0 |
+| Backwards-compat guarantees verified | 22 existing strategy types' backtest output unchanged (PRD-16b pitfall C) + PRD-19's legacy email categories untouched |
+| Latent bugs caught pre-merge | 9 |
+
+### Next session — PRD-16c (intraday + active execution)
+
+**Resumption checklist:**
+
+1. Read this WORK_LOG block + `docs/PROJECT_BACKLOG.md` row for PRD-16c
+2. Read [`agent-system/plans/PRD-16c-intraday-active-execution.md`](../agent-system/plans/PRD-16c-intraday-active-execution.md) — full spec
+3. Read [`agent-system/plans/HANDOFF-livermore-custom-mode.md`](../agent-system/plans/HANDOFF-livermore-custom-mode.md) §5 (brick inventory) + §6 pitfalls (esp. F: intraday data cost meter; G: active-execution toggle visibility default-collapsed)
+4. Confirm prerequisites on main: **PRD-19 ✓**, **PRD-16a ✓**, **PRD-16b ✓** — all three blocks landed
+5. PRD-16c lights up the placeholder `<CustomBuildActiveExecutionScaffold>` shipped in PR #168 — flip `disabled={false}` and add the multi-tier exit ladder editor as a child
+6. Spin up worktree pattern: `git worktree add ../the_counselor-prd16c-intraday -b claude/feat/intraday-data main`
+7. PRD-16c is the largest of the three (~3 weeks); slicing approach will depend on shape (intraday data service + multi-tier exits + position state + monitor cron + live dashboard) — likely 4-5 PRs
+
+### Operational follow-ups (still owed across PRDs)
+
+From PRD-19:
+- PostHog Sprint A retention dashboard (events fire; just configs)
+- Email-client rendering QA: Gmail web, Outlook web, Apple Mail
+- `CAN_SPAM_ADDRESS` + `EMAIL_UNSUB_SIGNING_KEY` env vars on Railway before launch
+
+From PRD-16a:
+- Editorial pass on the 55 catalog descriptions (deferred — PR review was the gate)
+
+From PRD-16b:
+- Wire `strategy_builders/custom_build_cta` trigger from Strategy Builders surface (current trigger is documented but no CTA points at it yet)
+- Extend FlowDefinition step chain in PRD-16b-3.5 follow-up to actually run the backtest (currently terminal at `compose_signals` per spec; backtest happens via existing `<FlowBacktest>` brick when the user manually navigates)
+- "Pick a symbol" v1 UX could use a typeahead — currently a plain text input
+- Multi-asset universe support is a follow-up (PRD-16c may extend this for active execution)
+
+---
+
+## Previous Session
+
 **Status:** 2026-06-09 (02:30 UTC) — **PRD-16a (Signal Library) FULLY COMPLETE — backend + frontend shipped end-to-end in one continuous session.** Same session as the PRD-19 closeout (see "Previous Session"). After Mr Gu shared the Custom Mode HANDOFF, I queued the packet in PROJECT_BACKLOG (#159), landed the 3 PRD docs in git (#160), and then executed PRD-16a in 4 sequential slices: 16a-1 catalog + schema + GET endpoint (#161), 16a-2 46 SignalProvider impls + preview endpoint (#163; #162 was rebased before merge), 16a-3 KB match-templates endpoint + per-template metadata (#164), 16a-4 frontend bricks + standalone `/signal-library` page (#165). PRD-16b (composer) + PRD-16c (intraday + active execution) remain in the packet.
 
 **Shipped (2026-06-09, late):**

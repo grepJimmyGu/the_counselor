@@ -1390,6 +1390,30 @@ One build trap: recharts' Tooltip `formatter` prop has a generic-constrained sig
 
 ---
 
+### Episode 38 — PRD-16b: the composer in three slices, pitfall C verified inline (June 9 evening)
+
+Continuation of Episodes 35–37 — same session, hour 8 or so. PRD-16a's catalog was on main; the composer needed three things: a backend that could evaluate composed rules without breaking the 22 existing strategy types, a frontend canvas that wired the catalog's bricks to a user's rules, and a converter that produced a `StrategyJson` the existing backtest endpoint accepts.
+
+Three slices, all base=main, all auto-merged after green CI.
+
+**16b-1 (#167) — the backwards-compat slice.** Added three additive fields to `StrategyRule` (`primitive_id`, `primitive_params`, `logic_with_prior`), one new `StrategyType` literal (`"custom_build"`), and a new engine path (`_evaluate_custom_build_block`) that folds rules left-to-right via `logic_with_prior`. The load-bearing guarantee: every existing template produces identical backtest output (pitfall C in the HANDOFF — additive change must not regress the 22 existing strategy_types). Verified by running the full backend suite (1316 → 1334, 0 regressions). The validators for `logic_with_prior` are no-ops for legacy strategy types (which never set the field); the contract only applies to `custom_build`. Each engine fold test computes the expected boolean Series in plain pandas alongside the engine output and asserts equality — catches any drift in either the primitive computation or the fold logic.
+
+The synchronous-engine constraint is the v1 architectural compromise. PRD-16a-2's `SignalProvider` impls are async — they fetch price data via `PriceDataService.get_price_frame`. The backtest engine is synchronous. For v1 I added `_compute_primitive_on_close_matrix` that calls `TechnicalSignalProvider._compute` directly with a frame synthesized from the close_matrix (close-only; OHLCV approximated). AV-endpoint primitives explicitly raise — out of scope. The test `test_av_endpoint_primitive_raises_in_custom_build_v1` pins this documented limitation so a future agent doesn't accidentally support them and ship a half-working path.
+
+**16b-2 (#168) — the canvas slice.** 4 new bricks under `lib/flows/bricks/`: `<CustomBuildCanvas>` (3-pane: catalog left, rules center, recommendations right), `<CustomBuildRuleCard>` (parameter editors + threshold editor; hidden for binary primitives like `donchian_breakout`), `<CustomBuildRuleComposer>` (AND/OR toggle), and the load-bearing pitfall B placeholder: `<CustomBuildActiveExecutionScaffold>` — visible, disabled, labeled "Coming soon" so PRD-16c can flip `disabled={false}` and add the multi-tier exit ladder as a child without modifying this component.
+
+The first-rule-has-no-logic contract had a subtle UX consequence: when the user removes the first rule, the new `rules[0]` must have its `logic_with_prior` cleared to null (else the backend validator rejects). The canvas's `removeRule` handles this — if the new first rule has a non-null logic, it gets reset. Tested.
+
+**16b-3 (#169) — the converter slice.** Two pure functions and a symbol picker. `buildCustomBuildStrategyJson(context, opts)` takes the canvas state and produces a valid `StrategyJson` with sensible defaults (3-year window, $100k capital, monthly rebalance). It mirrors the backend's validators — throws on missing symbol, missing rules, first-rule-has-logic, subsequent-rule-no-logic. The composer surfaces these errors before POST.
+
+`applyTemplateThresholdsToRules(rules, thresholds)` is the "Use these defaults" CTA wiring. For each rule whose primitive_id is in the threshold map: threshold-shaped keys (`enter_*`, `exit_*`, `upper`, `lower`, `threshold`, etc.) become `rule.threshold` + matching operator (first match wins); other keys become `rule.primitive_params`. The lenience is intentional — PRD-16a-3's per-template metadata is editorial copy, and a strict mapper would couple this code to copy choices in another file. The current implementation handles `bbands: { period: 20, std_dev: 2.0, enter_lt: 0.0, exit_gte: 0.5 }` correctly: `period` and `std_dev` go to `primitive_params`, `enter_lt` becomes `operator: "lt", threshold: 0.0`. `exit_gte` is the "what comes next" hint that PRD-16c's active-execution lands but v1 ignores.
+
+The session's running theme reinforces: **harnessed-by-traps work amortizes**. PRD-19 caught 5 latent bugs; PRD-16a caught 3 more; PRD-16b caught one explicit (the registry double-registration trap that 16a-2 introduced was already documented in LEARNINGS, so 16b's tests verified the lazy-registration behavior survived the new strategy_type dispatch path without any debugging). When the codebase remembers what bit it before, the next agent ships with the bite already healed.
+
+**PRD-16c remains in the packet** — intraday data + multi-tier exits + live dashboard. PRD-19 (notifications) + PRD-16a (catalog) + PRD-16b (composer) are now all on main; PRD-16c's prerequisites are complete.
+
+---
+
 ## Recurring journeys (themes)
 
 ### "Scope-cut every stage"

@@ -205,6 +205,28 @@ deferred follow-up.
 
 ## Diagnostic methodology
 
+### Additive schema changes must be verified by re-running every existing test, not by reading the diff
+**TL;DR:** if a PR adds a new field that existing code doesn't set, "the existing code is unaffected" is a hypothesis until proven by 1000+ green tests. Don't ship the assumption; prove it.
+
+PRD-16b-1 added 3 new optional fields to `StrategyRule` (`primitive_id`, `primitive_params`, `logic_with_prior`) plus a new `"custom_build"` strategy_type. The HANDOFF pitfall C said: *"existing 22 strategy_types must continue backtest-identical after PRD-16b ships."* Every reasonable reading of the diff said "this is additive — existing code doesn't reference these fields, so it can't be affected."
+
+But the validators on `StrategyJSON` could affect existing strategies. The `logic_with_prior` contract says "first rule has no logic_with_prior" — applied universally, that would actually be fine for the 22 templates (they all set `logic_with_prior` to None implicitly via the default). But what about the "subsequent rules must have logic_with_prior" check? Several existing templates have 2-rule blocks (rsi_mean_reversion has `buy_rule + sell_rule`). If I applied the contract universally, those templates would break.
+
+The fix was to scope the contract to `custom_build` only:
+
+```python
+if i > 0 and rule.logic_with_prior is None and self.strategy_type == "custom_build":
+    raise ValueError(...)
+```
+
+I knew the answer was right because **the existing tests caught the wrong version**. Run the full suite (1316 tests) — if all green, additivity is proven; if any red, the diff isn't actually additive. The mental shortcut "I added optional fields, so it must be additive" is wrong when the fields participate in validators or dispatch.
+
+**When to apply:** any PR claiming an "additive change" to a load-bearing schema or interface. Run the full test suite as the proof, not just the new tests. If your test count goes from N → N + K and all N + K pass, the change is genuinely additive. If anything in the original N breaks, the change isn't.
+
+**See also:** PR #167 (`apps/api/app/schemas/strategy.py` validator gated to `custom_build`); test_legacy_template_with_2_rule_block_still_validates pins the contract; full suite at 1316 passed before commit, 1334 after.
+
+---
+
 ### When the editorial product IS the code, the editorial rules should be CI tests
 **TL;DR:** if a 55-row catalog of plain-English descriptions is the load-bearing UX of the feature, encode the voice rules ("descriptive, not prescriptive") as parametrized tests that fail CI on drift — not as PR-review checklists.
 
