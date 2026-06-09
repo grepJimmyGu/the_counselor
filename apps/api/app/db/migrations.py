@@ -1669,6 +1669,49 @@ def run_startup_migrations(engine: Engine) -> None:
                 "ON mark_as_executed_events (saved_strategy_id, executed_at)"
             ))
 
+        # PRD-16c-1 — intraday_bars cache. Composite PK across (symbol,
+        # resolution, bar_time). Postgres uses TIMESTAMP; sqlite uses
+        # DATETIME. No FK to other tables — the cache stands alone and
+        # is allowed to outlive any strategy it once supported.
+        if is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS intraday_bars (
+                    symbol VARCHAR(10) NOT NULL,
+                    resolution VARCHAR(8) NOT NULL,
+                    bar_time DATETIME NOT NULL,
+                    open FLOAT NOT NULL,
+                    high FLOAT NOT NULL,
+                    low FLOAT NOT NULL,
+                    close FLOAT NOT NULL,
+                    volume FLOAT NOT NULL,
+                    fetched_at DATETIME NOT NULL DEFAULT (datetime('now')),
+                    PRIMARY KEY (symbol, resolution, bar_time)
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_intraday_recent "
+                "ON intraday_bars (symbol, resolution, bar_time DESC)"
+            ))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS intraday_bars (
+                    symbol VARCHAR(10) NOT NULL,
+                    resolution VARCHAR(8) NOT NULL,
+                    bar_time TIMESTAMP NOT NULL,
+                    open DOUBLE PRECISION NOT NULL,
+                    high DOUBLE PRECISION NOT NULL,
+                    low DOUBLE PRECISION NOT NULL,
+                    close DOUBLE PRECISION NOT NULL,
+                    volume DOUBLE PRECISION NOT NULL,
+                    fetched_at TIMESTAMP NOT NULL DEFAULT now(),
+                    PRIMARY KEY (symbol, resolution, bar_time)
+                )
+            """))
+            conn.execute(text(
+                "CREATE INDEX IF NOT EXISTS idx_intraday_recent "
+                "ON intraday_bars (symbol, resolution, bar_time DESC)"
+            ))
+
         # PRD-19 — notification banner entries (in-app surface)
         if is_sqlite:
             conn.execute(text("""

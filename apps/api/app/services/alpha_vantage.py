@@ -170,6 +170,64 @@ class AlphaVantageClient:
             raise AlphaVantageError("No CPI data returned.")
         return list(reversed(data))
 
+    async def fetch_intraday_bars(
+        self,
+        symbol: str,
+        interval: str = "15min",
+        outputsize: str = "compact",
+    ) -> list[dict]:
+        """Fetch intraday OHLCV bars from Alpha Vantage.
+
+        interval: '5min' | '15min' | '30min' | '60min' (1min skipped in v1).
+        outputsize:
+          - 'compact' → ~100 most-recent bars (~25h of 15-min bars).
+            Used by the live monitor (recent state only).
+          - 'full' → up to 30 days of history. Used by intraday backtests.
+
+        Returns a list of {"bar_time": datetime, "open", "high", "low",
+        "close", "volume"} dicts sorted oldest→newest. Caller writes them
+        to the `intraday_bars` cache.
+
+        AV's intraday endpoint quirks:
+          - Times are wall-clock in market timezone (US/Eastern); we parse
+            naive and let the cache key on naive bar_time.
+          - The "Time Series ({interval})" key is hyphenated, not
+            underscore (different from daily / TA endpoints).
+        """
+        if interval not in {"5min", "15min", "30min", "60min"}:
+            raise AlphaVantageError(
+                f"Invalid intraday interval '{interval}'. "
+                "Must be 5min, 15min, 30min, or 60min."
+            )
+        payload = await self._request(
+            {
+                "function": "TIME_SERIES_INTRADAY",
+                "symbol": symbol,
+                "interval": interval,
+                "outputsize": outputsize,
+                "datatype": "json",
+            }
+        )
+        series_key = f"Time Series ({interval})"
+        raw_series = payload.get(series_key, {})
+        if not raw_series:
+            raise AlphaVantageError(
+                f"No intraday data returned for {symbol} @ {interval}."
+            )
+        bars = []
+        for bar_time_str, values in raw_series.items():
+            bars.append(
+                {
+                    "bar_time": datetime.strptime(bar_time_str, "%Y-%m-%d %H:%M:%S"),
+                    "open": float(values["1. open"]),
+                    "high": float(values["2. high"]),
+                    "low": float(values["3. low"]),
+                    "close": float(values["4. close"]),
+                    "volume": float(values["5. volume"]),
+                }
+            )
+        return sorted(bars, key=lambda item: item["bar_time"])
+
     async def fetch_technical_indicator(
         self,
         function: str,
