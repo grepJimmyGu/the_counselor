@@ -8,6 +8,59 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-06-08 → 2026-06-09 — PRD-19 backend complete: the reverted feature shipped end-to-end in five clean slices (PRs #150 / #152 / #153 / #154 / #155)
+
+Six weeks after PR #88 (Signals v0 Phase B — daily cron + alerts + unsub) was reverted during the May 26 16-hour outage and then paused for reshape, this session executed PRD-19's revised plan in five sequential single-PR slices. Backend retention-metric loop is now closed end-to-end and the user-facing controls (3 EmailPreference flags + daily digest + signed per-strategy unsub) are all wired and tested. **Test count: 855 → 884 (+29). Zero regressions across the sequence.** Three latent bugs from the original PR #88 reshape caught pre-merge.
+
+### The session shape — single-PR slices, single master merger
+
+The session opened with two pieces of cleanup from a prior Sonnet 4.6 session: PR #146 (the missed `git add` of `notifications.py` that broke CI for 38 minutes) and PR #147 (codifying the static-import smoke test as pre-push checklist item #6 + the "Mr Gu" master-merger verbal handshake convention).
+
+Then PRD-19, in this order:
+
+| # | PR | Slice | Lines | Tests added | Key bug caught pre-merge |
+|---|---|---|---|---|---|
+| 1 | [#150](https://github.com/grepJimmyGu/the_counselor/pull/150) | 3a — Mark-as-Executed model + endpoint | 628 + 7 fix-up | +12 | `ph_capture` vs `capture` import (test passed via monkeypatch, prod would silently swallow ImportError) |
+| 2 | [#152](https://github.com/grepJimmyGu/the_counselor/pull/152) | 3b — dispatcher wiring + email render + throttle | 797 | +4 integration | (a) wrong `send_email` signature → every cron tick swallows TypeError; (b) literal `{{unsubscribe_url}}` tokens in body; (c) in-memory throttle counters reset across cron ticks |
+| 3 | [#153](https://github.com/grepJimmyGu/the_counselor/pull/153) | 4a — preference flags + UTC drive-by fix | 353 | +12 | trap #16 in signal_cron (`date.today()` local vs `utcnow()` UTC) |
+| 4 | [#154](https://github.com/grepJimmyGu/the_counselor/pull/154) | 4b — daily digest job + render + cron | 802 | +8 integration | `DigestEvent` missing `cash_count` (bucketing test caught it) |
+| 5 | [#155](https://github.com/grepJimmyGu/the_counselor/pull/155) | 4c — signal_alerts_<id> + daily_digest unsub | 299 | +9 | — (clean ship) |
+
+### The retention metric loop, end-to-end
+
+1. User subscribes to a strategy → `SignalAlertSubscription`
+2. Cron flips signal → `SignalEvent` + `dispatch_signal_change_email` + `dispatch_in_app_banner` + PostHog `notification_dispatched`
+3. User clicks "Mark as executed" in the email or banner → `MarkAsExecutedEvent` + PostHog `notification_executed`
+4. Sprint A dashboard joins them on `signal_event_id` for `latency_seconds`
+
+Plus the user-facing controls Step 4 added:
+- `GET/PATCH /api/me/email-preferences` with 3 new boolean flags (`signal_alerts_enabled`, `daily_digest_enabled`, `silent_days_enabled`)
+- Daily digest cron at 13:00 UTC respecting `daily_digest_enabled` + `silent_days_enabled`
+- Per-strategy unsub via signed `signal_alerts_<id>` token → flips `SignalAlertSubscription.email_enabled = False`
+- Global digest unsub via signed `daily_digest` token → flips `daily_digest_enabled = False`
+- "Unsubscribe from all marketing" now also flips both PRD-19 flags
+
+### The cross-cutting lesson
+
+Every reshape that defines NEW categories / templates / token shapes has to grow every GATE / SWITCH / RENDER that handled the OLD shapes. If a new branch is missing, the new shapes silently fall through to a no-op or a default — and "no-op" looks identical to "shipped" until a user clicks.
+
+The three latent bugs in PRD-19 weren't independent. They all came from the same reshape-without-following-through pattern:
+
+- The dispatcher had been reshaped to take a new event type but kept the old `send_email(to=..., body_html=...)` call signature
+- The email body had been reshaped from inline template to placeholder tokens but no one wrote the substitution code
+- The throttle counters had been reshaped to be in-memory dicts but no one wrote the DB seeding
+
+Codified in `docs/LEARNINGS.md` as "Template literals that look like substituted strings — grep them BEFORE shipping" and "Tests in CI containers (UTC) silently pass code that breaks in local TZ — and vice versa."
+
+### Remaining (frontend, separate sessions)
+
+- **Step 5** — `NotificationBanner`, `MarkAsExecutedButton`, `NotInvestmentAdviceFooter` bricks + Home / Strategy-detail integration. Notification-banner endpoints shipped in PR #146.
+- **Step 6** — `NotificationSettingsForm` brick + `/account/notifications` page. Calls `GET/PATCH /api/me/email-preferences` from this session.
+
+Resumption checklist lives in `agent-system/WORK_LOG.md` "Current Session."
+
+---
+
 ## 2026-05-27 — Portfolio Mode diagnose: a triple-bug fix worth three new CLAUDE.md traps (PR #132)
 
 Jimmy hit the Portfolio Mode flow and got **"We couldn't diagnose your portfolio. Try again."** Same error for anonymous AND signed-in users. Different copy than the one PR #126 fixed (that was a pool-saturation issue under load); this was an auth-and-error-mapping problem.
