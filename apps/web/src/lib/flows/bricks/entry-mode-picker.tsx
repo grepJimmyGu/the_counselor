@@ -11,31 +11,37 @@
  *                          (Sprint 2 / Mode 1 refactor — was a <Link> to
  *                          /stocks during Sprint 1.)
  *   2. Upload portfolio → startFlow('portfolio_mode', { fromTrigger })
- *   3. Chat builder     → onChatBuilderOpen() — surface decides how to open
- *                         the floating ChatWidget (Home uses dispatchChatSeed)
+ *   3. Build from scratch → startFlow('custom_build_mode', { fromTrigger })
+ *                          (PRD-16 — Custom Mode composer. Was previously
+ *                          a "Chat builder" tile pointing at a floating
+ *                          chat widget; replaced once the composer
+ *                          shipped to make it the canonical from-scratch
+ *                          path. Chat widget still reachable via the
+ *                          floating launcher on the Home page.)
  *
  * Lives under `lib/flows/bricks/` per the Sprint-1 architecture rule: any
  * launcher that fronts the flow runtime ships as a brick so re-engagement
  * modals can pick it off the shelf without duplicating layout / copy.
  *
- * Both portfolio_mode and one_asset_mode self-register via the side-effect
- * imports below. Idempotent via the getFlow() guards inside each module,
- * so the universal /flow/[flowId] shell can also import them without
- * colliding.
+ * portfolio_mode, one_asset_mode, and custom_build_mode self-register via
+ * the side-effect imports below. Idempotent via the getFlow() guards
+ * inside each module, so the universal /flow/[flowId] shell can also
+ * import them without colliding.
  */
 
 import { useRouter } from "next/navigation";
-import { ArrowRight, MessageSquare, Search, Upload } from "lucide-react";
+import { ArrowRight, Search, Upload, Wand2 } from "lucide-react";
 import { startFlow } from "../runtime";
 import { registerModeCopy, useFlowCopy } from "../copy";
 import "../portfolio-mode";
 import "../one-asset-mode";
+import "../custom-build-mode";
 
 registerModeCopy("home_picker", {
   section_eyebrow: "Get started",
   section_title: "How do you want to start?",
   section_subtitle:
-    "Pick the entry point that fits where you are — a single asset, your portfolio, or a plain-English idea.",
+    "Pick the entry point that fits where you are — a single asset, your portfolio, or a custom strategy from scratch.",
   pick_asset_label: "Pick an asset",
   pick_asset_desc:
     "Look up a stock, ETF, or commodity to see price history and apply a backtested strategy.",
@@ -44,10 +50,10 @@ registerModeCopy("home_picker", {
   upload_portfolio_desc:
     "Bring your holdings — we diagnose style, factor exposure, and recommend an overlay.",
   upload_portfolio_cta: "Upload holdings",
-  chat_builder_label: "Chat builder",
-  chat_builder_desc:
-    "Describe your idea in plain English. The AI parses it into a structured backtest.",
-  chat_builder_cta: "Open chat",
+  custom_build_label: "Build from scratch",
+  custom_build_desc:
+    "Combine signal primitives with AND / OR rules. Optional intraday monitoring + multi-tier exits when you're ready to run live.",
+  custom_build_cta: "Open composer",
 });
 
 export interface EntryModePickerProps {
@@ -57,18 +63,10 @@ export interface EntryModePickerProps {
    * Used to build per-CTA triggers like `"home/upload_portfolio"`.
    */
   from: string;
-  /**
-   * Called when the user clicks the Chat Builder CTA. The brick is
-   * surface-agnostic: on the Home page this calls `dispatchChatSeed`
-   * to open the floating ChatWidget; future surfaces may navigate
-   * elsewhere or open a different overlay.
-   */
-  onChatBuilderOpen: () => void;
 }
 
 export function EntryModePicker({
   from,
-  onChatBuilderOpen,
 }: EntryModePickerProps) {
   const router = useRouter();
 
@@ -84,9 +82,9 @@ export function EntryModePicker({
   const uploadPortfolioDesc = useFlowCopy("home_picker", "upload_portfolio_desc");
   const uploadPortfolioCta = useFlowCopy("home_picker", "upload_portfolio_cta");
 
-  const chatBuilderLabel = useFlowCopy("home_picker", "chat_builder_label");
-  const chatBuilderDesc = useFlowCopy("home_picker", "chat_builder_desc");
-  const chatBuilderCta = useFlowCopy("home_picker", "chat_builder_cta");
+  const customBuildLabel = useFlowCopy("home_picker", "custom_build_label");
+  const customBuildDesc = useFlowCopy("home_picker", "custom_build_desc");
+  const customBuildCta = useFlowCopy("home_picker", "custom_build_cta");
 
   function launchOneAssetFlow() {
     startFlow("one_asset_mode", {
@@ -100,6 +98,12 @@ export function EntryModePicker({
     });
   }
 
+  function launchCustomBuildFlow() {
+    startFlow("custom_build_mode", {
+      initialContext: { fromTrigger: `${from}/custom_build` },
+    });
+  }
+
   // Hover-based prefetch — warms the flow-shell route on intent so the
   // perceived load on click is <300ms.
   function prefetchOneAsset() {
@@ -108,6 +112,10 @@ export function EntryModePicker({
 
   function prefetchPortfolio() {
     router.prefetch("/flow/portfolio_mode");
+  }
+
+  function prefetchCustomBuild() {
+    router.prefetch("/flow/custom_build_mode");
   }
 
   return (
@@ -174,23 +182,25 @@ export function EntryModePicker({
           </span>
         </button>
 
-        {/* 3. Chat builder — surface decides how to open (Home: dispatchChatSeed) */}
+        {/* 3. Build from scratch — startFlow('custom_build_mode') per PRD-16 */}
         <button
           type="button"
-          data-testid="entry-mode-chat-builder"
+          data-testid="entry-mode-custom-build"
           data-from={from}
-          onClick={onChatBuilderOpen}
+          onClick={launchCustomBuildFlow}
+          onMouseEnter={prefetchCustomBuild}
+          onFocus={prefetchCustomBuild}
           className="group flex flex-col rounded-2xl border border-border/60 bg-white/80 p-6 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
         >
           <div className="mb-5 inline-flex h-12 w-12 items-center justify-center rounded-xl border border-primary/20 bg-primary/5">
-            <MessageSquare className="h-6 w-6 text-primary" />
+            <Wand2 className="h-6 w-6 text-primary" />
           </div>
-          <h3 className="font-heading text-lg font-semibold">{chatBuilderLabel}</h3>
+          <h3 className="font-heading text-lg font-semibold">{customBuildLabel}</h3>
           <p className="mt-2 flex-1 text-sm leading-relaxed text-muted-foreground">
-            {chatBuilderDesc}
+            {customBuildDesc}
           </p>
           <span className="mt-6 inline-flex w-fit items-center gap-1.5 text-sm font-medium text-primary">
-            {chatBuilderCta}
+            {customBuildCta}
             <ArrowRight className="h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
           </span>
         </button>

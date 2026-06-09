@@ -12,7 +12,11 @@
  * to render parameter editors on the canvas.
  */
 import type { FlowContextBase } from "./types";
-import type { SignalPrimitive } from "@/lib/contracts";
+import type {
+  BacktestResult,
+  SignalPrimitive,
+  StrategyJson,
+} from "@/lib/contracts";
 
 /** One row in the composer's rules list. Mirrors backend
  *  `StrategyRule` for `custom_build` strategy_type. */
@@ -77,6 +81,20 @@ export interface CustomBuildModeContext extends FlowContextBase {
    *  surfaces those constraints inline so the user never sees a
    *  backend 422. */
   exit_ladder: ExitTier[];
+
+  // ── PRD-16 UX wire-up: transient flow fields ────────────────────────
+  // Populated as the user advances through the chain.
+  // Mirrors one_asset_mode / portfolio_mode conventions so the
+  // mode-agnostic FlowBacktest / FlowReview / FlowSave bricks work.
+
+  /** Synthesized StrategyJson after the user clicks "Run backtest →".
+   *  FlowBacktest reads this to call the backtest endpoint. */
+  strategyJson?: StrategyJson;
+  /** Backtest API response. FlowReview renders from this. */
+  backtestResult?: BacktestResult;
+  /** Slug returned by the save endpoint. The flow's `onComplete` reads
+   *  this to navigate to /strategies/{slug}. */
+  savedSlug?: string;
 }
 
 export const INITIAL_CUSTOM_BUILD_CONTEXT: Omit<
