@@ -78,6 +78,18 @@ export interface FlowDefinition<TCtx extends FlowContextBase = FlowContextBase> 
    */
   initialContext?: Omit<TCtx, "fromTrigger">;
   /**
+   * Optional Tailwind max-width class for the FlowShell page's `<main>`
+   * wrapper. Defaults to `max-w-3xl` (768px) — the right size for
+   * vertical wizard flows (one_asset, portfolio). Multi-pane composers
+   * (custom_build's 3-pane catalog + rules + suggestions) need a wider
+   * canvas; this is where they declare it.
+   *
+   * Accepts any Tailwind class, including arbitrary values like
+   * `max-w-[1440px]`. Without this, a wide composer is squeezed into
+   * 768px and its internal grids collapse on top of each other.
+   */
+  shellMaxWidthClass?: string;
+  /**
    * Called when the user completes the terminal step. Use to navigate to
    * a result page, save state, fire analytics, etc.
    */

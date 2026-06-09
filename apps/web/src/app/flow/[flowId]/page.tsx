@@ -68,9 +68,14 @@ export default function FlowShellPage() {
     );
   }
 
+  // Default container: 768px (max-w-3xl) — sized for the vertical
+  // wizard pattern that one_asset_mode + portfolio_mode use. Flows
+  // with a wider canvas (custom_build's 3-pane composer) can override
+  // via `FlowDefinition.shellMaxWidthClass`.
+  const shellMaxWidthClass = flow.shellMaxWidthClass ?? "max-w-3xl";
   return (
     <FlowProvider flowId={flowId} onEvent={handleEvent}>
-      <main className="mx-auto max-w-3xl px-4 py-10">
+      <main className={`mx-auto ${shellMaxWidthClass} px-4 py-10`}>
         <FlowShell />
       </main>
     </FlowProvider>
