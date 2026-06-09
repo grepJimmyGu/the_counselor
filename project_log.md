@@ -8,6 +8,55 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-06-09 (late) — PRD-19 frontend: closing the loop in one PR (PR #157)
+
+Same session as the backend complete entry below — the natural follow-up. Step 5 + Step 6 bundled into one PR because the banner's overflow counter deep-links to `/account/notifications` (Step 6 territory); a 2-PR stack would have needed `as Route` casts to remove in the follow-up.
+
+### What landed
+
+Four new frontend bricks under `apps/web/src/components/notifications/`:
+
+| Brick | Purpose |
+|---|---|
+| `NotificationBanner` | Polls `GET /api/me/notifications/pending` every 60s; renders amber-pill rows with inline `MarkAsExecutedButton`. Auto-hides for anonymous. |
+| `MarkAsExecutedButton` | `POST /api/saved-strategies/{id}/mark-executed` with optimistic UI. Idempotent re-clicks render "Already marked at HH:MM" (backed by Step 3a's UNIQUE index). |
+| `NotInvestmentAdviceFooter` | Reusable disclaimer; full + compact variants; copy mirrors the server-rendered footers in `signal_change.py` + `daily_digest.py`. |
+| `NotificationSettingsForm` | `GET/PATCH /api/me/email-preferences` with optimistic toggles for the 3 PRD-19 flags + the legacy Stage 6a 3 (collapsed). |
+
+Integration: `<NotificationBanner />` above PRD-11's entry-mode picker on Home; new `/account/notifications` page sibling to `/account/email` (both target the same endpoint).
+
+### The interesting decision: where to put MarkAsExecutedButton
+
+The PRD spec originally said "Strategy detail page — Execute panel." But `/strategies/[slug]` serves **legacy `BacktestRecord`** rows (slug-based) while the mark-executed endpoint takes **`SavedStrategy.id`** (new table). Two different ID surfaces. Threading both through would have required either a slug-to-id resolver call on page load or denormalizing `SavedStrategy.id` onto the BacktestRecord — both ugly.
+
+Cleaner: inline the button directly on each banner row. The banner's `strategy_slug` field actually carries `SavedStrategy.id` per Step 3b's `dispatch_in_app_banner` (the field name is historical baggage). The retention loop closes without ever touching the legacy detail page. Same UX; better architecture.
+
+### Numbers
+
+- **Backend tests**: unchanged at 884 (frontend-only PR).
+- **Frontend tests**: 75 → **99** (+24 component tests across 4 test files).
+- Vitest suite green; `npm run build` clean.
+- Next 16 typed routes used `as Route` casts on 3 sites where the URL is runtime-built — each commented inline.
+
+### Session totals (2026-06-08 → 2026-06-09)
+
+| | Count |
+|---|---|
+| PRs shipped | 9 (PRD-19 backend + frontend + 2 docs) |
+| Backend tests | 855 → 884 (+29) |
+| Frontend tests | 75 → 99 (+24) |
+| Production outages | 0 |
+| Regressions | 0 |
+| Latent bugs caught pre-merge | 5 |
+
+### Remaining for PRD-19 (operational)
+
+- PostHog Sprint A retention dashboard (events fire; just configs)
+- Email-client rendering QA: Gmail web, Outlook web, Apple Mail
+- `CAN_SPAM_ADDRESS` + `EMAIL_UNSUB_SIGNING_KEY` env vars on Railway before launch
+
+---
+
 ## 2026-06-08 → 2026-06-09 — PRD-19 backend complete: the reverted feature shipped end-to-end in five clean slices (PRs #150 / #152 / #153 / #154 / #155)
 
 Six weeks after PR #88 (Signals v0 Phase B — daily cron + alerts + unsub) was reverted during the May 26 16-hour outage and then paused for reshape, this session executed PRD-19's revised plan in five sequential single-PR slices. Backend retention-metric loop is now closed end-to-end and the user-facing controls (3 EmailPreference flags + daily digest + signed per-strategy unsub) are all wired and tested. **Test count: 855 → 884 (+29). Zero regressions across the sequence.** Three latent bugs from the original PR #88 reshape caught pre-merge.

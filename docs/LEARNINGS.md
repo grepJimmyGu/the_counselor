@@ -205,6 +205,23 @@ deferred follow-up.
 
 ## Diagnostic methodology
 
+### When two data models share a UI surface, place the action on the model that owns the data
+**TL;DR:** if model A has the field your action needs but the spec puts the action on model B, move the action — don't thread A's field through B's page.
+
+PRD-19's spec said "Mark-as-Executed button on the strategy detail page." Reasonable on the surface. The detail page at `/strategies/[slug]` serves **legacy `BacktestRecord`** rows (slug-based). The mark-executed endpoint takes **`SavedStrategy.id`** (a different table). Two ID surfaces, two data models, one PRD asking them to meet on the same page.
+
+Two ways out:
+1. **Thread `SavedStrategy.id` through `BacktestRecord`** — denormalize, add a slug→id resolver call on page load, or stuff the id into the URL. Each option leaks the new model into the legacy surface; future PRs touching the detail page have to know about both.
+2. **Move the action to a surface that already owns `SavedStrategy.id`.** The in-app banner already carries it (per Step 3b's `dispatch_in_app_banner`, `strategy_slug=strat.id`). Inlining `MarkAsExecutedButton` on each banner row closes the loop without touching the detail page.
+
+We chose (2). Same user behavior (the click happens on the surface where the notification is); cleaner code (the legacy detail page stays a `BacktestRecord` page); no schema denormalization. The trick was noticing that "the spec says X" and "X is the right architecture" aren't always the same — when the data model fights the spec, the model wins.
+
+**When to apply:** any spec asking you to render or act on data from one model on a UI surface owned by a different model. Before threading the ID through, ask: "is there another surface where the data already lives?" The notification banner, the email body, the in-app inbox, the user's saved list — these are all places where the right ID surface might already be available.
+
+**See also:** PR #157 (PRD-19 Step 5+6) — `apps/web/src/components/notifications/notification-banner.tsx` inlines `MarkAsExecutedButton`. PR spec was [`agent-system/plans/PRD-19-phase-b-reshape.md`](../agent-system/plans/PRD-19-phase-b-reshape.md) §"Strategy detail page extension" (the architecture we deliberately departed from).
+
+---
+
 ### Template literals that look like substituted strings — grep them BEFORE shipping
 **TL;DR:** if your email body contains `{{unsubscribe_url}}` and you never wrote substitution code for it, the recipient gets `{{unsubscribe_url}}` in their inbox. Tests that snapshot the rendered html catch it; tests that snapshot the template don't.
 
