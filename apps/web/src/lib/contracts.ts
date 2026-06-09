@@ -200,7 +200,9 @@ export type StrategyType =
   // PRD-13c — Portfolio overlay expansion
   | "portfolio_dual_momentum_overlay"
   | "portfolio_defense_first_overlay"
-  | "portfolio_stability_tilt_overlay";
+  | "portfolio_stability_tilt_overlay"
+  // PRD-16b — Custom Build composer
+  | "custom_build";
 
 export type RebalanceFrequency = "daily" | "weekly" | "monthly" | "quarterly";
 
@@ -308,6 +310,13 @@ export interface StrategyRule {
   num_std?: number;
   holding_window_days?: number;
   factor_weights?: Record<string, number>;  // multi_factor_composite: factor → weight
+
+  // ── PRD-16b — Custom Build composer fields ────────────────────────────────
+  // Mirror the backend additive fields on `StrategyRule`. Existing strategy
+  // types never set these and are unaffected.
+  primitive_id?: string;
+  primitive_params?: Record<string, number | string | boolean>;
+  logic_with_prior?: "AND" | "OR" | null;
 }
 
 export interface PositionSizing {
