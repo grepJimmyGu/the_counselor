@@ -1,18 +1,16 @@
 /**
- * PRD-16b-2 — Active Execution scaffold (pitfall B).
+ * Active Execution toggle for the Custom Build composer.
  *
- * Per PRD-16 HANDOFF §6 pitfall B:
- *   "PRD-16c assumes a 'leave room' pattern in PRD-16b's WHEN OUT
- *    block — leave a visible toggle scaffold (even if disabled and
- *    labeled 'Active execution coming soon') so PRD-16c can wire it
- *    up without modifying PRD-16b's component."
+ * History: shipped in PRD-16b-2 as a disabled "coming soon" scaffold
+ * (HANDOFF §6 pitfall B's "leave room" pattern), then activated in
+ * PRD-16c-5 when the intraday monitor cron + dashboard endpoints + the
+ * <BarResolutionPicker> + <ExitLadderEditor> children all landed.
+ * Today: live. The canvas reveals the picker + editor inside an
+ * emerald-tinted card when this toggle is on.
  *
- * This brick is that scaffold: visible, disabled, with a 1-line "coming
- * soon" hint. PRD-16c flips the disabled state + adds the multi-tier
- * exit ladder editor as an `<ExitLadderEditor>` child below this row.
- *
- * State is wired via `value` + `onChange` (controlled). For v1 the
- * canvas always passes `false` + a no-op; PRD-16c hooks real state.
+ * State is controlled via `value` + `onChange`. `disabled` defaults to
+ * `false` post-16c — pass `true` only if a containing flow wants to
+ * temporarily mute the toggle (e.g., entitlement-gated tier preview).
  */
 "use client";
 
@@ -21,7 +19,9 @@ import { cn } from "@/lib/utils";
 interface Props {
   value: boolean;
   onChange: (next: boolean) => void;
-  /** PRD-16b ships `disabled=true` always. PRD-16c flips to false. */
+  /** Defaults to `false` (live). Set `true` to mute for entitlement-
+   *  gated previews where the user can see the option but can't enable
+   *  it on their current plan. */
   disabled?: boolean;
   className?: string;
 }
@@ -29,7 +29,7 @@ interface Props {
 export function CustomBuildActiveExecutionScaffold({
   value,
   onChange,
-  disabled = true,
+  disabled = false,
   className,
 }: Props) {
   return (
@@ -50,9 +50,9 @@ export function CustomBuildActiveExecutionScaffold({
             Active execution
           </h4>
           <p className="mt-1 text-[12px] leading-snug text-slate-500">
-            Run this strategy live with intraday monitoring and a
-            multi-tier exit ladder (stop + partial TP + full TP).
-            <strong className="font-medium"> Coming soon.</strong>
+            Run this strategy live with intraday bar monitoring and a
+            multi-tier exit ladder (stop + partial TP + full TP). Toggle
+            on to configure bar resolution and the exit tiers below.
           </p>
         </div>
         <button

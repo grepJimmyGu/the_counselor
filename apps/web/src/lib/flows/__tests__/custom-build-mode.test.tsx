@@ -181,26 +181,41 @@ describe("CustomBuildRuleComposer", () => {
 // ── ActiveExecutionScaffold ───────────────────────────────────────────────
 
 describe("CustomBuildActiveExecutionScaffold", () => {
-  it("renders disabled by default (PRD-16b pitfall B)", () => {
+  it("renders enabled by default (PRD-16c shipped — feature is live)", () => {
+    const onChange = vi.fn();
+    render(
+      <CustomBuildActiveExecutionScaffold value={false} onChange={onChange} />,
+    );
+    const btn = screen.getByTestId("active-execution-toggle") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    // Toggling fires onChange — proves the click handler is live.
+    fireEvent.click(btn);
+    expect(onChange).toHaveBeenCalledWith(true);
+  });
+
+  it("regression: never shows 'Coming soon' (PRD-16c stale-copy bug fix)", () => {
     render(
       <CustomBuildActiveExecutionScaffold value={false} onChange={() => {}} />,
     );
-    const btn = screen.getByTestId("active-execution-toggle") as HTMLButtonElement;
-    expect(btn.disabled).toBe(true);
-    expect(screen.getByText(/Coming soon/i)).toBeTruthy();
+    // The body copy is a single descriptive paragraph; "Coming soon"
+    // is a phrase from the PRD-16b scaffold era that must not appear
+    // post-16c.
+    expect(screen.queryByText(/Coming soon/i)).toBeNull();
   });
 
-  it("flips when disabled=false (PRD-16c will set this)", () => {
+  it("respects disabled=true (for entitlement-gated tier previews)", () => {
     const onChange = vi.fn();
     render(
       <CustomBuildActiveExecutionScaffold
         value={false}
         onChange={onChange}
-        disabled={false}
+        disabled
       />,
     );
-    fireEvent.click(screen.getByTestId("active-execution-toggle"));
-    expect(onChange).toHaveBeenCalledWith(true);
+    const btn = screen.getByTestId("active-execution-toggle") as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+    fireEvent.click(btn);
+    expect(onChange).not.toHaveBeenCalled();
   });
 });
 
