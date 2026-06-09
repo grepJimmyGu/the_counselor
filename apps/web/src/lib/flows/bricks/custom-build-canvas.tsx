@@ -162,7 +162,11 @@ export function CustomBuildCanvas({
         </label>
       </section>
 
-      <div className="grid grid-cols-1 gap-6 lg:grid-cols-[1fr_1.2fr_320px]">
+      {/* Stack vertically until xl (1280px viewport) because the
+          catalog browser's internal 180-px-sidebar + 2-column primitive
+          grid only fits comfortably once the left column is ~600px+.
+          Below xl, stacked is far cleaner than half-collapsed 3-pane. */}
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.3fr_1fr_300px]">
       {/* Left — catalog browser */}
       <section
         data-testid="custom-build-catalog"

@@ -73,6 +73,11 @@ export const CustomBuildModeFlow: FlowDefinition<CustomBuildModeContext> = {
   // direct URL access because `context.rules.map(...)` dereferences
   // undefined. See FlowDefinition.initialContext.
   initialContext: INITIAL_CUSTOM_BUILD_CONTEXT,
+  // 3-pane composer (catalog + rules + suggestions) needs ~1440px to
+  // render its internal grids without collisions. Default 768px
+  // collapses the catalog's 180-px-sidebar + 2-column primitive grid
+  // into overlapping narrow cards.
+  shellMaxWidthClass: "max-w-[1440px]",
   initialStepId: "compose_signals",
   steps: [
     {
