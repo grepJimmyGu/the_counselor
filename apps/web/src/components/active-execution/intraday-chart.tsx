@@ -48,8 +48,12 @@ interface Props {
   className?: string;
 }
 
+// US market data — always render the axis in US Eastern, regardless of the
+// viewer's browser timezone. The backend emits ET-aware timestamps, so this
+// formats the same instant into ET wall-clock for everyone.
 function fmtTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString([], {
+  return new Date(ms).toLocaleTimeString("en-US", {
+    timeZone: "America/New_York",
     hour: "2-digit",
     minute: "2-digit",
   });
@@ -125,7 +129,7 @@ export function IntradayChart({
     <div data-testid="intraday-chart" className={cn(className)}>
       <div className="mb-2 flex items-baseline justify-between">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-          Price &amp; signals · {data.bar_resolution}
+          Price &amp; signals · {data.bar_resolution} · ET
         </p>
         <p className="text-[10px] text-slate-400">
           {new Date(data.generated_at).toLocaleTimeString()}

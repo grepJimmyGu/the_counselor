@@ -7,8 +7,9 @@ DELETE /api/strategies/{id}     — delete (owner only)
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Response
 from pydantic import BaseModel
@@ -359,6 +360,28 @@ class IntradayChartResponse(BaseModel):
     series: list[IntradayChartSeries]
 
 
+# US market timezone. Intraday bars are stored as naive US/Eastern
+# wall-clock (the AV wrapper parses AV's ET strings naive — see
+# alpha_vantage.py), while trade-log/entry timestamps are naive UTC
+# (datetime.utcnow()). The chart must put both on ONE basis or the
+# trigger markers land hours off the price line — we normalize everything
+# to ET-aware here so the frontend can render an ET axis directly.
+_ET = ZoneInfo("America/New_York")
+
+
+def _bar_time_to_et(naive_et: datetime) -> datetime:
+    """A stored bar_time is naive ET wall-clock — attach ET, don't shift."""
+    return naive_et.replace(tzinfo=_ET)
+
+
+def _utc_to_et(dt: Optional[datetime]) -> Optional[datetime]:
+    """An event/entry timestamp is naive (or aware) UTC — convert to ET."""
+    if dt is None:
+        return None
+    aware = dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+    return aware.astimezone(_ET)
+
+
 def _resolve_owned_strategy(
     db: Session, strategy_id: str, current_user: User
 ):
@@ -630,7 +653,7 @@ def get_intraday_chart(
                 db, pos.symbol.upper(), bar_resolution, start, end,
             )
             bars = [
-                IntradayBarPoint(t=b.bar_time, close=float(b.close))
+                IntradayBarPoint(t=_bar_time_to_et(b.bar_time), close=float(b.close))
                 for b in cached
             ]
 
@@ -660,7 +683,7 @@ def get_intraday_chart(
                 except (TypeError, ValueError):
                     continue
                 events.append(IntradayChartEvent(
-                    t=ts,
+                    t=_utc_to_et(ts),
                     price=ev.get("price"),
                     event=ev.get("event") or "unknown",
                     tier_label=ev.get("tier_label"),
@@ -670,7 +693,7 @@ def get_intraday_chart(
                 position_id=pos.id,
                 symbol=pos.symbol,
                 is_open=pos.is_open,
-                entry_at=pos.entered_at,
+                entry_at=_utc_to_et(pos.entered_at),
                 entry_price=pos.entry_price,
                 bars=bars,
                 tiers=tiers,

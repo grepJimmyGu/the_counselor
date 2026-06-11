@@ -95,6 +95,26 @@ def test_chart_returns_bars_tiers_events(make_user, db: Session) -> None:
     assert any(e.event == "entry" for e in s.events)
 
 
+def test_chart_timestamps_are_et_aware(make_user, db: Session) -> None:
+    """Bars (naive ET) and events (naive UTC) are both normalized to
+    ET-aware so the frontend can render one consistent ET axis with the
+    trigger markers aligned to the price line."""
+    user = make_user(email="chart-et@test.com")
+    strategy = _save_active_strategy(db, user)
+    _open_position(db, strategy.id)
+    _seed_bar(db, symbol="MSFT", price=388.0, minutes_ago=30)
+
+    resp = get_intraday_chart(strategy.id, current_user=user, db=db)
+    s = resp.series[0]
+    # Bars: emitted ET-aware (ET wall-clock + ET offset, no shift).
+    assert s.bars[0].t.tzinfo is not None
+    assert s.bars[0].t.utcoffset() in (timedelta(hours=-4), timedelta(hours=-5))
+    # Entry + events: naive UTC converted to ET, also aware.
+    assert s.entry_at is not None and s.entry_at.tzinfo is not None
+    assert s.events[0].t.tzinfo is not None
+    assert s.events[0].t.utcoffset() in (timedelta(hours=-4), timedelta(hours=-5))
+
+
 def test_chart_empty_bars_when_cache_cold(make_user, db: Session) -> None:
     """A cold cache returns an empty bars list (not an error) but still
     reports the tier levels, which don't depend on bars."""
