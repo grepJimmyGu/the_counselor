@@ -205,6 +205,24 @@ deferred follow-up.
 
 ## Diagnostic methodology
 
+### Two providers, two entitlements — one being healthy says nothing about the other
+**TL;DR:** when a "live data" surface lags but another looks fine, find out which provider each uses before theorizing. Different providers have independent plans, entitlements, and freshness.
+
+2026-06-11: the active-execution chart was ~1 day stale while Market Pulse's Top Movers looked current. Tempting conclusion: "our cron is broken." Reality: Market Pulse pulls **FMP** `/stable/quote` (daily-granularity live overlay), while the intraday monitor pulls **AlphaVantage** `TIME_SERIES_INTRADAY`. Two providers. Market Pulse's health was no evidence about AV. The actual cause was an AV *entitlement* gap (see KNOWN_ISSUES 2026-06-11). The 30-second move that cracked it: curl the provider directly with the prod key.
+
+**When to apply:** any "why is X stale but Y fresh?" question where X and Y are different surfaces — map each to its provider+endpoint first. Grep the service that builds the surface for which client it calls.
+
+**See also:** `market_pulse_service.py` (FMP overlay) vs `intraday_bar_service.py` (AV); KNOWN_ISSUES.md 2026-06-11.
+
+### Test the external API directly with the prod key — and never state a guess as fact
+**TL;DR:** before blaming your code (or the provider's plan), reproduce against the real endpoint with the real key. And if you haven't, say "likely," not "is."
+
+2026-06-11: I first told the user the intraday lag was "free-tier rate-limiting." That was a guess stated as fact — and wrong. A direct `TIME_SERIES_INTRADAY` call with the prod key (printing only timestamps, never the key) showed the latest bar was the previous session with *no* rate-limit note. Adding `&entitlement=realtime` returned the real cause verbatim: *"You are not yet entitled to realtime US market data access."* The provider will often tell you the exact problem if you ask it directly. Same family as the 2026-05-26 FMP saga (KNOWN_ISSUES "external API endpoints: don't hallucinate, verify") — but the failure mode here was *premature certainty*, not a wrong path.
+
+**When to apply:** any data-freshness / "why is this empty" question involving a third-party API. Curl it with the prod env (`railway run bash -lc 'curl …$KEY…'`), parse only the safe fields, and read the provider's own error/note text before forming a theory.
+
+**See also:** AV entitlement params (`realtime` / `delayed`); `apps/api/CLAUDE.md` trap #14.
+
 ### Per-slice tests verify the brick renders; end-to-end audit verifies a user can reach it
 **TL;DR:** if the work crosses many bricks, the integration layer between them is its own surface area. Before declaring a feature done, ask "how does the user reach this?" — and answer it by tracing the route, not by trusting that the bricks compose.
 
@@ -545,7 +563,16 @@ default. Source: https://github.com/multica-ai/andrej-karpathy-skills.
 
 ## Database
 
-*(empty — add entries as we accumulate them)*
+### Preview the EXACT rows before any prod backfill write — same WHERE, run as a SELECT first
+**TL;DR:** a backfill is a prod mutation. Run the INSERT's predicate as a SELECT, show the matched rows, get a human OK, then write inside a transaction with an inline verification SELECT before COMMIT.
+
+2026-06-11: backfilling the missing `SavedStrategy` rows (saves that predated the #191 bridge). Flow that worked: (1) `AskUserQuestion` to authorize the prod write + scope; (2) a preview SELECT with the *identical* WHERE the INSERT would use → exactly 1 candidate row, shown to the user; (3) `BEGIN; INSERT … SELECT … WHERE <same>; SELECT <verify>; COMMIT;`. No surprises, fully auditable, idempotent (`NOT EXISTS` guard so re-runs are safe).
+
+**Gotcha that bit twice:** Postgres does **not** short-circuit a `json_typeof(x)='array'` guard before evaluating `json_array_length(x)` in the same WHERE — a scalar/`null` value throws `cannot get array length of a scalar`. Wrap the value so the length fn only ever sees an array: `json_array_length(CASE WHEN json_typeof(x)='array' THEN x ELSE '[]'::json END)`, ideally inside a `WITH … AS MATERIALIZED` CTE so the planner can't reorder it.
+
+**When to apply:** any one-off data repair against production. Never `INSERT … SELECT` blind; the SELECT-preview is the cheap insurance.
+
+**See also:** the 2026-06-11 backfill (KNOWN_ISSUES / project_log); `apps/api/CLAUDE.md` trap #12 (the `:bind::type` cast cousin).
 
 For Postgres / SQLAlchemy-specific traps that bite repeatedly, see
 **[`apps/api/CLAUDE.md`](../apps/api/CLAUDE.md)** — that file has 21
@@ -557,7 +584,23 @@ trap-level rules.
 
 ## Frontend
 
-*(empty — add entries as we accumulate them)*
+### Multi-day intraday belongs on an INDEX axis, not a real-time axis
+**TL;DR:** plotting intraday bars by their real timestamp interpolates a misleading straight line across closed-market gaps and shows time-only labels you can't tell apart across days. Use an evenly-spaced bar-index x-axis (gaps collapse) with date-aware tick labels — what every brokerage chart does.
+
+2026-06-11: the live chart used `XAxis type="number" scale="time"`. Two days of 30min bars rendered with overnight gaps drawn as slow price drift, and `09:30` appeared twice with no date. Fix (#197): map bars to ordinals `0..n-1`, draw the line on the index, label ticks with the **date at each new trading day** + time otherwise (ET), and snap event markers (`ReferenceDot`) to the nearest bar ordinal. Extracted the date/tick/gap logic into a pure helper (`intraday-chart-axis.ts`) so it's unit-testable apart from the recharts SVG (which jsdom can't size).
+
+**When to apply:** any intraday/irregular time-series chart that spans more than one session. If the data has gaps (nights, weekends, halts), a real-time axis lies.
+
+**See also:** `apps/web/src/components/active-execution/intraday-chart-axis.ts`, PR #197.
+
+### Unify timezone bases BEFORE plotting — and force the display zone, don't rely on the browser
+**TL;DR:** if two series on the same chart come from different tz bases, normalize them to one tz-aware instant on the backend first; then format the axis with an explicit `timeZone`, because `toLocaleTimeString()` defaults to the viewer's locale.
+
+2026-06-11: intraday **bars** are stored naive US/Eastern (the AV wrapper parses ET strings naive), but **entry/trigger events** are `datetime.utcnow()` (naive UTC). On one axis the trigger dots would land ~4–5h off the price line. Fix (#196): backend converts bars via `.replace(tzinfo=ET)` and events via `utc.astimezone(ET)` so all timestamps are one ET-aware basis; frontend formats with `timeZone: "America/New_York"` so it reads ET for *every* viewer (Mr Gu is on +08 — browser-local would have shown China time). `zoneinfo` handles EST/EDT automatically; never hand-roll a fixed offset.
+
+**When to apply:** any chart/table combining timestamps from more than one source, or any "this should show market time" requirement. Audit each source's tz at the model layer; pick one tz-aware basis; pass the display zone explicitly.
+
+**See also:** `_bar_time_to_et` / `_utc_to_et` in `saved_strategies.py`, `fmtTime` in `intraday-chart.tsx`, PR #196.
 
 For Next.js 16 specifics that diverge from training data, see
 **[`apps/web/AGENTS.md`](../apps/web/AGENTS.md)**.
