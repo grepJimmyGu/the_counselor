@@ -18,6 +18,7 @@
 import { useState } from "react";
 
 import { DeclarePositionForm } from "./declare-position-form";
+import { IntradayChart } from "./intraday-chart";
 import { PositionCardsGrid } from "./position-cards-grid";
 import { TradeLogTable } from "./trade-log-table";
 import { UniverseWatchPanel } from "./universe-watch-panel";
@@ -45,6 +46,7 @@ export function ActiveExecutionDashboard({ strategyId, className }: Props) {
           onDeclared={() => setRefreshKey((k) => k + 1)}
         />
         <PositionCardsGrid strategyId={strategyId} refreshKey={refreshKey} />
+        <IntradayChart strategyId={strategyId} refreshKey={refreshKey} />
         <TradeLogTable strategyId={strategyId} />
       </div>
     </section>

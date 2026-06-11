@@ -318,6 +318,47 @@ class TradeLogResponse(BaseModel):
     next_before: Optional[datetime] = None
 
 
+# ── intraday live chart (price trend + tier lines + trigger markers) ────────
+
+
+class IntradayBarPoint(BaseModel):
+    t: datetime
+    close: float
+
+
+class IntradayChartTier(BaseModel):
+    """A horizontal level the chart draws: entry_price * (1 + trigger_pct)."""
+    label: str
+    trigger_pct: float
+    price_level: Optional[float] = None
+
+
+class IntradayChartEvent(BaseModel):
+    """A point marker on the chart — entry or a fired exit tier."""
+    t: datetime
+    price: Optional[float] = None
+    event: str
+    tier_label: Optional[str] = None
+
+
+class IntradayChartSeries(BaseModel):
+    position_id: str
+    symbol: str
+    is_open: bool
+    entry_at: Optional[datetime] = None
+    entry_price: Optional[float] = None
+    bars: list[IntradayBarPoint]
+    tiers: list[IntradayChartTier]
+    events: list[IntradayChartEvent]
+
+
+class IntradayChartResponse(BaseModel):
+    strategy_id: str
+    bar_resolution: str
+    generated_at: datetime
+    series: list[IntradayChartSeries]
+
+
 def _resolve_owned_strategy(
     db: Session, strategy_id: str, current_user: User
 ):
@@ -534,6 +575,113 @@ def get_strategy_trade_log(
         events=page,
         total=total,
         next_before=next_before,
+    )
+
+
+@router.get(
+    "/{strategy_id}/intraday-chart",
+    response_model=IntradayChartResponse,
+)
+def get_intraday_chart(
+    strategy_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+    lookback_hours: int = 48,
+) -> IntradayChartResponse:
+    """Per-open-position intraday price series + exit-tier price levels +
+    fired-trigger markers, for the dashboard's live chart.
+
+    Reads bars from the `intraday_bars` cache ONLY (the monitor cron keeps
+    it fresh) — never fetches from AlphaVantage on this GET path, so it
+    can't hold a DB connection across a network await (trap #13) and a
+    cold cache is reported truthfully as an empty `bars` list rather than
+    blocking the UI. Daily strategies return an empty `series`.
+    """
+    from sqlalchemy import select, desc
+    from app.models.position_state import PositionState
+    from app.services.intraday_bar_service import IntradayBarService
+
+    strategy = _resolve_owned_strategy(db, strategy_id, current_user)
+    sj_dict = strategy.strategy_json or {}
+    bar_resolution = sj_dict.get("bar_resolution", "daily")
+    exit_ladder = (sj_dict.get("risk_management") or {}).get("exit_ladder") or []
+
+    generated = datetime.utcnow()
+    series: list[IntradayChartSeries] = []
+
+    if bar_resolution != "daily":
+        bar_svc = IntradayBarService()
+        # Clamp the window: ≥1h, ≤7 days of cached intraday bars.
+        hours = max(1, min(lookback_hours, 168))
+        end = generated
+        start = end - timedelta(hours=hours)
+
+        rows = db.execute(
+            select(PositionState)
+            .where(
+                PositionState.saved_strategy_id == strategy_id,
+                PositionState.is_open == True,  # noqa: E712
+            )
+            .order_by(desc(PositionState.updated_at))
+        ).scalars().all()
+
+        for pos in rows:
+            cached = bar_svc._read_cached(
+                db, pos.symbol.upper(), bar_resolution, start, end,
+            )
+            bars = [
+                IntradayBarPoint(t=b.bar_time, close=float(b.close))
+                for b in cached
+            ]
+
+            tiers: list[IntradayChartTier] = []
+            for tier in exit_ladder:
+                trigger_pct = tier.get("trigger_pct")
+                if trigger_pct is None:
+                    continue
+                price_level = (
+                    pos.entry_price * (1 + trigger_pct)
+                    if pos.entry_price
+                    else None
+                )
+                tiers.append(IntradayChartTier(
+                    label=tier.get("label") or f"{trigger_pct * 100:.0f}%",
+                    trigger_pct=trigger_pct,
+                    price_level=price_level,
+                ))
+
+            events: list[IntradayChartEvent] = []
+            for ev in (pos.trade_log or []):
+                ts_raw = ev.get("timestamp")
+                if not ts_raw:
+                    continue
+                try:
+                    ts = datetime.fromisoformat(ts_raw)
+                except (TypeError, ValueError):
+                    continue
+                events.append(IntradayChartEvent(
+                    t=ts,
+                    price=ev.get("price"),
+                    event=ev.get("event") or "unknown",
+                    tier_label=ev.get("tier_label"),
+                ))
+
+            series.append(IntradayChartSeries(
+                position_id=pos.id,
+                symbol=pos.symbol,
+                is_open=pos.is_open,
+                entry_at=pos.entered_at,
+                entry_price=pos.entry_price,
+                bars=bars,
+                tiers=tiers,
+                events=events,
+            ))
+
+    return IntradayChartResponse(
+        strategy_id=strategy_id,
+        bar_resolution=bar_resolution,
+        generated_at=generated,
+        series=series,
     )
 
 
