@@ -433,3 +433,170 @@ def test_declare_position_404_for_non_owner(make_user, db: Session) -> None:
             current_user=other, db=db,
         )
     assert exc.value.status_code == 404
+
+
+# ── confirm_position_exit (active-execution-v2 PR3) ─────────────────────────
+
+
+def _declared_position_with_pending(
+    db: Session, user, *, trigger_type: str = "tp1_hit",
+    shares: float = 10.0, entry: float = 100.0, tier_price: float = 115.0,
+) -> tuple:
+    """A declared position carrying a pending exit-tier event (as the cron
+    would have written). Returns (strategy, position)."""
+    strategy = _save_active_strategy_with_ladder(db, user)
+    pos = PositionState(
+        id=str(uuid4()),
+        saved_strategy_id=strategy.id,
+        symbol="AAPL",
+        entered_at=datetime.utcnow(),
+        entry_price=entry,
+        shares_initial=shares,
+        shares_remaining=shares,
+        is_open=True,
+        trade_log=[
+            {"event": "entry", "status": "declared",
+             "timestamp": datetime.utcnow().isoformat(),
+             "price": entry, "shares": shares},
+            {"event": trigger_type, "status": "pending_confirmation",
+             "timestamp": datetime.utcnow().isoformat(),
+             "price": tier_price, "tier_label": "TP1",
+             "suggested_action": "sell_fraction", "suggested_shares": 3.3},
+        ],
+    )
+    db.add(pos)
+    db.commit()
+    return strategy, pos
+
+
+def test_confirm_exit_partial_decrements_shares(make_user, db: Session) -> None:
+    from app.api.routes.saved_strategies import (
+        ConfirmExitRequest, confirm_position_exit,
+    )
+    user = make_user(email="conf-partial@test.com")
+    strategy, pos = _declared_position_with_pending(db, user, shares=10.0)
+    out = confirm_position_exit(
+        strategy.id, pos.id,
+        ConfirmExitRequest(trigger_type="tp1_hit", shares_sold=3.0, fill_price=116.0),
+        current_user=user, db=db,
+    )
+    assert out.shares_remaining == pytest.approx(7.0)
+    assert out.is_open is True
+    # The pending event flipped to executed with the user's fill.
+    tp1 = [e for e in out.trade_log if e["event"] == "tp1_hit"][0]
+    assert tp1["status"] == "executed"
+    assert tp1["executed_shares"] == 3.0
+    assert tp1["fill_price"] == 116.0
+
+
+def test_confirm_exit_full_closes_position_with_pnl(make_user, db: Session) -> None:
+    from app.api.routes.saved_strategies import (
+        ConfirmExitRequest, confirm_position_exit,
+    )
+    user = make_user(email="conf-full@test.com")
+    strategy, pos = _declared_position_with_pending(
+        db, user, trigger_type="stop_hit", shares=10.0, entry=100.0, tier_price=90.0,
+    )
+    out = confirm_position_exit(
+        strategy.id, pos.id,
+        ConfirmExitRequest(trigger_type="stop_hit", shares_sold=10.0, fill_price=90.0),
+        current_user=user, db=db,
+    )
+    assert out.shares_remaining == 0.0
+    assert out.is_open is False
+    assert out.closed_at is not None
+    # Realized P&L = (90 - 100) * 10 = -100.
+    assert out.final_pnl == pytest.approx(-100.0)
+
+
+def test_confirm_exit_defaults_fill_price_to_tier_price(make_user, db: Session) -> None:
+    from app.api.routes.saved_strategies import (
+        ConfirmExitRequest, confirm_position_exit,
+    )
+    user = make_user(email="conf-default@test.com")
+    strategy, pos = _declared_position_with_pending(db, user, tier_price=115.0)
+    out = confirm_position_exit(
+        strategy.id, pos.id,
+        ConfirmExitRequest(trigger_type="tp1_hit", shares_sold=3.0),
+        current_user=user, db=db,
+    )
+    tp1 = [e for e in out.trade_log if e["event"] == "tp1_hit"][0]
+    assert tp1["fill_price"] == 115.0  # defaulted to the recorded tier price
+
+
+def test_confirm_exit_rejects_no_pending(make_user, db: Session) -> None:
+    from app.api.routes.saved_strategies import (
+        ConfirmExitRequest, confirm_position_exit,
+    )
+    user = make_user(email="conf-nopending@test.com")
+    strategy = _save_active_strategy_with_ladder(db, user)
+    pos = PositionState(
+        id=str(uuid4()), saved_strategy_id=strategy.id, symbol="AAPL",
+        entered_at=datetime.utcnow(), entry_price=100.0,
+        shares_initial=10.0, shares_remaining=10.0, is_open=True,
+        trade_log=[{"event": "entry", "status": "declared",
+                    "timestamp": datetime.utcnow().isoformat()}],
+    )
+    db.add(pos)
+    db.commit()
+    with pytest.raises(HTTPException) as exc:
+        confirm_position_exit(
+            strategy.id, pos.id,
+            ConfirmExitRequest(trigger_type="tp1_hit", shares_sold=3.0),
+            current_user=user, db=db,
+        )
+    assert exc.value.status_code == 400
+    assert "no pending" in exc.value.detail.lower()
+
+
+def test_confirm_exit_rejects_oversell(make_user, db: Session) -> None:
+    from app.api.routes.saved_strategies import (
+        ConfirmExitRequest, confirm_position_exit,
+    )
+    user = make_user(email="conf-oversell@test.com")
+    strategy, pos = _declared_position_with_pending(db, user, shares=10.0)
+    with pytest.raises(HTTPException) as exc:
+        confirm_position_exit(
+            strategy.id, pos.id,
+            ConfirmExitRequest(trigger_type="tp1_hit", shares_sold=99.0),
+            current_user=user, db=db,
+        )
+    assert exc.value.status_code == 400
+
+
+def test_confirm_exit_double_confirm_rejected(make_user, db: Session) -> None:
+    """Confirming the same tier twice fails the second time (the first
+    flipped it to executed → no pending event remains)."""
+    from app.api.routes.saved_strategies import (
+        ConfirmExitRequest, confirm_position_exit,
+    )
+    user = make_user(email="conf-double@test.com")
+    strategy, pos = _declared_position_with_pending(db, user, shares=10.0)
+    confirm_position_exit(
+        strategy.id, pos.id,
+        ConfirmExitRequest(trigger_type="tp1_hit", shares_sold=3.0),
+        current_user=user, db=db,
+    )
+    with pytest.raises(HTTPException) as exc:
+        confirm_position_exit(
+            strategy.id, pos.id,
+            ConfirmExitRequest(trigger_type="tp1_hit", shares_sold=3.0),
+            current_user=user, db=db,
+        )
+    assert exc.value.status_code == 400
+
+
+def test_confirm_exit_404_for_non_owner(make_user, db: Session) -> None:
+    from app.api.routes.saved_strategies import (
+        ConfirmExitRequest, confirm_position_exit,
+    )
+    owner = make_user(email="conf-owner@test.com")
+    other = make_user(email="conf-other@test.com")
+    strategy, pos = _declared_position_with_pending(db, owner)
+    with pytest.raises(HTTPException) as exc:
+        confirm_position_exit(
+            strategy.id, pos.id,
+            ConfirmExitRequest(trigger_type="tp1_hit", shares_sold=3.0),
+            current_user=other, db=db,
+        )
+    assert exc.value.status_code == 404

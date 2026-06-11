@@ -737,6 +737,31 @@ export async function declarePosition(
   );
 }
 
+/** active-execution-v2 PR3: confirm the user executed a pending exit tier
+ *  in their brokerage. Decrements the tracked position to match the
+ *  user's real fill — Livermore never sells. */
+export interface ConfirmExitRequest {
+  trigger_type: string;
+  shares_sold: number;
+  fill_price?: number;
+}
+
+export async function confirmPositionExit(
+  strategyId: string,
+  positionId: string,
+  payload: ConfirmExitRequest,
+  backendToken: string,
+): Promise<PositionView> {
+  return fetchApi<PositionView>(
+    `/api/saved-strategies/${strategyId}/positions/${positionId}/confirm-exit`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${backendToken}` },
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
 export async function getStrategyTradeLog(
   strategyId: string,
   backendToken: string,
