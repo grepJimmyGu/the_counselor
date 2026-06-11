@@ -535,3 +535,131 @@ def get_strategy_trade_log(
         total=total,
         next_before=next_before,
     )
+
+
+# ── active-execution-v2 PR2: declare a real held position ───────────────────
+
+
+class DeclarePositionRequest(BaseModel):
+    """User declares a position they actually hold, to be tracked against
+    the strategy's exit ladder. The numbers are the user's REAL fill —
+    Livermore never simulates ownership."""
+    symbol: str
+    shares: float
+    entry_price: float          # the user's actual average cost basis
+    entered_at: Optional[datetime] = None  # defaults to now (UTC)
+
+
+@router.post(
+    "/{strategy_id}/positions",
+    response_model=PositionView,
+    status_code=201,
+)
+def declare_position(
+    strategy_id: str,
+    payload: DeclarePositionRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> PositionView:
+    """Declare a real position the user holds, tracked against the
+    strategy's exit ladder. Owner-only.
+
+    Guards:
+      - 404 if the strategy doesn't exist or isn't owned by the caller.
+      - 400 if the strategy isn't set up for active execution
+        (`bar_resolution == 'daily'` OR no `exit_ladder`) — there's
+        nothing to monitor the position against.
+      - 400 on non-positive shares / entry_price.
+      - 409 if an OPEN position already exists for this (strategy, symbol)
+        — one open position per symbol per strategy; close it first.
+
+    The created PositionState carries the user's real numbers. The
+    intraday monitor (PR1) detects exit-ladder triggers and notifies;
+    the user confirms the actual sale (PR3) — Livermore never mutates
+    the position itself.
+    """
+    from uuid import uuid4
+    from sqlalchemy import select
+    from app.models.position_state import PositionState
+
+    strategy = _resolve_owned_strategy(db, strategy_id, current_user)
+
+    # Active-execution eligibility: a tracked position only makes sense
+    # when the strategy has an exit ladder + a non-daily resolution.
+    sj = strategy.strategy_json or {}
+    bar_resolution = sj.get("bar_resolution", "daily")
+    has_ladder = bool(
+        (sj.get("risk_management") or {}).get("exit_ladder")
+    )
+    if bar_resolution == "daily" or not has_ladder:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "This strategy isn't set up for active execution. Enable "
+                "Active Execution (a non-daily bar resolution + an exit "
+                "ladder) on the strategy before declaring a tracked position."
+            ),
+        )
+
+    symbol = payload.symbol.strip().upper()
+    if not symbol:
+        raise HTTPException(status_code=400, detail="Symbol is required.")
+    if payload.shares <= 0:
+        raise HTTPException(status_code=400, detail="Shares must be positive.")
+    if payload.entry_price <= 0:
+        raise HTTPException(
+            status_code=400, detail="Entry price must be positive."
+        )
+
+    # One open position per (strategy, symbol).
+    existing = db.execute(
+        select(PositionState)
+        .where(PositionState.saved_strategy_id == strategy_id)
+        .where(PositionState.symbol == symbol)
+        .where(PositionState.is_open == True)  # noqa: E712
+    ).scalar_one_or_none()
+    if existing is not None:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"An open position for {symbol} already exists on this "
+                "strategy. Close it before declaring a new one."
+            ),
+        )
+
+    entered_at = payload.entered_at or datetime.utcnow()
+    pos = PositionState(
+        id=str(uuid4()),
+        saved_strategy_id=strategy_id,
+        symbol=symbol,
+        entered_at=entered_at,
+        entry_price=payload.entry_price,
+        shares_initial=payload.shares,
+        shares_remaining=payload.shares,
+        is_open=True,
+        trade_log=[{
+            "event": "entry",
+            "status": "declared",   # user-declared (vs signal_confirmed)
+            "timestamp": entered_at.isoformat(),
+            "price": payload.entry_price,
+            "shares": payload.shares,
+        }],
+    )
+    db.add(pos)
+    db.commit()
+    db.refresh(pos)
+
+    return PositionView(
+        id=pos.id,
+        symbol=pos.symbol,
+        entered_at=pos.entered_at,
+        entry_price=pos.entry_price,
+        shares_initial=pos.shares_initial,
+        shares_remaining=pos.shares_remaining,
+        is_open=pos.is_open,
+        closed_at=pos.closed_at,
+        final_pnl=pos.final_pnl,
+        latest_price=None,
+        pct_change_from_entry=None,
+        trade_log=list(pos.trade_log or []),
+    )

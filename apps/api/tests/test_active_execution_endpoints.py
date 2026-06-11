@@ -19,6 +19,8 @@ from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
 from app.api.routes.saved_strategies import (
+    DeclarePositionRequest,
+    declare_position,
     get_strategy_positions,
     get_strategy_trade_log,
     get_universe_state,
@@ -306,3 +308,128 @@ def test_trade_log_empty_for_strategy_with_no_positions(make_user, db: Session) 
     assert response.events == []
     assert response.total == 0
     assert response.next_before is None
+
+
+# ── declare_position (active-execution-v2 PR2) ──────────────────────────────
+
+
+def _save_active_strategy_with_ladder(db: Session, user) -> SavedStrategy:
+    """Intraday strategy WITH an exit ladder — eligible for declared
+    positions."""
+    return saved_strategy_service.save_strategy(
+        db, user,
+        SaveStrategyRequest(
+            title="SpaceX Ladder",
+            strategy_json={
+                "strategy_type": "custom_build",
+                "universe": ["AAPL"],
+                "bar_resolution": "15min",
+                "risk_management": {
+                    "exit_ladder": [
+                        {"trigger_pct": -0.10, "action": "sell_all", "label": "Stop"},
+                    ]
+                },
+            },
+        ),
+    )
+
+
+def test_declare_position_creates_open_position(make_user, db: Session) -> None:
+    user = make_user(email="decl-ok@test.com")
+    strategy = _save_active_strategy_with_ladder(db, user)
+    out = declare_position(
+        strategy.id,
+        DeclarePositionRequest(symbol="aapl", shares=100, entry_price=145.0),
+        current_user=user, db=db,
+    )
+    assert out.symbol == "AAPL"          # uppercased
+    assert out.shares_initial == 100
+    assert out.shares_remaining == 100
+    assert out.entry_price == 145.0
+    assert out.is_open is True
+    # Entry event recorded with the user-declared status.
+    assert out.trade_log[0]["event"] == "entry"
+    assert out.trade_log[0]["status"] == "declared"
+    # Persisted.
+    rows = (
+        db.query(PositionState)
+        .filter(PositionState.saved_strategy_id == strategy.id)
+        .all()
+    )
+    assert len(rows) == 1
+
+
+def test_declare_position_rejects_daily_strategy(make_user, db: Session) -> None:
+    user = make_user(email="decl-daily@test.com")
+    strategy = _save_daily_strategy(db, user)
+    with pytest.raises(HTTPException) as exc:
+        declare_position(
+            strategy.id,
+            DeclarePositionRequest(symbol="NVDA", shares=10, entry_price=100.0),
+            current_user=user, db=db,
+        )
+    assert exc.value.status_code == 400
+    assert "active execution" in exc.value.detail.lower()
+
+
+def test_declare_position_rejects_intraday_without_ladder(make_user, db: Session) -> None:
+    """An intraday strategy with no exit_ladder can't track a position —
+    there's nothing to monitor it against."""
+    user = make_user(email="decl-noladder@test.com")
+    strategy = _save_intraday_strategy(db, user)  # no risk_management
+    with pytest.raises(HTTPException) as exc:
+        declare_position(
+            strategy.id,
+            DeclarePositionRequest(symbol="AAPL", shares=10, entry_price=100.0),
+            current_user=user, db=db,
+        )
+    assert exc.value.status_code == 400
+
+
+def test_declare_position_rejects_nonpositive_values(make_user, db: Session) -> None:
+    user = make_user(email="decl-neg@test.com")
+    strategy = _save_active_strategy_with_ladder(db, user)
+    with pytest.raises(HTTPException) as exc:
+        declare_position(
+            strategy.id,
+            DeclarePositionRequest(symbol="AAPL", shares=0, entry_price=145.0),
+            current_user=user, db=db,
+        )
+    assert exc.value.status_code == 400
+    with pytest.raises(HTTPException) as exc2:
+        declare_position(
+            strategy.id,
+            DeclarePositionRequest(symbol="AAPL", shares=10, entry_price=-1.0),
+            current_user=user, db=db,
+        )
+    assert exc2.value.status_code == 400
+
+
+def test_declare_position_rejects_duplicate_open(make_user, db: Session) -> None:
+    user = make_user(email="decl-dup@test.com")
+    strategy = _save_active_strategy_with_ladder(db, user)
+    declare_position(
+        strategy.id,
+        DeclarePositionRequest(symbol="AAPL", shares=100, entry_price=145.0),
+        current_user=user, db=db,
+    )
+    with pytest.raises(HTTPException) as exc:
+        declare_position(
+            strategy.id,
+            DeclarePositionRequest(symbol="AAPL", shares=50, entry_price=150.0),
+            current_user=user, db=db,
+        )
+    assert exc.value.status_code == 409
+
+
+def test_declare_position_404_for_non_owner(make_user, db: Session) -> None:
+    owner = make_user(email="decl-owner@test.com")
+    other = make_user(email="decl-other@test.com")
+    strategy = _save_active_strategy_with_ladder(db, owner)
+    with pytest.raises(HTTPException) as exc:
+        declare_position(
+            strategy.id,
+            DeclarePositionRequest(symbol="AAPL", shares=10, entry_price=145.0),
+            current_user=other, db=db,
+        )
+    assert exc.value.status_code == 404
