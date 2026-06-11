@@ -5,7 +5,7 @@
  * PositionCardsGrid, TradeLogTable) plus the wrapper. Mocks the
  * api.ts helpers so no network is touched.
  */
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import {
   afterEach,
   beforeEach,
@@ -19,6 +19,7 @@ vi.mock("@/lib/api", () => ({
   getUniverseState: vi.fn(),
   getStrategyPositions: vi.fn(),
   getStrategyTradeLog: vi.fn(),
+  confirmPositionExit: vi.fn(),
 }));
 
 const useSessionMock = vi.fn(() => ({
@@ -30,6 +31,7 @@ vi.mock("next-auth/react", () => ({
 }));
 
 import {
+  confirmPositionExit,
   getStrategyPositions,
   getStrategyTradeLog,
   getUniverseState,
@@ -198,6 +200,61 @@ describe("PositionCardsGrid", () => {
     ).mockRejectedValue(new Error("404"));
     render(<PositionCardsGrid strategyId="s1" pollIntervalMs={9999999} />);
     await waitFor(() => screen.getByTestId("positions-error"));
+  });
+
+  it("shows a confirm-exit affordance for a pending tier and submits the user's fill", async () => {
+    (
+      getStrategyPositions as unknown as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({
+      strategy_id: "s1",
+      open_count: 1,
+      closed_count: 0,
+      positions: [
+        {
+          id: "p1",
+          symbol: "AAPL",
+          entered_at: new Date().toISOString(),
+          entry_price: 100,
+          shares_initial: 10,
+          shares_remaining: 10,
+          is_open: true,
+          closed_at: null,
+          final_pnl: null,
+          latest_price: 115,
+          pct_change_from_entry: 0.15,
+          trade_log: [
+            { event: "entry", status: "declared" },
+            {
+              event: "tp1_hit",
+              status: "pending_confirmation",
+              tier_label: "TP1",
+              suggested_shares: 3.3,
+            },
+          ],
+        },
+      ],
+    });
+    (
+      confirmPositionExit as unknown as ReturnType<typeof vi.fn>
+    ).mockResolvedValue({ id: "p1", symbol: "AAPL" });
+
+    render(<PositionCardsGrid strategyId="s1" pollIntervalMs={9999999} />);
+    await waitFor(() => screen.getByTestId("confirm-exit-AAPL"));
+    // The shares input is prefilled with the suggested 3.3.
+    const input = screen.getByTestId("confirm-shares-AAPL") as HTMLInputElement;
+    expect(input.value).toBe("3.3");
+    // Action-needed badge present.
+    expect(screen.getByText("Action needed")).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId("confirm-submit-AAPL"));
+    await waitFor(() =>
+      expect(confirmPositionExit).toHaveBeenCalledWith(
+        "s1",
+        "p1",
+        { trigger_type: "tp1_hit", shares_sold: 3.3 },
+        "tok_abc",
+      ),
+    );
   });
 });
 

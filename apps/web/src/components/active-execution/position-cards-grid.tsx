@@ -17,11 +17,35 @@ import { useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 
 import {
+  confirmPositionExit,
   getStrategyPositions,
   type PositionView,
   type PositionsResponse,
 } from "@/lib/api";
 import { cn } from "@/lib/utils";
+
+/** A pending exit-tier event the cron recorded, awaiting user confirmation. */
+function _pendingExit(
+  pos: PositionView,
+): { trigger: string; label?: string; shares?: number } | null {
+  for (const ev of pos.trade_log) {
+    if (
+      ev.status === "pending_confirmation" &&
+      typeof ev.event === "string" &&
+      ev.event !== "entry"
+    ) {
+      return {
+        trigger: ev.event,
+        label: typeof ev.tier_label === "string" ? ev.tier_label : undefined,
+        shares:
+          typeof ev.suggested_shares === "number"
+            ? ev.suggested_shares
+            : undefined,
+      };
+    }
+  }
+  return null;
+}
 
 interface Props {
   strategyId: string;
@@ -45,6 +69,9 @@ export function PositionCardsGrid({
   const [state, setState] = useState<PositionsResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  // Bumped by a child card after a confirm-exit so the grid refetches
+  // immediately (in addition to the parent-driven `refreshKey`).
+  const [localRefresh, setLocalRefresh] = useState(0);
 
   useEffect(() => {
     if (sessionStatus === "loading") return;
@@ -70,7 +97,7 @@ export function PositionCardsGrid({
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [strategyId, backendToken, sessionStatus, pollIntervalMs, refreshKey]);
+  }, [strategyId, backendToken, sessionStatus, pollIntervalMs, refreshKey, localRefresh]);
 
   if (loading && !state) {
     return (
@@ -117,14 +144,62 @@ export function PositionCardsGrid({
       </p>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         {state.positions.map((pos) => (
-          <PositionCard key={pos.id} pos={pos} />
+          <PositionCard
+            key={pos.id}
+            pos={pos}
+            strategyId={strategyId}
+            onChanged={() => setLocalRefresh((k) => k + 1)}
+          />
         ))}
       </div>
     </div>
   );
 }
 
-function PositionCard({ pos }: { pos: PositionView }) {
+function PositionCard({
+  pos,
+  strategyId,
+  onChanged,
+}: {
+  pos: PositionView;
+  strategyId: string;
+  onChanged: () => void;
+}) {
+  const { data: session } = useSession();
+  const backendToken = (session as unknown as { backendToken?: string })
+    ?.backendToken;
+  const pending = pos.is_open ? _pendingExit(pos) : null;
+
+  const [confirmShares, setConfirmShares] = useState<string>(
+    pending?.shares != null ? String(pending.shares) : "",
+  );
+  const [confirming, setConfirming] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+
+  const submitConfirm = async () => {
+    if (!pending || !backendToken) return;
+    const sold = Number(confirmShares);
+    if (!(sold > 0)) {
+      setConfirmError("Enter the number of shares you sold.");
+      return;
+    }
+    setConfirming(true);
+    setConfirmError(null);
+    try {
+      await confirmPositionExit(
+        strategyId,
+        pos.id,
+        { trigger_type: pending.trigger, shares_sold: sold },
+        backendToken,
+      );
+      onChanged();
+    } catch (e) {
+      setConfirmError((e as Error).message || "Couldn't confirm.");
+    } finally {
+      setConfirming(false);
+    }
+  };
+
   const pct = pos.pct_change_from_entry;
   const pctColor =
     pct === null
@@ -148,14 +223,60 @@ function PositionCard({ pos }: { pos: PositionView }) {
         <span
           className={cn(
             "rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
-            pos.is_open
-              ? "bg-emerald-50 text-emerald-700"
-              : "bg-slate-100 text-slate-500",
+            pending
+              ? "bg-amber-100 text-amber-800"
+              : pos.is_open
+                ? "bg-emerald-50 text-emerald-700"
+                : "bg-slate-100 text-slate-500",
           )}
         >
-          {pos.is_open ? "Open" : "Closed"}
+          {pending ? "Action needed" : pos.is_open ? "Open" : "Closed"}
         </span>
       </div>
+
+      {pending && (
+        <div
+          data-testid={`confirm-exit-${pos.symbol}`}
+          className="mb-2 rounded-md border border-amber-200 bg-amber-50 p-2"
+        >
+          <p className="text-[12px] font-medium text-amber-900">
+            Exit signalled
+            {pending.label ? ` (${pending.label})` : ""} — your strategy
+            suggests selling
+            {pending.shares != null ? ` ${pending.shares}` : ""} shares.
+            Sell in your brokerage, then confirm below.
+          </p>
+          <div className="mt-2 flex items-center gap-2">
+            <input
+              type="number"
+              min="0"
+              step="any"
+              value={confirmShares}
+              onChange={(e) => setConfirmShares(e.target.value)}
+              data-testid={`confirm-shares-${pos.symbol}`}
+              placeholder="Shares sold"
+              className="w-28 rounded border border-amber-300 px-2 py-1 text-[12px]"
+            />
+            <button
+              type="button"
+              disabled={confirming || !(Number(confirmShares) > 0)}
+              onClick={submitConfirm}
+              data-testid={`confirm-submit-${pos.symbol}`}
+              className="rounded-md bg-amber-700 px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-amber-800 disabled:opacity-50"
+            >
+              {confirming ? "Confirming…" : "Mark as executed"}
+            </button>
+          </div>
+          {confirmError && (
+            <p
+              data-testid={`confirm-error-${pos.symbol}`}
+              className="mt-1 text-[11px] text-rose-700"
+            >
+              {confirmError}
+            </p>
+          )}
+        </div>
+      )}
       <table className="w-full text-[12px]">
         <tbody>
           <tr>

@@ -649,6 +649,11 @@ def declare_position(
     db.commit()
     db.refresh(pos)
 
+    return _position_to_view(pos)
+
+
+def _position_to_view(pos, *, latest_price=None, pct_change=None) -> PositionView:
+    """Build a PositionView from a PositionState row."""
     return PositionView(
         id=pos.id,
         symbol=pos.symbol,
@@ -659,7 +664,134 @@ def declare_position(
         is_open=pos.is_open,
         closed_at=pos.closed_at,
         final_pnl=pos.final_pnl,
-        latest_price=None,
-        pct_change_from_entry=None,
+        latest_price=latest_price,
+        pct_change_from_entry=pct_change,
         trade_log=list(pos.trade_log or []),
     )
+
+
+# ── active-execution-v2 PR3: confirm an exit (decrement on user fill) ────────
+
+
+class ConfirmExitRequest(BaseModel):
+    """The user confirms they executed a pending exit tier in their own
+    brokerage. `shares_sold` + `fill_price` are the user's REAL fill —
+    Livermore decrements the tracked position to match, it never sells."""
+    trigger_type: str            # the pending tier to confirm: 'stop_hit' | 'tp1_hit' | ...
+    shares_sold: float
+    fill_price: Optional[float] = None   # actual fill; defaults to the tier's recorded price
+
+
+_CLOSE_EPSILON = 1e-6
+
+
+@router.post(
+    "/{strategy_id}/positions/{position_id}/confirm-exit",
+    response_model=PositionView,
+)
+def confirm_position_exit(
+    strategy_id: str,
+    position_id: str,
+    payload: ConfirmExitRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> PositionView:
+    """Confirm that the user executed a pending exit tier (recorded by the
+    intraday monitor cron). Owner-only. This is the ONLY path that mutates
+    `shares_remaining` / closes a position — the cron only detects +
+    notifies; the user's confirmation is what moves the numbers, so the
+    tracked position reflects the user's ACTUAL brokerage activity.
+
+    Effect:
+      - Flips the matching `pending_confirmation` trade_log event to
+        `executed`, recording the user's fill (shares + price + time).
+      - Decrements `shares_remaining` by `shares_sold`.
+      - When `shares_remaining` reaches ~0, closes the position
+        (`is_open=False`, `closed_at`, `final_pnl` from the realized
+        gains on the executed sells).
+
+    Failures:
+      - 404 if strategy/position missing or not owned by the caller.
+      - 400 if no pending event matches `trigger_type`.
+      - 400 if `shares_sold <= 0` or exceeds `shares_remaining`.
+    """
+    from sqlalchemy import select
+    from app.models.position_state import PositionState
+
+    _ = _resolve_owned_strategy(db, strategy_id, current_user)
+
+    pos = db.execute(
+        select(PositionState)
+        .where(PositionState.id == position_id)
+        .where(PositionState.saved_strategy_id == strategy_id)
+    ).scalar_one_or_none()
+    if pos is None:
+        raise HTTPException(status_code=404, detail="Position not found.")
+
+    if payload.shares_sold <= 0:
+        raise HTTPException(status_code=400, detail="shares_sold must be positive.")
+    if payload.shares_sold > pos.shares_remaining + _CLOSE_EPSILON:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"shares_sold ({payload.shares_sold}) exceeds shares "
+                f"remaining ({pos.shares_remaining})."
+            ),
+        )
+
+    # Find the matching pending event (most recent wins if duplicated).
+    log = list(pos.trade_log or [])
+    pending_idx = None
+    for i in range(len(log) - 1, -1, -1):
+        ev = log[i]
+        if (
+            ev.get("event") == payload.trigger_type
+            and ev.get("status") == "pending_confirmation"
+        ):
+            pending_idx = i
+            break
+    if pending_idx is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"No pending '{payload.trigger_type}' exit to confirm on "
+                "this position."
+            ),
+        )
+
+    now = datetime.utcnow()
+    fill_price = (
+        payload.fill_price
+        if payload.fill_price is not None
+        else log[pending_idx].get("price")
+    )
+    # Flip pending → executed with the user's real fill.
+    log[pending_idx] = {
+        **log[pending_idx],
+        "status": "executed",
+        "executed_shares": payload.shares_sold,
+        "fill_price": fill_price,
+        "executed_at": now.isoformat(),
+    }
+    pos.trade_log = log
+
+    # Decrement + maybe close.
+    pos.shares_remaining = max(0.0, pos.shares_remaining - payload.shares_sold)
+    if pos.shares_remaining <= _CLOSE_EPSILON:
+        pos.shares_remaining = 0.0
+        pos.is_open = False
+        pos.closed_at = now
+        # Realized P&L = sum over executed sells of
+        # (fill_price - entry_price) * executed_shares.
+        realized = 0.0
+        for ev in pos.trade_log:
+            if ev.get("status") == "executed":
+                fp = ev.get("fill_price")
+                sh = ev.get("executed_shares")
+                if fp is not None and sh is not None:
+                    realized += (float(fp) - pos.entry_price) * float(sh)
+        pos.final_pnl = realized
+
+    db.commit()
+    db.refresh(pos)
+    return _position_to_view(pos)
