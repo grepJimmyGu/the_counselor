@@ -304,6 +304,52 @@ async def test_monitor_skips_daily_and_no_ladder_strategies(db: Session) -> None
 
 
 @pytest.mark.asyncio
+async def test_monitor_scoped_to_open_positions_not_all_strategies(db: Session) -> None:
+    """SCALE guard: an active-execution strategy with NO open position is
+    never scanned — the cron drives off `position_states WHERE is_open`,
+    not the whole SavedStrategy table. A strategy whose only position is
+    CLOSED is likewise skipped."""
+    active_json = {
+        "strategy_name": "Active No Pos", "strategy_type": "custom_build",
+        "universe": ["AAPL"], "benchmark": "SPY",
+        "start_date": "2025-01-01", "end_date": "2025-12-31",
+        "initial_capital": 100_000, "rebalance_frequency": "monthly",
+        "position_sizing": {"method": "equal_weight"},
+        "rules": [{"primitive_id": "rsi", "operator": "lt", "threshold": 30}],
+        "risk_management": {"exit_ladder": [
+            {"trigger_pct": -0.10, "action": "sell_all", "label": "Stop"},
+        ]},
+        "bar_resolution": "15min",
+    }
+    # Two fully-eligible active strategies, but NO open positions:
+    #  - one with no positions at all
+    #  - one with only a CLOSED position
+    db.add(SavedStrategy(
+        id="s-nopos", user_id="u-1", title="No Pos",
+        strategy_json=active_json, is_public=False,
+    ))
+    s_closed = SavedStrategy(
+        id="s-closedpos", user_id="u-1", title="Closed Pos",
+        strategy_json=active_json, is_public=False,
+    )
+    db.add(s_closed)
+    db.add(PositionState(
+        id=str(uuid4()), saved_strategy_id="s-closedpos", symbol="AAPL",
+        entered_at=datetime.utcnow(), entry_price=100.0,
+        shares_initial=10.0, shares_remaining=0.0,
+        is_open=False, closed_at=datetime.utcnow(), trade_log=[],
+    ))
+    db.commit()
+
+    stats = await _monitor_active_positions_async(
+        bar_service=_mock_bar_service(80.0), db=db,
+    )
+    # Neither strategy has an OPEN position → neither is scanned.
+    assert stats["strategies_checked"] == 0
+    assert stats["positions_monitored"] == 0
+
+
+@pytest.mark.asyncio
 async def test_monitor_end_to_end_fire_dispatches_and_leaves_position(db: Session) -> None:
     """Full walk: an open position on an active-execution strategy hits a
     stop → a notification dispatches + a pending event records, and the

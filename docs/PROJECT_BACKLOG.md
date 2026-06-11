@@ -110,6 +110,14 @@ actively blocking development; all are gates on going-live activities.
 
 **Custom Mode packet status:** ✅ **all three PRDs (16a + 16b + 16c) complete and end-to-end wired.** Home tile → composer → backtest → save → strategy detail (with live dashboard for intraday strategies). See `agent-system/WORK_LOG.md` "Current Session" for the architectural patterns codified and the small operational follow-ups still owed.
 
+### Active-execution follow-ups (active-execution-v2 era)
+
+| Item | Why | Status |
+|---|---|---|
+| **Cap on declared positions per user** | The intraday monitor cron's cost scales with OPEN positions, not saved strategies (the cron is scoped to `position_states WHERE is_open`). A per-user cap on the number of strategies-with-open-positions (or total open positions) bounds the abuse/runaway case + the AV intraday call volume. Likely a tier-gated cap in `entitlements.py` (Scout small / Strategist mid / Quant large), enforced in `declare_position`. | **TODO** — backlog. Not blocking; the cron is already efficient (open-position-scoped), so this is an abuse/cost guard, not a correctness fix. |
+| Signal-triggered ENTRY | Daily cron notifies "your strategy says enter X" → user buys + confirms a fill → declared position. The declare (PR2) + confirm (PR3) primitives make this a small follow-up. | TODO |
+| Dashboard owner-gate on the frontend | The dashboard render gate (`saved_strategy_id != null`) doesn't check viewer ownership, so a non-owner viewing a public active-execution strategy sees the dashboard try to load + hit owner-only 404s → error state. Cosmetic. | TODO |
+
 ---
 
 ## 4b. Market Pulse v2 — Phase 1 status
