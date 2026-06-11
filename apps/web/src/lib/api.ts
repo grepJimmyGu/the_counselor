@@ -712,6 +712,31 @@ export async function getStrategyPositions(
   );
 }
 
+/** active-execution-v2 PR2: declare a real position the user holds, to be
+ *  tracked against the strategy's exit ladder. `entry_price` is the
+ *  user's actual average cost basis — Livermore never simulates a fill. */
+export interface DeclarePositionRequest {
+  symbol: string;
+  shares: number;
+  entry_price: number;
+  entered_at?: string;
+}
+
+export async function declarePosition(
+  strategyId: string,
+  payload: DeclarePositionRequest,
+  backendToken: string,
+): Promise<PositionView> {
+  return fetchApi<PositionView>(
+    `/api/saved-strategies/${strategyId}/positions`,
+    {
+      method: "POST",
+      headers: { Authorization: `Bearer ${backendToken}` },
+      body: JSON.stringify(payload),
+    },
+  );
+}
+
 export async function getStrategyTradeLog(
   strategyId: string,
   backendToken: string,

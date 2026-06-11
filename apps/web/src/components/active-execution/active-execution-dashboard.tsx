@@ -15,6 +15,9 @@
  */
 "use client";
 
+import { useState } from "react";
+
+import { DeclarePositionForm } from "./declare-position-form";
 import { PositionCardsGrid } from "./position-cards-grid";
 import { TradeLogTable } from "./trade-log-table";
 import { UniverseWatchPanel } from "./universe-watch-panel";
@@ -25,6 +28,10 @@ interface Props {
 }
 
 export function ActiveExecutionDashboard({ strategyId, className }: Props) {
+  // Bumped when the user declares a position, to force the grid to
+  // refetch immediately rather than waiting for the next 30s poll.
+  const [refreshKey, setRefreshKey] = useState(0);
+
   return (
     <section
       data-testid="active-execution-dashboard"
@@ -33,7 +40,11 @@ export function ActiveExecutionDashboard({ strategyId, className }: Props) {
     >
       <div className="space-y-6">
         <UniverseWatchPanel strategyId={strategyId} />
-        <PositionCardsGrid strategyId={strategyId} />
+        <DeclarePositionForm
+          strategyId={strategyId}
+          onDeclared={() => setRefreshKey((k) => k + 1)}
+        />
+        <PositionCardsGrid strategyId={strategyId} refreshKey={refreshKey} />
         <TradeLogTable strategyId={strategyId} />
       </div>
     </section>

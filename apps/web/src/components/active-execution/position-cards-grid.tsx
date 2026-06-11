@@ -26,12 +26,16 @@ import { cn } from "@/lib/utils";
 interface Props {
   strategyId: string;
   pollIntervalMs?: number;
+  /** Bump to force an immediate refetch (e.g. after declaring a new
+   *  position). Any change to this value re-runs the fetch effect. */
+  refreshKey?: number;
   className?: string;
 }
 
 export function PositionCardsGrid({
   strategyId,
   pollIntervalMs = 30_000,
+  refreshKey = 0,
   className,
 }: Props) {
   const { data: session, status: sessionStatus } = useSession();
@@ -66,7 +70,7 @@ export function PositionCardsGrid({
       cancelled = true;
       window.clearInterval(interval);
     };
-  }, [strategyId, backendToken, sessionStatus, pollIntervalMs]);
+  }, [strategyId, backendToken, sessionStatus, pollIntervalMs, refreshKey]);
 
   if (loading && !state) {
     return (
