@@ -13,6 +13,8 @@
  */
 
 import * as React from "react";
+import Link from "next/link";
+import type { Route } from "next";
 import { useSession } from "next-auth/react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -122,9 +124,20 @@ export function FlowSave({
       ) : null}
 
       {context.savedSlug ? (
-        <p className="text-sm text-green-700" data-testid="flow-save-done">
-          {doneMsg}
-        </p>
+        <div className="space-y-2" data-testid="flow-save-done">
+          <p className="text-sm text-green-700">{doneMsg}</p>
+          {/* Explicit forward path — never a dead-end even if the
+              flow's onComplete auto-redirect doesn't fire (the redirect
+              runs as a side-effect inside a state updater, which isn't
+              guaranteed). */}
+          <Link
+            href={"/account/strategies" as Route}
+            data-testid="flow-save-view-strategies"
+            className="inline-flex items-center gap-1.5 rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-800"
+          >
+            View my strategies →
+          </Link>
+        </div>
       ) : null}
 
       <div>

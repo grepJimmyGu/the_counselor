@@ -219,7 +219,7 @@ export function SavedStrategiesTile() {
         </div>
         {rows && rows.length > 0 && (
           <Link
-            href={"/profile" as Route}
+            href={"/account/strategies" as Route}
             className="text-xs font-medium text-primary transition-colors hover:underline"
           >
             View all →
@@ -242,7 +242,7 @@ export function SavedStrategiesTile() {
           {rows.map((row) => (
             <li key={row.strategy.id}>
               <Link
-                href={"/profile" as Route}
+                href={`/account/strategies/${row.strategy.id}` as Route}
                 className="group flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/20 px-4 py-3 transition-colors hover:border-primary/40 hover:bg-primary/5"
                 data-testid="saved-strategy-row"
                 data-strategy-id={row.strategy.id}
