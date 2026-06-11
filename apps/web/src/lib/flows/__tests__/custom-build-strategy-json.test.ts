@@ -4,12 +4,14 @@ import { describe, expect, it } from "vitest";
 
 import type { SignalPrimitive } from "@/lib/contracts";
 import {
+  activeExecutionNeedsExitLadder,
   applyTemplateThresholdsToRules,
   buildCustomBuildStrategyJson,
 } from "../custom-build-strategy-json";
 import type {
   BuildRule,
   CustomBuildModeContext,
+  ExitTier,
 } from "../custom-build-mode-context";
 
 function _primitive(id: string): SignalPrimitive {
@@ -186,6 +188,101 @@ describe("buildCustomBuildStrategyJson", () => {
   });
 });
 
+
+// ── activeExecutionNeedsExitLadder (PRD-16c live-tracking guard) ─────────
+
+describe("activeExecutionNeedsExitLadder", () => {
+  const STOP_LADDER: ExitTier[] = [
+    { trigger_pct: -0.1, action: "sell_all", label: "Stop" },
+  ];
+
+  // Mirrors INITIAL_CUSTOM_BUILD_CONTEXT but lets a test override the
+  // three fields the guard reads.
+  function _aeCtx(
+    overrides: Partial<
+      Pick<
+        CustomBuildModeContext,
+        "active_execution_enabled" | "bar_resolution" | "exit_ladder"
+      >
+    >,
+  ): CustomBuildModeContext {
+    return {
+      fromTrigger: "test",
+      symbol: "SPY",
+      rules: [_rule("rsi")],
+      active_execution_enabled: false,
+      bar_resolution: "daily",
+      exit_ladder: [],
+      ...overrides,
+    };
+  }
+
+  it("FIRES for a non-daily active-execution strategy with an empty ladder (the silent dead-end)", () => {
+    expect(
+      activeExecutionNeedsExitLadder(
+        _aeCtx({
+          active_execution_enabled: true,
+          bar_resolution: "5min",
+          exit_ladder: [],
+        }),
+      ),
+    ).toBe(true);
+  });
+
+  it("FIRES across every non-daily resolution when the ladder is empty", () => {
+    for (const res of ["5min", "15min", "30min", "60min"] as const) {
+      expect(
+        activeExecutionNeedsExitLadder(
+          _aeCtx({
+            active_execution_enabled: true,
+            bar_resolution: res,
+            exit_ladder: [],
+          }),
+        ),
+      ).toBe(true);
+    }
+  });
+
+  it("does NOT fire for a daily strategy, even with an empty ladder", () => {
+    // The common backtest path — daily strategies don't need a ladder
+    // and the backend never live-tracks them.
+    expect(
+      activeExecutionNeedsExitLadder(
+        _aeCtx({
+          active_execution_enabled: true,
+          bar_resolution: "daily",
+          exit_ladder: [],
+        }),
+      ),
+    ).toBe(false);
+    // And the default (active execution off) daily context.
+    expect(activeExecutionNeedsExitLadder(_aeCtx({}))).toBe(false);
+  });
+
+  it("does NOT fire once a non-daily strategy has at least one exit tier", () => {
+    expect(
+      activeExecutionNeedsExitLadder(
+        _aeCtx({
+          active_execution_enabled: true,
+          bar_resolution: "5min",
+          exit_ladder: STOP_LADDER,
+        }),
+      ),
+    ).toBe(false);
+  });
+
+  it("does NOT fire when active execution is off (bar_resolution is ignored)", () => {
+    expect(
+      activeExecutionNeedsExitLadder(
+        _aeCtx({
+          active_execution_enabled: false,
+          bar_resolution: "5min",
+          exit_ladder: [],
+        }),
+      ),
+    ).toBe(false);
+  });
+});
 
 // ── applyTemplateThresholdsToRules ───────────────────────────────────────
 

@@ -28,6 +28,7 @@ import type {
   TemplateMatch,
 } from "@/lib/contracts";
 import {
+  activeExecutionNeedsExitLadder,
   applyTemplateThresholdsToRules,
   buildCustomBuildStrategyJson,
 } from "@/lib/flows/custom-build-strategy-json";
@@ -134,6 +135,16 @@ export function CustomBuildCanvas({
     () => context.rules.map((r) => r.primitive_id),
     [context.rules],
   );
+
+  // PRD-16c live-tracking guard. A non-daily active-execution strategy
+  // saved with an empty exit ladder is a silent dead-end: the backend
+  // bridge `_maybe_create_saved_strategy_for_active_execution` only
+  // creates the SavedStrategy (which powers /account/strategies + the
+  // live dashboard + the monitor cron) when bar_resolution != 'daily'
+  // AND the exit ladder is non-empty. Block the advance and surface an
+  // inline warning so the user wires a ladder before save. Daily
+  // strategies never trip this — they take the standard backtest path.
+  const needsExitLadder = activeExecutionNeedsExitLadder(context);
 
   return (
     <div className="flex flex-col gap-4">
@@ -249,6 +260,16 @@ export function CustomBuildCanvas({
               value={context.exit_ladder}
               onChange={(next) => updateContext({ exit_ladder: next })}
             />
+            {needsExitLadder && (
+              <p
+                data-testid="active-execution-ladder-required"
+                role="alert"
+                className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] font-medium leading-snug text-amber-800"
+              >
+                Active execution needs at least one exit tier — add a
+                take-profit or stop to track this live.
+              </p>
+            )}
           </div>
         )}
 
@@ -267,7 +288,8 @@ export function CustomBuildCanvas({
               context.rules.length === 0 ||
               !context.symbol ||
               (context.active_execution_enabled &&
-                !validateExitLadder(context.exit_ladder).ok)
+                !validateExitLadder(context.exit_ladder).ok) ||
+              needsExitLadder
             }
             onClick={() => {
               try {

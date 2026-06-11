@@ -373,4 +373,57 @@ describe("CustomBuildCanvas", () => {
     _renderCanvas();
     expect(screen.getByTestId("active-execution-scaffold")).toBeTruthy();
   });
+
+  it("blocks Run backtest + warns for a non-daily active-execution strategy with no exit ladder", () => {
+    // The exact silent dead-end a real user hit: 5min + no ladder saved
+    // but never appeared in My Strategies. Rule + symbol are present so
+    // the empty ladder is the ONLY thing gating the advance.
+    _renderCanvas({
+      symbol: "SPY",
+      rules: [_rule("u1")],
+      active_execution_enabled: true,
+      bar_resolution: "5min",
+      exit_ladder: [],
+    });
+    const warning = screen.getByTestId("active-execution-ladder-required");
+    expect(warning.textContent).toMatch(/at least one exit tier/i);
+    const runBtn = screen.getByTestId(
+      "custom-build-run-backtest",
+    ) as HTMLButtonElement;
+    expect(runBtn.disabled).toBe(true);
+  });
+
+  it("does NOT warn or block a daily strategy with an empty ladder", () => {
+    _renderCanvas({
+      symbol: "SPY",
+      rules: [_rule("u1")],
+      active_execution_enabled: true,
+      bar_resolution: "daily",
+      exit_ladder: [],
+    });
+    expect(
+      screen.queryByTestId("active-execution-ladder-required"),
+    ).toBeNull();
+    const runBtn = screen.getByTestId(
+      "custom-build-run-backtest",
+    ) as HTMLButtonElement;
+    expect(runBtn.disabled).toBe(false);
+  });
+
+  it("clears the warning + unblocks once a non-daily strategy gets an exit tier", () => {
+    _renderCanvas({
+      symbol: "SPY",
+      rules: [_rule("u1")],
+      active_execution_enabled: true,
+      bar_resolution: "5min",
+      exit_ladder: [{ trigger_pct: -0.1, action: "sell_all", label: "Stop" }],
+    });
+    expect(
+      screen.queryByTestId("active-execution-ladder-required"),
+    ).toBeNull();
+    const runBtn = screen.getByTestId(
+      "custom-build-run-backtest",
+    ) as HTMLButtonElement;
+    expect(runBtn.disabled).toBe(false);
+  });
 });

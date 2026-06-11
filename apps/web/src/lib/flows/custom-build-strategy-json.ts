@@ -66,6 +66,41 @@ function _toStrategyRule(rule: BuildRule): StrategyRule {
   return out;
 }
 
+/**
+ * PRD-16c live-tracking guard.
+ *
+ * A strategy is only live-trackable — i.e. it shows up in
+ * /account/strategies, renders the live dashboard, and is picked up by
+ * the monitor cron — when the backend save bridge
+ * `_maybe_create_saved_strategy_for_active_execution`
+ * (apps/api/app/api/routes/strategy_storage.py) creates a `SavedStrategy`
+ * row. That bridge fires ONLY when the persisted `strategy_json` carries
+ * BOTH a non-daily `bar_resolution` AND a non-empty
+ * `risk_management.exit_ladder`. Saving "5min + no ladder" therefore
+ * produces a backtest that silently never appears in My Strategies and
+ * can never be tracked live.
+ *
+ * This predicate is true in exactly that silent-failure window so the
+ * composer can block the advance / surface a warning before save. It
+ * mirrors the emit conditions in `buildCustomBuildStrategyJson` below:
+ * the top-level `bar_resolution` key is written only when active
+ * execution is on AND the resolution is non-daily, and the exit ladder
+ * is attached only when it is non-empty. Daily strategies (the common
+ * backtest path) never trip it — they don't need a ladder to be useful.
+ */
+export function activeExecutionNeedsExitLadder(
+  context: Pick<
+    CustomBuildModeContext,
+    "active_execution_enabled" | "bar_resolution" | "exit_ladder"
+  >,
+): boolean {
+  return (
+    context.active_execution_enabled === true &&
+    context.bar_resolution !== "daily" &&
+    (!Array.isArray(context.exit_ladder) || context.exit_ladder.length === 0)
+  );
+}
+
 export function buildCustomBuildStrategyJson(
   context: CustomBuildModeContext,
   opts: CustomBuildBackoutOptions = {},
