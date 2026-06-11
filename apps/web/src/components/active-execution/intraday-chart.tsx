@@ -37,6 +37,7 @@ import {
   type IntradayChartResponse,
   type IntradayChartSeries,
 } from "@/lib/api";
+import { buildIntradayAxis, nearestIndex } from "./intraday-chart-axis";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -46,17 +47,6 @@ interface Props {
   /** Bumped by the parent (e.g. on declare) to force an immediate refetch. */
   refreshKey?: number;
   className?: string;
-}
-
-// US market data — always render the axis in US Eastern, regardless of the
-// viewer's browser timezone. The backend emits ET-aware timestamps, so this
-// formats the same instant into ET wall-clock for everyone.
-function fmtTime(ms: number): string {
-  return new Date(ms).toLocaleTimeString("en-US", {
-    timeZone: "America/New_York",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
 }
 
 function tierColor(triggerPct: number): string {
@@ -156,23 +146,24 @@ export function IntradayChart({
 }
 
 function PositionChart({ series }: { series: IntradayChartSeries }) {
-  const points = useMemo(
-    () =>
-      series.bars
-        .map((b) => ({ t: Date.parse(b.t), close: b.close }))
-        .filter((p) => Number.isFinite(p.t)),
-    [series.bars],
-  );
+  // Index-based, session-aware axis: bars are evenly spaced so closed-market
+  // gaps collapse instead of drawing a fake line across them; ticks carry
+  // ET date + time (see intraday-chart-axis.ts).
+  const axis = useMemo(() => buildIntradayAxis(series.bars), [series.bars]);
+  const points = axis.points;
 
-  // Triggers = every event except the initial entry (entry is shown as its
-  // own line). Only those with a usable timestamp + price get a marker.
+  // Triggers = every event except the initial entry (entry is its own
+  // line). Each is mapped to the NEAREST bar ordinal so its marker lands on
+  // the price line rather than at a real-time x that the index axis dropped.
   const triggers = useMemo(
     () =>
       series.events
         .filter((e) => e.event !== "entry" && e.price != null)
-        .map((e) => ({ t: Date.parse(e.t), price: e.price as number, label: e.tier_label ?? e.event }))
-        .filter((e) => Number.isFinite(e.t)),
-    [series.events],
+        .map((e) => ({ ms: Date.parse(e.t), price: e.price as number }))
+        .filter((e) => Number.isFinite(e.ms))
+        .map((e) => ({ idx: nearestIndex(points, e.ms), price: e.price }))
+        .filter((d) => d.idx >= 0),
+    [series.events, points],
   );
 
   return (
@@ -232,13 +223,13 @@ function PositionChart({ series }: { series: IntradayChartSeries }) {
           <LineChart data={points} margin={{ top: 8, right: 12, bottom: 4, left: 4 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
             <XAxis
-              dataKey="t"
+              dataKey="idx"
               type="number"
-              scale="time"
-              domain={["dataMin", "dataMax"]}
-              tickFormatter={fmtTime}
+              domain={[0, Math.max(0, points.length - 1)]}
+              ticks={axis.tickIndices}
+              tickFormatter={(i) => axis.tickLabel(Number(i))}
               tick={{ fontSize: 10, fill: "#94a3b8" }}
-              minTickGap={40}
+              minTickGap={16}
             />
             <YAxis
               domain={["auto", "auto"]}
@@ -247,7 +238,7 @@ function PositionChart({ series }: { series: IntradayChartSeries }) {
               tickFormatter={(v: number) => `$${v.toFixed(0)}`}
             />
             <Tooltip
-              labelFormatter={(ms) => fmtTime(Number(ms))}
+              labelFormatter={(i) => axis.fullLabel(Number(i))}
               formatter={(v) => [`$${Number(v).toFixed(2)}`, "Close"]}
             />
             <Line
@@ -287,11 +278,11 @@ function PositionChart({ series }: { series: IntradayChartSeries }) {
               ) : null,
             )}
 
-            {/* Fired-trigger markers */}
+            {/* Fired-trigger markers, placed on the nearest bar ordinal */}
             {triggers.map((trig, i) => (
               <ReferenceDot
-                key={`${trig.t}-${i}`}
-                x={trig.t}
+                key={`${trig.idx}-${i}`}
+                x={trig.idx}
                 y={trig.price}
                 r={4}
                 fill="#f59e0b"
