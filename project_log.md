@@ -8,6 +8,37 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-06-11 — active-execution-v2 (track real holdings) + Custom Mode reachability + the live intraday chart (#187 → #197)
+
+A single long session. Started by answering "if I toggle execution on, what actually happens?" and ended with a usable live dashboard — including a price chart — plus a full data-source diagnosis that reframed the remaining work.
+
+| PR | Scope |
+|---|---|
+| #187 | active-execution-v2 PR1 — cron **detects + notifies**, never auto-mutates (compliance: Livermore never simulates a fill) |
+| #188 | PR2 — **declare a position you hold** (endpoint + UI); entry_price = the user's real cost basis |
+| #189 | PR3 — **confirm-and-decrement**: user executes in their own brokerage, confirms, shares decrement |
+| #190 | hotfix — pin `.python-version` to 3.13.13 (Railway `mise` couldn't build the just-published 3.13.14) |
+| #191 | **the bridge** — an active-execution save now also creates the `SavedStrategy` the dashboard/cron key on; cron re-scoped to `PositionState WHERE is_open` (cost scales with open positions, not total saves) |
+| #192 | **"My Strategies" repo** (`/account/strategies` + `/[id]` dashboard) + killed the post-save dead-end (explicit "View my strategies →" link) |
+| #193 | persistent **nav entries** — account dropdown "My Strategies" + clickable home-tile heading (works in the empty state too) |
+| #194 | composer **exit-ladder guard** — block "non-daily + no ladder" before save (the silent dead-end). Spawned as a background task, reviewed + merged |
+| #195 | **live intraday chart** — owner-gated `/intraday-chart` endpoint + recharts component (price line + tier lines + trigger markers) |
+| #196 | chart **ET axis** — normalize bars (naive ET) and events (naive UTC) to one ET-aware basis so markers align; format axis in `America/New_York` |
+| #197 | **session-aware axis** — index-based x (collapse closed-market gaps), ET date+time tick labels, trigger dots snap to nearest bar |
+
+### The architectural gap this closed
+Composer **Save** wrote a `BacktestRecord` (slug-based, public); the entire active-execution system (cron, dashboard, declare/confirm) keys on the **`SavedStrategy`** table. They never connected. #191's bridge wires them: a non-daily save **with a non-empty exit ladder** now creates both. #192–#194 made that reachable + un-foot-gunnable from the UI.
+
+### Operational: the missing-strategy incident + backfill
+A real user (`jimmygu220@gmail.com`) reported a saved 15min strategy that never appeared in My Strategies. Live-DB diagnosis: **0 SavedStrategy rows** — all 9 saves predated the #191 bridge deploy, and only one (15min + 3-tier ladder) qualified. Authorized, previewed, then ran a one-row idempotent backfill (all-users scope; only that row qualified). The 5min strategies in the user's screenshots had **no exit ladder** → not active-execution by design.
+
+### The data-freshness finding (reframes the open work)
+The dashboard's "No recent bar" + ~1-day-stale chart is **not** our cron/cache — it faithfully serves what AlphaVantage returns. Direct API test with the prod key: `entitlement=realtime` and `entitlement=delayed` are **both rejected** — the key is **not entitled to real-time or 15-min-delayed US equities** (AV's general "premium" raises rate limits; realtime is a separate entitlement). Market Pulse looks live because it uses a **different provider** (FMP `/stable/quote`, daily granularity). Confirmed **FMP also serves intraday** (`/stable/historical-chart/15min` returned today's bars, minutes-fresh). **Decision (Mr Gu): don't swap now** — the chart honestly labels stale data; the FMP-intraday switch is the clean future fix.
+
+**Verification:** every PR's full CI green before merge (CodeQL ×4 + Postgres smoke + Vercel); backend chart/route suites + frontend active-exec/account suites green throughout; `tsc` clean each time.
+
+---
+
 ## 2026-06-09 (late) — PRD-16c (intraday + active execution) complete + Custom Mode end-to-end wired in 10 sequential PRs (#171 → #180)
 
 Same continuous session as the PRD-16a + PRD-16b closeouts below. After Mr Gu directed "finish PRD-16 entirely," the full PRD-16c was shipped across 8 slices, then a UX audit revealed two reachability gaps (no Home tile + no dashboard render) and 2 more PRs closed them.

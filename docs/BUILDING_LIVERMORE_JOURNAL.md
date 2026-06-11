@@ -1455,6 +1455,24 @@ PR #180 closed (2) with a single optional field: `SavedStrategyResponse.saved_st
 
 ---
 
+### Episode 40 — "If I toggle execution on, what happens?" → tracking real holdings, and the day the chart told the truth (June 11)
+
+It started as a question, not a ticket: *if I turn active execution on, what actually happens?* The honest answer was "less than you'd think" — and chasing it down turned into the most end-to-end day of the project: eleven PRs (#187 → #197) that took active execution from a toggle to a thing a person can actually use, plus a data-source autopsy that quietly rewrote the roadmap.
+
+**The model decision came first, and it was a compliance call.** Livermore is not a brokerage. So the v2 design (#187–#189): the cron **detects** an exit-tier trigger and **notifies** — it never simulates a fill. You declare a position you actually hold (your real cost basis), you execute in your own brokerage, you confirm, and only then do the tracked shares decrement. The invariant that falls out of that — *the cron may append a `pending_confirmation` event but must never mutate shares/`is_open`/`final_pnl`* — is the kind of rule that's easy to state and easy to violate three weeks later. It's written down now.
+
+**Then the gap that made the whole feature unreachable.** Composer *Save* wrote a `BacktestRecord` (slug-based, public). The entire active-execution machine — cron, dashboard, declare/confirm — keys on a different table, `SavedStrategy`. They had never been wired together. So you could build an active-execution strategy, save it, and it would simply... vanish from the live side. #191 bridged them (a non-daily save with a real exit ladder now creates both rows) and re-scoped the cron to drive off open positions, not the count of every strategy ever saved. #192–#194 made it reachable and un-foot-gunnable: a "My Strategies" repo, nav entries that actually point at it, and a guard that stops you saving a 5-minute strategy with no exit ladder (which silently could never be tracked).
+
+**The bug report that proved the gap was real.** Mr Gu, on his own account, saved a 15-minute MACD strategy and couldn't find it. Straight to the live DB: zero `SavedStrategy` rows. Every save he'd made predated the bridge deploy by hours, and only one even qualified. The fix was a one-row backfill — but the *method* is the lesson: authorize, preview the exact rows with the same predicate the INSERT would use, then write in a transaction with a verification SELECT before COMMIT. (Postgres also reminded me, twice, that it won't short-circuit a `json_typeof` guard before calling `json_array_length` on a scalar — wrap it in a CASE.)
+
+**Then he asked for a chart, and the chart started lying.** #195 added an intraday price line with the exit tiers drawn across it and the entry marked. Good — except the x-axis was rendered in the viewer's *browser* timezone, the bar timestamps (naive ET) and the event timestamps (naive UTC) were on different clocks so the markers would sit hours off the line (#196 fixed both by normalizing to one ET-aware basis), and — the one Mr Gu caught from a screenshot — two days of bars on a real-time axis drew the overnight gap as a slow price drift and labeled everything `HH:MM` with no date. #197 made it a real trading chart: index-based axis so closed-market gaps collapse, ET date shown at each new session, markers snapped to the nearest bar.
+
+**And the finding that reframed everything.** The chart was honest now, but still a day stale. I told him it was free-tier rate-limiting. It wasn't — that was a guess wearing a fact's clothing. Curling AlphaVantage directly with the prod key got the truth in one line: *"You are not yet entitled to realtime US market data access."* The key raises rate limits but doesn't include the realtime entitlement, so AV serves last session only. Why did Market Pulse look fine all along? Different provider — FMP, daily quotes. Two providers, two entitlements; one's health was never evidence about the other. And FMP, it turns out, *does* serve live intraday. So the clean fix isn't an AV upgrade, it's a provider swap — which Mr Gu chose to defer, with the chart now honestly dating whatever it has.
+
+**What the day was really about:** the distance between "the code works" and "a person can use this." Every PR was small; the value was in the seams between them — the bridge, the nav entry, the guard, the timezone unification, the axis. And the reminder, earned again: when a third party is in the loop, ask *it* before you theorize.
+
+---
+
 ## Recurring journeys (themes)
 
 ### "Scope-cut every stage"

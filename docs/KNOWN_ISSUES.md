@@ -29,6 +29,20 @@ A running log of bugs encountered, root causes, and confirmed fixes. Add new ent
 
 ## Entries
 
+### Intraday dashboard data trails ~1 day — AlphaVantage key not entitled to real-time US equities
+**Date:** 2026-06-11
+**Area:** infra | data
+**Symptom:** The active-execution dashboard shows "No recent bar" (universe watch) and the live chart's newest bar is ~1 day old, even during US market hours. A user with a "premium" AV key expected minutes-fresh data.
+**Root cause:** NOT our cron/cache — they faithfully store exactly what AlphaVantage returns. Tested the AV API directly with the production key:
+- `TIME_SERIES_INTRADAY` (no entitlement param, what our wrapper sends) → latest bar = previous completed session.
+- `&entitlement=realtime` → **"You are not yet entitled to realtime US market data access."**
+- `&entitlement=delayed` → **"You are not yet entitled to 15-minute delayed US market data access."**
+
+AlphaVantage restructured: general "premium" plans raise *rate limits* but **"Realtime US Market Data" is a separate entitlement**. The configured key has neither realtime nor 15-min-delayed US equity intraday, so AV serves only the last completed session.
+**Why Market Pulse looks fine:** it uses a **different provider** — FMP `/stable/quote` (live overlay on the EOD `price_bars` base), daily granularity. Two providers, two entitlements; one provider being healthy says nothing about the other.
+**Fix (deferred by decision):** two options — (a) upgrade the AV plan to include Realtime US Market Data **and** add an env-gated `entitlement=realtime` param to the intraday wrapper (without an entitled key, sending the param returns 0 bars — so it must be env-gated, default off); or (b) **switch the intraday source to FMP** — verified `/stable/historical-chart/15min` returns today's bars minutes-fresh on the current FMP key. Mr Gu chose to defer; the chart honestly labels whatever it has (#197 made the axis show the real ET date), so stale data is clearly dated, not misrepresented.
+**Files:** `apps/api/app/services/alpha_vantage.py` (`fetch_intraday_bars` — would add the entitlement param), `apps/api/app/services/intraday_bar_service.py` (the cache layer — unchanged, correct).
+
 ### Railway build fails: `mise` can't install bleeding-edge Python patch
 **Date:** 2026-06-11
 **Area:** infra

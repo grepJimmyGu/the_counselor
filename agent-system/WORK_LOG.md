@@ -9,6 +9,38 @@
 
 ## Current Session
 
+**Status:** 2026-06-11 — **active-execution-v2 (track REAL holdings) + Custom Mode made reachable + the live intraday chart. 11 PRs (#187 → #197), all merged, zero regressions.** The loop now runs end-to-end: Build from scratch → compose (non-daily + exit ladder) → backtest → save → land in **My Strategies** (`/account/strategies`, reachable from the nav + home tile) → open a strategy's **live dashboard** → **declare a position you hold** → the cron detects exit-tier triggers and **notifies** (never auto-sells) → you confirm your real fill → shares decrement. The dashboard now includes a **session-aware intraday price chart** (price line + exit-tier lines + trigger markers, ET date+time axis, gaps collapsed).
+
+**Shipped this session:**
+
+| PR | Scope |
+|---|---|
+| #187–#189 | active-execution-v2: cron detects+notifies / declare a held position / confirm-and-decrement |
+| #190 | hotfix: pin `.python-version` 3.13.13 (Railway mise couldn't build 3.13.14) |
+| #191 | bridge: active-exec save → also creates `SavedStrategy`; cron scoped to `PositionState WHERE is_open` |
+| #192 | "My Strategies" repo + killed post-save dead-end |
+| #193 | persistent nav entries (account menu + home-tile heading) |
+| #194 | composer exit-ladder guard (block non-daily + empty ladder) — spawned task, reviewed + merged |
+| #195 | live intraday chart (endpoint + recharts component) |
+| #196 | chart ET axis (unify naive-ET bars + naive-UTC events to ET-aware) |
+| #197 | session-aware axis (index-based, collapse gaps, ET date+time) |
+
+**Operational:** backfilled 1 stranded `SavedStrategy` for `jimmygu220@gmail.com` (a 15min+3-tier strategy saved before the #191 bridge deployed). Preview-then-write, idempotent, all-users scope (only that row qualified).
+
+**Key finding (open work):** the intraday data lag is **not** our cron — the AlphaVantage prod key is **not entitled to real-time or 15-min-delayed US equities** (verified by direct API test; `entitlement=realtime`/`delayed` both rejected). Market Pulse looks live because it uses **FMP** (different provider). FMP **does** serve live intraday (`/stable/historical-chart/15min`). See KNOWN_ISSUES.md 2026-06-11.
+
+### Next action (deferred by Mr Gu — pick up when desired)
+**Swap the intraday source AV → FMP** so the dashboard/chart/monitor get minutes-fresh data without an AV plan change. FMP intraday confirmed working on the current key. Scope: add `FMPClient.get_intraday_bars` (`/stable/historical-chart/{interval}?symbol=…`), point `IntradayBarService` fetch at it (map FMP's `date` field — naive ET — into `bar_time`), keep the cache + ET-aware chart unchanged. Alternative: upgrade the AV plan to include Realtime US Market Data + add an env-gated `entitlement=realtime` param. Mr Gu chose to defer both for now.
+
+### Backlog (in PROJECT_BACKLOG)
+- Per-user cap on declared positions (tier-gated).
+- Signal-triggered ENTRY (cron currently only acts on exits of declared positions).
+- Backend defense-in-depth: log/observe non-daily saves that arrive with no ladder (the #194 guard is frontend-only).
+
+---
+
+### Prior checkpoint — 2026-06-09 (late)
+
 **Status:** 2026-06-09 (late) — **PRD-16c (intraday + multi-tier exits + live dashboard) FULLY COMPLETE + the entire Custom Mode 3-PRD packet (16a + 16b + 16c) END-TO-END WIRED.** 10 PRs in this session, all auto-merged, zero regressions throughout. A user can now click "Build from scratch" on the Home page → compose a custom strategy with active execution + a multi-tier exit ladder → backtest → save → land on a strategy detail page with the live dashboard rendered (intraday strategies only). The intraday monitor cron mutates `PositionState` rows as exit tiers fire; the 30s-polling dashboard surfaces those mutations in near-real-time.
 
 **Shipped (PRD-16c — 8 PRs + 2 UX wire-up PRs, 2026-06-09 late):**
