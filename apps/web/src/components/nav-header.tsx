@@ -5,7 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSession, signIn, signOut } from "next-auth/react";
 import type { Route } from "next";
-import { LogIn, LogOut, User, Menu, X } from "lucide-react";
+import { LogIn, LogOut, User, Menu, X, BookmarkCheck } from "lucide-react";
 import { LanguageSwitcher } from "@/components/language-switcher";
 import { QuotaBadge } from "@/components/QuotaBadge";
 import { useLocale } from "@/lib/locale-context";
@@ -89,6 +89,16 @@ function UserMenu() {
           <Link href={"/account" as Route} className="cursor-pointer min-h-[44px]">
             <User className="mr-2 h-3.5 w-3.5" />
             Account
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild>
+          <Link
+            href={"/account/strategies" as Route}
+            data-testid="user-menu-my-strategies"
+            className="cursor-pointer min-h-[44px]"
+          >
+            <BookmarkCheck className="mr-2 h-3.5 w-3.5" />
+            My Strategies
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />

@@ -213,10 +213,19 @@ export function SavedStrategiesTile() {
       className="rounded-2xl border border-border bg-white p-5 shadow-sm"
     >
       <div className="mb-4 flex items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
+        {/* The heading itself is an entry into the My Strategies repo —
+            available in every state (loading / empty / populated), unlike
+            "View all →" which only renders when there are saved rows. */}
+        <Link
+          href={"/account/strategies" as Route}
+          data-testid="saved-strategies-tile-heading"
+          className="group flex items-center gap-2 rounded-md transition-colors hover:text-primary"
+        >
           <BookmarkCheck className="h-4 w-4 text-primary" />
-          <h2 className="text-sm font-semibold text-foreground">Your saved strategies</h2>
-        </div>
+          <h2 className="text-sm font-semibold text-foreground group-hover:text-primary">
+            Your saved strategies
+          </h2>
+        </Link>
         {rows && rows.length > 0 && (
           <Link
             href={"/account/strategies" as Route}
