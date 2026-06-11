@@ -29,6 +29,58 @@ A running log of bugs encountered, root causes, and confirmed fixes. Add new ent
 
 ## Entries
 
+### Railway build fails: `mise` can't install bleeding-edge Python patch
+**Date:** 2026-06-11
+**Area:** infra
+**Symptom:** Three consecutive Railway deploys FAILED at the BUILD step
+(not runtime/healthcheck). Build log:
+```
+mise ERROR Failed to install core:python@3.13.14:
+  no precompiled python found for core:python@3.13.14 on x86_64-unknown-linux-gnu
+[ERRO] install mise packages: python
+Build Failed: process "mise install" did not complete successfully: exit code: 1
+```
+The failures coincided with a run of cron-related PRs (#186–#189), which
+made it *look* like the cron registration broke the deploy. **It did not** —
+the build dies before any of our code runs.
+
+**Root cause:** The repo had **no pinned Python version**, so Railway's
+railpack/`mise` auto-resolved `python@3.13` to the latest patch CPython had
+released — `3.13.14`, published by `astral-sh/python-build-standalone` on
+**2026-06-10**. But railpack bundles `mise 2026.6.1` (built **2026-06-06**),
+whose precompiled-python index snapshot predates the 3.13.14 publish. mise
+therefore had no precompiled binary for 3.13.14 and the build step failed.
+Classic bleeding-edge race: CPython tags a patch → standalone publishes it →
+mise's bundled index lags by days → an unpinned project grabs the newest
+patch and can't install it.
+
+**Why it read as "cron-correlated":** the last SUCCESS was 2026-06-09;
+the first FAILED build was after that, landing on the cron PRs purely by
+timing. A local `uvicorn app.main:app` boot reached "Application startup
+complete" + `/health` 200 in 2 ms with the cron registered — proving the
+lifespan/scheduler were innocent. The decisive evidence was
+`railway logs --build <deployment-id>`, which showed the `mise install`
+failure (not a runtime traceback).
+
+**Fix:** Pin `apps/api/.python-version` to `3.13.13` — the latest 3.13
+patch that's IN mise 2026.6.1's index (published 2026-06-02, before the
+06-06 snapshot). Semantically identical to 3.13.14 for our code (which
+targets 3.9+). With the pin, railpack stops chasing the bleeding edge.
+
+**Prevention rule:** keep `apps/api/.python-version` pinned to a specific
+patch and bump it deliberately, lagging the very latest by one patch so
+mise's index has caught up. Never run unpinned — an unpinned Python is a
+latent build bomb every time CPython ships a patch faster than mise's
+index refreshes.
+
+**Diagnostic lesson:** a "failed deployment" is not always a code/runtime
+bug. Split build-vs-runtime FIRST: `railway logs --build <id>` (build
+phase) vs `railway logs --deployment <id>` (runtime). The pre-push
+static-import smoke + a local `uvicorn` boot both passed here — because the
+failure was upstream of Python entirely, in the toolchain install.
+
+**Files:** `apps/api/.python-version` (new).
+
 ---
 
 ### Lifespan warmups blocked the event loop — 14 deploys FAILED in a row, production served by a stale pre-CN container
