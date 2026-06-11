@@ -778,6 +778,54 @@ export async function getStrategyTradeLog(
   );
 }
 
+// ── intraday live chart (price trend + tier lines + trigger markers) ─────────
+
+export interface IntradayChartBar {
+  t: string;
+  close: number;
+}
+
+export interface IntradayChartTier {
+  label: string;
+  trigger_pct: number;
+  price_level: number | null;
+}
+
+export interface IntradayChartEvent {
+  t: string;
+  price: number | null;
+  event: string;
+  tier_label: string | null;
+}
+
+export interface IntradayChartSeries {
+  position_id: string;
+  symbol: string;
+  is_open: boolean;
+  entry_at: string | null;
+  entry_price: number | null;
+  bars: IntradayChartBar[];
+  tiers: IntradayChartTier[];
+  events: IntradayChartEvent[];
+}
+
+export interface IntradayChartResponse {
+  strategy_id: string;
+  bar_resolution: string;
+  generated_at: string;
+  series: IntradayChartSeries[];
+}
+
+export async function getIntradayChart(
+  strategyId: string,
+  backendToken: string,
+): Promise<IntradayChartResponse> {
+  return fetchApi<IntradayChartResponse>(
+    `/api/saved-strategies/${strategyId}/intraday-chart`,
+    { headers: { Authorization: `Bearer ${backendToken}` } },
+  );
+}
+
 // ── Signal alerts (PR #83 endpoints, wired into UI by PR-E) ──────────────────
 // All three require `SIGNAL_ALERTS_ENABLED=true` on Railway. Without it,
 // the routes 404.
