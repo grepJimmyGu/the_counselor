@@ -117,7 +117,62 @@ def save_strategy(
     record.saved_at = datetime.utcnow()
     db.commit()
 
+    # active-execution-v2: the live machinery (monitor cron, dashboard,
+    # PositionState, declare/confirm) is all keyed on the SavedStrategy
+    # table — but this endpoint only writes a BacktestRecord. For an
+    # active-execution strategy (non-daily bar_resolution + an exit
+    # ladder), ALSO create a SavedStrategy linked to this record so the
+    # loop connects: the bridge field (`saved_strategy_id` on the
+    # /strategies/{slug} response) resolves, the dashboard renders, and
+    # the cron sees the strategy. No-op for daily strategies — they don't
+    # need it, keeping the common path untouched.
+    _maybe_create_saved_strategy_for_active_execution(
+        db, record, name=req.name, is_public=is_public, user_id=user.id,
+    )
+
     return StrategySaveResponse(slug=slug, url=f"/strategies/{slug}", is_public=is_public)
+
+
+def _maybe_create_saved_strategy_for_active_execution(
+    db: Session, record: BacktestRecord, *, name: str, is_public: bool,
+    user_id: str,
+) -> None:
+    """Create a SavedStrategy linked to `record` when the strategy is set
+    up for active execution. Idempotent: skips if a SavedStrategy already
+    references this BacktestRecord. Best-effort — a failure here must not
+    fail the save (the backtest is already persisted)."""
+    from uuid import uuid4
+    from app.models.saved_strategy import SavedStrategy
+
+    try:
+        strategy_json = (record.result_payload or {}).get("strategy_json") or {}
+        bar_resolution = strategy_json.get("bar_resolution", "daily")
+        exit_ladder = (strategy_json.get("risk_management") or {}).get("exit_ladder")
+        if bar_resolution == "daily" or not exit_ladder:
+            return  # not active execution — nothing to wire
+
+        existing = db.scalar(
+            select(SavedStrategy).where(
+                SavedStrategy.backtest_record_id == record.id
+            )
+        )
+        if existing is not None:
+            return  # already linked (re-save / retry)
+
+        db.add(SavedStrategy(
+            id=str(uuid4()),
+            user_id=user_id,
+            title=name,
+            strategy_json=strategy_json,
+            is_public=is_public,
+            backtest_record_id=record.id,
+        ))
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception(
+            "active-exec SavedStrategy link failed for record=%s", record.id,
+        )
 
 
 @router.patch("/{slug}/visibility", response_model=StrategySaveResponse)

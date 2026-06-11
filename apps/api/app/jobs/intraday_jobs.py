@@ -110,7 +110,23 @@ async def _monitor_active_positions_async(
     }
 
     try:
-        strategies = db.execute(select(SavedStrategy)).scalars().all()
+        # SCALE: a strategy only becomes "work" when it has an OPEN
+        # position. Drive the scan off open positions, not the whole
+        # SavedStrategy table — so the cron's cost scales with monitored
+        # positions (small), NOT total saved strategies (potentially huge).
+        # A user with 5,000 saved strategies but 3 open positions → we
+        # touch 3 strategies, not 5,000.
+        strat_ids = db.execute(
+            select(PositionState.saved_strategy_id)
+            .where(PositionState.is_open == True)  # noqa: E712
+            .distinct()
+        ).scalars().all()
+        if not strat_ids:
+            return stats  # nothing open — the common, near-free case
+
+        strategies = db.execute(
+            select(SavedStrategy).where(SavedStrategy.id.in_(strat_ids))
+        ).scalars().all()
         for strat in strategies:
             try:
                 sj_dict = strat.strategy_json or {}
