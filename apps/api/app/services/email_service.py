@@ -90,6 +90,10 @@ def _prefs_allow(prefs: EmailPreference, template: str, category: str) -> bool:
         return False
     if template == "daily_digest" and not prefs.daily_digest_enabled:
         return False
+    # PRD-16c active execution — position-event alerts (exit-tier fires)
+    # are signal alerts; honor the same opt-in toggle as signal_change.
+    if template == "position_event" and not prefs.signal_alerts_enabled:
+        return False
 
     # Globally unsubscribed = no marketing, but transactional still goes through
     # (legally required for things like password reset, payment failed).

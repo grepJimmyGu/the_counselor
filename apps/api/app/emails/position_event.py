@@ -41,8 +41,13 @@ class PositionEventPayload:
     """Plain-data input for the position-event template. Built by the
     cron from the PositionState + tier + trigger_type.
 
-    The cron mutates PositionState first, then constructs this payload
-    from the (now-updated) row + tier metadata.
+    Active-execution-v2: the cron does NOT mutate the position — it
+    detects the trigger and constructs this payload to SUGGEST an action
+    the user executes in their own brokerage. With `is_suggestion=True`
+    (the default), the email is framed as advice ("your strategy says
+    sell N of your M shares"), not a fait accompli. `is_suggestion=False`
+    is reserved for any future replay/backtest surface that wants the
+    "sold N shares" past-tense framing.
     """
     strategy_name: str
     strategy_id: str
@@ -53,9 +58,11 @@ class PositionEventPayload:
     current_price: float
     pct_change: float  # already (current - entry) / entry
     action_taken: str  # 'sold_all' | 'sold_fraction'
-    shares_sold: float
+    shares_sold: float           # suggested share count when is_suggestion
     shares_remaining: float
     fired_at: datetime
+    # True (default) = advice framing; False = past-tense "sold" framing.
+    is_suggestion: bool = True
     # Optional context the cron passes when populated; renderer degrades
     # gracefully when empty.
     other_tiers_summary: list[dict] = field(default_factory=list)
@@ -118,12 +125,29 @@ def render_position_event(user: User, payload: PositionEventPayload) -> dict[str
         f"{payload.strategy_name} ({pct_str})"
     )
 
-    action_line = (
-        f"Sold {payload.shares_sold:.4g} shares; "
-        f"{payload.shares_remaining:.4g} remaining."
-        if payload.action_taken == "sold_fraction"
-        else f"Closed full position ({payload.shares_sold:.4g} shares)."
-    )
+    if payload.is_suggestion:
+        # Advice framing — Livermore never sells; the user does.
+        action_line = (
+            f"Your strategy suggests selling {payload.shares_sold:.4g} of "
+            f"your {payload.shares_remaining:.4g} shares. Execute in your "
+            "brokerage, then mark it executed in Livermore."
+            if payload.action_taken == "sold_fraction"
+            else (
+                f"Your strategy suggests closing the position — sell all "
+                f"{payload.shares_sold:.4g} shares. Execute in your brokerage, "
+                "then mark it executed in Livermore."
+            )
+        )
+        action_heading = "Suggested action"
+    else:
+        # Past-tense framing (replay / backtest surfaces).
+        action_line = (
+            f"Sold {payload.shares_sold:.4g} shares; "
+            f"{payload.shares_remaining:.4g} remaining."
+            if payload.action_taken == "sold_fraction"
+            else f"Closed full position ({payload.shares_sold:.4g} shares)."
+        )
+        action_heading = "Action taken"
 
     text = f"""{payload.symbol} — {tier_str} on {payload.strategy_name}
 
@@ -134,7 +158,7 @@ WHAT HAPPENED
 Entry: ${payload.entry_price:.2f}
 Current: ${payload.current_price:.2f}  ({pct_str})
 
-ACTION TAKEN
+{action_heading.upper()}
 {action_line}
 
 View strategy: {detail_url}
@@ -189,7 +213,7 @@ Notification settings: {settings_url}
           </table>
         </td></tr>
         <tr><td style="padding:16px 32px 8px 32px;">
-          <p style="margin:0 0 4px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;">Action taken</p>
+          <p style="margin:0 0 4px;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:0.06em;color:#64748b;">{action_heading}</p>
           <p style="margin:0;font-size:14px;">{action_line}</p>
         </td></tr>
         <tr><td style="padding:8px 32px 24px 32px;">
