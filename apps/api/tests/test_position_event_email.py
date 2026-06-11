@@ -103,21 +103,37 @@ def test_html_contains_entry_and_current_prices() -> None:
     assert "Current" in out["html"]
 
 
-def test_html_action_line_sold_all() -> None:
+def test_html_action_line_suggestion_sell_all() -> None:
+    """Default (is_suggestion=True) frames as advice, not a fait accompli."""
     out = render_position_event(_user(), _payload(
         trigger_type="stop_hit", action_taken="sold_all",
-        shares_sold=10.0, shares_remaining=0.0,
+        shares_sold=10.0, shares_remaining=10.0,
     ))
-    assert "Closed full position" in out["html"]
+    assert "Suggested action" in out["html"]
+    assert "suggests closing the position" in out["html"]
+    assert "Execute in your brokerage" in out["html"]
+    # Never claims Livermore sold.
+    assert "Closed full position" not in out["html"]
 
 
-def test_html_action_line_sold_fraction() -> None:
+def test_html_action_line_suggestion_sell_fraction() -> None:
     out = render_position_event(_user(), _payload(
         trigger_type="tp1_hit", action_taken="sold_fraction",
-        shares_sold=3.33, shares_remaining=6.67,
+        shares_sold=3.33, shares_remaining=10.0,
+    ))
+    assert "suggests selling 3.33 of your 10 shares" in out["html"]
+    assert "Suggested action" in out["html"]
+
+
+def test_html_action_line_past_tense_when_not_suggestion() -> None:
+    """is_suggestion=False keeps the replay/backtest 'sold' framing."""
+    out = render_position_event(_user(), _payload(
+        trigger_type="tp1_hit", action_taken="sold_fraction",
+        shares_sold=3.33, shares_remaining=6.67, is_suggestion=False,
     ))
     assert "Sold 3.33 shares" in out["html"]
     assert "6.67 remaining" in out["html"]
+    assert "Action taken" in out["html"]
 
 
 # ── Compliance + CAN-SPAM ──────────────────────────────────────────────────
