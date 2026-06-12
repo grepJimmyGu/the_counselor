@@ -52,6 +52,28 @@ def _synthetic_close_matrix(periods: int = 252) -> pd.DataFrame:
     return pd.DataFrame({"SPY": closes}, index=dates)
 
 
+def _synthetic_ohlcv(
+    close_matrix: pd.DataFrame, symbol: str = "SPY", volume: float = 1_000_000.0,
+) -> "dict[str, pd.DataFrame]":
+    """Full OHLCV frame for the engine's custom_build path — the real-data
+    contract `_evaluate_custom_build_block` now requires. High/low bracket
+    the close; volume is a constant test fixture (NOT a production
+    fabrication — production threads in real `price_bars` OHLCV)."""
+    close = close_matrix[symbol]
+    return {
+        symbol: pd.DataFrame(
+            {
+                "open": close.shift(1).fillna(close),
+                "high": close * 1.01,
+                "low": close * 0.99,
+                "close": close,
+                "adjusted_close": close,
+                "volume": pd.Series(volume, index=close.index),
+            }
+        )
+    }
+
+
 # ── Schema validation ───────────────────────────────────────────────────────
 
 
@@ -136,7 +158,7 @@ def test_single_rule_block_returns_threshold_comparison() -> None:
     engine = BacktestEngine()
     rules = [StrategyRule(primitive_id="sma", operator="lt", threshold=110.0,
                           primitive_params={"period": 10})]
-    result = engine._evaluate_custom_build_block(rules, closes, "SPY")
+    result = engine._evaluate_custom_build_block(rules, closes, "SPY", _synthetic_ohlcv(closes))
     # Compare against the actual computed SMA.
     sma = closes["SPY"].rolling(10).mean()
     expected = (sma < 110.0).fillna(False)
@@ -157,7 +179,7 @@ def test_two_rule_AND_fold_intersection() -> None:
                      primitive_params={"period": 14},
                      logic_with_prior="AND"),
     ]
-    result = engine._evaluate_custom_build_block(rules, closes, "SPY")
+    result = engine._evaluate_custom_build_block(rules, closes, "SPY", _synthetic_ohlcv(closes))
     # Manual AND.
     sma = closes["SPY"].rolling(10).mean()
     delta = closes["SPY"].diff()
@@ -181,7 +203,7 @@ def test_two_rule_OR_fold_union() -> None:
                      primitive_params={"period": 10},
                      logic_with_prior="OR"),
     ]
-    result = engine._evaluate_custom_build_block(rules, closes, "SPY")
+    result = engine._evaluate_custom_build_block(rules, closes, "SPY", _synthetic_ohlcv(closes))
     sma = closes["SPY"].rolling(10).mean()
     expected = ((sma < 95.0) | (sma > 115.0)).fillna(False)
     pd.testing.assert_series_equal(result, expected, check_names=False)
@@ -203,7 +225,7 @@ def test_three_rule_mixed_fold_evaluates_left_to_right() -> None:
                      primitive_params={"period": 30},
                      logic_with_prior="OR"),
     ]
-    result = engine._evaluate_custom_build_block(rules, closes, "SPY")
+    result = engine._evaluate_custom_build_block(rules, closes, "SPY", _synthetic_ohlcv(closes))
     sma_10 = closes["SPY"].rolling(10).mean()
     sma_20 = closes["SPY"].rolling(20).mean()
     sma_30 = closes["SPY"].rolling(30).mean()
@@ -220,7 +242,7 @@ def test_unknown_primitive_id_raises() -> None:
     rules = [StrategyRule(primitive_id="not_a_real_primitive",
                           operator="gt", threshold=0)]
     with pytest.raises(ValueError, match="unknown primitive_id"):
-        engine._evaluate_custom_build_block(rules, closes, "SPY")
+        engine._evaluate_custom_build_block(rules, closes, "SPY", _synthetic_ohlcv(closes))
 
 
 def test_av_endpoint_primitive_raises_in_custom_build_v1() -> None:
@@ -233,7 +255,7 @@ def test_av_endpoint_primitive_raises_in_custom_build_v1() -> None:
     # KAMA is an AV-endpoint primitive per the catalog.
     rules = [StrategyRule(primitive_id="kama", operator="gt", threshold=100.0)]
     with pytest.raises(ValueError, match="not supported in custom_build v1"):
-        engine._evaluate_custom_build_block(rules, closes, "SPY")
+        engine._evaluate_custom_build_block(rules, closes, "SPY", _synthetic_ohlcv(closes))
 
 
 # ── Threshold + operator handling ────────────────────────────────────────────
@@ -250,7 +272,7 @@ def test_operators_apply_correctly(operator: str, expected_fn) -> None:
     engine = BacktestEngine()
     rules = [StrategyRule(primitive_id="sma", operator=operator, threshold=100.0,
                           primitive_params={"period": 5})]
-    result = engine._evaluate_custom_build_block(rules, closes, "SPY")
+    result = engine._evaluate_custom_build_block(rules, closes, "SPY", _synthetic_ohlcv(closes))
     sma = closes["SPY"].rolling(5).mean()
     expected = expected_fn(sma, 100.0).fillna(False)
     pd.testing.assert_series_equal(result, expected, check_names=False)
@@ -264,7 +286,7 @@ def test_unsupported_operator_raises() -> None:
     rules = [StrategyRule(primitive_id="sma", operator="crosses_above",
                           threshold=100.0)]
     with pytest.raises(ValueError, match="not supported"):
-        engine._evaluate_custom_build_block(rules, closes, "SPY")
+        engine._evaluate_custom_build_block(rules, closes, "SPY", _synthetic_ohlcv(closes))
 
 
 def test_no_threshold_treats_primitive_as_boolean() -> None:
@@ -274,9 +296,72 @@ def test_no_threshold_treats_primitive_as_boolean() -> None:
     engine = BacktestEngine()
     rules = [StrategyRule(primitive_id="donchian_breakout",
                           primitive_params={"period": 20})]
-    result = engine._evaluate_custom_build_block(rules, closes, "SPY")
+    result = engine._evaluate_custom_build_block(rules, closes, "SPY", _synthetic_ohlcv(closes))
     # Donchian returns 0/1; bool conversion keeps the breakout days True.
     assert result.dtype == bool
     # Some bars should be True (breakouts), some False.
     assert result.any()
     assert not result.all()
+
+
+# ── REGRESSION: real OHLCV, never fabricated (2026-06-12) ────────────────────
+
+
+def test_volume_primitive_uses_real_volume_not_fabricated() -> None:
+    """The custom_build path used to synthesize `volume=1.0`, so
+    `avg_dollar_volume` computed ~close-price (≈$100) and any
+    `avg_dollar_volume > $5M` rule was ALWAYS FALSE — silently zeroing the
+    backtest (the SATS/RKLB all-zero bug). With real volume threaded in,
+    the rule reflects actual liquidity."""
+    closes = _synthetic_close_matrix(periods=120)
+    engine = BacktestEngine()
+    rule = [StrategyRule(primitive_id="avg_dollar_volume", operator="gt",
+                         threshold=5_000_000.0, primitive_params={"period": 21})]
+
+    # Liquid: close ≈$100 × volume 1e6 ≈ $100M avg dollar volume ≫ $5M.
+    liquid = _synthetic_ohlcv(closes, volume=1_000_000.0)
+    result_liquid = engine._evaluate_custom_build_block(
+        rule, closes, "SPY", liquid,
+    )
+    assert result_liquid.iloc[25:].any(), (
+        "avg_dollar_volume should fire on a liquid name — all-False means "
+        "volume is being fabricated again (the 2026-06-12 bug)"
+    )
+
+    # Illiquid: volume 10 → ≈$1k avg dollar volume ≪ $5M → never fires.
+    illiquid = _synthetic_ohlcv(closes, volume=10.0)
+    result_illiquid = engine._evaluate_custom_build_block(
+        rule, closes, "SPY", illiquid,
+    )
+    assert not result_illiquid.any(), (
+        "the rule must reflect REAL volume — a low-volume frame must never "
+        "pass a $5M liquidity gate"
+    )
+
+
+def test_range_primitive_uses_real_high_low() -> None:
+    """ATR needs high−low; the old fabrication set high=low=close → ATR≡0.
+    With real high/low, ATR is positive after warmup."""
+    closes = _synthetic_close_matrix(periods=80)
+    engine = BacktestEngine()
+    # ATR > 0 should be True for a name with a real intraday range.
+    rule = [StrategyRule(primitive_id="atr", operator="gt", threshold=0.0,
+                         primitive_params={"period": 14})]
+    result = engine._evaluate_custom_build_block(
+        rule, closes, "SPY", _synthetic_ohlcv(closes),
+    )
+    assert result.iloc[20:].any(), (
+        "ATR should be > 0 with a real high/low range — all-False means "
+        "high=low=close fabrication"
+    )
+
+
+def test_missing_ohlcv_refuses_to_fabricate() -> None:
+    """No real OHLCV for the symbol → raise, never silently backtest on
+    made-up bars."""
+    closes = _synthetic_close_matrix(periods=60)
+    engine = BacktestEngine()
+    rule = [StrategyRule(primitive_id="avg_dollar_volume", operator="gt",
+                         threshold=5_000_000.0)]
+    with pytest.raises(ValueError, match="refusing to fabricate"):
+        engine._evaluate_custom_build_block(rule, closes, "SPY", {})

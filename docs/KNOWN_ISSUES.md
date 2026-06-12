@@ -29,6 +29,15 @@ A running log of bugs encountered, root causes, and confirmed fixes. Add new ent
 
 ## Entries
 
+### custom_build backtest fabricated volume + high/low → volume/range rules silently always-false (zeroed the backtest)
+**Date:** 2026-06-12
+**Area:** backend (backtester)
+**Symptom:** A custom_build strategy with a liquidity rule (`avg_dollar_volume > $5,000,000`) AND'd with momentum rules backtested to **all zero** (no trades, flat equity) on liquid names (SATS, RKLB).
+**Root cause:** `BacktestEngine._compute_primitive_on_close_matrix` synthesized the OHLCV frame for custom_build primitives from **closes only**, hardcoding `high = low = open = close` and **`volume = pd.Series(1.0)`**. So `avg_dollar_volume = mean(close × 1.0) ≈ the share price (~$25)`, which is never `> $5M` → that rule was **always False** → the AND chain was always False → never long → zero trades. The same fabrication silently broke **every** volume primitive (`obv`, `ad`, `adosc`, `vwap`, `mfi`) and **every** range primitive (`atr`, `natr`, `stoch`, `willr`, `cci`, `adx`, `aroon`, `donchian`-on-high …), since `high − low ≡ 0`. The composer offered all 55 catalog primitives; only the close-only subset backtested honestly, and the rest failed **silently** (no error).
+**Fix:** thread the **real** per-symbol OHLCV (already loaded by `_load_prices` as `aligned_frames`) into `_evaluate_custom_build_block` and feed providers actual `open`/`high`/`low`/`volume` from `price_bars`. `close` stays the engine's adjusted-close (so close-based primitives are numerically unchanged). The synthesis path is removed entirely; if a symbol has no OHLCV frame, the engine now **raises rather than fabricating** ("refusing to fabricate"). Regression tests: a volume rule fires on a liquid frame and not on an illiquid one (would have been all-False under the bug); ATR > 0 with a real high/low range; missing OHLCV raises.
+**Files:** `apps/api/app/services/backtester/engine.py` (`_evaluate_custom_build_block`, `_compute_primitive_on_close_matrix`, custom_build call site), `apps/api/tests/test_custom_build_multi_rule_fold.py`.
+**Principle:** never fabricate market data in a backtest. Synthesizing high/low/volume from close produces a plausible-looking but wrong result with no error — the worst failure mode. Use real data or fail loudly.
+
 ### Intraday dashboard data trails ~1 day — AlphaVantage key not entitled to real-time US equities
 **Date:** 2026-06-11
 **Area:** infra | data

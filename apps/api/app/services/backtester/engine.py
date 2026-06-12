@@ -324,6 +324,7 @@ class BacktestEngine:
         rules: "list[StrategyRule]",
         close_matrix: pd.DataFrame,
         symbol: str,
+        ohlcv_frames: "dict[str, pd.DataFrame]",
     ) -> pd.Series:
         """PRD-16b multi-rule fold — evaluates a list of composer rules
         against a single symbol's price history and returns a boolean
@@ -371,9 +372,9 @@ class BacktestEngine:
             else:
                 provider = base
 
-            # Compute on this symbol via the close_matrix dates.
+            # Compute on this symbol using its REAL OHLCV (no fabrication).
             value_series = self._compute_primitive_on_close_matrix(
-                provider, close_matrix, symbol,
+                provider, close_matrix, symbol, ohlcv_frames,
             )
 
             # Apply threshold + operator → boolean.
@@ -401,12 +402,27 @@ class BacktestEngine:
         provider,
         close_matrix: pd.DataFrame,
         symbol: str,
+        ohlcv_frames: "dict[str, pd.DataFrame]",
     ) -> pd.Series:
-        """Compute a primitive's value series over the close_matrix's
-        date range. The signal_provider's `get_signal_frame` expects a
-        DB session — but for the v1 custom_build path we already have
-        the price data loaded (close_matrix), so we call the provider's
-        `_compute` (TechnicalSignalProvider) directly when available."""
+        """Compute a primitive's value series for `symbol` over the backtest
+        date index, feeding the provider the symbol's REAL OHLCV.
+
+        Critically: this NEVER fabricates price or volume data. The full
+        OHLCV frame is already loaded by `_load_prices` and threaded in as
+        `ohlcv_frames`; volume-based primitives (`avg_dollar_volume`, `obv`,
+        …) and range-based primitives (`atr`, `stoch`, …) therefore compute
+        on actual `high`/`low`/`volume` from `price_bars`. (Before this fix,
+        the path synthesized `high=low=close` and `volume=1.0`, which made
+        every volume/range rule silently evaluate to a constant — e.g. an
+        `avg_dollar_volume > $5M` rule was always False, zeroing the
+        backtest. See KNOWN_ISSUES 2026-06-12.)
+
+        `close` is taken from `close_matrix` (the engine's adjusted-close
+        series, used everywhere else) so close-based primitives produce
+        identical numbers to before; `open`/`high`/`low`/`volume` come from
+        the real frame, reindexed onto the backtest dates and forward-filled
+        the same way the rest of the engine aligns prices.
+        """
         from app.services.backtester.technical_signal_providers import (
             TechnicalSignalProvider,
             AVTechnicalSignalProvider,
@@ -415,19 +431,32 @@ class BacktestEngine:
         if isinstance(provider, TechnicalSignalProvider) and not isinstance(
             provider, AVTechnicalSignalProvider
         ):
-            # Local pandas provider — synthesize an OHLCV frame from
-            # close_matrix. We only have closes here; high/low/volume are
-            # approximated from the close. Composer v1 supports primitives
-            # that need only close prices; richer OHLCV primitives need
-            # the full PriceDataService fetch (TODO when intraday lands).
-            close = close_matrix[symbol]
+            index = close_matrix.index
+            src = ohlcv_frames.get(symbol)
+            if src is None or src.empty:
+                # Refuse to fabricate — surface the gap instead of silently
+                # backtesting on made-up bars.
+                raise ValueError(
+                    f"custom_build: no OHLCV data loaded for '{symbol}' — "
+                    "refusing to fabricate price/volume for the backtest."
+                )
+            required = ("open", "high", "low", "volume")
+            missing = [c for c in required if c not in src.columns]
+            if missing:
+                raise ValueError(
+                    f"custom_build: OHLCV frame for '{symbol}' is missing "
+                    f"{missing} — refusing to fabricate them."
+                )
+            # close = the engine's adjusted close (unchanged behavior for
+            # close-based primitives). Real OHLV/volume for the rest.
+            close = close_matrix[symbol].reindex(index).ffill()
             frame = pd.DataFrame({
-                "open": close,
-                "high": close,
-                "low": close,
+                "open": src["open"].reindex(index).ffill(),
+                "high": src["high"].reindex(index).ffill(),
+                "low": src["low"].reindex(index).ffill(),
                 "close": close,
                 "adjusted_close": close,
-                "volume": pd.Series(1.0, index=close.index),
+                "volume": src["volume"].reindex(index).ffill(),
             })
             return provider._compute(frame)
 
@@ -1037,7 +1066,7 @@ class BacktestEngine:
             # rule blocks — out of scope for 16b-1.
             symbol = strategy.universe[0]
             block = self._evaluate_custom_build_block(
-                strategy.rules, close_matrix, symbol,
+                strategy.rules, close_matrix, symbol, aligned_frames,
             )
             weights[symbol] = block.astype(float)
 
