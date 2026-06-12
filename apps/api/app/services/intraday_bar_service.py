@@ -29,19 +29,39 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from typing import Optional
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 from sqlalchemy import select, delete
 from sqlalchemy.orm import Session
 
+import logging
+
 from app.models.intraday_bar import IntradayBar
 from app.services.alpha_vantage import AlphaVantageClient, AlphaVantageError
+from app.services.fmp_client import FMPClient, FMPError
 
+_log = logging.getLogger("livermore.intraday")
 
 VALID_RESOLUTIONS = frozenset({"5min", "15min", "30min", "60min"})
 
 # Minutes per resolution — used to identify gaps.
 _RESOLUTION_MINUTES = {"5min": 5, "15min": 15, "30min": 30, "60min": 60}
+
+_ET = ZoneInfo("America/New_York")
+
+
+def et_now_naive() -> datetime:
+    """Current time as NAIVE US/Eastern wall-clock.
+
+    `intraday_bars.bar_time` is stored naive ET (both the AV and FMP
+    providers emit ET timestamps). Any "is this bar recent?" window math
+    MUST be done in ET too — comparing naive-ET bar_time against
+    `datetime.utcnow()` skews by the 4–5h UTC offset, which silently
+    excludes fresh bars from the read window (the dashboard's "no recent
+    bar" / empty-frame bug). Callers building intraday windows use this.
+    """
+    return datetime.now(_ET).replace(tzinfo=None)
 
 
 class IntradayBarService:
@@ -50,11 +70,37 @@ class IntradayBarService:
 
     def __init__(
         self,
-        client: Optional[AlphaVantageClient] = None,
+        client=None,
+        fallback_client: Optional[AlphaVantageClient] = None,
     ):
-        self._client = client or AlphaVantageClient()
+        # Primary = FMP: serves fresh intraday DURING market hours (~15-min
+        # delayed) on our plan. Fallback = AlphaVantage (fine after-close /
+        # for backtests). Both expose `fetch_intraday_bars` with the same
+        # return shape, so they're interchangeable. `client` is kept as the
+        # primary slot for test injection.
+        self._client = client or FMPClient()
+        self._fallback = fallback_client or AlphaVantageClient()
 
     # ── Public methods ─────────────────────────────────────────────────────
+
+    async def _fetch_bars(
+        self, symbol: str, interval: str, outputsize: str,
+    ) -> list[dict]:
+        """Fetch via the primary (FMP); on an FMP error, fall back to AV.
+        Either provider's failure past the fallback propagates to the caller,
+        which degrades to the cache."""
+        try:
+            return await self._client.fetch_intraday_bars(
+                symbol=symbol, interval=interval, outputsize=outputsize,
+            )
+        except FMPError as exc:
+            _log.warning(
+                "FMP intraday failed for %s @ %s (%s) — falling back to AV",
+                symbol, interval, exc,
+            )
+        return await self._fallback.fetch_intraday_bars(
+            symbol=symbol, interval=interval, outputsize=outputsize,
+        )
 
     async def get_bars(
         self,
@@ -95,7 +141,7 @@ class IntradayBarService:
         if need_fetch:
             outputsize = "full" if (end - start) > timedelta(days=2) else "compact"
             try:
-                fresh = await self._client.fetch_intraday_bars(
+                fresh = await self._fetch_bars(
                     symbol=symbol,
                     interval=resolution,
                     outputsize=outputsize,
@@ -104,10 +150,10 @@ class IntradayBarService:
                     self._write_bars(db, symbol, resolution, fresh)
                     # Re-read the merged cache.
                     cached = self._read_cached(db, symbol, resolution, start, end)
-            except AlphaVantageError:
-                # Fall back to whatever's in cache (possibly empty). The
-                # composer surfaces the empty result; the monitor cron
-                # logs + skips this tick.
+            except (FMPError, AlphaVantageError):
+                # Both providers failed — fall back to whatever's in cache
+                # (possibly empty). The composer surfaces the empty result;
+                # the monitor cron logs + skips this tick.
                 pass
 
         if not cached:
@@ -128,19 +174,21 @@ class IntradayBarService:
             raise ValueError(f"Invalid resolution '{resolution}'.")
         symbol = symbol.upper()
         try:
-            fresh = await self._client.fetch_intraday_bars(
+            fresh = await self._fetch_bars(
                 symbol=symbol,
                 interval=resolution,
                 outputsize="compact",
             )
-        except AlphaVantageError:
+        except (FMPError, AlphaVantageError):
             return pd.DataFrame()
         if not fresh:
             return pd.DataFrame()
         self._write_bars(db, symbol, resolution, fresh)
-        # Read back the trailing N minutes of cached bars.
-        cutoff = datetime.utcnow() - timedelta(minutes=lookback_minutes)
-        recent = self._read_cached(db, symbol, resolution, cutoff, datetime.utcnow())
+        # Read back the trailing N minutes of cached bars. Window in ET to
+        # match the naive-ET bar_time (see `et_now_naive`).
+        now = et_now_naive()
+        cutoff = now - timedelta(minutes=lookback_minutes)
+        recent = self._read_cached(db, symbol, resolution, cutoff, now)
         return _rows_to_frame(recent)
 
     # ── Internal helpers ───────────────────────────────────────────────────

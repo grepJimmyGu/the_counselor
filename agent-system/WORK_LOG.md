@@ -27,10 +27,7 @@
 
 **Operational:** backfilled 1 stranded `SavedStrategy` for `jimmygu220@gmail.com` (a 15min+3-tier strategy saved before the #191 bridge deployed). Preview-then-write, idempotent, all-users scope (only that row qualified).
 
-**Key finding (open work):** the intraday data lag is **not** our cron — the AlphaVantage prod key is **not entitled to real-time or 15-min-delayed US equities** (verified by direct API test; `entitlement=realtime`/`delayed` both rejected). Market Pulse looks live because it uses **FMP** (different provider). FMP **does** serve live intraday (`/stable/historical-chart/15min`). See KNOWN_ISSUES.md 2026-06-11.
-
-### Next action (deferred by Mr Gu — pick up when desired)
-**Swap the intraday source AV → FMP** so the dashboard/chart/monitor get minutes-fresh data without an AV plan change. FMP intraday confirmed working on the current key. Scope: add `FMPClient.get_intraday_bars` (`/stable/historical-chart/{interval}?symbol=…`), point `IntradayBarService` fetch at it (map FMP's `date` field — naive ET — into `bar_time`), keep the cache + ET-aware chart unchanged. Alternative: upgrade the AV plan to include Realtime US Market Data + add an env-gated `entitlement=realtime` param. Mr Gu chose to defer both for now.
+**Intraday live-data fix (2026-06-12) — ✅ DONE.** The earlier "key finding" that the lag was an AV *entitlement* gap and "not our cron" was a **misdiagnosis** (corrected in KNOWN_ISSUES 2026-06-11). Real cause = two compounding bugs: (1) AV plain intraday lags a full session *during* market hours on our plan (FMP doesn't), and (2) the cron/read windows mixed `utcnow()` (UTC) against naive-ET `bar_time` → ~4-5h skew stranded fresh bars. **Fixed:** intraday source switched to **FMP** (`FMPClient.fetch_intraday_bars`, FMP-primary + AV-fallback in `IntradayBarService`); all intraday windows ET-corrected via `et_now_naive()`; the cron now pulls fresh each tick via `ensure_recent_bars`. Net: ~15-min-delayed live data during market hours, reflected on the chart.
 
 ### Backlog (in PROJECT_BACKLOG)
 - Per-user cap on declared positions (tier-gated).

@@ -77,7 +77,8 @@ def _mock_bar_service(latest_price: float) -> AsyncMock:
          "close": [latest_price], "volume": [10_000.0]},
         index=pd.DatetimeIndex([datetime.utcnow()]),
     )
-    svc.get_bars = AsyncMock(return_value=df)
+    # The cron pulls fresh bars via ensure_recent_bars (always-fetch path).
+    svc.ensure_recent_bars = AsyncMock(return_value=df)
     return svc
 
 
@@ -208,7 +209,7 @@ async def test_evaluate_empty_frame_skips(db: Session) -> None:
     db.add(pos)
     db.commit()
     svc = AsyncMock()
-    svc.get_bars = AsyncMock(return_value=pd.DataFrame())
+    svc.ensure_recent_bars = AsyncMock(return_value=pd.DataFrame())
     ladder = [ExitTier(trigger_pct=-0.10, action="sell_all", label="Stop")]
     fire = await _evaluate_position(db, svc, pos, ladder, "15min")
     assert fire is None

@@ -8,6 +8,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock
 
+from zoneinfo import ZoneInfo
+
 import pandas as pd
 import pytest
 from sqlalchemy.orm import Session
@@ -17,6 +19,7 @@ from app.services.alpha_vantage import AlphaVantageError
 from app.services.intraday_bar_service import (
     VALID_RESOLUTIONS,
     IntradayBarService,
+    et_now_naive,
 )
 
 
@@ -35,10 +38,72 @@ def _av_bar(bar_time: datetime, close: float = 100.0) -> dict:
 
 
 def _make_service(av_bars: list[dict]) -> IntradayBarService:
-    """Service with a mocked AV client returning the given bars."""
+    """Service with a mocked PRIMARY client returning the given bars."""
     client = AsyncMock()
     client.fetch_intraday_bars = AsyncMock(return_value=av_bars)
     return IntradayBarService(client=client)
+
+
+# ── FMP primary + AV fallback (live-data freshness, 2026-06-12) ───────────────
+
+
+@pytest.mark.asyncio
+async def test_primary_fmp_error_falls_back_to_av(db: Session) -> None:
+    """When the primary (FMP) raises, we fall back to AV — not empty."""
+    from app.services.fmp_client import FMPError
+
+    now = et_now_naive().replace(microsecond=0)
+    primary = AsyncMock()
+    primary.fetch_intraday_bars = AsyncMock(side_effect=FMPError("fmp down"))
+    fallback = AsyncMock()
+    fallback.fetch_intraday_bars = AsyncMock(
+        return_value=[_av_bar(now - timedelta(minutes=15 * i)) for i in range(3)],
+    )
+    svc = IntradayBarService(client=primary, fallback_client=fallback)
+    result = await svc.ensure_recent_bars(db, "SPY", "15min", lookback_minutes=120)
+    primary.fetch_intraday_bars.assert_called_once()
+    fallback.fetch_intraday_bars.assert_called_once()
+    assert not result.empty
+
+
+@pytest.mark.asyncio
+async def test_both_providers_fail_degrades_to_cache(db: Session) -> None:
+    """FMP + AV both fail → get_bars returns whatever's cached, not error."""
+    from app.services.fmp_client import FMPError
+
+    now = et_now_naive().replace(microsecond=0)
+    db.add_all([
+        IntradayBar(
+            symbol="SPY", resolution="15min",
+            bar_time=now - timedelta(minutes=15 * i),
+            open=100, high=101, low=99, close=100 + i, volume=10_000,
+        )
+        for i in range(1, 4)
+    ])
+    db.commit()
+
+    primary = AsyncMock()
+    primary.fetch_intraday_bars = AsyncMock(side_effect=FMPError("fmp down"))
+    fallback = AsyncMock()
+    fallback.fetch_intraday_bars = AsyncMock(
+        side_effect=AlphaVantageError("av down"),
+    )
+    svc = IntradayBarService(client=primary, fallback_client=fallback)
+    result = await svc.get_bars(
+        db, "SPY", "15min", now - timedelta(hours=4), now,
+    )
+    assert not result.empty  # degraded to cache
+
+
+def test_et_now_naive_is_naive_and_eastern() -> None:
+    """The window helper returns naive ET wall-clock (no tzinfo), so it
+    compares correctly against the naive-ET bar_time."""
+    import datetime as _dt
+    et = et_now_naive()
+    assert et.tzinfo is None
+    # Within a few hours of the true ET wall-clock.
+    true_et = _dt.datetime.now(ZoneInfo("America/New_York")).replace(tzinfo=None)
+    assert abs((et - true_et).total_seconds()) < 5
 
 
 # ── Validation ───────────────────────────────────────────────────────────────
@@ -194,7 +259,9 @@ async def test_needs_fetch_when_cache_is_stale_for_resolution(db: Session) -> No
 @pytest.mark.asyncio
 async def test_ensure_recent_bars_always_fetches(db: Session) -> None:
     """Monitor cron path: even with fresh cache, we always re-fetch."""
-    now = datetime.utcnow().replace(microsecond=0)
+    # bar_time is naive ET in production; ensure_recent_bars now windows in
+    # ET, so seed in ET (a UTC seed would fall outside the ET read window).
+    now = et_now_naive().replace(microsecond=0)
     # Fresh cache.
     db.add_all([
         IntradayBar(
