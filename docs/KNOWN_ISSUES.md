@@ -38,19 +38,29 @@ A running log of bugs encountered, root causes, and confirmed fixes. Add new ent
 **Files:** `apps/api/app/services/backtester/engine.py` (`_evaluate_custom_build_block`, `_compute_primitive_on_close_matrix`, custom_build call site), `apps/api/tests/test_custom_build_multi_rule_fold.py`.
 **Principle:** never fabricate market data in a backtest. Synthesizing high/low/volume from close produces a plausible-looking but wrong result with no error — the worst failure mode. Use real data or fail loudly.
 
-### Intraday dashboard data trails ~1 day — AlphaVantage key not entitled to real-time US equities
-**Date:** 2026-06-11
+### Intraday dashboard data was ~1 day stale — TWO compounding bugs (AV stale-during-hours + a UTC/ET window skew). FIXED 2026-06-12.
+**Date:** 2026-06-11 (diagnosed), **2026-06-12 (corrected + fixed)**
 **Area:** infra | data
-**Symptom:** The active-execution dashboard shows "No recent bar" (universe watch) and the live chart's newest bar is ~1 day old, even during US market hours. A user with a "premium" AV key expected minutes-fresh data.
-**Root cause:** NOT our cron/cache — they faithfully store exactly what AlphaVantage returns. Tested the AV API directly with the production key:
-- `TIME_SERIES_INTRADAY` (no entitlement param, what our wrapper sends) → latest bar = previous completed session.
-- `&entitlement=realtime` → **"You are not yet entitled to realtime US market data access."**
-- `&entitlement=delayed` → **"You are not yet entitled to 15-minute delayed US market data access."**
+**Symptom:** The active-execution dashboard showed "No recent bar" + the live chart's newest bar was ~1 day old, even during US market hours.
 
-AlphaVantage restructured: general "premium" plans raise *rate limits* but **"Realtime US Market Data" is a separate entitlement**. The configured key has neither realtime nor 15-min-delayed US equity intraday, so AV serves only the last completed session.
-**Why Market Pulse looks fine:** it uses a **different provider** — FMP `/stable/quote` (live overlay on the EOD `price_bars` base), daily granularity. Two providers, two entitlements; one provider being healthy says nothing about the other.
-**Fix (deferred by decision):** two options — (a) upgrade the AV plan to include Realtime US Market Data **and** add an env-gated `entitlement=realtime` param to the intraday wrapper (without an entitled key, sending the param returns 0 bars — so it must be env-gated, default off); or (b) **switch the intraday source to FMP** — verified `/stable/historical-chart/15min` returns today's bars minutes-fresh on the current FMP key. Mr Gu chose to defer; the chart honestly labels whatever it has (#197 made the axis show the real ET date), so stale data is clearly dated, not misrepresented.
-**Files:** `apps/api/app/services/alpha_vantage.py` (`fetch_intraday_bars` — would add the entitlement param), `apps/api/app/services/intraday_bar_service.py` (the cache layer — unchanged, correct).
+> **Correction (2026-06-12).** The original entry below blamed this entirely on an AlphaVantage *entitlement* gap and called the cron/cache "unchanged, correct." **That was a misdiagnosis.** Direct measurement reconciled the evidence: (1) AV *after-close* HAD the current day's full session; (2) our cron *ran* June 11 (`fetched_at` current) but only ever persisted June 10; (3) **FMP returned fresh June-11 bars DURING market hours.** So it wasn't "AV serves nothing" — it was two separate, compounding bugs.
+
+**Root cause (corrected):**
+1. **AV plain `TIME_SERIES_INTRADAY` on our key lags a full session *during* market hours** (fresh only after close). The 15-min-delayed-during-hours behavior needs the `entitlement=realtime|delayed` add-on, which our $49.99 plan does **not** include (both params return "not entitled"). FMP, by contrast, serves ~15-min-delayed intraday during hours on our current plan. *(The entitlement rejection is real — but it's the during-hours freshness, not a total data outage; that nuance is what the original entry got wrong.)*
+2. **UTC/ET window skew.** `intraday_bars.bar_time` is naive **US/Eastern**, but the cron, `ensure_recent_bars`, and the universe-watch endpoint built their read windows from `datetime.utcnow()` (UTC). The ~4–5h offset meant even freshly-cached ET bars fell *outside* the 4h read window → empty frame → "no recent bar" / cron skips. So even when AV/FMP returned fresh bars, they were stranded.
+3. The cron read the throttled cache (`get_bars`, refetches only when >2× resolution stale) rather than always pulling fresh.
+
+**Fix (shipped 2026-06-12):**
+- **Source intraday bars from FMP** (`FMPClient.fetch_intraday_bars`, same return shape as the AV wrapper) — fresh during hours. `IntradayBarService` uses **FMP primary + AV fallback**.
+- **ET-correct every intraday window** via `et_now_naive()` (cron `_evaluate_position`, `ensure_recent_bars`, universe-watch endpoint).
+- **Cron pulls fresh each tick** via `ensure_recent_bars` (always-fetch) so the dashboard/chart reflect ~15-min-delayed live prices during market hours.
+**Files:** `apps/api/app/services/fmp_client.py` (new `fetch_intraday_bars`), `apps/api/app/services/intraday_bar_service.py` (FMP primary + AV fallback + `et_now_naive`), `apps/api/app/jobs/intraday_jobs.py` (ensure_recent_bars + ET window), `apps/api/app/api/routes/saved_strategies.py` (universe-watch ET window).
+**Lesson:** don't conclude from one indirect test (I called it "entitlement → always stale" before measuring during-hours). And: any window math against `intraday_bars.bar_time` must be in ET — it's naive ET, not UTC.
+
+<details><summary>Original (misguided) entry — kept for the record</summary>
+
+**Root cause (as originally written, now known to be incomplete):** "NOT our cron/cache — they faithfully store exactly what AlphaVantage returns … the configured key has neither realtime nor 15-min-delayed US equity intraday, so AV serves only the last completed session." This missed (a) that AV *is* fresh after-close, (b) the UTC/ET window-skew bug, and (c) that FMP serves fresh during-hours data on our plan. Superseded by the corrected analysis above.
+</details>
 
 ### Railway build fails: `mise` can't install bleeding-edge Python patch
 **Date:** 2026-06-11

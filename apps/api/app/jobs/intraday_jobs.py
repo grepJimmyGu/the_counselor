@@ -195,9 +195,14 @@ async def _evaluate_position(
     The position's shares / is_open / final_pnl are NOT modified — only
     `trade_log` gets the pending event. The user confirms the actual
     sale via Mark-as-Executed (PR3)."""
-    end = datetime.utcnow()
-    start = end - timedelta(hours=4)
-    frame = await bar_svc.get_bars(db, pos.symbol, bar_resolution, start, end)
+    # ALWAYS pull the freshest intraday bars each tick (FMP, ~15-min delayed
+    # during market hours) so exit-tier checks AND the dashboard/chart see
+    # live prices — not a cache that only refreshes when >2× resolution
+    # stale. `ensure_recent_bars` fetches unconditionally + writes the cache,
+    # windowing in ET (see et_now_naive).
+    frame = await bar_svc.ensure_recent_bars(
+        db, pos.symbol, bar_resolution, lookback_minutes=360,
+    )
     if frame.empty:
         _log.info(
             "intraday monitor: no bars for %s @ %s — skipping",

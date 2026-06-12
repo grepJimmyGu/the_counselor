@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from typing import Any, Optional
 
 import httpx
@@ -62,6 +63,69 @@ class FMPClient:
                     raise FMPError(data["Error Message"])
                 return data
         raise FMPError("FMP request failed after retries.")
+
+    # ── Intraday bars (PRD-16c live tracking) ────────────────────────────────
+    # FMP's /stable/historical-chart serves fresh intraday DURING market hours
+    # (~15-min delayed on our plan) — unlike AV's plain TIME_SERIES_INTRADAY,
+    # which lags a full session intraday without the (separately-priced)
+    # realtime/delayed entitlement our key lacks. Returns the SAME shape as
+    # `AlphaVantageClient.fetch_intraday_bars` so `IntradayBarService` can use
+    # either interchangeably.
+    _INTRADAY_INTERVALS = {
+        "5min": "5min", "15min": "15min", "30min": "30min", "60min": "1hour",
+    }
+
+    async def fetch_intraday_bars(
+        self,
+        symbol: str,
+        interval: str = "15min",
+        outputsize: str = "compact",
+    ) -> list[dict]:
+        """Fetch intraday OHLCV bars from `/stable/historical-chart/{interval}`.
+
+        interval: '5min' | '15min' | '30min' | '60min' (60min → FMP '1hour').
+        outputsize: 'compact' caps to the most recent ~120 bars (live cron);
+                    'full' keeps ~800 (intraday backtests).
+
+        Returns a list of {"bar_time": datetime, "open", "high", "low",
+        "close", "volume"} dicts sorted oldest→newest. FMP's `date` is naive
+        wall-clock US/Eastern — parsed naive, matching the `intraday_bars`
+        cache convention (identical to the AV path)."""
+        fmp_iv = self._INTRADAY_INTERVALS.get(interval)
+        if fmp_iv is None:
+            raise FMPError(
+                f"Invalid intraday interval '{interval}'. "
+                "Must be 5min, 15min, 30min, or 60min."
+            )
+        data = await self._get(
+            f"/historical-chart/{fmp_iv}", {"symbol": symbol.upper()}
+        )
+        if not isinstance(data, list) or not data:
+            raise FMPError(f"No intraday data returned for {symbol} @ {interval}.")
+        cap = 120 if outputsize == "compact" else 800
+        bars: list[dict] = []
+        for row in data[:cap]:  # FMP returns newest-first
+            ds = row.get("date")
+            if not ds:
+                continue
+            try:
+                bar_time = datetime.strptime(ds, "%Y-%m-%d %H:%M:%S")
+            except (TypeError, ValueError):
+                continue
+            try:
+                bars.append({
+                    "bar_time": bar_time,
+                    "open": float(row["open"]),
+                    "high": float(row["high"]),
+                    "low": float(row["low"]),
+                    "close": float(row["close"]),
+                    "volume": float(row["volume"]),
+                })
+            except (KeyError, TypeError, ValueError):
+                continue
+        if not bars:
+            raise FMPError(f"No parseable intraday bars for {symbol} @ {interval}.")
+        return sorted(bars, key=lambda b: b["bar_time"])
 
     async def get_profile(self, symbol: str) -> dict:
         """Company profile: name, sector, industry, description, market cap, price, etc."""

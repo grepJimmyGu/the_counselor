@@ -435,13 +435,16 @@ async def get_universe_state(
             generated_at=datetime.utcnow(),
         )
 
+    from app.services.intraday_bar_service import et_now_naive
+
     bar_svc = IntradayBarService()
-    # Read from cache only — never fetch from AV on the GET path. The
-    # monitor cron is responsible for keeping the cache fresh. A cold
-    # cache is reported truthfully (source='no_data') rather than
-    # gating the UI on a 2-second AV roundtrip.
-    end = datetime.utcnow()
-    start = end - timedelta(hours=4)
+    # Read from cache only — never fetch on the GET path. The monitor cron
+    # keeps the cache fresh. A cold cache is reported truthfully
+    # (source='no_data') rather than gating the UI on a network roundtrip.
+    # Window in ET to match the naive-ET bar_time (a UTC window skews ~4-5h
+    # and would report fresh bars as "no recent bar").
+    end = et_now_naive()
+    start = end - timedelta(hours=6)
     for sym in universe:
         cached = bar_svc._read_cached(db, sym.upper(), bar_resolution, start, end)
         if cached:

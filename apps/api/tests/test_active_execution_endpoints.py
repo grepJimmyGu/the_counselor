@@ -29,6 +29,7 @@ from app.models.intraday_bar import IntradayBar
 from app.models.position_state import PositionState
 from app.models.saved_strategy import SavedStrategy
 from app.services import saved_strategy_service
+from app.services.intraday_bar_service import et_now_naive
 from app.services.saved_strategy_service import SaveStrategyRequest
 
 
@@ -67,7 +68,9 @@ def _seed_intraday_bar(
     db: Session, *, symbol: str, price: float, minutes_ago: int = 5,
     resolution: str = "15min",
 ) -> None:
-    bar_time = (datetime.utcnow() - timedelta(minutes=minutes_ago)).replace(microsecond=0)
+    # bar_time is naive ET in production; universe-state now reads with an
+    # ET window, so seed in ET (a UTC seed falls outside the window).
+    bar_time = (et_now_naive() - timedelta(minutes=minutes_ago)).replace(microsecond=0)
     db.add(IntradayBar(
         symbol=symbol, resolution=resolution, bar_time=bar_time,
         open=price - 0.5, high=price + 0.5, low=price - 1.0,
