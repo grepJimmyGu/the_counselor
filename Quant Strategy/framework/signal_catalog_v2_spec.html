@@ -1,0 +1,837 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Signal Catalog v2 — Industry-Standard Semantics + Missing Primitives</title>
+<style>
+  :root {
+    --bg: #0a0f1f; --panel: #131a30; --panel-2: #1a2240; --panel-3: #20284a;
+    --ink: #e8ecf7; --ink-dim: #aab2cc; --ink-faint: #7a82a0;
+    --accent: #6ea8ff; --accent-2: #8ef0c2; --accent-3: #c084fc;
+    --green: #4ade80; --green-bg: rgba(74,222,128,0.10); --green-bd: rgba(74,222,128,0.35);
+    --amber: #fbbf24; --amber-bg: rgba(251,191,36,0.10); --amber-bd: rgba(251,191,36,0.35);
+    --red:   #ef4444; --red-bg: rgba(239,68,68,0.10); --red-bd: rgba(239,68,68,0.35);
+    --border: #2a3357;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: linear-gradient(180deg, #0a0f1f 0%, #0b1228 100%);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    line-height: 1.55; font-size: 15px;
+  }
+  .wrap { max-width: 1340px; margin: 0 auto; padding: 28px 22px 96px; }
+
+  header.hero {
+    background: radial-gradient(1200px 400px at 20% -10%, rgba(110,168,255,0.25), transparent 60%),
+                radial-gradient(800px 300px at 90% 10%, rgba(192,132,252,0.18), transparent 60%),
+                var(--panel);
+    border: 1px solid var(--border); border-radius: 18px;
+    padding: 30px 32px; margin-bottom: 22px;
+  }
+  .eyebrow { color: var(--accent); font-size: 11px; letter-spacing: 2px; text-transform: uppercase; }
+  header h1 { margin: 6px 0 8px; font-size: 30px; line-height: 1.15; }
+  header .sub { color: var(--ink-dim); max-width: 920px; font-size: 15px; }
+  header .positioning { margin-top: 16px; padding: 14px 18px; border-left: 4px solid var(--accent-2); background: var(--green-bg); border-radius: 0 10px 10px 0; font-size: 14.5px; color: var(--ink); }
+
+  nav.toc { position: sticky; top: 12px; z-index: 10; background: rgba(19,26,48,0.92); backdrop-filter: blur(10px); border: 1px solid var(--border); border-radius: 14px; padding: 12px 16px; margin-bottom: 22px; }
+  nav.toc ol { margin: 0; padding-left: 18px; display: grid; grid-template-columns: repeat(2, 1fr); gap: 4px 24px; }
+  nav.toc li { font-size: 13px; }
+  nav.toc a { color: var(--ink-dim); text-decoration: none; }
+  nav.toc a:hover { color: var(--accent); }
+  nav.toc .toc-title { color: var(--ink); font-weight: 600; margin-bottom: 6px; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; }
+  @media (max-width: 820px) { nav.toc ol { grid-template-columns: 1fr; } }
+
+  section.card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px; padding: 26px 28px; margin-bottom: 18px; }
+  section.card h2 { margin: 0 0 6px; font-size: 22px; }
+  section.card h2 .pretitle { display: block; font-size: 11px; letter-spacing: 2px; color: var(--accent); text-transform: uppercase; margin-bottom: 3px; }
+  section.card h3 { margin: 22px 0 8px; font-size: 17px; color: var(--ink); }
+  section.card h4 { margin: 18px 0 6px; font-size: 13px; color: var(--accent); letter-spacing: 0.5px; text-transform: uppercase; }
+  section.card p { color: var(--ink); }
+  section.card .deck { color: var(--ink-dim); font-size: 14px; max-width: 980px; }
+
+  /* Output-kind chips */
+  .kind { display: inline-block; font-size: 10.5px; padding: 2px 7px; border-radius: 999px;
+          font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; border: 1px solid var(--border); }
+  .kind.value     { background: rgba(110,168,255,0.10); color: #93b5ff; border-color: rgba(110,168,255,0.4); }
+  .kind.event     { background: rgba(192,132,252,0.10); color: #c4a3fd; border-color: rgba(192,132,252,0.4); }
+  .kind.regime    { background: rgba(142,240,194,0.10); color: var(--accent-2); border-color: rgba(142,240,194,0.4); }
+  .kind.level     { background: rgba(251,191,36,0.10);  color: var(--amber); border-color: var(--amber-bd); }
+  .kind.distance  { background: rgba(239,68,68,0.10);   color: #fda4a4; border-color: var(--red-bd); }
+  .kind.cross     { background: rgba(192,132,252,0.10); color: #c4a3fd; border-color: rgba(192,132,252,0.4); }
+  .kind.divergence{ background: rgba(110,168,255,0.10); color: #93b5ff; border-color: rgba(110,168,255,0.4); }
+
+  /* status pills */
+  .pill { display: inline-block; font-size: 10.5px; padding: 2px 8px; border-radius: 999px;
+          font-weight: 700; letter-spacing: 0.5px; text-transform: uppercase; }
+  .pill.shipped { background: var(--green-bg); color: var(--green); border: 1px solid var(--green-bd); }
+  .pill.gap     { background: var(--red-bg); color: var(--red); border: 1px solid var(--red-bd); }
+  .pill.upgrade { background: var(--amber-bg); color: var(--amber); border: 1px solid var(--amber-bd); }
+  .pill.new     { background: rgba(110,168,255,0.10); color: var(--accent); border: 1px solid rgba(110,168,255,0.4); }
+
+  /* family blocks */
+  .family { background: var(--panel-2); border: 1px solid var(--border); border-radius: 12px;
+            padding: 18px 20px; margin-bottom: 14px; }
+  .family-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; }
+  .family-head .ftitle { font-size: 16px; font-weight: 700; }
+  .family-head .fsub { font-size: 12px; color: var(--ink-dim); letter-spacing: 0.5px; text-transform: uppercase; }
+  .family h5 { margin: 14px 0 4px; font-size: 11.5px; color: var(--ink-faint); letter-spacing: 1px; text-transform: uppercase; }
+  .family .now { color: var(--ink); padding: 8px 12px; border-left: 3px solid var(--red); background: rgba(239,68,68,0.05); border-radius: 0 8px 8px 0; font-size: 13.5px; }
+  .family .ind { color: var(--ink); padding: 8px 12px; border-left: 3px solid var(--accent-2); background: rgba(142,240,194,0.05); border-radius: 0 8px 8px 0; font-size: 13.5px; }
+  .family .rec { color: var(--ink); padding: 8px 12px; border-left: 3px solid var(--accent); background: rgba(110,168,255,0.05); border-radius: 0 8px 8px 0; font-size: 13.5px; }
+
+  /* primitive cards in recommendation */
+  .prim-list { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 8px; margin-top: 10px; }
+  .prim { background: var(--panel-3); border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; font-size: 13px; }
+  .prim .pid { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--accent-2); font-size: 12.5px; font-weight: 600; }
+  .prim .pdesc { color: var(--ink-dim); font-size: 12.5px; margin-top: 4px; line-height: 1.45; }
+  .prim .pmeta { margin-top: 6px; display: flex; gap: 6px; flex-wrap: wrap; }
+
+  /* Computation reference block */
+  .compute { background: #0c1224; border: 1px solid var(--border); border-radius: 10px;
+             padding: 12px 14px; margin-top: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+             font-size: 12.5px; color: #c8d0ec; overflow-x: auto; white-space: pre; }
+  .compute .kw { color: var(--accent); }
+  .compute .num { color: var(--amber); }
+  .compute .com { color: var(--ink-faint); font-style: italic; }
+
+  /* Tables */
+  table.dt { width: 100%; border-collapse: collapse; margin-top: 8px; font-size: 13px; }
+  table.dt th { text-align: left; padding: 9px 10px; background: var(--panel-3); border-bottom: 1px solid var(--border); font-size: 11.5px; letter-spacing: 0.5px; text-transform: uppercase; color: var(--ink-dim); }
+  table.dt td { padding: 8px 10px; border-bottom: 1px solid var(--border); vertical-align: top; }
+  table.dt tr:last-child td { border-bottom: none; }
+  table.dt code { background: var(--panel-3); padding: 1px 6px; border-radius: 4px; font-size: 12px; color: var(--accent-2); }
+
+  /* Callouts */
+  .callout { border-radius: 10px; padding: 14px 16px; margin: 14px 0; font-size: 14px; }
+  .callout.warn { background: var(--amber-bg); border: 1px solid var(--amber-bd); color: var(--ink); border-left: 4px solid var(--amber); }
+  .callout.note { background: rgba(110,168,255,0.08); border: 1px solid rgba(110,168,255,0.3); color: var(--ink); border-left: 4px solid var(--accent); }
+  .callout.tip  { background: var(--green-bg); border: 1px solid var(--green-bd); color: var(--ink); border-left: 4px solid var(--green); }
+  .callout strong { color: var(--ink); }
+
+  /* tags */
+  .tag { display: inline-block; font-size: 10.5px; padding: 1px 6px; border-radius: 4px; background: var(--panel-3); color: var(--ink-dim); margin-right: 4px; }
+
+  /* TL;DR grid */
+  .tldr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 14px; }
+  @media (max-width: 820px) { .tldr-grid { grid-template-columns: 1fr; } }
+  .tldr { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 14px 16px; }
+  .tldr h4 { margin: 0 0 8px; font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: var(--accent); }
+  .tldr p { margin: 0; font-size: 13.5px; }
+
+  .footer { color: var(--ink-faint); font-size: 12px; margin-top: 30px; text-align: center; }
+
+  .stat-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 16px 0 8px; }
+  @media (max-width: 820px) { .stat-row { grid-template-columns: 1fr 1fr; } }
+  .stat { background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+  .stat .n { font-size: 24px; font-weight: 700; color: var(--accent-2); }
+  .stat .lbl { font-size: 11.5px; color: var(--ink-dim); letter-spacing: 0.5px; text-transform: uppercase; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hero">
+  <div class="eyebrow">Signal Library · v2 spec</div>
+  <h1>Industry-Standard Semantics + Missing Primitives</h1>
+  <p class="sub">
+    Audit of the shipped PRD-16a signal catalog (~55 primitives) against the conventions retail and institutional quants actually use. Two failure modes uncovered: primitives over-rely on a single &ldquo;value&rdquo; output where the industry consumes <em>events</em>, <em>regimes</em>, and <em>crossovers</em>; and the catalog is missing entire computation idioms (proximity to extrema, squeeze detection, anchored references, ATR-trailing stops) that are table-stakes in modern quant workflows. This doc proposes the additive v2 fixes.
+  </p>
+  <div class="positioning">
+    <strong>Two examples that motivate this work.</strong> (1) Today's MACD primitive emits the histogram&rsquo;s sign — but the industry consumes MACD as a <em>signal-line crossover event</em> + <em>histogram inflection</em> + <em>divergence pattern</em>. (2) The SpaceX reference strategy used a &ldquo;within 2–25% of the 52-week high&rdquo; filter — that is not expressible with any primitive in the current catalog. v2 closes both gaps.
+  </div>
+</header>
+
+<nav class="toc">
+  <div class="toc-title">Contents</div>
+  <ol>
+    <li><a href="#sec-tldr">TL;DR + the two bugs</a></li>
+    <li><a href="#sec-semantics">The semantics layer — six output kinds</a></li>
+    <li><a href="#sec-audit">Per-family audit (the existing 11 anchor families)</a></li>
+    <li><a href="#sec-new">New primitives to add</a></li>
+    <li><a href="#sec-schema">Schema implications (3 additive fields)</a></li>
+    <li><a href="#sec-summary">Catalog v1 vs v2 — summary table</a></li>
+    <li><a href="#sec-migration">Migration plan (zero-breakage rollout)</a></li>
+    <li><a href="#sec-sources">Sources</a></li>
+  </ol>
+</nav>
+
+<!-- ====================================================== -->
+<section class="card" id="sec-tldr">
+  <h2><span class="pretitle">Section 1</span>TL;DR — the two bugs</h2>
+  <p class="deck">The shipped catalog from PRD-16a is structurally correct (categories, parameters, evidence tiers) but consumed wrong at the rule layer. Two distinct bug classes are conflated.</p>
+
+  <div class="tldr-grid">
+    <div class="tldr">
+      <h4>Bug 1 — Semantic flatness</h4>
+      <p>
+        Every primitive emits a single scalar value, and rules compare it to a threshold (<code>RSI &lt; 30</code>, <code>MACD &gt; 0</code>, <code>ADX &gt; 25</code>). But the industry consumes most of these indicators as <em>events</em> (line A crosses line B), <em>regimes</em> (trending vs ranging classifier), or <em>divergences</em> (price vs indicator structure). Telling a user &ldquo;buy when MACD &gt; 0&rdquo; is not the canonical MACD strategy — every textbook says &ldquo;buy on bullish signal-line crossover.&rdquo;
+      </p>
+    </div>
+    <div class="tldr">
+      <h4>Bug 2 — Missing computations</h4>
+      <p>
+        Several common idioms are not expressible with current primitives: distance-to-extremum (&ldquo;within X% of the 52-week high&rdquo;), squeeze detection (Bollinger Bands inside Keltner), anchored VWAP from a catalyst date, ATR-trailing stops (Chandelier, Supertrend), smoothed candle direction (Heikin-Ashi), the academic 12-1 momentum z-score, and PEAD-style post-earnings drift. Each is industry-standard.
+      </p>
+    </div>
+  </div>
+
+  <div class="stat-row">
+    <div class="stat"><div class="n">55</div><div class="lbl">primitives shipped in v1</div></div>
+    <div class="stat"><div class="n">11</div><div class="lbl">families to upgrade in v2</div></div>
+    <div class="stat"><div class="n">+34</div><div class="lbl">new primitives to add</div></div>
+    <div class="stat"><div class="n">3</div><div class="lbl">additive schema fields</div></div>
+  </div>
+
+  <div class="callout note">
+    <strong>v2 is purely additive.</strong> No existing primitive id is removed or renamed. Existing saved strategies remain identical at backtest. The new primitives are all opt-in additions, and the three new schema fields (<code>output_kind</code>, <code>output_channels</code>, <code>composes</code>) default to backward-compatible values for everything shipped.
+  </div>
+</section>
+
+<!-- ====================================================== -->
+<section class="card" id="sec-semantics">
+  <h2><span class="pretitle">Section 2</span>The semantics layer — six output kinds</h2>
+  <p class="deck">
+    Every primitive in the catalog can be classified by the <em>shape</em> of the signal it emits at each timestep. v1 implicitly assumed all primitives were &ldquo;value&rdquo; (a scalar to compare against a threshold). v2 makes the kind explicit and lets the composer UI render rule-builders specialized to each kind.
+  </p>
+
+  <table class="dt">
+    <thead><tr><th>Output kind</th><th>What the primitive emits</th><th>How a rule consumes it</th><th>Examples</th></tr></thead>
+    <tbody>
+      <tr>
+        <td><span class="kind value">VALUE</span></td>
+        <td>A scalar at each bar (the raw indicator value)</td>
+        <td>Compare against a numeric threshold</td>
+        <td><code>rsi</code>, <code>atr</code>, <code>fcf_yield</code>, <code>macd_line</code></td>
+      </tr>
+      <tr>
+        <td><span class="kind event">EVENT</span></td>
+        <td>A boolean that is <em>true only at the bar of the transition</em></td>
+        <td>Triggers the rule on the bar it occurs; does not persist</td>
+        <td><code>macd_signal_cross_up</code>, <code>price_breakout_52w_high</code>, <code>squeeze_fire</code></td>
+      </tr>
+      <tr>
+        <td><span class="kind regime">REGIME</span></td>
+        <td>A categorical classifier of the current market state</td>
+        <td>Acts as a gate / filter on other rules</td>
+        <td><code>adx_regime</code> (trending|ranging), <code>vol_regime</code> (high|low), <code>squeeze_state</code></td>
+      </tr>
+      <tr>
+        <td><span class="kind level">LEVEL</span></td>
+        <td>A boolean that is <em>true while a condition holds</em> (persists)</td>
+        <td>True for as long as the condition is met</td>
+        <td><code>rsi_oversold</code> (RSI &lt; 30), <code>price_above_200dma</code></td>
+      </tr>
+      <tr>
+        <td><span class="kind distance">DISTANCE</span></td>
+        <td>A percentage gap between two reference values</td>
+        <td>Compare against a range (between X% and Y%)</td>
+        <td><code>distance_to_52w_high</code>, <code>distance_to_anchored_vwap</code></td>
+      </tr>
+      <tr>
+        <td><span class="kind cross">CROSS</span></td>
+        <td>A specialization of EVENT: line A crosses line B</td>
+        <td>Triggers on the bar of the cross; direction-aware</td>
+        <td><code>ma_crossover_event</code>, <code>di_plus_above_di_minus</code>, <code>stoch_k_d_cross</code></td>
+      </tr>
+      <tr>
+        <td><span class="kind divergence">DIVERGENCE</span></td>
+        <td>A pattern: indicator&rsquo;s swing structure disagrees with price&rsquo;s swing structure</td>
+        <td>Pattern-detection over a lookback window (peak/trough comparison)</td>
+        <td><code>rsi_bullish_divergence</code>, <code>macd_bearish_divergence</code>, <code>obv_divergence</code></td>
+      </tr>
+    </tbody>
+  </table>
+
+  <h3>Why this matters for the composer UI</h3>
+  <p>
+    The composer (PRD-16b) currently renders one rule-builder shape: &ldquo;[primitive] &lt;/&gt; [threshold].&rdquo; That is correct for VALUE primitives but inappropriate for the others. v2 lets the composer dispatch on <code>output_kind</code>:
+  </p>
+  <table class="dt">
+    <thead><tr><th>Output kind</th><th>Rule-builder UI</th></tr></thead>
+    <tbody>
+      <tr><td><span class="kind value">VALUE</span></td><td><code>[primitive] [&lt; | &gt; | =] [threshold]</code> — same as today</td></tr>
+      <tr><td><span class="kind event">EVENT</span></td><td><code>When [primitive] fires</code> — no threshold input (always-true=enable)</td></tr>
+      <tr><td><span class="kind regime">REGIME</span></td><td><code>When regime is [trending | ranging | …]</code> — single-select</td></tr>
+      <tr><td><span class="kind level">LEVEL</span></td><td><code>While [primitive] is true</code> — no threshold input</td></tr>
+      <tr><td><span class="kind distance">DISTANCE</span></td><td><code>[primitive] is between [min%] and [max%]</code> — range input</td></tr>
+      <tr><td><span class="kind cross">CROSS</span></td><td><code>When [line A] crosses [above | below] [line B]</code> — direction picker</td></tr>
+      <tr><td><span class="kind divergence">DIVERGENCE</span></td><td><code>When [bullish | bearish] divergence detected over [N] bars</code></td></tr>
+    </tbody>
+  </table>
+</section>
+
+<!-- ====================================================== -->
+<section class="card" id="sec-audit">
+  <h2><span class="pretitle">Section 3</span>Per-family audit</h2>
+  <p class="deck">
+    For each of the 11 anchor indicator families in the v1 catalog: what shipped (current state), what the industry actually does with it (industry pattern, with sources), and the recommended set of v2 primitives. The family names match the <code>family=</code> field in <code>signal_primitives.py</code>.
+  </p>
+
+  <!-- ===== MACD ===== -->
+  <div class="family">
+    <div class="family-head">
+      <div><span class="ftitle">MACD family</span> <span class="fsub">· Trend · Evidence A</span></div>
+      <div><span class="pill upgrade">Upgrade</span></div>
+    </div>
+    <h5>Current state (v1)</h5>
+    <div class="now">
+      One primitive <code>macd</code> with <code>default_thresholds={"histogram_zero_cross": 0.0}</code>. Output is the histogram scalar. A rule writes <code>macd &gt; 0</code> or <code>macd &lt; 0</code> as a bull/bear posture filter.
+    </div>
+    <h5>Industry pattern</h5>
+    <div class="ind">
+      MACD has three channels — <em>MACD line</em> (12-EMA − 26-EMA), <em>signal line</em> (9-EMA of MACD), <em>histogram</em> (MACD line − signal line). The canonical consumption (per StockCharts ChartSchool, Schwab, OANDA): <strong>(a)</strong> bullish/bearish <em>signal-line crossover</em>; <strong>(b)</strong> <em>histogram inflection</em> as an earlier signal than the crossover itself; <strong>(c)</strong> the <em>zero-line position</em> as a trend-bias filter; <strong>(d)</strong> <em>bullish/bearish divergence</em> with price. A pure &ldquo;MACD line &gt; 0&rdquo; rule misses the canonical use case.
+    </div>
+    <h5>Recommended v2 primitives</h5>
+    <div class="rec">Decompose MACD into one VALUE primitive emitting three channels, plus four event/divergence primitives that <em>compose</em> on top.</div>
+    <div class="prim-list">
+      <div class="prim"><div class="pid">macd</div><span class="kind value">VALUE</span> <span class="tag">3 channels: line, signal, histogram</span><div class="pdesc">Existing primitive — extended with explicit output channels.</div></div>
+      <div class="prim"><div class="pid">macd_signal_cross</div><span class="kind cross">CROSS</span><div class="pdesc">MACD line crosses its signal line. Direction picker (above/below) in composer.</div></div>
+      <div class="prim"><div class="pid">macd_histogram_flip</div><span class="kind event">EVENT</span><div class="pdesc">Histogram changes sign — the earliest momentum-shift signal.</div></div>
+      <div class="prim"><div class="pid">macd_zero_line_cross</div><span class="kind cross">CROSS</span><div class="pdesc">MACD line crosses zero — trend-regime change.</div></div>
+      <div class="prim"><div class="pid">macd_bullish_divergence</div><span class="kind divergence">DIV</span><div class="pdesc">Price makes lower low; MACD makes higher low. Reversal setup.</div></div>
+      <div class="prim"><div class="pid">macd_bearish_divergence</div><span class="kind divergence">DIV</span><div class="pdesc">Price makes higher high; MACD makes lower high. Exhaustion setup.</div></div>
+    </div>
+  </div>
+
+  <!-- ===== RSI ===== -->
+  <div class="family">
+    <div class="family-head">
+      <div><span class="ftitle">RSI family</span> <span class="fsub">· Mean Reversion · Evidence A</span></div>
+      <div><span class="pill upgrade">Upgrade</span></div>
+    </div>
+    <h5>Current state (v1)</h5>
+    <div class="now">
+      One primitive <code>rsi</code> with <code>default_thresholds={"upper": 70.0, "lower": 30.0}</code>. Rules write <code>rsi &lt; 30</code> for oversold, <code>rsi &gt; 70</code> for overbought.
+    </div>
+    <h5>Industry pattern</h5>
+    <div class="ind">
+      Beyond the overbought/oversold levels (which v1 handles correctly), the industry consumes RSI via <strong>(a)</strong> <em>failure swings</em> — RSI enters &lt;30, rallies, drops but holds above 30, then breaks the recent high (long signal); <strong>(b)</strong> <em>regular divergence</em> for counter-trend reversals; <strong>(c)</strong> <em>hidden divergence</em> for trend re-entries. Alchemy Markets and Quant-Signals both flag pure level-only RSI as low-quality on trending names.
+    </div>
+    <h5>Recommended v2 primitives</h5>
+    <div class="prim-list">
+      <div class="prim"><div class="pid">rsi</div><span class="kind value">VALUE</span><div class="pdesc">Existing.</div></div>
+      <div class="prim"><div class="pid">rsi_oversold</div><span class="kind level">LEVEL</span><div class="pdesc">RSI &lt; lower threshold (default 30). Persists while true.</div></div>
+      <div class="prim"><div class="pid">rsi_overbought</div><span class="kind level">LEVEL</span><div class="pdesc">RSI &gt; upper threshold (default 70).</div></div>
+      <div class="prim"><div class="pid">rsi_bullish_failure_swing</div><span class="kind event">EVENT</span><div class="pdesc">Classic Wilder pattern — oversold entry, recovery, retest, break.</div></div>
+      <div class="prim"><div class="pid">rsi_bearish_failure_swing</div><span class="kind event">EVENT</span><div class="pdesc">Inverse — overbought entry, decline, retest, break.</div></div>
+      <div class="prim"><div class="pid">rsi_bullish_divergence</div><span class="kind divergence">DIV</span><div class="pdesc">Regular bullish divergence. Reversal trader use case.</div></div>
+      <div class="prim"><div class="pid">rsi_bearish_divergence</div><span class="kind divergence">DIV</span><div class="pdesc">Regular bearish divergence.</div></div>
+      <div class="prim"><div class="pid">rsi_hidden_bullish_div</div><span class="kind divergence">DIV</span><div class="pdesc">Trend-continuation re-entry signal. Price higher low; RSI lower low.</div></div>
+    </div>
+  </div>
+
+  <!-- ===== Bollinger ===== -->
+  <div class="family">
+    <div class="family-head">
+      <div><span class="ftitle">Bollinger family (BBANDS)</span> <span class="fsub">· Mean Reversion / Volatility · Evidence A</span></div>
+      <div><span class="pill upgrade">Upgrade</span></div>
+    </div>
+    <h5>Current state (v1)</h5>
+    <div class="now">
+      One primitive <code>bbands</code> with <code>default_thresholds={"price_outside_upper": 1.0, "price_outside_lower": -1.0}</code>. Output is the upper/lower band level pair.
+    </div>
+    <h5>Industry pattern</h5>
+    <div class="ind">
+      Two distinct strategies. (1) <em>Mean reversion</em>: price tagging the upper/lower band — already covered. (2) <em>Squeeze breakout</em>: low <strong>Bollinger BandWidth</strong> (BBW &lt; 4% is the canonical threshold per Volatility Box) marks a consolidation; when price closes outside a band, the squeeze &ldquo;fires.&rdquo; Plus <em>walking the band</em>: extended close-above-upper sequences = trend continuation, not exhaustion. v1 has no squeeze concept.
+    </div>
+    <h5>Recommended v2 primitives</h5>
+    <div class="prim-list">
+      <div class="prim"><div class="pid">bbands</div><span class="kind value">VALUE</span> <span class="tag">3 channels: upper, lower, middle</span><div class="pdesc">Existing.</div></div>
+      <div class="prim"><div class="pid">bb_percent_b</div><span class="kind value">VALUE</span><div class="pdesc">%B = (close − lower) / (upper − lower). Normalized 0–1 position within bands.</div></div>
+      <div class="prim"><div class="pid">bb_bandwidth</div><span class="kind value">VALUE</span><div class="pdesc">BBW = (upper − lower) / middle. Compression metric for squeeze.</div></div>
+      <div class="prim"><div class="pid">bb_squeeze</div><span class="kind regime">REGIME</span><div class="pdesc">BBW below 4% (default) = squeeze regime active.</div></div>
+      <div class="prim"><div class="pid">bb_squeeze_fire</div><span class="kind event">EVENT</span><div class="pdesc">Squeeze was active last bar; close exits a band this bar. Direction-aware.</div></div>
+      <div class="prim"><div class="pid">bb_walk_upper</div><span class="kind event">EVENT</span><div class="pdesc">N consecutive closes above upper band. Trend-continuation signal.</div></div>
+      <div class="prim"><div class="pid">bb_tag_upper</div><span class="kind event">EVENT</span><div class="pdesc">Close above upper band (single bar). Reversal trader entry.</div></div>
+      <div class="prim"><div class="pid">bb_tag_lower</div><span class="kind event">EVENT</span><div class="pdesc">Close below lower band.</div></div>
+    </div>
+  </div>
+
+  <!-- ===== ADX ===== -->
+  <div class="family">
+    <div class="family-head">
+      <div><span class="ftitle">ADX / Directional Movement family</span> <span class="fsub">· Trend · Evidence A</span></div>
+      <div><span class="pill upgrade">Upgrade</span></div>
+    </div>
+    <h5>Current state (v1)</h5>
+    <div class="now">
+      One primitive <code>adx</code> with <code>default_thresholds={"trending": 25.0}</code>. Rules write <code>adx &gt; 25</code> as a trend-strength filter. No DI+ / DI- channels exposed.
+    </div>
+    <h5>Industry pattern</h5>
+    <div class="ind">
+      ADX is consumed as a <em>regime classifier</em> (trending vs ranging), and DI+ / DI- crossover provides the direction. The canonical combined rule (Quant Signals 763-backtest study): &ldquo;Long when DI+ crosses above DI- AND ADX &gt; 25 AND ADX rising.&rdquo; v1 has no way to express the DI crossover or the ADX-rising slope condition.
+    </div>
+    <h5>Recommended v2 primitives</h5>
+    <div class="prim-list">
+      <div class="prim"><div class="pid">adx</div><span class="kind value">VALUE</span> <span class="tag">3 channels: adx, plus_di, minus_di</span><div class="pdesc">Existing — extended with DI channels.</div></div>
+      <div class="prim"><div class="pid">adx_regime</div><span class="kind regime">REGIME</span><div class="pdesc">{trending: ADX&gt;25, weak: 20&lt;=ADX&lt;=25, ranging: ADX&lt;20}</div></div>
+      <div class="prim"><div class="pid">adx_rising</div><span class="kind level">LEVEL</span><div class="pdesc">ADX higher than N bars ago. Trend gaining strength.</div></div>
+      <div class="prim"><div class="pid">di_cross_bullish</div><span class="kind cross">CROSS</span><div class="pdesc">DI+ crosses above DI-. Directional momentum shift up.</div></div>
+      <div class="prim"><div class="pid">di_cross_bearish</div><span class="kind cross">CROSS</span><div class="pdesc">DI- crosses above DI+.</div></div>
+    </div>
+  </div>
+
+  <!-- ===== Moving Average ===== -->
+  <div class="family">
+    <div class="family-head">
+      <div><span class="ftitle">Moving Average family</span> <span class="fsub">· Trend · Evidence A</span></div>
+      <div><span class="pill upgrade">Upgrade</span></div>
+    </div>
+    <h5>Current state (v1)</h5>
+    <div class="now">
+      Primitives: <code>sma</code>, <code>ema</code>, <code>wma</code>, <code>dema</code>, <code>tema</code>, <code>kama</code>, <code>ma_crossover</code>. The MA primitives emit the level; <code>ma_crossover</code> is the only event-style primitive in the family but has no direction parameter exposed.
+    </div>
+    <h5>Industry pattern</h5>
+    <div class="ind">
+      Two consumption patterns: <em>price vs MA</em> (close above 200-day = bull-market filter) and <em>MA-vs-MA crossover</em> (50-over-200 = golden cross; inverse = death cross). The composer needs both as standalone primitives, plus a <em>slope</em> primitive (MA rising/falling) for trend strength.
+    </div>
+    <h5>Recommended v2 primitives</h5>
+    <div class="prim-list">
+      <div class="prim"><div class="pid">price_above_ma</div><span class="kind level">LEVEL</span><div class="pdesc">Close &gt; MA. Parameterized: which MA (period, ema/sma).</div></div>
+      <div class="prim"><div class="pid">price_ma_cross_up</div><span class="kind cross">CROSS</span><div class="pdesc">Close crosses above MA.</div></div>
+      <div class="prim"><div class="pid">price_ma_cross_down</div><span class="kind cross">CROSS</span><div class="pdesc">Close crosses below MA.</div></div>
+      <div class="prim"><div class="pid">golden_cross</div><span class="kind cross">CROSS</span><div class="pdesc">50-day SMA crosses above 200-day SMA. Default periods configurable.</div></div>
+      <div class="prim"><div class="pid">death_cross</div><span class="kind cross">CROSS</span><div class="pdesc">Inverse.</div></div>
+      <div class="prim"><div class="pid">ma_slope_positive</div><span class="kind level">LEVEL</span><div class="pdesc">MA(t) &gt; MA(t-N). Configurable lookback.</div></div>
+    </div>
+  </div>
+
+  <!-- ===== Stochastic ===== -->
+  <div class="family">
+    <div class="family-head">
+      <div><span class="ftitle">Stochastic family</span> <span class="fsub">· Mean Reversion · Evidence A</span></div>
+      <div><span class="pill upgrade">Upgrade</span></div>
+    </div>
+    <h5>Current state (v1)</h5>
+    <div class="now">
+      <code>stoch</code> primitive emits a single scalar; threshold rule writes <code>stoch &lt; 20</code> or <code>stoch &gt; 80</code>. The %K-vs-%D crossover — the canonical entry trigger — is not expressible.
+    </div>
+    <h5>Recommended v2 primitives</h5>
+    <div class="prim-list">
+      <div class="prim"><div class="pid">stoch</div><span class="kind value">VALUE</span> <span class="tag">2 channels: %K, %D</span><div class="pdesc">Existing — extended with both lines.</div></div>
+      <div class="prim"><div class="pid">stoch_k_d_cross</div><span class="kind cross">CROSS</span><div class="pdesc">%K crosses %D. Direction-aware in composer.</div></div>
+      <div class="prim"><div class="pid">stoch_oversold_cross_up</div><span class="kind event">EVENT</span><div class="pdesc">%K crosses above %D from below 20. Wilder-style entry.</div></div>
+      <div class="prim"><div class="pid">stoch_overbought_cross_down</div><span class="kind event">EVENT</span><div class="pdesc">Symmetric short entry.</div></div>
+    </div>
+  </div>
+
+  <!-- ===== 52-week extrema ===== -->
+  <div class="family">
+    <div class="family-head">
+      <div><span class="ftitle">52-week extrema family <span class="pill new" style="margin-left:6px">NEW</span></span> <span class="fsub">· Momentum · Evidence A</span></div>
+      <div><span class="pill gap">Gap</span></div>
+    </div>
+    <h5>Current state (v1)</h5>
+    <div class="now">
+      No primitives. <code>donchian_breakout</code> approximates with an N-day high-low channel but isn&rsquo;t parameterized to 52-week semantics, and produces only a breakout event — no distance or proximity primitive.
+    </div>
+    <h5>Industry pattern</h5>
+    <div class="ind">
+      Three distinct use cases in modern equity quant: <strong>(a)</strong> the 52-week high <em>breakout event</em> (the classic momentum signal); <strong>(b)</strong> proximity-based screens — Kavout and Stock Titan flag stocks within 3–10% of the 52-week high as breakout-ready; the <em>52-week high ratio</em> (current price ÷ 52-week high) is the academic momentum proxy from Hong-Stein-style research; <strong>(c)</strong> the &ldquo;sweet spot&rdquo; range — many systems (the SpaceX reference strategy is one) want stocks <em>between</em> 2% and 25% below the high, capturing early breakout setups that haven&rsquo;t fully extended.
+    </div>
+    <h5>Recommended v2 primitives</h5>
+    <div class="prim-list">
+      <div class="prim"><div class="pid">distance_to_52w_high</div><span class="kind distance">DISTANCE</span><div class="pdesc">Percent gap below the 52-week high. Composer renders as range input.</div></div>
+      <div class="prim"><div class="pid">distance_to_52w_low</div><span class="kind distance">DISTANCE</span><div class="pdesc">Percent gap above the 52-week low.</div></div>
+      <div class="prim"><div class="pid">price_52w_high_ratio</div><span class="kind value">VALUE</span><div class="pdesc">Close / 52w_high ∈ [0, 1+]. The Hong-Stein momentum factor.</div></div>
+      <div class="prim"><div class="pid">price_52w_high_breakout</div><span class="kind event">EVENT</span><div class="pdesc">Close &gt; prior 52w high. Parameterizable lookback.</div></div>
+      <div class="prim"><div class="pid">price_52w_low_breakdown</div><span class="kind event">EVENT</span><div class="pdesc">Close &lt; prior 52w low.</div></div>
+      <div class="prim"><div class="pid">price_in_52w_high_zone</div><span class="kind level">LEVEL</span><div class="pdesc">Distance to 52w high ∈ [min%, max%]. Parameterizable — the &ldquo;sweet spot&rdquo;.</div></div>
+      <div class="prim"><div class="pid">days_since_52w_high</div><span class="kind value">VALUE</span><div class="pdesc">Bars elapsed since the prior 52w high. Recency filter.</div></div>
+    </div>
+    <div class="compute">  <span class="com"># Computation reference</span>
+<span class="kw">def</span> distance_to_52w_high(close, lookback=<span class="num">252</span>):
+    high_52w = close.rolling(lookback, min_periods=<span class="num">20</span>).max()
+    <span class="kw">return</span> (close / high_52w - <span class="num">1.0</span>) * <span class="num">100</span>   <span class="com"># negative = below high</span>
+
+<span class="kw">def</span> price_in_52w_high_zone(close, min_pct=<span class="num">2</span>, max_pct=<span class="num">25</span>, lookback=<span class="num">252</span>):
+    d = distance_to_52w_high(close, lookback)
+    <span class="kw">return</span> (d &lt;= -min_pct) &amp; (d &gt;= -max_pct)   <span class="com"># in sweet spot</span></div>
+  </div>
+
+  <!-- ===== Volume ===== -->
+  <div class="family">
+    <div class="family-head">
+      <div><span class="ftitle">Volume family</span> <span class="fsub">· Volume · Evidence A</span></div>
+      <div><span class="pill upgrade">Upgrade</span></div>
+    </div>
+    <h5>Current state (v1)</h5>
+    <div class="now">
+      <code>obv</code>, <code>ad</code>, <code>adosc</code>, <code>vwap</code>, <code>avg_dollar_volume</code> — but no <em>relative volume</em> primitive and no OBV-divergence detection. RVOL is the most heavily-used volume signal on every modern screener (Tradewink, ChartSchool, TradingView).
+    </div>
+    <h5>Recommended v2 primitives</h5>
+    <div class="prim-list">
+      <div class="prim"><div class="pid">rvol</div><span class="kind value">VALUE</span><div class="pdesc">Current bar volume ÷ average of prior N bars. RVOL &gt; 1.5 = elevated.</div></div>
+      <div class="prim"><div class="pid">rvol_surge</div><span class="kind event">EVENT</span><div class="pdesc">RVOL crosses above 2.0 (default). Major catalyst signal.</div></div>
+      <div class="prim"><div class="pid">obv_divergence_bullish</div><span class="kind divergence">DIV</span><div class="pdesc">Price lower low; OBV higher low. Accumulation despite weakness.</div></div>
+      <div class="prim"><div class="pid">obv_divergence_bearish</div><span class="kind divergence">DIV</span><div class="pdesc">Price higher high; OBV lower high. Distribution.</div></div>
+      <div class="prim"><div class="pid">anchored_vwap</div><span class="kind value">VALUE</span><div class="pdesc">VWAP anchored from a chosen date (default: most recent earnings). Institutional reference level.</div></div>
+      <div class="prim"><div class="pid">distance_to_anchored_vwap</div><span class="kind distance">DISTANCE</span><div class="pdesc">Percent gap between close and anchored VWAP. Composer renders as range.</div></div>
+      <div class="prim"><div class="pid">price_above_anchored_vwap</div><span class="kind level">LEVEL</span><div class="pdesc">Persistent buyer-control flag from the anchor date.</div></div>
+    </div>
+  </div>
+
+  <!-- ===== Volatility ===== -->
+  <div class="family">
+    <div class="family-head">
+      <div><span class="ftitle">Volatility family</span> <span class="fsub">· Volatility · Evidence A</span></div>
+      <div><span class="pill upgrade">Upgrade</span></div>
+    </div>
+    <h5>Current state (v1)</h5>
+    <div class="now">
+      <code>atr</code>, <code>natr</code>, <code>trange</code>, <code>realized_vol</code>, <code>vol_regime</code>. The ATR value is exposed but there&rsquo;s no <em>trailing-stop primitive</em> using ATR — Chandelier Exit and Supertrend are missing entirely, despite being the canonical ATR-based risk-management tools.
+    </div>
+    <h5>Recommended v2 primitives</h5>
+    <div class="prim-list">
+      <div class="prim"><div class="pid">chandelier_exit_long</div><span class="kind value">VALUE</span><div class="pdesc">N-bar highest high − (ATR × multiplier). Trailing stop level. Default N=22, mult=3.</div></div>
+      <div class="prim"><div class="pid">chandelier_exit_short</div><span class="kind value">VALUE</span><div class="pdesc">N-bar lowest low + (ATR × multiplier).</div></div>
+      <div class="prim"><div class="pid">chandelier_exit_breach</div><span class="kind event">EVENT</span><div class="pdesc">Close crosses below chandelier_exit_long (or above for short). Position exit signal.</div></div>
+      <div class="prim"><div class="pid">supertrend</div><span class="kind value">VALUE</span><div class="pdesc">ATR-banded trailing line (hl2 ± mult × ATR). Default ATR=10, mult=3.</div></div>
+      <div class="prim"><div class="pid">supertrend_flip</div><span class="kind event">EVENT</span><div class="pdesc">Supertrend line flips direction (green↔red). Trend-regime change.</div></div>
+      <div class="prim"><div class="pid">supertrend_above_price</div><span class="kind level">LEVEL</span><div class="pdesc">Persistent trend-down flag.</div></div>
+      <div class="prim"><div class="pid">ttm_squeeze</div><span class="kind regime">REGIME</span><div class="pdesc">Bollinger Bands fully inside Keltner Channels. {squeeze_on, squeeze_off}.</div></div>
+      <div class="prim"><div class="pid">ttm_squeeze_fire</div><span class="kind event">EVENT</span><div class="pdesc">Squeeze was on last bar, off this bar. Direction inferred from momentum oscillator.</div></div>
+    </div>
+    <div class="compute">  <span class="com"># Chandelier Exit (Le Beau, 22-day default)</span>
+<span class="kw">def</span> chandelier_exit_long(high, low, close, n=<span class="num">22</span>, mult=<span class="num">3.0</span>):
+    atr_n = atr(high, low, close, n)
+    <span class="kw">return</span> high.rolling(n).max() - mult * atr_n
+
+  <span class="com"># TTM Squeeze (Bollinger ∩ Keltner)</span>
+<span class="kw">def</span> ttm_squeeze(close, high, low, n=<span class="num">20</span>, bb_mult=<span class="num">2.0</span>, kc_mult=<span class="num">1.5</span>):
+    ma = close.rolling(n).mean()
+    bb_upper = ma + bb_mult * close.rolling(n).std()
+    bb_lower = ma - bb_mult * close.rolling(n).std()
+    kc_upper = ma + kc_mult * atr(high, low, close, n)
+    kc_lower = ma - kc_mult * atr(high, low, close, n)
+    <span class="kw">return</span> (bb_upper &lt; kc_upper) &amp; (bb_lower &gt; kc_lower)</div>
+  </div>
+
+  <!-- ===== Momentum ===== -->
+  <div class="family">
+    <div class="family-head">
+      <div><span class="ftitle">Momentum family</span> <span class="fsub">· Momentum · Evidence A/B</span></div>
+      <div><span class="pill upgrade">Upgrade</span></div>
+    </div>
+    <h5>Current state (v1)</h5>
+    <div class="now">
+      <code>roc</code>, <code>mom</code>, <code>trix</code>, <code>apo</code>, <code>ppo</code>, <code>donchian_breakout</code>, <code>time_series_momentum</code>. Notably absent: the <em>12-1 momentum</em> z-score factor — the canonical academic equity momentum signal used in MSCI Momentum Indices and every quant fund.
+    </div>
+    <h5>Recommended v2 primitives</h5>
+    <div class="prim-list">
+      <div class="prim"><div class="pid">momentum_12_1</div><span class="kind value">VALUE</span><div class="pdesc">Return from t-12mo to t-1mo (skipping recent month to avoid reversal). Academic standard.</div></div>
+      <div class="prim"><div class="pid">momentum_12_1_zscore</div><span class="kind value">VALUE</span><div class="pdesc">12-1 momentum standardized across universe. Winsorized at ±3. MSCI methodology.</div></div>
+      <div class="prim"><div class="pid">momentum_composite_zscore</div><span class="kind value">VALUE</span><div class="pdesc">Equal-weighted z-score of 6-mo and 12-mo momentum.</div></div>
+      <div class="prim"><div class="pid">momentum_acceleration</div><span class="kind value">VALUE</span><div class="pdesc">Δ between recent-3mo return and trailing-9mo return. Picks up regime shifts.</div></div>
+    </div>
+  </div>
+
+  <!-- ===== Fundamental / Events ===== -->
+  <div class="family">
+    <div class="family-head">
+      <div><span class="ftitle">Fundamental + Event family</span> <span class="fsub">· Fundamental / Sentiment · Evidence A/B</span></div>
+      <div><span class="pill upgrade">Upgrade</span></div>
+    </div>
+    <h5>Current state (v1)</h5>
+    <div class="now">
+      <code>earnings_surprise</code> exists but is a scalar — no PEAD-style drift detection, no &ldquo;within N days of earnings&rdquo; gating primitive. <code>insider_net_buy</code> and <code>estimate_revision_3m</code> are present but lack &ldquo;crossed positive&rdquo; event variants.
+    </div>
+    <h5>Recommended v2 primitives</h5>
+    <div class="prim-list">
+      <div class="prim"><div class="pid">pead_signal</div><span class="kind value">VALUE</span><div class="pdesc">Most-recent SUE (standardized unexpected earnings). Persists from announcement until next print.</div></div>
+      <div class="prim"><div class="pid">pead_drift_window</div><span class="kind level">LEVEL</span><div class="pdesc">True for N trading days after last earnings (default 60, per Bernard-Thomas).</div></div>
+      <div class="prim"><div class="pid">days_to_earnings</div><span class="kind value">VALUE</span><div class="pdesc">Bars until next scheduled earnings. Gating primitive (exit before N).</div></div>
+      <div class="prim"><div class="pid">days_since_earnings</div><span class="kind value">VALUE</span><div class="pdesc">Bars elapsed since last earnings.</div></div>
+      <div class="prim"><div class="pid">estimate_revision_positive_cross</div><span class="kind event">EVENT</span><div class="pdesc"><code>estimate_revision_3m</code> crosses above 0 from below. Sell-side flip event.</div></div>
+      <div class="prim"><div class="pid">insider_net_buy_surge</div><span class="kind event">EVENT</span><div class="pdesc">Net insider buying &gt; N std-devs above trailing mean. Cluster-buy signal.</div></div>
+    </div>
+  </div>
+
+  <!-- ===== Candle structure ===== -->
+  <div class="family">
+    <div class="family-head">
+      <div><span class="ftitle">Candle structure family <span class="pill new" style="margin-left:6px">NEW</span></span> <span class="fsub">· Trend · Evidence B</span></div>
+      <div><span class="pill gap">Gap</span></div>
+    </div>
+    <h5>Current state (v1)</h5>
+    <div class="now">No primitives. Candle-pattern signals (Heikin-Ashi, doji, engulfing) are not represented.</div>
+    <h5>Recommended v2 primitives</h5>
+    <div class="prim-list">
+      <div class="prim"><div class="pid">heikin_ashi_trend</div><span class="kind regime">REGIME</span><div class="pdesc">{up, down} from sign of smoothed HA close vs HA open.</div></div>
+      <div class="prim"><div class="pid">heikin_ashi_consecutive</div><span class="kind value">VALUE</span><div class="pdesc">Count of consecutive same-direction HA candles. Trend-persistence metric.</div></div>
+      <div class="prim"><div class="pid">heikin_ashi_color_flip</div><span class="kind event">EVENT</span><div class="pdesc">HA candle changes color. Trend-reversal trigger (1–2 bar delay vs raw price).</div></div>
+    </div>
+  </div>
+
+</section>
+
+<!-- ====================================================== -->
+<section class="card" id="sec-new">
+  <h2><span class="pretitle">Section 4</span>New primitives — complete computation reference</h2>
+  <p class="deck">
+    The full inventory of net-new primitives in v2 (i.e., not extensions of an existing family). Each has the formula in industry-standard form and the proposed schema entry for <code>signal_primitives.py</code>.
+  </p>
+
+  <h3>4.1 — TTM Squeeze (Bollinger ∩ Keltner)</h3>
+  <p>Identifies low-volatility consolidation followed by a directional breakout. The most heavily used squeeze indicator in retail and institutional trading. Default parameters from John Carter's original specification.</p>
+  <div class="compute"><span class="com"># Inputs: 20-period MA, 2σ Bollinger, 1.5×ATR Keltner</span>
+ma   = close.rolling(<span class="num">20</span>).mean()
+std  = close.rolling(<span class="num">20</span>).std()
+atr  = atr_func(high, low, close, <span class="num">20</span>)
+bb_u = ma + <span class="num">2.0</span> * std
+bb_l = ma - <span class="num">2.0</span> * std
+kc_u = ma + <span class="num">1.5</span> * atr
+kc_l = ma - <span class="num">1.5</span> * atr
+squeeze_on = (bb_u &lt; kc_u) &amp; (bb_l &gt; kc_l)   <span class="com"># BB inside KC</span>
+squeeze_fire = (~squeeze_on) &amp; squeeze_on.shift(<span class="num">1</span>)   <span class="com"># transition off</span></div>
+
+  <h3>4.2 — Supertrend</h3>
+  <p>ATR-banded trailing trend line that flips when price closes through. Olivier Seban, 2009.</p>
+  <div class="compute">hl2 = (high + low) / <span class="num">2</span>
+atr = atr_func(high, low, close, <span class="num">10</span>)
+upper = hl2 + <span class="num">3.0</span> * atr   <span class="com"># default mult=3</span>
+lower = hl2 - <span class="num">3.0</span> * atr
+<span class="com"># Trend state ratchets: in uptrend, lower band can only rise.</span>
+<span class="com"># Flip when close crosses the active band.</span></div>
+
+  <h3>4.3 — Chandelier Exit</h3>
+  <p>Volatility-adjusted trailing stop. Charles Le Beau, popularized by Alexander Elder.</p>
+  <div class="compute"><span class="com"># Long stop: 22-day HH − 3 × ATR(22)</span>
+ce_long  = high.rolling(<span class="num">22</span>).max() - <span class="num">3.0</span> * atr_func(high, low, close, <span class="num">22</span>)
+ce_short = low.rolling(<span class="num">22</span>).min()  + <span class="num">3.0</span> * atr_func(high, low, close, <span class="num">22</span>)
+exit_long = close &lt; ce_long</div>
+
+  <h3>4.4 — Anchored VWAP</h3>
+  <p>Running volume-weighted average price from a chosen anchor date (earnings, IPO, gap, macro event). Institutional reference for cost basis since the anchor.</p>
+  <div class="compute"><span class="com"># Slice bars from anchor_date forward</span>
+slice_df = df.loc[anchor_date:]
+tp_vol   = (slice_df.typical_price * slice_df.volume).cumsum()
+cum_vol  = slice_df.volume.cumsum()
+anchored_vwap = tp_vol / cum_vol</div>
+
+  <h3>4.5 — Relative Volume (RVOL)</h3>
+  <p>Current volume ÷ average over a lookback window. The catalyst-confirmation primitive.</p>
+  <div class="compute">rvol = volume / volume.shift(<span class="num">1</span>).rolling(<span class="num">20</span>).mean()
+<span class="com"># Standard thresholds: 1.5 = elevated, 2.0 = surge, 3.0 = major catalyst</span></div>
+
+  <h3>4.6 — 12-1 Momentum &amp; Z-score</h3>
+  <p>Academic equity momentum factor (Jegadeesh-Titman, MSCI methodology). 12-month return skipping the most recent month to avoid short-term reversal.</p>
+  <div class="compute">mom_12_1 = close.shift(<span class="num">21</span>) / close.shift(<span class="num">252</span>) - <span class="num">1</span>
+<span class="com"># Cross-sectional z-score across universe at each timestep</span>
+mom_12_1_z = (mom_12_1 - mom_12_1.groupby(<span class="kw">level</span>=<span class="num">0</span>).mean()) \
+              / mom_12_1.groupby(<span class="kw">level</span>=<span class="num">0</span>).std()
+mom_12_1_z = mom_12_1_z.clip(-<span class="num">3</span>, <span class="num">3</span>)   <span class="com"># Winsorize at ±3</span></div>
+
+  <h3>4.7 — PEAD signal &amp; drift window</h3>
+  <p>Post-earnings announcement drift — Bernard-Thomas 60-day window. Use SUE (standardized unexpected earnings) as the signal magnitude.</p>
+  <div class="compute"><span class="com"># SUE = (actual - estimate) / std-error of historical estimates</span>
+sue = (eps_actual - eps_estimate) / eps_estimate_std_err
+
+<span class="com"># Drift window: 60 trading days post-announcement</span>
+days_since_earnings = bars_since(earnings_date)
+pead_drift_window = days_since_earnings &lt;= <span class="num">60</span>
+pead_signal = sue.where(pead_drift_window, <span class="num">0</span>)</div>
+
+  <h3>4.8 — Heikin-Ashi smoothed candles</h3>
+  <p>Noise-reduced candle structure. 35–45% less candle-to-candle variation per Technical Analysis Journal.</p>
+  <div class="compute">ha_close = (open_ + high + low + close) / <span class="num">4</span>
+ha_open  = (prev_ha_open + prev_ha_close) / <span class="num">2</span>
+ha_high  = max(high, ha_open, ha_close)
+ha_low   = min(low,  ha_open, ha_close)
+ha_trend = <span class="kw">where</span>(ha_close &gt; ha_open, <span class="num">+1</span>, -<span class="num">1</span>)
+ha_streak = consecutive_count(ha_trend)</div>
+
+  <h3>4.9 — 52-week extrema family</h3>
+  <p>See Section 3 (52-week extrema family). Seven new primitives covering distance, breakout, ratio, sweet-spot zone, and recency.</p>
+
+  <h3>4.10 — Z-score wrapper (utility)</h3>
+  <p>Optional v2 enhancement: a meta-primitive that transforms any underlying VALUE primitive into a rolling z-score. Lets users compose &ldquo;RSI z-score over 60 days&rdquo; or &ldquo;volume z-score over 20 days&rdquo; without each primitive needing a hand-authored z-score variant.</p>
+  <div class="compute"><span class="com"># Generic: zscore_of(primitive_id, window=N)</span>
+val = primitive(...)
+z   = (val - val.rolling(window).mean()) / val.rolling(window).std()</div>
+
+  <div class="callout tip">
+    <strong>Composition idea.</strong> The KB lookup endpoint (<code>/api/signal-combos/match-templates</code>) becomes meaningfully smarter once primitives are tagged by <code>output_kind</code>. A user dropping <code>macd_signal_cross</code> (CROSS) + <code>rvol_surge</code> (EVENT) onto the canvas can be matched to the <em>&ldquo;Breakout with volume confirmation&rdquo;</em> template family. Jaccard similarity on <code>(category, output_kind)</code> tuples beats Jaccard on category alone.
+  </div>
+</section>
+
+<!-- ====================================================== -->
+<section class="card" id="sec-schema">
+  <h2><span class="pretitle">Section 5</span>Schema implications (3 additive fields)</h2>
+  <p class="deck">All three changes are additive. Existing primitives default to backward-compatible values. No saved strategy breaks.</p>
+
+  <h3>5.1 — <code>output_kind</code></h3>
+  <p>The semantic-kind enum from Section 2.</p>
+  <div class="compute"><span class="kw">class</span> OutputKind(<span class="kw">str</span>, Enum):
+    VALUE      = <span class="num">"value"</span>      <span class="com"># scalar — existing default for all v1 primitives</span>
+    EVENT      = <span class="num">"event"</span>
+    REGIME     = <span class="num">"regime"</span>
+    LEVEL      = <span class="num">"level"</span>
+    DISTANCE   = <span class="num">"distance"</span>
+    CROSS      = <span class="num">"cross"</span>
+    DIVERGENCE = <span class="num">"divergence"</span>
+
+<span class="kw">class</span> SignalPrimitive(BaseModel):
+    ...
+    output_kind: OutputKind = OutputKind.VALUE   <span class="com"># default keeps v1 untouched</span></div>
+
+  <h3>5.2 — <code>output_channels</code></h3>
+  <p>Multi-output primitives (MACD, BBANDS, ADX, Stoch) expose multiple named channels a rule can reference.</p>
+  <div class="compute">    output_channels: List[str] = [<span class="num">"value"</span>]   <span class="com"># default = single channel</span>
+
+<span class="com"># Example: MACD</span>
+SignalPrimitive(
+    id=<span class="num">"macd"</span>,
+    output_kind=OutputKind.VALUE,
+    output_channels=[<span class="num">"macd_line"</span>, <span class="num">"signal_line"</span>, <span class="num">"histogram"</span>],
+    ...
+)</div>
+
+  <h3>5.3 — <code>composes</code></h3>
+  <p>Derived primitives declare their parents. The composer uses this to render the input primitive&rsquo;s parameter knobs and to wire the SignalProvider chain.</p>
+  <div class="compute">    composes: List[str] = []   <span class="com"># default = standalone</span>
+
+<span class="com"># Example: macd_signal_cross</span>
+SignalPrimitive(
+    id=<span class="num">"macd_signal_cross"</span>,
+    output_kind=OutputKind.CROSS,
+    composes=[<span class="num">"macd"</span>],   <span class="com"># inherits MACD's params; computes the cross event</span>
+    ...
+)</div>
+
+  <div class="callout note">
+    <strong>Composer-render dispatch.</strong> Once <code>output_kind</code> is on every primitive, <code>&lt;RuleBuilder&gt;</code> can route to a kind-specific sub-component (<code>&lt;ValueRule&gt;</code>, <code>&lt;EventRule&gt;</code>, <code>&lt;CrossRule&gt;</code>, …). The current single &ldquo;value vs threshold&rdquo; renderer becomes the default for VALUE only, and the rest get appropriate widgets. This is the highest-leverage downstream change from v2.
+  </div>
+</section>
+
+<!-- ====================================================== -->
+<section class="card" id="sec-summary">
+  <h2><span class="pretitle">Section 6</span>Catalog v1 vs v2 — summary table</h2>
+
+  <table class="dt">
+    <thead><tr><th>Family</th><th>v1 (shipped)</th><th>v2 additions</th><th>Total v2</th></tr></thead>
+    <tbody>
+      <tr><td><strong>MACD</strong></td><td>1 (macd)</td><td>+5 (signal_cross, hist_flip, zero_cross, bull_div, bear_div)</td><td>6</td></tr>
+      <tr><td><strong>RSI</strong></td><td>1</td><td>+6 (oversold/overbought levels, failure swings, divergences)</td><td>7</td></tr>
+      <tr><td><strong>Bollinger</strong></td><td>1</td><td>+7 (%B, BBW, squeeze regime, fire event, walk, tag upper/lower)</td><td>8</td></tr>
+      <tr><td><strong>ADX/DMI</strong></td><td>1 (adx)</td><td>+4 (regime, rising, di crosses bull/bear)</td><td>5</td></tr>
+      <tr><td><strong>Moving Average</strong></td><td>7 (sma, ema, … ma_crossover)</td><td>+5 (price_above_ma, ma cross up/down, golden/death cross, slope)</td><td>12</td></tr>
+      <tr><td><strong>Stochastic</strong></td><td>2 (stoch, stochrsi)</td><td>+3 (k_d_cross, oversold cross up, overbought cross down)</td><td>5</td></tr>
+      <tr><td><strong>52-week extrema</strong> <span class="pill new">NEW</span></td><td>0</td><td>+7</td><td>7</td></tr>
+      <tr><td><strong>Volume</strong></td><td>5 (obv, ad, adosc, vwap, avg_dollar_volume)</td><td>+7 (rvol, surge, obv div × 2, anchored vwap × 3)</td><td>12</td></tr>
+      <tr><td><strong>Volatility</strong></td><td>5 (atr, natr, trange, realized_vol, vol_regime)</td><td>+8 (chandelier × 3, supertrend × 3, ttm squeeze × 2)</td><td>13</td></tr>
+      <tr><td><strong>Momentum</strong></td><td>7 (roc, mom, trix, apo, ppo, donchian, ts_momentum)</td><td>+4 (12-1, 12-1 z-score, composite z, acceleration)</td><td>11</td></tr>
+      <tr><td><strong>Fundamental + Events</strong></td><td>~10</td><td>+6 (PEAD signal/window, days to/since earnings, est_rev cross, insider surge)</td><td>~16</td></tr>
+      <tr><td><strong>Candle structure</strong> <span class="pill new">NEW</span></td><td>0</td><td>+3 (HA trend, streak, color flip)</td><td>3</td></tr>
+      <tr><th>Total</th><th>~55</th><th>+65</th><th>~120</th></tr>
+    </tbody>
+  </table>
+
+  <div class="callout warn">
+    <strong>Editorial budget.</strong> 65 new primitives means 65 new plain-English descriptions to hand-author. Per the PRD-16 HANDOFF §6 pitfall (&ldquo;catalog metadata IS the editorial product&rdquo;), these should not be LLM-generated. Realistic effort: ~1 hour per primitive for description + parameter defaults + asset compat — about 8 working days of editorial work on top of the engineering.
+  </div>
+</section>
+
+<!-- ====================================================== -->
+<section class="card" id="sec-migration">
+  <h2><span class="pretitle">Section 7</span>Migration plan</h2>
+  <p class="deck">Three slices, each independently shippable. Each slice is a PR; each PR is backward-compatible.</p>
+
+  <h3>Slice A — Schema fields (~3 days)</h3>
+  <p>Add <code>output_kind</code>, <code>output_channels</code>, <code>composes</code> to <code>SignalPrimitive</code>. Backfill every existing primitive with the appropriate values (mostly <code>OutputKind.VALUE</code> with single-channel). Composer ignores the new fields. <strong>Zero behavior change.</strong></p>
+
+  <h3>Slice B — Audit upgrades (~2 weeks)</h3>
+  <p>For each of the 11 anchor families, add the v2 primitives. Each primitive ships with its <code>SignalProvider</code> impl, a unit test, and a catalog entry. Existing rules using <code>rsi &lt; 30</code> continue to backtest identically.</p>
+
+  <h3>Slice C — Composer rendering (~1 week)</h3>
+  <p>Update <code>&lt;RuleBuilder&gt;</code> to dispatch on <code>output_kind</code>. EVENT, LEVEL, CROSS, REGIME, DISTANCE primitives render appropriate widgets (no threshold for EVENT/LEVEL; range input for DISTANCE; direction picker for CROSS). VALUE primitives unchanged.</p>
+
+  <div class="callout note">
+    <strong>Coordination with PRD-16c.</strong> PRD-16c's intraday extension multiplies the catalog: most v2 primitives are valid at both daily and intraday resolutions. Slice B should ship with <code>resolution=["daily"]</code> on all new primitives; PRD-16c flips eligible ones to <code>["daily", "intraday"]</code>. Same pattern as v1.
+  </div>
+
+  <h3>What v2 explicitly does <em>not</em> do</h3>
+  <ul>
+    <li>It does not change any existing primitive's <code>id</code>, <code>category</code>, or <code>provider_impl</code>.</li>
+    <li>It does not add user-supplied custom Python signals — still a far-future Pro feature.</li>
+    <li>It does not add cross-asset signals (HY-IG spread, VIX term structure, put/call ratio) — those need new <code>data_source</code> wiring and are deferred to a separate PRD.</li>
+    <li>It does not redesign the KB-lookup endpoint — only enriches the Jaccard similarity input with <code>output_kind</code>.</li>
+  </ul>
+</section>
+
+<!-- ====================================================== -->
+<section class="card" id="sec-sources">
+  <h2><span class="pretitle">Section 8</span>Sources</h2>
+  <p class="deck">Web research consulted in compiling this v2 spec.</p>
+
+  <h4>MACD interpretation</h4>
+  <ul>
+    <li><a href="https://chartschool.stockcharts.com/table-of-contents/technical-indicators-and-overlays/technical-indicators/macd-histogram">MACD-Histogram — ChartSchool / StockCharts</a></li>
+    <li><a href="https://www.schwab.com/learn/story/ttm-squeeze-indicator-technical-signals-traders">MACD &amp; TTM Squeeze — Charles Schwab Learn</a></li>
+    <li><a href="https://www.oanda.com/us-en/learn/indicators-oscillators/determining-entry-and-exit-points-with-macd/">MACD entry/exit — OANDA</a></li>
+  </ul>
+
+  <h4>RSI &amp; divergence</h4>
+  <ul>
+    <li><a href="https://alchemymarkets.com/education/indicators/the-rsi-divergence-explained/">RSI divergence — Alchemy Markets</a></li>
+    <li><a href="https://www.quantum-algo.com/blog/rsi-divergence-strategy-guide/">RSI divergence strategy guide — Quantum Algo</a></li>
+    <li><a href="https://blog.elearnmarkets.com/hidden-rsi-divergence-for-swing-trading/">Hidden RSI divergence — eLearn Markets</a></li>
+  </ul>
+
+  <h4>Bollinger Bands &amp; squeeze</h4>
+  <ul>
+    <li><a href="https://volatilitybox.com/research/bollinger-bands-volatility/">BBWidth &amp; squeeze thresholds — Volatility Box</a></li>
+    <li><a href="https://chartschool.stockcharts.com/table-of-contents/trading-strategies-and-models/trading-strategies/bollinger-band-squeeze">Bollinger Band Squeeze — ChartSchool</a></li>
+    <li><a href="https://chartschool.stockcharts.com/table-of-contents/technical-indicators-and-overlays/technical-indicators/ttm-squeeze">TTM Squeeze (Carter, with Keltner) — ChartSchool</a></li>
+  </ul>
+
+  <h4>ADX / DMI regime</h4>
+  <ul>
+    <li><a href="https://quant-signals.com/adx-trading-strategy/">ADX 763-backtest study — Quant Signals</a></li>
+    <li><a href="https://quantmonitor.net/how-to-identify-market-regimes-and-filter-strategies-by-trend-and-volatility/">Market-regime ADX filter — QuantMonitor</a></li>
+  </ul>
+
+  <h4>52-week high &amp; proximity</h4>
+  <ul>
+    <li><a href="https://www.kavout.com/market-lens/mastering-the-52-week-high-momentum-strategy-a-practical-guide-for-investors">52-week high momentum — Kavout</a></li>
+    <li><a href="https://www.informedmomentum.com/buy-high-sell-higher/">52-week high ratio (Hong-Stein) — Informed Momentum</a></li>
+    <li><a href="https://www.stocktitan.net/articles/52-week-highs-and-lows">52-week highs &amp; lows — StockTitan</a></li>
+  </ul>
+
+  <h4>Volume &amp; anchored VWAP</h4>
+  <ul>
+    <li><a href="https://chartschool.stockcharts.com/table-of-contents/technical-indicators-and-overlays/technical-indicators/relative-volume-rvol">Relative Volume (RVOL) — ChartSchool</a></li>
+    <li><a href="https://trendspider.com/learning-center/anchored-vwap-trading-strategies/">Anchored VWAP — TrendSpider</a></li>
+  </ul>
+
+  <h4>ATR-trailing stops</h4>
+  <ul>
+    <li><a href="https://chartschool.stockcharts.com/table-of-contents/technical-indicators-and-overlays/technical-overlays/chandelier-exit">Chandelier Exit (Le Beau) — ChartSchool</a></li>
+    <li><a href="https://www.tradingview.com/support/solutions/43000634738-supertrend/">Supertrend reference — TradingView</a></li>
+  </ul>
+
+  <h4>Momentum factors &amp; PEAD</h4>
+  <ul>
+    <li><a href="https://www.msci.com/eqb/methodology/meth_docs/MSCI_Momentum_Indices_Methodology_Nov13.pdf">MSCI Momentum Indices Methodology (12-1 z-score)</a></li>
+    <li><a href="https://www.quant-investing.com/news/twelve-months-minus-one-month-momentum-added-to-the-screener-12-1-month-momentum">12-1 momentum — Quant-Investing</a></li>
+    <li><a href="https://quantpedia.com/strategies/post-earnings-announcement-effect">Post-Earnings Drift (PEAD) — Quantpedia</a></li>
+    <li><a href="https://en.wikipedia.org/wiki/Post%E2%80%93earnings-announcement_drift">PEAD overview — Wikipedia</a></li>
+  </ul>
+
+  <h4>Candle structure</h4>
+  <ul>
+    <li><a href="https://www.quantvps.com/blog/heikin-ashi-strategy-for-trend-trading">Heikin-Ashi trend strategy — QuantVPS</a></li>
+    <li><a href="https://corporatefinanceinstitute.com/resources/career-map/sell-side/capital-markets/heikin-ashi-technique/">Heikin-Ashi formula — CFI</a></li>
+  </ul>
+</section>
+
+<div class="footer">
+  Signal Catalog v2 spec drafted 2026-06-12 against shipped PRD-16a catalog at <code>apps/api/app/data/signal_primitives.py</code> (1,232 LOC). Cross-references: <a href="livermore_product_flow_v2.html">livermore_product_flow_v2.html</a> §2 Mode 4 · <a href="strategy_builder_audit.md">strategy_builder_audit.md</a>.
+</div>
+
+</div>
+</body>
+</html>
