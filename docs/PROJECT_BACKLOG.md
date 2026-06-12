@@ -118,6 +118,19 @@ actively blocking development; all are gates on going-live activities.
 | Signal-triggered ENTRY | Daily cron notifies "your strategy says enter X" → user buys + confirms a fill → declared position. The declare (PR2) + confirm (PR3) primitives make this a small follow-up. | TODO |
 | Dashboard owner-gate on the frontend | The dashboard render gate (`saved_strategy_id != null`) doesn't check viewer ownership, so a non-owner viewing a public active-execution strategy sees the dashboard try to load + hit owner-only 404s → error state. Cosmetic. | TODO |
 
+### Composer flexibility (custom_build expressiveness)
+
+Surfaced 2026-06-12 by Mr Gu's hand-written SpaceX-ripple strategy — a real-world cross-sectional screen the composer can't yet express. **Parked** (Mr Gu, 2026-06-12) after the data-correctness fix landed.
+
+| Item | Why / scope | Status |
+|---|---|---|
+| **Multi-asset "filter → rank → top-K" composer** | The composer is single-symbol + boolean rules; real screens rank a *universe* and hold top-K. The engine **already has** the hard part (`_generate_cross_sectional_weights`, `cross_sectional_momentum`/`momentum_rotation`, schema `top_n`/`ranking_*`). Remaining: multi-symbol picker (FE — was planned as "PRD-16b-3"), a "rank & hold top-K" rule card, converter, and a modest engine "boolean-filter → eligibility → rank survivors → top-K" glue path. **Tier 1** (rank whole universe by one factor, reuse existing rotation type) ≈ 1 PR, mostly FE. **Tier 2** (filter-then-rank — the actual screen) ≈ 2–3 PRs. See WORK_LOG / this session's analysis for the breakdown. | **PARKED** |
+| **Composite ranking score** (e.g. `0.6·mom_1m + 0.4·mom_3m`) | `ranking_measure` is single-metric (`Literal["total_return"]`) today; a user-defined weighted blend of primitives as the rank score is the one genuinely-new modeling bit. Defer behind Tier 2; rank by a single primitive for MVP. | PARKED |
+| **`pct_below_high` primitive** (% below rolling N-day high) | Needed for a "freshness band" filter (`2% < dist_from_52w_high < 25%`) — no current primitive gives distance-from-high as a value (`donchian_breakout` is boolean-only). Small add: one `TechnicalSignalProvider` + catalog entry → band becomes two AND'd rules. Unblocks the last *single-asset* filter in Mr Gu's screen. | TODO (small) |
+| **Risk-based position sizing** (e.g. 1% risk ÷ stop-distance → shares) + **event/date exit tier** | His script also sizes by risk and has a hard calendar exit (IPO date). `ExitTier` is %-only today; sizing is engine-default. Each is incremental, lower priority than the multi-asset core. | TODO |
+
+> Context: the 2026-06-12 real-OHLCV fix (#199) already unblocked the **volume + range** primitives (`avg_dollar_volume`, `obv`, `atr`, `stoch`, …) in the single-asset composer backtest — they now compute on real `price_bars` data instead of fabricated `volume=1.0`/`high=low=close`.
+
 ---
 
 ## 4b. Market Pulse v2 — Phase 1 status
