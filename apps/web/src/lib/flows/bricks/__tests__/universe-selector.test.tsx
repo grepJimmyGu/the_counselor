@@ -74,4 +74,42 @@ describe("UniverseSelector", () => {
     expect(onLockedSelect).toHaveBeenCalledWith("portfolio");
     expect(onChange).not.toHaveBeenCalled();
   });
+
+  it("watchlist + portfolio are coming-soon (locked) by default", () => {
+    const onChange = vi.fn();
+    render(
+      <UniverseSelector universeId="symbols" enteredSymbols={[]} onChange={onChange} />,
+    );
+    fireEvent.click(screen.getByTestId("universe-tier-watchlist"));
+    fireEvent.click(screen.getByTestId("universe-tier-portfolio"));
+    // Locked tiers don't switch the universe.
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("the entered tier takes a SINGLE symbol (no silent multi-symbol truncation)", () => {
+    const { onChange } = setup({ universeId: "symbols", enteredSymbols: [] });
+    fireEvent.change(screen.getByTestId("universe-symbol-input"), {
+      target: { value: "nvda" },
+    });
+    expect(onChange).toHaveBeenCalledWith({
+      universe_id: "symbols",
+      entered_symbols: ["NVDA"],
+    });
+    // The old multi-symbol comma input is gone.
+    expect(screen.queryByPlaceholderText(/AAPL, MSFT/)).toBeNull();
+  });
+
+  it("does not crash when universe_id is undefined (resumed pre-PRD-23b context)", () => {
+    const onChange = vi.fn();
+    render(
+      <UniverseSelector
+        universeId={undefined as unknown as string}
+        enteredSymbols={[]}
+        onChange={onChange}
+      />,
+    );
+    // Falls back to the entered-symbols tier instead of throwing.
+    expect(screen.getByTestId("universe-selector")).toBeTruthy();
+    expect(screen.getByTestId("universe-tier-symbols").getAttribute("aria-pressed")).toBe("true");
+  });
 });

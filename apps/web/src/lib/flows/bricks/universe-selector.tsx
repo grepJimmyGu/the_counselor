@@ -18,7 +18,6 @@
 
 import { useId } from "react";
 
-import { UniverseInput } from "@/components/universe-input";
 import type { ScreenUniverseId } from "@/lib/contracts";
 import { cn } from "@/lib/utils";
 
@@ -65,13 +64,20 @@ const SECTORS = [
   "Utilities",
 ];
 
-function activeTier(universeId: string): TierKey {
+function activeTier(universeId: string | null | undefined): TierKey {
+  // Null-safe: a context resumed from a pre-PRD-23b sessionStorage entry has
+  // no universe_id — fall back to the entered-symbols tier rather than crash.
   if (universeId === "sp500") return "sp500";
-  if (universeId.startsWith("sector_")) return "sector";
+  if (typeof universeId === "string" && universeId.startsWith("sector_")) return "sector";
   if (universeId === "watchlist") return "watchlist";
   if (universeId === "portfolio") return "portfolio";
   return "symbols";
 }
+
+// Tiers with no real v1 backend membership yet — shown locked ("soon") rather
+// than as a misleading empty manual-entry box. They light up when the backend
+// watchlist/portfolio universes land (PRD-23c+).
+const COMING_SOON: TierKey[] = ["watchlist", "portfolio"];
 
 interface Props {
   universeId: ScreenUniverseId;
@@ -93,7 +99,7 @@ export function UniverseSelector({
 }: Props) {
   const selectId = useId();
   const tier = activeTier(universeId);
-  const locked = new Set(lockedTiers);
+  const locked = new Set<TierKey>([...lockedTiers, ...COMING_SOON]);
 
   const selectTier = (t: TierDef) => {
     if (locked.has(t.key)) {
@@ -144,23 +150,34 @@ export function UniverseSelector({
                   isActive ? "text-slate-200" : "text-slate-400",
                 )}
               >
-                {t.hint}
+                {COMING_SOON.includes(t.key) ? "Coming soon" : t.hint}
               </span>
             </button>
           );
         })}
       </div>
 
-      {/* Tier-specific input */}
-      {(tier === "symbols" || tier === "watchlist" || tier === "portfolio") && (
-        <div data-testid="universe-entry">
-          <UniverseInput
-            defaultValue={enteredSymbols}
-            minTickers={1}
-            placeholder="e.g. AAPL, MSFT, NVDA"
-            onChange={(tickers) => onChange({ universe_id: universeId, entered_symbols: tickers })}
+      {/* Entered-symbols tier — a SINGLE symbol (a universe of size 1). The
+          direct backtest is single-asset; screening a basket is what the
+          standing universes (S&P 500 / sector) are for. Keeping this single
+          avoids silently dropping extra names the old multi-input invited. */}
+      {tier === "symbols" && (
+        <label data-testid="universe-entry" className="flex flex-col gap-1">
+          <input
+            type="text"
+            value={enteredSymbols[0] ?? ""}
+            placeholder="e.g. NVDA"
+            onChange={(e) => {
+              const sym = e.target.value.trim().toUpperCase();
+              onChange({ universe_id: "symbols", entered_symbols: sym ? [sym] : [] });
+            }}
+            data-testid="universe-symbol-input"
+            className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium uppercase tracking-wider placeholder:font-normal placeholder:tracking-normal placeholder:lowercase focus:border-slate-400 focus:outline-none"
           />
-        </div>
+          <span className="text-[11px] text-slate-500">
+            Backtest one symbol. Pick S&amp;P 500 or a sector to screen a basket.
+          </span>
+        </label>
       )}
 
       {tier === "sector" && (

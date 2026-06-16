@@ -39,14 +39,14 @@ function ctx(): CustomBuildModeContext {
   };
 }
 
-function renderResults() {
+function renderResults(over: { back?: () => void } = {}) {
   render(
     <ScreenResults
       context={ctx()}
       updateContext={vi.fn()}
       advance={vi.fn()}
-      goBack={vi.fn()}
-      emit={vi.fn()}
+      back={over.back ?? vi.fn()}
+      abort={vi.fn()}
     />,
   );
 }
@@ -116,6 +116,14 @@ describe("ScreenResults", () => {
     await waitFor(() =>
       expect(screen.getByTestId("screen-results-rank-error")).toBeTruthy(),
     );
+  });
+
+  it("offers an in-flow 'Edit reading' back affordance", async () => {
+    const back = vi.fn();
+    renderResults({ back });
+    await waitFor(() => expect(screen.getByTestId("screen-results-edit")).toBeTruthy());
+    screen.getByTestId("screen-results-edit").click();
+    expect(back).toHaveBeenCalled();
   });
 
   it("shows the empty state when nothing matches", async () => {

@@ -38,6 +38,7 @@ function pct(v: number | null | undefined): string {
 export function ScreenResults({
   context,
   updateContext,
+  back,
 }: FlowStepProps<CustomBuildModeContext>) {
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
@@ -47,7 +48,10 @@ export function ScreenResults({
   const [ranked, setRanked] = useState<Record<string, RankedSymbol> | null>(null);
   const [loadingScan, setLoadingScan] = useState(true);
   const [loadingRank, setLoadingRank] = useState(false);
+  // `error` is the SCAN error; `rankError` is the optional rank-enrichment
+  // error — kept distinct so a scan failure isn't mislabeled "couldn't rank".
   const [error, setError] = useState<string | null>(null);
+  const [rankError, setRankError] = useState<string | null>(null);
 
   const rules = useMemo(() => buildScreenRules(context.rules), [context.rules]);
   const rankGated = sessionStatus === "unauthenticated" || !backendToken;
@@ -57,6 +61,7 @@ export function ScreenResults({
     if (sessionStatus === "loading") return;
     let cancelled = false;
     setLoadingScan(true);
+    setError(null); // clear any stale scan error before a re-scan
     screenScan({ universe_id: context.universe_id, rules }, { backendToken })
       .then((resp) => {
         if (!cancelled) {
@@ -82,6 +87,7 @@ export function ScreenResults({
     }
     let cancelled = false;
     setLoadingRank(true);
+    setRankError(null); // clear any stale rank error before a re-rank
     const strategy = buildCustomBuildStrategyJson(context, {
       // The rank backtests each survivor with universe swapped per-symbol, so
       // this placeholder symbol is overridden server-side.
@@ -99,7 +105,7 @@ export function ScreenResults({
         updateContext({ screenRankResult: resp });
       })
       .catch((e: unknown) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Ranking failed.");
+        if (!cancelled) setRankError(e instanceof Error ? e.message : "Ranking failed.");
       })
       .finally(() => {
         if (!cancelled) setLoadingRank(false);
@@ -152,7 +158,17 @@ export function ScreenResults({
 
   return (
     <section data-testid="screen-results" className="flex flex-col gap-4">
-      <header className="flex flex-col gap-0.5">
+      <header className="flex flex-col gap-1">
+        {back && (
+          <button
+            type="button"
+            onClick={back}
+            data-testid="screen-results-edit"
+            className="-ml-1 mb-0.5 inline-flex w-fit items-center gap-1 text-[12px] font-medium text-slate-500 hover:text-slate-800"
+          >
+            ← Edit reading
+          </button>
+        )}
         {scan?.as_of_date && (
           <p className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
             as of {scan.as_of_date}
@@ -165,15 +181,25 @@ export function ScreenResults({
         {loadingRank && (
           <p className="text-[12px] text-slate-500">Backtesting the matched basket…</p>
         )}
+        {/* A re-scan failure (stale basket still shown) — distinct from a rank
+            failure so the message attributes the right step. */}
+        {error && scan && (
+          <p
+            data-testid="screen-results-scan-error"
+            className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-[12px] text-amber-700"
+          >
+            Couldn&apos;t refresh ({error}) — showing the last results.
+          </p>
+        )}
         {/* Rank is an enrichment overlay — a rank failure (timeout/5xx) must
             not blank the basket. Surface it inline; the matched names below
             still render and still drill in. */}
-        {error && scan && (
+        {rankError && scan && (
           <p
             data-testid="screen-results-rank-error"
             className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-[12px] text-amber-700"
           >
-            Couldn&apos;t rank by return ({error}). The matched names are shown below.
+            Couldn&apos;t rank by return ({rankError}). The matched names are shown below.
           </p>
         )}
       </header>
@@ -224,7 +250,7 @@ export function ScreenResults({
                       </>
                     ) : rankGated ? (
                       <span className="text-[11px] text-slate-400">sign in to rank</span>
-                    ) : error ? (
+                    ) : rankError ? (
                       // Rank failed — stop the perpetual skeleton; the banner
                       // above explains why.
                       <span className="text-[11px] text-slate-300">—</span>
