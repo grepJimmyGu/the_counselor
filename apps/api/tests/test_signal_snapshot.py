@@ -64,8 +64,10 @@ def test_snapshot_covers_local_price_primitives_only():
     assert "rsi" in ids and "sma" in ids and "donchian_breakout" in ids
     assert "kama" not in ids  # AV-endpoint
     assert "fcf_yield" not in ids  # fundamental
-    # ~52 of the 69-primitive catalog.
-    assert 45 <= len(ids) <= 60
+    # The 9 PRD-22b MA/MACD event primitives are local → covered too.
+    assert "golden_cross" in ids and "macd_signal_cross" in ids
+    # ~61 of the 78-primitive catalog (range leaves headroom for later slices).
+    assert 45 <= len(ids) <= 80
 
 
 # ── pure value-encoding core ─────────────────────────────────────────────────

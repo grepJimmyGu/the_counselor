@@ -1224,6 +1224,227 @@ class TtmSqueezeFireSignalProvider(TtmSqueezeSignalProvider):
         return fire.astype(float)
 
 
+# ── MA + MACD events (PRD-22b) ──────────────────────────────────────────────
+# The MA/MACD families historically emitted only VALUE scalars
+# (`ma_crossover` → fast−slow, `macd` → histogram). v2 decomposes the
+# canonical *consumption patterns* into standalone event/cross/level
+# primitives so the composer can offer "golden cross fired" / "close
+# above the 200-day" directly instead of asking the user to threshold a
+# raw scalar. Encoding matches `_apply_rule_threshold`:
+#   CROSS  → +1 on the up-cross bar, −1 on the down-cross bar, 0 elsewhere
+#   EVENT  → non-zero on the transition bar (fires), 0 elsewhere
+#   LEVEL  → 1.0 while the condition holds, 0.0 otherwise
+
+
+class PriceAboveMaSignalProvider(TechnicalSignalProvider):
+    """LEVEL: 1.0 while close trades above its N-day simple moving average
+    (e.g. above the 200-day = bull-market filter)."""
+    name = "price_above_ma"
+
+    def _default_params(self) -> dict:
+        return {"period": 200}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        ma = frame["close"].rolling(int(self.params["period"])).mean()
+        return (frame["close"] > ma).astype(float)
+
+
+class PriceMaCrossUpSignalProvider(TechnicalSignalProvider):
+    """CROSS: +1 on the bar close crosses ABOVE its moving average."""
+    name = "price_ma_cross_up"
+
+    def _default_params(self) -> dict:
+        return {"period": 50}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        ma = frame["close"].rolling(int(self.params["period"])).mean()
+        above = frame["close"] > ma
+        cross_up = above & ~above.shift(1, fill_value=False)
+        return cross_up.astype(float)
+
+
+class PriceMaCrossDownSignalProvider(TechnicalSignalProvider):
+    """CROSS: −1 on the bar close crosses BELOW its moving average."""
+    name = "price_ma_cross_down"
+
+    def _default_params(self) -> dict:
+        return {"period": 50}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        ma = frame["close"].rolling(int(self.params["period"])).mean()
+        below = frame["close"] < ma
+        cross_down = below & ~below.shift(1, fill_value=False)
+        return cross_down.astype(float) * -1.0
+
+
+class GoldenCrossSignalProvider(TechnicalSignalProvider):
+    """CROSS: +1 on the bar the fast MA crosses ABOVE the slow MA — the
+    textbook 50-over-200 golden cross (periods configurable)."""
+    name = "golden_cross"
+
+    def _default_params(self) -> dict:
+        return {"fast_period": 50, "slow_period": 200}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["slow_period"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        fast = frame["close"].rolling(int(self.params["fast_period"])).mean()
+        slow = frame["close"].rolling(int(self.params["slow_period"])).mean()
+        above = fast > slow
+        cross_up = above & ~above.shift(1, fill_value=False)
+        return cross_up.astype(float)
+
+
+class DeathCrossSignalProvider(TechnicalSignalProvider):
+    """CROSS: −1 on the bar the fast MA crosses BELOW the slow MA — the
+    death cross, inverse of the golden cross."""
+    name = "death_cross"
+
+    def _default_params(self) -> dict:
+        return {"fast_period": 50, "slow_period": 200}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["slow_period"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        fast = frame["close"].rolling(int(self.params["fast_period"])).mean()
+        slow = frame["close"].rolling(int(self.params["slow_period"])).mean()
+        below = fast < slow
+        cross_down = below & ~below.shift(1, fill_value=False)
+        return cross_down.astype(float) * -1.0
+
+
+class MaSlopePositiveSignalProvider(TechnicalSignalProvider):
+    """LEVEL: 1.0 while the moving average is rising — MA(t) > MA(t−N) —
+    a trend-strength filter on top of a directional signal."""
+    name = "ma_slope_positive"
+
+    def _default_params(self) -> dict:
+        return {"period": 50, "lookback": 10}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) + int(self.params["lookback"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        ma = frame["close"].rolling(int(self.params["period"])).mean()
+        return (ma > ma.shift(int(self.params["lookback"]))).astype(float)
+
+
+def _macd_lines(
+    frame: pd.DataFrame, fast: int, slow: int, signal: int
+) -> "tuple[pd.Series, pd.Series]":
+    """Shared MACD decomposition: returns (macd_line, signal_line). The
+    histogram is `macd_line - signal_line`; identical maths to
+    `MacdSignalProvider` so the cross/flip children stay byte-consistent
+    with the parent `macd` primitive."""
+    fast_ema = frame["close"].ewm(span=fast, adjust=False).mean()
+    slow_ema = frame["close"].ewm(span=slow, adjust=False).mean()
+    macd_line = fast_ema - slow_ema
+    signal_line = macd_line.ewm(span=signal, adjust=False).mean()
+    return macd_line, signal_line
+
+
+class MacdSignalCrossSignalProvider(TechnicalSignalProvider):
+    """CROSS: +1 when the MACD line crosses ABOVE its signal line
+    (bullish), −1 when it crosses below (bearish), 0 otherwise.
+    Composes on the `macd` primitive's params."""
+    name = "macd_signal_cross"
+
+    def _default_params(self) -> dict:
+        return {"fast_period": 12, "slow_period": 26, "signal_period": 9}
+
+    def _lookback_days(self) -> int:
+        return (int(self.params["slow_period"]) + int(self.params["signal_period"])) * 3
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        macd_line, signal_line = _macd_lines(
+            frame,
+            int(self.params["fast_period"]),
+            int(self.params["slow_period"]),
+            int(self.params["signal_period"]),
+        )
+        above = macd_line > signal_line
+        bull = above & ~above.shift(1, fill_value=False)
+        bear = (~above) & above.shift(1, fill_value=False)
+        out = pd.Series(0.0, index=frame.index)
+        out[bull] = 1.0
+        out[bear] = -1.0
+        return out
+
+
+class MacdHistogramFlipSignalProvider(TechnicalSignalProvider):
+    """EVENT: fires on the bar the MACD histogram changes sign — the
+    earliest momentum-shift signal. +1 on a flip to positive, −1 on a
+    flip to negative; both are non-zero so the EVENT `fires` operator
+    catches either direction. Composes on `macd`.
+
+    NOTE (editorial): a histogram sign-change is mathematically the same
+    bar as `macd_signal_cross` (histogram = macd_line − signal_line, so
+    its zero-cross IS the signal-line cross). The two are kept distinct
+    by output_kind — this is the direction-agnostic "momentum flipped"
+    EVENT; `macd_signal_cross` is the direction-aware CROSS."""
+    name = "macd_histogram_flip"
+
+    def _default_params(self) -> dict:
+        return {"fast_period": 12, "slow_period": 26, "signal_period": 9}
+
+    def _lookback_days(self) -> int:
+        return (int(self.params["slow_period"]) + int(self.params["signal_period"])) * 3
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        macd_line, signal_line = _macd_lines(
+            frame,
+            int(self.params["fast_period"]),
+            int(self.params["slow_period"]),
+            int(self.params["signal_period"]),
+        )
+        hist = macd_line - signal_line
+        positive = hist > 0
+        flip_up = positive & ~positive.shift(1, fill_value=False)
+        flip_down = (~positive) & positive.shift(1, fill_value=False)
+        out = pd.Series(0.0, index=frame.index)
+        out[flip_up] = 1.0
+        out[flip_down] = -1.0
+        return out
+
+
+class MacdZeroLineCrossSignalProvider(TechnicalSignalProvider):
+    """CROSS: +1 when the MACD line crosses ABOVE zero, −1 when it crosses
+    below — a trend-regime change. Composes on `macd`."""
+    name = "macd_zero_line_cross"
+
+    def _default_params(self) -> dict:
+        return {"fast_period": 12, "slow_period": 26, "signal_period": 9}
+
+    def _lookback_days(self) -> int:
+        return (int(self.params["slow_period"]) + int(self.params["signal_period"])) * 3
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        macd_line, _ = _macd_lines(
+            frame,
+            int(self.params["fast_period"]),
+            int(self.params["slow_period"]),
+            int(self.params["signal_period"]),
+        )
+        positive = macd_line > 0
+        up = positive & ~positive.shift(1, fill_value=False)
+        down = (~positive) & positive.shift(1, fill_value=False)
+        out = pd.Series(0.0, index=frame.index)
+        out[up] = 1.0
+        out[down] = -1.0
+        return out
+
+
 # ── Registry assembly ──────────────────────────────────────────────────────
 
 
@@ -1271,5 +1492,11 @@ def get_technical_providers() -> dict:
         ChandelierExitLongSignalProvider, ChandelierExitShortSignalProvider,
         ChandelierExitBreachSignalProvider,
         TtmSqueezeSignalProvider, TtmSqueezeFireSignalProvider,
+        # MA + MACD events (PRD-22b)
+        PriceAboveMaSignalProvider, PriceMaCrossUpSignalProvider,
+        PriceMaCrossDownSignalProvider, GoldenCrossSignalProvider,
+        DeathCrossSignalProvider, MaSlopePositiveSignalProvider,
+        MacdSignalCrossSignalProvider, MacdHistogramFlipSignalProvider,
+        MacdZeroLineCrossSignalProvider,
     ]
     return {cls.name: cls() for cls in classes}
