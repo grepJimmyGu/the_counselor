@@ -24,8 +24,11 @@ import { cn } from "@/lib/utils";
 
 /** Mirror backend `is_standing_universe` (universe_resolver.py): sp500 /
  *  sector_* ride the daily snapshot; the rest backtest their members directly. */
-export function isStandingUniverse(universeId: string): boolean {
-  return universeId === "sp500" || universeId.startsWith("sector_");
+export function isStandingUniverse(universeId: string | null | undefined): boolean {
+  return (
+    universeId === "sp500" ||
+    (typeof universeId === "string" && universeId.startsWith("sector_"))
+  );
 }
 
 type TierKey = "symbols" | "sp500" | "sector" | "watchlist" | "portfolio";

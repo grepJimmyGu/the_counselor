@@ -126,14 +126,26 @@ describe("custom_build_mode flow registration", () => {
     );
   });
 
-  it("chains compose_signals → backtest → review → save", () => {
+  it("chains compose_signals → backtest → review → save (+ screen_results)", () => {
     expect(CustomBuildModeFlow.initialStepId).toBe("compose_signals");
     const ids = CustomBuildModeFlow.steps.map((s) => s.id);
-    expect(ids).toEqual(["compose_signals", "backtest", "review", "save"]);
+    expect(ids).toEqual([
+      "compose_signals",
+      "screen_results",
+      "backtest",
+      "review",
+      "save",
+    ]);
     const compose = CustomBuildModeFlow.steps.find(
       (s) => s.id === "compose_signals",
     );
-    expect(compose?.next?.({} as CustomBuildModeContext)).toBe("backtest");
+    // PRD-23b size-branch: entered symbols → backtest; standing → screen_results.
+    expect(
+      compose?.next?.({ universe_id: "symbols" } as CustomBuildModeContext),
+    ).toBe("backtest");
+    expect(
+      compose?.next?.({ universe_id: "sp500" } as CustomBuildModeContext),
+    ).toBe("screen_results");
     const save = CustomBuildModeFlow.steps.find((s) => s.id === "save");
     expect(save?.next?.({} as CustomBuildModeContext)).toBeNull();
   });
@@ -142,6 +154,8 @@ describe("custom_build_mode flow registration", () => {
     const step = CustomBuildModeFlow.steps[0];
     const ctxEmpty = {
       fromTrigger: "test",
+      universe_id: "symbols",
+      entered_symbols: [],
       rules: [],
       symbol: null,
       active_execution_enabled: false,
@@ -313,6 +327,8 @@ describe("CustomBuildRuleCard", () => {
 function _renderCanvas(initial?: Partial<CustomBuildModeContext>) {
   let context: CustomBuildModeContext = {
     fromTrigger: "test",
+    universe_id: "symbols",
+    entered_symbols: [],
     symbol: null,
     rules: [],
     active_execution_enabled: false,
