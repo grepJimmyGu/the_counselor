@@ -36,6 +36,7 @@ from real Livermore work. Different from the other in-repo docs:
 
 - [Performance](#performance)
 - [Diagnostic methodology](#diagnostic-methodology)
+- [Signal primitives + indicators](#signal-primitives--indicators)
 - [Database](#database)
 - [Frontend](#frontend)
 - [Operations](#operations)
@@ -558,6 +559,42 @@ Applied to today's perf work:
 **When to apply:** every non-trivial change. The four principles are in
 `feedback_karpathy_coding_principles.md` (user memory) and apply by
 default. Source: https://github.com/multica-ai/andrej-karpathy-skills.
+
+---
+
+## Signal primitives + indicators
+
+### Decomposing an indicator can produce two byte-identical primitives — distinguish by packaging, not maths
+**TL;DR:** `macd_histogram_flip` (EVENT) and `macd_signal_cross` (CROSS) fire on the *same bars* — histogram = macd_line − signal_line, so its zero-cross IS the signal-line cross. The only difference is the composer widget (`output_kind`), not the series.
+
+When you split a scalar indicator into "event" primitives, check whether two of them collapse to the same condition. They often do — "histogram flipped" and "lines crossed" are the same event seen two ways. Shipping both is fine *if intentional* (they give the user different affordances: a direction-agnostic `fires` vs a direction picker), but you must (a) decide it deliberately, (b) say so where the editorial reviewer will see it (docstring + PR body), and (c) lock the identity in a test (`assert flip.equals(cross)`) so a future "optimization" that breaks the equality trips the wire and forces the decision to be re-made.
+
+**When to apply:** any time you add an EVENT/CROSS primitive that's a transform of an existing one (MACD, Bollinger %B vs band-tag, DI cross vs ADX). Ask "does this fire on the same bar as something we already ship?"
+
+**See also:** PR #215; `MacdHistogramFlipSignalProvider` docstring; `tests/test_ma_macd_event_providers.py::test_macd_histogram_flip_is_elementwise_identical_to_signal_cross`.
+
+### Gate oscillator zone-cross events on the signal line, not the fast line
+**TL;DR:** "%K crosses %D in the oversold zone" must test `%D < 20`, not `%K < 20` — `%K` rockets to 0/100 off a sharp turn and has already left the zone by the bar it crosses, so a `%K`-gate silently never fires.
+
+The fast line leads; by the time it has crossed the slow line it may have exited the extreme region entirely. The slow (signal) line lags and is still in the zone at the cross — which is exactly the "turn from oversold" you want to catch. Same logic for any fast/slow-line zone-cross construct (Stochastic, StochRSI).
+
+**When to apply:** building any "cross X while in Y region" event where X is a fast oscillator line.
+
+**See also:** PR #215; `StochOversoldCrossUpSignalProvider` / `StochOverboughtCrossDownSignalProvider`.
+
+### Synthetic indicator-test fixtures need noise + curvature — degenerate ramps break the maths, not the code
+**TL;DR:** a *pure* monotonic ramp or a *perfectly* linear trend silently degenerates indicator formulas; the test then "fails" on correct code. Build fixtures with small pullbacks and/or a regime change.
+
+Three traps hit in one sitting building the PRD-22b providers, all with `high==low==close` synthetic frames:
+- **Pure rise → RSI = NaN.** No down-bars means `avg_loss = 0`; `rs = avg_gain/0 → NaN`; RSI is undefined (not 100). A rally fixture needs periodic small pullbacks.
+- **Perfectly linear trend → ADX is flat, never "rising".** A constant slope gives a *constant* DX (≈100), and `ewm(constant) = constant`, so ADX is a flat line. `adx_rising` (ADX > ADX N-bars-ago) is then always False. Needs a choppy→trend fixture so ADX climbs off a low base.
+- **Monotonic move → %K saturates to 0/100, killing crosses.** With `high==low==close`, a one-directional move pins `%K` (then `%D`) to the extreme, so `%K==%D` and "above/below" never transitions. Use an oscillating (triangle) fixture so the lines cross at mid-range.
+
+Meta-lesson: an indicator's *interesting* behavior lives in its second-order structure (turns, curvature, regime change). A fixture with none of that exercises none of the logic — and worse, trips divide-by-zero / constant-series edge cases that make correct providers look broken. When a provider test fails, first ask "is my fixture too clean to exercise this?" before touching the provider.
+
+**When to apply:** writing pure-compute tests for any rolling/recursive indicator (RSI, ADX, MACD, Stoch, Bollinger).
+
+**See also:** PR #215; `tests/test_rsi_stoch_adx_event_providers.py` (`_RISE` with pullbacks, `_CHOP_THEN_TREND`, `_TRIANGLE`).
 
 ---
 
