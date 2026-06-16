@@ -67,8 +67,12 @@ The expensive step (rank-by-backtest) operates on the **matched subset** (≪ un
 
 ### 3.1 Universe resolver — `app/services/screener/universe_resolver.py`
 
+Per HANDOFF §0 — **a single symbol is a universe of size 1.** The entered-symbols tier is the
+narrowest universe, and it's what "Build from scratch" becomes:
+
 ```python
-def resolve_universe(universe_id: str, user) -> list[str]:
+def resolve_universe(universe_id: str, payload, user) -> list[str]:
+    # "symbols"      -> the user's entered symbol(s)   ← the narrowest tier ("Build from scratch")
     # "sp500"        -> SP500_TICKERS
     # "sector_<key>" -> the sector basket (reuse US_SECTORS membership)
     # "watchlist"    -> the user's saved watchlist symbols
@@ -76,6 +80,14 @@ def resolve_universe(universe_id: str, user) -> list[str]:
 ```
 
 Pure (no entitlement logic — that gates at the endpoint, §3.4). A test asserts `sp500` returns ≥ a floor (expand-only invariant).
+
+**Dual execution path by universe type** (the unified-mode payoff):
+- **`symbols` (entered, 1 or a few)** → run the **existing direct `custom_build` backtest** on
+  those symbols — *no snapshot needed*. This is today's "Build from scratch," unchanged.
+- **A standing universe (`sp500`/`sector`)** → use the pre-warmed snapshot for the scan (§3.3–3.5),
+  then backtest the matched subset. Arbitrary entered symbols that aren't in the standing snapshot
+  always take the direct path (so the screener never needs to pre-warm the whole market of
+  user-typed tickers).
 
 ### 3.2 `signal_snapshot` table — `app/models/signal_snapshot.py`
 

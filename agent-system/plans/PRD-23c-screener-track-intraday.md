@@ -1,5 +1,10 @@
 # PRD-23c: Market Screener — Discover → Track + Intraday
 
+> **Revised 2026-06-16 — read HANDOFF §0 first.** The mode is unified (`custom_build_mode`,
+> extended); a saved screen's universe can be a single entered symbol *or* a standing universe.
+> Both save → track through the same `SavedStrategy` + PRD-19 machinery — new-entrant alerts apply
+> when the universe is broad; a single-symbol save is just today's active-execution.
+
 **Status**: Ready to build (pending Jimmy's review of the packet)
 **Phase**: Market Screener mode (PRD-23 packet) — phase 3 of 3
 **Depends on** (on `main`): PRD-23a (snapshot + scan), PRD-23b (the "Save + track" handoff), PRD-19/16c (the notification dispatcher + active-execution cron + live dashboard).

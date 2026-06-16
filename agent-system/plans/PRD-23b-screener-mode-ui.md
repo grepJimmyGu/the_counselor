@@ -1,4 +1,9 @@
-# PRD-23b: Market Screener — Mode + UI (screen_mode flow + universe selector + reading composer + results)
+# PRD-23b: Market Screener — Mode + UI (extend `custom_build_mode`: universe selector + reading composer + size-adaptive results)
+
+> **Revised 2026-06-16 — read HANDOFF §0 first.** This is **not** a new `screen_mode`. It extends
+> the existing `custom_build_mode` ("Build from scratch") with a universe selector whose narrowest
+> tier is "enter your own symbol(s)" — *a single symbol is a universe of size 1.* One flow handles
+> both backtest-a-name and screen-a-universe.
 
 **Status**: Ready to build (pending Jimmy's review of the packet)
 **Phase**: Market Screener mode (PRD-23 packet) — phase 2 of 3
@@ -17,12 +22,15 @@ You are working in the Livermore AI repo (apps/web). Read CLAUDE.md + apps/web/A
 (auto-loaded — "this is NOT the Next.js you know"; read node_modules/next/dist/docs/
 before writing components), then HANDOFF-livermore-market-screener.md.
 
-Goal: ship the "Screen the market" mode UI on top of PRD-23a's backend. Four bricks:
+Goal (HANDOFF §0 — ONE unified mode): EXTEND the existing custom_build_mode ("Build from
+scratch") so the same flow handles a single symbol OR a broad universe. NOT a new mode. Bricks:
 
-  1. screen_mode FlowDefinition (register it; the universal /flow shell renders it)
-     steps: pick-universe -> compose-reading -> results
-  2. <UniverseSelector> — the few default universes (sp500 default, sector,
-     watchlist, portfolio), tier-gated. REPLACES the "backtest symbol" input.
+  1. EXTEND custom_build_mode: insert a "pick-universe" step before compose; the run step
+     branches on universe size (entered symbols -> direct backtest; standing universe ->
+     scan -> ranked basket). Same FlowDefinition, no new one.
+  2. <UniverseSelector> — tiers: ENTER YOUR OWN SYMBOL(S) (the "Build from scratch" tier) ·
+     sp500 · sector · watchlist · portfolio, tier-gated. This REPLACES the "backtest symbol"
+     input — a single symbol is just the narrowest universe.
   3. <ReadingComposer> — extends PRD-16b's <CustomBuildRuleComposer>: intent chips
      + the per-output_kind widgets (PRD-22c) + a LIVE MATCH COUNT wired to
      POST /api/screen/count that updates as rules change.
@@ -49,7 +57,7 @@ PRD-23a can scan + rank, but there's no way for a user to drive it. Today the co
 
 ## 2. Design constraints
 
-1. **Mode = FlowDefinition** (Principle 3). `screen_mode` registers via `registerFlow` and renders through `/flow/[flowId]`. No bespoke route. Triggered from the Home entry picker (PRD-11) via `startFlow("screen_mode", …)`.
+1. **One unified mode — extend `custom_build_mode`, no new FlowDefinition** (HANDOFF §0 + Principle 3). Add a `pick-universe` step and a size-branching run step to the *existing* `custom_build_mode`. The Home picker's "Build from scratch" and "Screen the market" tiles both `startFlow("custom_build_mode", …)` with a different universe tier preselected.
 2. **Reuse the composer** (Principle 1). `<ReadingComposer>` extends `<CustomBuildRuleComposer>` — same rule cards, same AND/OR fold, same StrategyJSON conversion. The new bits are the intent chips, the kind-widgets (PRD-22c), and the live count.
 3. **The live match-count funnel is first-class** (Principle 4). Every rule change re-queries `POST /api/screen/count` (debounced) and updates the count. This is the discovery loop — treat it as the centerpiece, not a stat.
 4. **Never a blank page** (Principle 4). `<ScreenResults>` renders the matched basket immediately (proxy-ordered), then streams the backtest-return metrics row-by-row and re-sorts (the PRD-I staged-loading pattern). Date-stamp "as of <close>".
@@ -60,13 +68,25 @@ PRD-23a can scan + rank, but there's no way for a user to drive it. Today the co
 
 ## 3. Implementation
 
-### 3.1 `screen_mode` FlowDefinition — `apps/web/src/lib/flows/modes/screen-mode.tsx`
+### 3.1 Extend `custom_build_mode` (the existing flow) — `apps/web/src/lib/flows/modes/custom-build-mode.tsx`
 
-Steps: `pick-universe → compose-reading → results`. Saves flow state to `sessionStorage` (`livermore_flow_screen_mode`) like every mode; registered in `registry.ts`; copy in `copy.ts` (no hardcoded labels).
+**Not a new mode.** Add a `pick-universe` step ahead of `compose`, and make the run step branch on
+universe size: entered symbols → the existing direct backtest → backtest detail; standing universe
+→ scan → ranked basket. Reuse the existing `custom_build_mode` registration + `sessionStorage` key;
+add the universe to its flow context.
 
-### 3.2 `<UniverseSelector>` — `apps/web/src/lib/flows/bricks/screener-universe-selector.tsx`
+### 3.2 `<UniverseSelector>` — `apps/web/src/lib/flows/bricks/universe-selector.tsx`
 
-The default universes (from PRD-23a `universe_resolver`) as cards/chips: `S&P 500` (default) · `Sector` (sub-picker) · `My watchlist` · `My portfolio`. Tier-gated (Scout → capped; a `<SoftPaywall>` on the locked ones). This is the brick that replaces the "backtest symbol" input.
+The universe tiers as cards/chips: **`Enter your own symbol(s)`** (the "Build from scratch" tier —
+free-text symbol input; a universe of size 1+) · `S&P 500` · `Sector` (sub-picker) · `My watchlist`
+· `My portfolio`. Tier-gated (Scout → entered-symbols + capped standing universe; a `<SoftPaywall>`
+on the locked tiers). **This brick replaces the old bare "backtest symbol" input** — the symbol box
+lives inside the entered-symbols tier.
+
+**Results adapt to universe size:** entered symbols (1) → the existing single-asset backtest detail
+(today's Build-from-Scratch result, unchanged); many (entered or standing) → the ranked basket
+(§3.4). The live match-count funnel (§3.3) is meaningful for standing universes and trivially N/N
+for an entered handful.
 
 ### 3.3 `<ReadingComposer>` — extends `<CustomBuildRuleComposer>`
 

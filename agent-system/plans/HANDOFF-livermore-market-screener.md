@@ -1,10 +1,46 @@
 # HANDOFF: Livermore Market Screener — "Screen the market" (signal-driven stock discovery)
 
-> **You are a coding agent (Claude Code, Codex, or human). Read this doc first.** It is the entry point for the three-PRD packet that adds Livermore's first **market-out** entry mode: the user composes a "reading" (a rule over the signal catalog), the rule **screens** a universe down to a small matched basket, and only the survivors are backtested, ranked by return, and offered for save + track. After reading this (~5 minutes), `CLAUDE.md` is auto-loaded for branch/PR conventions; then pick your assigned PRD and start.
+> **You are a coding agent (Claude Code, Codex, or human). Read this doc first — including §0, which governs the whole packet.** It is the entry point for the three-PRD packet that evolves "Build from scratch" into **one unified Compose & Run mode** (§0 — *a single symbol is just a universe of size 1*): the user picks a universe (1 symbol → the whole S&P 500), composes a "reading" over the signal catalog, and runs it — a direct backtest for entered symbols, or a screen-to-ranked-basket for a standing universe. After reading this (~5 minutes), `CLAUDE.md` is auto-loaded for branch/PR conventions; then pick your assigned PRD and start.
 
 **Sprint window**: ~3–4 weeks for the full packet (PRD-23a → 23b → 23c), single owner sequential.
 **Total scope**: 3 PRDs — **PRD-23a (backend spine)**, **PRD-23b (mode + UI)**, **PRD-23c (discover → track + intraday)**.
 **Sprint goal**: Take strategy authoring from "I bring a ticker, the rule measures it" to "I bring a reading, the rule discovers the tickers" — a ranked basket of stocks that match the reading *right now*, on the frozen ~72-primitive catalog.
+
+---
+
+## 0. Design revision (2026-06-16) — ONE unified "Compose & Run" mode (read this first)
+
+Jimmy's call after reviewing the first draft: the screener is **not** a separate mode from
+"Build from scratch." The two are identical in the middle — same composer, same catalog, same
+`StrategyJSON` — and differ only at the edges (input target + output action). So they **merge
+into one unified flow**:
+
+> **A single symbol is just a universe of size 1.** The universe selector subsumes the old
+> "backtest symbol" input — `Enter your own symbol(s)` becomes the narrowest *tier* of the same
+> selector, alongside `S&P 500` · `Sector` · `My watchlist` · `My portfolio`.
+
+**The one flow:** pick a universe (1 symbol → 500) → compose a reading → **run**. The run adapts
+to universe size:
+- **Entered symbols (1 or a few)** → the existing **direct backtest** path (no snapshot needed).
+  This *is* today's "Build from scratch."
+- **A standing universe (S&P 500 / sector)** → the **snapshot scan → rank the survivors** — the
+  screener.
+- **One results surface that adapts:** size 1 → the existing backtest detail; many → the ranked
+  basket. Save + track is shared.
+
+**What this changes vs the draft below:**
+- There is **no separate `screen_mode` FlowDefinition.** PRD-23b **extends `custom_build_mode`**
+  (Build from scratch) with the universe selector (incl. the entered-symbols tier) + the
+  scan/results path. **Where the slice PRDs below still say "screen_mode," read: the
+  universe-screening path of the one unified `custom_build` flow.**
+- The Home picker keeps a distinct **"Screen the market"** entry tile (different intent, no ticker
+  in hand) — but it drops into the *same* flow with a standing universe preselected; "Build from
+  scratch" drops into the same flow with the entered-symbols tier preselected.
+- **Power unlocked:** a reading composed once can be backtested on a name **and** used to screen a
+  universe — no re-composing.
+
+The rest of this HANDOFF + PRD-23a/b/c describe the machinery; this section is the framing that
+governs all of it.
 
 ---
 
@@ -21,7 +57,7 @@ The rule is the screen: it filters ~500 stocks down to a small matched basket; o
 The packet:
 
 - **PRD-23a (~1.5 wk)**: the backend spine — universe resolver + a daily `signal_snapshot` pre-warm + the scan/count endpoints + rank-by-backtest. Headless-testable; **its DoD includes a real end-to-end demo on live data**, not just unit tests.
-- **PRD-23b (~1.5 wk)**: the `screen_mode` FlowDefinition + the universe selector + the intent-first reading composer (with the live match-count funnel) + the progressive ranked-results surface.
+- **PRD-23b (~1.5 wk)**: **extend `custom_build_mode`** (not a new mode — §0) — the universe selector (incl. the entered-symbols tier) *replaces* the bare symbol input + the intent-first reading composer (with the live match-count funnel) + the size-adaptive results surface.
 - **PRD-23c (~1 wk)**: save a discovered basket → cron notifies on new entrants (reuse PRD-19) + the intraday snapshot option.
 
 **Prerequisite (hard):** PRD-22c's engine operator-dispatch (slice a, shipped #207) — the screener's scan filter + rank backtest evaluate composed rules via the *same* `_apply_rule_threshold` operators (`fires`/`crosses_up`/`in_range`/…). The rest of 22c (widgets + reading layer) makes the composer intent-first; 23b reuses it.
@@ -42,7 +78,7 @@ This packet must NOT add: a new composer (extend PRD-16b's `<CustomBuildRuleComp
 
 ### Principle 3 — Mode = `FlowDefinition`, not a route
 
-"Screen the market" is a new `FlowDefinition` registered via `registerFlow`, rendered by the universal `/flow/[flowId]` shell — **not** a bespoke page. Triggered from the Home entry picker (PRD-11) via `startFlow("screen_mode", …)`. Same contract Portfolio Mode and Custom Build use.
+Per §0, this is **one unified mode** — the existing `custom_build_mode` FlowDefinition, *extended* with a universe selector + the scan/results path. **No new `FlowDefinition`.** The Home picker's "Screen the market" tile and its "Build from scratch" tile both `startFlow("custom_build_mode", …)` with a different universe tier preselected (standing universe vs entered symbols), rendered by the universal `/flow/[flowId]` shell — **not** a bespoke page. Same contract Portfolio Mode and Custom Build use.
 
 ### Principle 4 — UX consistency + sub-300ms perceived load
 
@@ -77,7 +113,7 @@ Achievable *because of the snapshot*:
 | PRD | Title | Status | Owner | Effort | Depends on | Blocks |
 |-----|-------|--------|-------|--------|------------|--------|
 | **PRD-23a** | Backend spine — universe resolver + signal snapshot + scan/count + rank | ✅ [Ready](PRD-23a-screener-backend-spine.md) | TBD | ~1.5 wk | PRD-22c slice a (shipped), PRD-16a/b, `SP500_TICKERS` | 23b, 23c |
-| **PRD-23b** | Mode + UI — `screen_mode` flow + universe selector + reading composer + results | ✅ [Ready](PRD-23b-screener-mode-ui.md) | TBD | ~1.5 wk | 23a; PRD-22c widgets (soft) | 23c (soft) |
+| **PRD-23b** | Mode + UI — **extend `custom_build_mode`**: universe selector (incl. entered-symbols tier) + reading composer + size-adaptive results | ✅ [Ready](PRD-23b-screener-mode-ui.md) | TBD | ~1.5 wk | 23a; PRD-22c widgets (soft) | 23c (soft) |
 | **PRD-23c** | Discover → track + intraday | ✅ [Ready](PRD-23c-screener-track-intraday.md) | TBD | ~1 wk | 23a + 23b; PRD-19/16c | — |
 
 ### Dependency graph
@@ -143,7 +179,7 @@ Each PRD updates this section at PR close. ♻️ = reused, 🆕 = new.
 | `scan_service` (rule → matched basket over snapshot) | PRD-23a | ⏳ |
 | `POST /api/screen/scan` + `POST /api/screen/count` | PRD-23a | ⏳ |
 | `rank_service` (backtest matched subset, `(symbol, rule_hash)` cache) | PRD-23a | ⏳ |
-| `screen_mode` FlowDefinition | PRD-23b | ⏳ |
+| `custom_build_mode` *extension* — universe selector (incl. entered-symbols tier) + scan/results path (NOT a new FlowDefinition) | PRD-23b | ⏳ |
 | `<UniverseSelector>` / `<ReadingComposer>` / `<ScreenResults>` | PRD-23b | ⏳ |
 | Intent / reading layer (`reading` + `intent_group` catalog fields) | PRD-22c (folded in) | ⏳ |
 | Discover → track (basket → SavedStrategy → notify on new entrants) | PRD-23c | ⏳ |
