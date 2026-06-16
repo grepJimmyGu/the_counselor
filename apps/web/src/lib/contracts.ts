@@ -279,8 +279,25 @@ export interface ResearchTemplate {
 export interface StrategyRule {
   indicator?: string;
   lookback_days?: number;
-  threshold?: number;
-  operator?: "gt" | "gte" | "lt" | "lte" | "crosses_above" | "crosses_below";
+  /** number for VALUE rules; {min,max} for DISTANCE in_range; string/number
+   *  for REGIME equals. Widened in PRD-22c — mirrors the backend StrategyRule. */
+  threshold?: number | { min: number; max: number } | string;
+  operator?:
+    | "gt"
+    | "gte"
+    | "lt"
+    | "lte"
+    | "crosses_above"
+    | "crosses_below"
+    // ── PRD-22c kind-dispatch operators ──
+    | "fires"
+    | "is_true"
+    | "crosses_up"
+    | "crosses_down"
+    | "in_range"
+    | "equals"
+    | "divergence_bullish"
+    | "divergence_bearish";
   source?: "close" | "adjusted_close" | "return" | "moving_average" | "rsi" | "high";
   value?: number | string;
   fast_window?: number;
