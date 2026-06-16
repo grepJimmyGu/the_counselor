@@ -1,6 +1,7 @@
 """Signal primitive catalog — the editorial product of PRD-16a Slice 1.
 
-55 hand-authored entries spanning 8 categories. Every description is
+62 hand-authored entries spanning 8 categories (55 from PRD-16a +
+the 7-entry 52-week-extrema family from PRD-22b). Every description is
 plain English ("Measures overbought/oversold extremes…") not prescriptive
 ("Buy when RSI < 30") — that's the load-bearing UX choice the spec
 calls out as pitfall A.
@@ -460,9 +461,10 @@ _MEAN_REVERSION: list[SignalPrimitive] = [
 ]
 
 
-# ── Momentum (10 primitives) ─────────────────────────────────────────────────
+# ── Momentum (17 primitives) ─────────────────────────────────────────────────
 # Rate-of-change + breakout primitives. Distinguished from "mean reversion"
 # by extracting the existence of a sustained move, not the extremity of it.
+# Includes the PRD-22b 52-week-extrema family (proximity + breakout).
 
 _MOMENTUM: list[SignalPrimitive] = [
     SignalPrimitive(
@@ -645,6 +647,176 @@ _MOMENTUM: list[SignalPrimitive] = [
         evidence_tier="B",
         provider_impl="aroonosc",
         data_source="price",
+    ),
+    # ── 52-week extrema (PRD-22b) ─────────────────────────────────────────────
+    # Proximity + breakout primitives over a rolling 52-week window. Pure
+    # rolling max/min over daily closes — no new data source. The DISTANCE
+    # kind powers the "within 2-25% of the 52-week high" setup filter.
+    SignalPrimitive(
+        id="distance_to_52w_high",
+        category=SignalCategory.MOMENTUM,
+        family="52W_EXTREMA",
+        name="Distance to 52-week high",
+        description="Signed percent gap between today's close and the highest close of the past 52 weeks.",
+        long_description=(
+            "Negative values sit below the 52-week high; zero marks a fresh "
+            "high. The size of the gap is the raw input for proximity-to-high "
+            "setup filters."
+        ),
+        parameters=[
+            Parameter(name="lookback", default=252, min_value=20, max_value=504,
+                      description="52-week window in trading days"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="distance_to_52w_high",
+        data_source="price",
+        output_kind=OutputKind.DISTANCE,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="distance_to_52w_low",
+        category=SignalCategory.MOMENTUM,
+        family="52W_EXTREMA",
+        name="Distance to 52-week low",
+        description="Signed percent gap between today's close and the lowest close of the past 52 weeks.",
+        long_description=(
+            "Positive values sit above the 52-week low; zero marks a fresh "
+            "low. Larger values mean more cushion above the annual floor."
+        ),
+        parameters=[
+            Parameter(name="lookback", default=252, min_value=20, max_value=504,
+                      description="52-week window in trading days"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="distance_to_52w_low",
+        data_source="price",
+        output_kind=OutputKind.DISTANCE,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="price_52w_high_ratio",
+        category=SignalCategory.MOMENTUM,
+        family="52W_EXTREMA",
+        name="Price-to-52-week-high ratio",
+        description="Today's close as a fraction of the 52-week high — 1.0 means price sits at its annual peak.",
+        long_description=(
+            "A normalized 0-to-1 proximity gauge: 0.90 means price is 10% off "
+            "its 52-week high. Comparable across names of any price level."
+        ),
+        parameters=[
+            Parameter(name="lookback", default=252, min_value=20, max_value=504,
+                      description="52-week window in trading days"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="price_52w_high_ratio",
+        data_source="price",
+        output_kind=OutputKind.VALUE,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="price_52w_high_breakout",
+        category=SignalCategory.MOMENTUM,
+        family="52W_EXTREMA",
+        name="52-week high breakout",
+        description="Marks the bar on which price first prints a new 52-week high after trading below it.",
+        long_description=(
+            "Fires only on the transition into new-high territory — not while "
+            "price keeps making highs — isolating the 'broke out to a new "
+            "annual high today' event."
+        ),
+        parameters=[
+            Parameter(name="lookback", default=252, min_value=20, max_value=504,
+                      description="52-week window in trading days"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="price_52w_high_breakout",
+        data_source="price",
+        output_kind=OutputKind.EVENT,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="price_52w_low_breakdown",
+        category=SignalCategory.MOMENTUM,
+        family="52W_EXTREMA",
+        name="52-week low breakdown",
+        description="Marks the bar on which price first prints a new 52-week low after trading above it.",
+        long_description=(
+            "Fires only on the transition into new-low territory — not while "
+            "price keeps making lows — isolating the 'broke down to a new "
+            "annual low today' event."
+        ),
+        parameters=[
+            Parameter(name="lookback", default=252, min_value=20, max_value=504,
+                      description="52-week window in trading days"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="price_52w_low_breakdown",
+        data_source="price",
+        output_kind=OutputKind.EVENT,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="price_in_52w_high_zone",
+        category=SignalCategory.MOMENTUM,
+        family="52W_EXTREMA",
+        name="Price in 52-week high zone",
+        description=(
+            "True while price sits in a parameterized band below the 52-week "
+            "high — the breakout setup zone from 2-25% below by default."
+        ),
+        long_description=(
+            "Captures the early-breakout setup pattern: stocks that have "
+            "pulled back from a recent high but not retraced more than 25%. "
+            "Used in event-driven momentum strategies to filter for names "
+            "that are close to, but not at, new highs."
+        ),
+        parameters=[
+            Parameter(name="min_pct", default=2.0, min_value=0.0, max_value=50.0,
+                      description="Inner boundary (percent below high)"),
+            Parameter(name="max_pct", default=25.0, min_value=1.0, max_value=80.0,
+                      description="Outer boundary (percent below high)"),
+            Parameter(name="lookback", default=252, min_value=20, max_value=504,
+                      description="52-week window in trading days"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="price_in_52w_high_zone",
+        data_source="price",
+        output_kind=OutputKind.LEVEL,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="days_since_52w_high",
+        category=SignalCategory.MOMENTUM,
+        family="52W_EXTREMA",
+        name="Days since 52-week high",
+        description="Trading days since price last touched its 52-week high — zero means today is a fresh high.",
+        long_description=(
+            "A staleness gauge for the annual peak. Low values mean price is "
+            "near recent highs in time; high values mean the peak is distant."
+        ),
+        parameters=[
+            Parameter(name="lookback", default=252, min_value=20, max_value=504,
+                      description="52-week window in trading days"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="C",
+        provider_impl="days_since_52w_high",
+        data_source="price",
+        output_kind=OutputKind.VALUE,
+        resolution=["daily"],
     ),
 ]
 
