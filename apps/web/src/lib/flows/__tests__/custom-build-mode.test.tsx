@@ -64,6 +64,11 @@ function _primitive(
     resolution: ["daily"],
     is_ranking: false,
     compute_strategy: "local",
+    output_kind: "value",
+    output_channels: ["value"],
+    composes: [],
+    intent_group: "overbought_oversold",
+    reading: null,
     ...overrides,
   };
 }
@@ -283,17 +288,23 @@ describe("CustomBuildRuleCard", () => {
     expect(onChange.mock.calls[0][0].threshold).toBe(30);
   });
 
-  it("hides the threshold editor for binary primitives (donchian_breakout)", () => {
+  it("renders the EVENT widget (no threshold) for an event primitive", () => {
+    // PRD-22c: the hardcoded binary special-case is gone — the rule card now
+    // dispatches on output_kind, so an EVENT primitive (donchian_breakout)
+    // renders the EventRule ("fires", no threshold input).
     render(
       <CustomBuildRuleCard
-        rule={_rule("u1", "donchian_breakout")}
+        rule={{
+          ..._rule("u1", "donchian_breakout"),
+          primitive: _primitive("donchian_breakout", { output_kind: "event" }),
+        }}
         index={0}
         onChange={() => {}}
         onRemove={() => {}}
       />,
     );
     expect(screen.queryByTestId("rule-threshold-u1")).toBeNull();
-    expect(screen.getByText(/binary signal/i)).toBeTruthy();
+    expect(screen.getByTestId("event-rule")).toBeTruthy();
   });
 });
 

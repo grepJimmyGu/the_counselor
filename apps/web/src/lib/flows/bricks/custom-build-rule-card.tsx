@@ -18,6 +18,7 @@
 "use client";
 
 import type { BuildRule } from "@/lib/flows/custom-build-mode-context";
+import { RuleKindEditor } from "@/lib/flows/bricks/custom-build-rule-kind-editor";
 import { cn } from "@/lib/utils";
 
 interface Props {
@@ -29,20 +30,6 @@ interface Props {
   className?: string;
 }
 
-const OPERATOR_OPTIONS: Array<{ value: BuildRule["operator"]; label: string }> = [
-  { value: "gt", label: ">" },
-  { value: "gte", label: "≥" },
-  { value: "lt", label: "<" },
-  { value: "lte", label: "≤" },
-];
-
-const BINARY_PRIMITIVE_IDS = new Set<string>([
-  "donchian_breakout",
-  // Future binary primitives land here. Out of scope to enumerate from
-  // the catalog at render time; the editorial gate (16a-1's tests) keeps
-  // the catalog descriptions clear about which primitives are binary.
-]);
-
 export function CustomBuildRuleCard({
   rule,
   index,
@@ -50,7 +37,6 @@ export function CustomBuildRuleCard({
   onRemove,
   className,
 }: Props) {
-  const isBinary = BINARY_PRIMITIVE_IDS.has(rule.primitive_id);
 
   return (
     <article
@@ -130,57 +116,10 @@ export function CustomBuildRuleCard({
         </fieldset>
       ) : null}
 
-      {/* Threshold editor — hidden for binary primitives */}
-      {!isBinary ? (
-        <div className="mt-3 flex items-end gap-2">
-          <label className="flex flex-1 flex-col gap-0.5">
-            <span className="text-[11px] font-medium text-slate-600">
-              Operator
-            </span>
-            <select
-              value={rule.operator ?? "gt"}
-              onChange={(e) =>
-                onChange({
-                  ...rule,
-                  operator: e.target.value as BuildRule["operator"],
-                })
-              }
-              data-testid={`rule-operator-${rule.uid}`}
-              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[13px]"
-            >
-              {OPERATOR_OPTIONS.map((opt) => (
-                <option key={opt.value} value={opt.value}>
-                  {opt.label}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="flex flex-1 flex-col gap-0.5">
-            <span className="text-[11px] font-medium text-slate-600">
-              Threshold
-            </span>
-            <input
-              type="number"
-              value={rule.threshold ?? ""}
-              step="any"
-              onChange={(e) => {
-                const parsed = parseFloat(e.target.value);
-                onChange({
-                  ...rule,
-                  threshold: Number.isFinite(parsed) ? parsed : undefined,
-                });
-              }}
-              data-testid={`rule-threshold-${rule.uid}`}
-              placeholder="0"
-              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[13px]"
-            />
-          </label>
-        </div>
-      ) : (
-        <p className="mt-3 text-[11px] italic text-slate-400">
-          This primitive returns a binary signal — no threshold needed.
-        </p>
-      )}
+      {/* Kind-dispatch editor (PRD-22c) — the right input for the
+          primitive's output_kind (value threshold / event / level / cross
+          direction / regime / distance range / divergence). */}
+      <RuleKindEditor rule={rule} onChange={onChange} />
     </article>
   );
 }

@@ -16,6 +16,7 @@ import type {
   BacktestResult,
   SignalPrimitive,
   StrategyJson,
+  StrategyRule,
 } from "@/lib/contracts";
 
 /** One row in the composer's rules list. Mirrors backend
@@ -33,11 +34,13 @@ export interface BuildRule {
   primitive: SignalPrimitive;
   /** Runtime parameter overrides. Empty object = use primitive defaults. */
   primitive_params: Record<string, number | string | boolean>;
-  /** Threshold comparison operator. Optional for primitives that
-   *  themselves return 0/1 (e.g. donchian_breakout). */
-  operator?: "gt" | "gte" | "lt" | "lte";
-  /** Threshold value. None → primitive is treated as boolean. */
-  threshold?: number;
+  /** Comparison/dispatch operator (PRD-22c). VALUE uses gt/gte/lt/lte; the
+   *  kind widgets set fires / is_true / crosses_up|down / in_range / equals /
+   *  divergence_*. Reuses the backend `StrategyRule["operator"]` union. */
+  operator?: StrategyRule["operator"];
+  /** Threshold — number for VALUE, {min,max} for DISTANCE, code/string for
+   *  REGIME. None → primitive treated as boolean. Reuses StrategyRule. */
+  threshold?: StrategyRule["threshold"];
   /** Fold operator joining THIS rule to the previous rule. First rule
    *  has `null`. The schema validator on the backend (PRD-16b-1)
    *  enforces this. */
