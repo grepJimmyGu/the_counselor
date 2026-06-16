@@ -379,6 +379,21 @@ def _start_scheduler() -> None:
             max_instances=1,
             misfire_grace_time=3600,
         )
+        # PRD-23a — daily Market Screener snapshot warm. Fires at 23:00 UTC,
+        # after the 22:00 signal_recompute tick has warmed today's price_bars,
+        # so each symbol is a cache-hit frame read + local compute (no AV
+        # storm). The job no-ops unless SCREENER_SNAPSHOT_ENABLED is set
+        # (default off) so it adds zero load until PRD-23b ships the UI —
+        # same convention as health_monitor. Sync wrapper around asyncio.run
+        # (trap #21 safe); the warm path holds no shared asyncio primitives
+        # (trap #22 safe).
+        from app.jobs.signal_snapshot_job import warm_signal_snapshot_job
+        scheduler.add_job(
+            warm_signal_snapshot_job, "cron", hour=23, minute=0,
+            id="signal_snapshot_warm",
+            max_instances=1,
+            misfire_grace_time=3600,
+        )
         # PRD-16c — intraday position monitor. Every 5 minutes during US
         # market hours (M-F, 14:00-20:55 UTC ≈ 10am-4:55pm ET; one hour
         # ahead of NYSE open to cover any pre-market positions). The job
