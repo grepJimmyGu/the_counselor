@@ -46,6 +46,8 @@ import { CustomBuildActiveExecutionScaffold } from "./custom-build-active-execut
 import { CustomBuildRuleCard } from "./custom-build-rule-card";
 import { CustomBuildRuleComposer } from "./custom-build-rule-composer";
 import { ExitLadderEditor } from "./exit-ladder-editor";
+import { ScreenMatchCount } from "./screen-match-count";
+import { UniverseSelector, isStandingUniverse } from "./universe-selector";
 
 // Default threshold for a freshly added rule. The primitive's
 // `default_thresholds` may have keys like "upper" / "lower" / "min_yield";
@@ -148,29 +150,38 @@ export function CustomBuildCanvas({
 
   return (
     <div className="flex flex-col gap-4">
-      {/* Symbol picker — single-asset for v1; PRD-16c may extend to multi. */}
+      {/* PRD-23b — universe selector (replaces the bare symbol input). A single
+          symbol is a universe of size 1; standing universes (sp500/sector)
+          screen the market via scan→rank, with a live match-count funnel. */}
       <section
         data-testid="custom-build-symbol-picker"
-        className="rounded-lg border border-slate-200 bg-white p-4"
+        className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4"
       >
-        <label className="flex flex-col gap-1">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-            Backtest symbol
-          </span>
-          <input
-            type="text"
-            value={context.symbol ?? ""}
-            placeholder="SPY, NVDA, GOOGL…"
-            onChange={(e) =>
-              updateContext({ symbol: e.target.value.toUpperCase() })
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+          Universe
+        </span>
+        <UniverseSelector
+          universeId={context.universe_id}
+          enteredSymbols={context.entered_symbols}
+          onChange={({ universe_id, entered_symbols }) => {
+            const patch: Partial<CustomBuildModeContext> = {
+              universe_id,
+              entered_symbols,
+            };
+            // Mirror the first entered symbol into `symbol` so the existing
+            // single-asset backtest path (non-standing) is unchanged.
+            if (!isStandingUniverse(universe_id)) {
+              patch.symbol = entered_symbols[0] ?? null;
             }
-            data-testid="custom-build-symbol-input"
-            className="rounded-md border border-slate-200 bg-white px-3 py-2 text-sm font-medium uppercase tracking-wider placeholder:font-normal placeholder:tracking-normal placeholder:lowercase focus:border-slate-400 focus:outline-none"
+            updateContext(patch);
+          }}
+        />
+        {isStandingUniverse(context.universe_id) && (
+          <ScreenMatchCount
+            universeId={context.universe_id}
+            rules={context.rules}
           />
-          <p className="text-[11px] text-slate-500">
-            v1 is single-asset — multi-symbol composer lands in a follow-up.
-          </p>
-        </label>
+        )}
       </section>
 
       {/* Stack vertically until xl (1280px viewport) because the
@@ -286,14 +297,25 @@ export function CustomBuildCanvas({
             data-testid="custom-build-run-backtest"
             disabled={
               context.rules.length === 0 ||
-              !context.symbol ||
-              (context.active_execution_enabled &&
-                !validateExitLadder(context.exit_ladder).ok) ||
-              needsExitLadder
+              // Non-standing (entered symbols) keeps the existing guards: a
+              // symbol + a valid exit ladder when active execution is on.
+              (!isStandingUniverse(context.universe_id) &&
+                (!context.symbol ||
+                  (context.active_execution_enabled &&
+                    !validateExitLadder(context.exit_ladder).ok) ||
+                  needsExitLadder))
             }
             onClick={() => {
               try {
                 setRunError(null);
+                // Standing universe (sp500/sector) → the screener path: advance
+                // to ScreenResults, which runs scan→rank. No StrategyJson is
+                // built here (the rank step builds it per-survivor).
+                if (isStandingUniverse(context.universe_id)) {
+                  advance();
+                  return;
+                }
+                // Entered symbols → the existing direct-backtest path.
                 const strategyJson: StrategyJson = buildCustomBuildStrategyJson(
                   context,
                 );
@@ -309,7 +331,9 @@ export function CustomBuildCanvas({
             }}
             className="self-end rounded-md bg-slate-900 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {runBacktestLabel}
+            {isStandingUniverse(context.universe_id)
+              ? "Screen the market →"
+              : runBacktestLabel}
           </button>
           {runError && (
             <p

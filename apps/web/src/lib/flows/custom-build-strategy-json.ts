@@ -66,6 +66,13 @@ function _toStrategyRule(rule: BuildRule): StrategyRule {
   return out;
 }
 
+/** PRD-23b — the composed rules as the backend `rules` field for a screen
+ *  scan/count/rank request body. Same mapping the backtest uses, so the
+ *  screen filter matches the backtest evaluation. */
+export function buildScreenRules(rules: BuildRule[]): StrategyRule[] {
+  return rules.map(_toStrategyRule);
+}
+
 /**
  * PRD-16c live-tracking guard.
  *

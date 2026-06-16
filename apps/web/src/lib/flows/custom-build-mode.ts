@@ -25,6 +25,8 @@ import { CustomBuildCanvas } from "./bricks/custom-build-canvas";
 import { FlowBacktest } from "./bricks/flow-backtest";
 import { FlowReview } from "./bricks/flow-review";
 import { FlowSave } from "./bricks/flow-save";
+import { ScreenResults } from "./bricks/screener-results";
+import { isStandingUniverse } from "./bricks/universe-selector";
 import {
   INITIAL_CUSTOM_BUILD_CONTEXT,
   type CustomBuildModeContext,
@@ -64,6 +66,9 @@ export const CustomBuildModeFlow: FlowDefinition<CustomBuildModeContext> = {
   name: "Custom Build",
   triggers: [
     "home/custom_build",
+    // PRD-23b — the "Screen the market" Home tile lands on the SAME flow with
+    // a standing universe preselected (unified mode; no separate FlowDefinition).
+    "home/screen_market",
     "strategy_builders/custom_build_cta",
     "stock_page/customize_template",
   ],
@@ -83,9 +88,15 @@ export const CustomBuildModeFlow: FlowDefinition<CustomBuildModeContext> = {
     {
       id: "compose_signals",
       brick: CustomBuildCanvas,
-      next: () => "backtest",
+      // PRD-23b — size-branch: standing universes (sp500/sector) take the
+      // screener path (scan→rank); entered symbols take the direct backtest.
+      next: (ctx) =>
+        isStandingUniverse(ctx.universe_id) ? "screen_results" : "backtest",
       validate: (ctx) => {
         if (ctx.rules.length === 0) return "Add at least one rule.";
+        // Standing universe → the screener path produces a scan result, not a
+        // single-symbol StrategyJson, so it skips the symbol/strategyJson guards.
+        if (isStandingUniverse(ctx.universe_id)) return true;
         if (!ctx.symbol) return "Pick a backtest symbol.";
         // The canvas populates `strategyJson` when the user clicks
         // "Run backtest →". Block advance until it's set — guards
@@ -97,6 +108,12 @@ export const CustomBuildModeFlow: FlowDefinition<CustomBuildModeContext> = {
           return "Click Run backtest to build the strategy.";
         return true;
       },
+    },
+    {
+      // PRD-23b — the screener results surface (standing universes only).
+      id: "screen_results",
+      brick: ScreenResults,
+      next: () => null,
     },
     {
       id: "backtest",

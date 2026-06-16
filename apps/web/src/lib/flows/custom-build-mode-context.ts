@@ -14,6 +14,8 @@
 import type { FlowContextBase } from "./types";
 import type {
   BacktestResult,
+  ScreenRankResponse,
+  ScreenUniverseId,
   SignalPrimitive,
   StrategyJson,
   StrategyRule,
@@ -64,8 +66,19 @@ export interface ExitTier {
 export type BarResolution = "daily" | "5min" | "15min" | "30min" | "60min";
 
 export interface CustomBuildModeContext extends FlowContextBase {
+  /** PRD-23b — the universe tier this reading runs over (the unified mode:
+   *  a single symbol is a universe of size 1). One of
+   *  "symbols"|"watchlist"|"portfolio"|"sp500"|"sector_<key>". Default
+   *  "symbols" keeps the legacy Build-from-Scratch behavior. `is_standing_universe`
+   *  (sp500 / sector_*) routes to the snapshot scan→rank; the rest backtest
+   *  the entered symbols directly. */
+  universe_id: ScreenUniverseId;
+  /** PRD-23b — membership for the client-supplied tiers (entered symbols /
+   *  watchlist / portfolio). Empty for the standing universes (sp500/sector). */
+  entered_symbols: string[];
   /** Single-symbol universe for v1. The composer renders a small
-   *  picker; PRD-16b-3 extends this to a multi-symbol picker. */
+   *  picker; PRD-16b-3 extends this to a multi-symbol picker. Kept as the
+   *  size-1 back-compat case (universe_id "symbols", one entered symbol). */
   symbol: string | null;
   /** Ordered rule list. First rule has `logic_with_prior: null`; every
    *  subsequent rule has it set. */
@@ -95,6 +108,9 @@ export interface CustomBuildModeContext extends FlowContextBase {
   strategyJson?: StrategyJson;
   /** Backtest API response. FlowReview renders from this. */
   backtestResult?: BacktestResult;
+  /** PRD-23b — the ranked basket from the screener path (standing universe).
+   *  Set by the run step; ScreenResults renders from it. */
+  screenRankResult?: ScreenRankResponse;
   /** Slug returned by the save endpoint. The flow's `onComplete` reads
    *  this to navigate to /strategies/{slug}. */
   savedSlug?: string;
@@ -104,6 +120,8 @@ export const INITIAL_CUSTOM_BUILD_CONTEXT: Omit<
   CustomBuildModeContext,
   "fromTrigger"
 > = {
+  universe_id: "symbols",
+  entered_symbols: [],
   symbol: null,
   rules: [],
   active_execution_enabled: false,
