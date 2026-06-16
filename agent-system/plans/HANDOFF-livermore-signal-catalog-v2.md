@@ -135,11 +135,11 @@ Bricks created across the packet. Each PRD updates this section at PR close.
 
 | Brick | Owner PRD | Status | Used by |
 |---|---|---|---|
-| `OutputKind` enum (7 values) | PRD-22a | ⏳ | All v2 consumers |
-| `SignalPrimitive.output_kind` field | PRD-22a | ⏳ | Catalog endpoint; composer dispatch; KB-lookup Jaccard |
-| `SignalPrimitive.output_channels` field | PRD-22a | ⏳ | Multi-channel primitives (MACD, BB, ADX, Stoch) |
-| `SignalPrimitive.composes` field | PRD-22a | ⏳ | Derived primitives (signal_cross, divergence, etc.) |
-| v1 catalog backfill (~55 entries) | PRD-22a | ⏳ | Backward compat; all consumers |
+| `OutputKind` enum (7 values) | PRD-22a | ✅ | All v2 consumers |
+| `SignalPrimitive.output_kind` field | PRD-22a | ✅ | Catalog endpoint; composer dispatch; KB-lookup Jaccard |
+| `SignalPrimitive.output_channels` field | PRD-22a | ✅ | Multi-channel primitives (MACD, BB, ADX, Stoch) |
+| `SignalPrimitive.composes` field | PRD-22a | ✅ | Derived primitives (signal_cross, divergence, etc.) |
+| v1 catalog backfill (~55 entries) | PRD-22a | ✅ | Backward compat; all consumers |
 | 11 family upgrade primitives (~30 entries) | PRD-22b | ⏳ | Composer (when kind-dispatch ready) |
 | 52-week extrema family (7 primitives) | PRD-22b | ⏳ | Distance/breakout/zone rule consumers |
 | TTM Squeeze + Supertrend + Chandelier (8 primitives) | PRD-22b | ⏳ | Volatility consumers; multi-tier exits |
@@ -215,6 +215,15 @@ to confirm every new import resolves. The `notifications.py`-missed-`git-add` bu
 ### J. Don't run `git add -A`
 
 Explicit pathspecs only. PRD-22b will touch ~80 files (impls + tests + catalog data); one stray uncommitted file or one accidentally-included unrelated file ruins the diff.
+
+### K. Data-source coverage was audited late — read PRD-22b §9 before promising primitives
+
+A 2026-06-12 feasibility check (post-spec) flagged that ~58/65 v2 primitives are computable from data we already fetch (just price + volume + indicators), but a handful need new AV endpoint wiring or proxy approximations. PRD-22b §9 has the full per-primitive coverage map. The two real constraints:
+
+1. **PEAD `pead_signal`** approximates SUE as `surprise_pct / trailing_8q_std(surprise_pct)` because AV's `EARNINGS` endpoint doesn't expose analyst-estimate std-err. Not academically rigorous; document the proxy in catalog `long_description`.
+2. **`insider_net_buy_surge`** depends on AV `INSIDER_TRANSACTIONS` (premium-tier). Ship behind feature flag `AV_INSIDER_TXN_ENABLED`; catalog entry filtered out when flag is off. Avoids serving a primitive that 500s.
+
+Three new AV client methods are required (`fetch_earnings_history`, `fetch_earnings_calendar`, `fetch_insider_transactions`) — `fetch_technical_indicator` already covers everything else. Rate-limit budget impact is <0.5% even at 1k-symbol universe.
 
 ---
 

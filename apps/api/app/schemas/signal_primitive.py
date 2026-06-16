@@ -77,6 +77,40 @@ class SignalCategory(str, Enum):
     """Universe-relative ranking primitives — measures position in a peer group."""
 
 
+class OutputKind(str, Enum):
+    """Semantic shape of the signal a primitive emits at each timestep.
+
+    PRD-22a. Drives the composer rule-builder dispatch (PRD-22c) and the
+    KB-lookup Jaccard enrichment (PRD-22b). Defaults to VALUE so every v1
+    primitive stays backward-compatible — the composer's existing
+    `[primitive] [< | >] [threshold]` widget is the VALUE widget.
+
+    `str, Enum` (matching `SignalCategory`) so it JSON-serializes to its
+    string value in the catalog payload.
+    """
+
+    VALUE = "value"
+    """Scalar at each bar. Composer renders [primitive] [< | >] [threshold]."""
+
+    EVENT = "event"
+    """Boolean true ONLY at the bar of transition. No threshold input."""
+
+    REGIME = "regime"
+    """Categorical classifier (trending/ranging/etc). Single-select chip."""
+
+    LEVEL = "level"
+    """Boolean true WHILE a condition holds (persists). No threshold input."""
+
+    DISTANCE = "distance"
+    """Signed percentage gap. Range slider input (between min% and max%)."""
+
+    CROSS = "cross"
+    """EVENT specialization: line A crosses line B. Direction picker."""
+
+    DIVERGENCE = "divergence"
+    """Pattern: indicator swings disagree with price swings. Lookback + direction."""
+
+
 class Parameter(BaseModel):
     """One tunable knob on a signal primitive.
 
@@ -190,6 +224,33 @@ class SignalPrimitive(BaseModel):
             "'local' — compute with pandas (cheap, no API call). "
             "'av_endpoint' — fetch Alpha Vantage's pre-computed series "
             "(expensive locally, single API call)."
+        ),
+    )
+
+    # ── PRD-22a semantics layer (additive; runtime no-op) ─────────────────────
+    output_kind: OutputKind = Field(
+        default=OutputKind.VALUE,
+        description=(
+            "Semantic shape of the emitted signal. Drives the composer's "
+            "kind-specific rule-builder (PRD-22c) + KB-lookup Jaccard "
+            "(PRD-22b). v1 default = VALUE preserves the existing widget."
+        ),
+    )
+    output_channels: List[str] = Field(
+        default_factory=lambda: ["value"],
+        description=(
+            "Named channels this primitive emits. Multi-channel primitives "
+            "(MACD, ADX, Stoch, Bollinger) declare several; the default "
+            "['value'] matches v1 single-channel semantics. These names are a "
+            "PUBLIC CONTRACT once shipped — never rename, only deprecate."
+        ),
+    )
+    composes: List[str] = Field(
+        default_factory=list,
+        description=(
+            "Parent primitive_ids this is derived from (e.g. a future "
+            "macd_signal_cross composes=['macd']). Default = standalone. "
+            "PRD-22b is the first consumer."
         ),
     )
 

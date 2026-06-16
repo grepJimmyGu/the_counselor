@@ -416,4 +416,110 @@ When PRD-22b is on `main`:
 
 ---
 
-*PRD drafted 2026-06-12. Cross-references: v2 spec at `/Quant Strategy/framework/signal_catalog_v2_spec.html` §3+§4, parent HANDOFF at `agent-system/plans/HANDOFF-livermore-signal-catalog-v2.md`, depends on PRD-22a.*
+## 9. Data-source coverage audit (READ BEFORE PR-DRAFTING)
+
+A late-stage question from Jimmy (2026-06-12) flagged that the v2 spec assumed Alpha Vantage coverage without auditing it. Here's the honest map of what each new primitive needs and whether we have the data.
+
+### 9.1 What we already fetch
+
+Per `apps/api/app/services/alpha_vantage.py` and the FMP wiring in `financial_validation_service.py`, we have:
+
+| Source | Currently used for | Endpoint signature |
+|---|---|---|
+| **AV TIME_SERIES_DAILY_ADJUSTED** | All daily OHLCV | `fetch_daily_adjusted(symbol)` |
+| **AV TIME_SERIES_INTRADAY** | Intraday bars (PRD-16c) | `fetch_intraday_bars(symbol, interval)` |
+| **AV technical-indicator family** | ~30 indicators (SMA/EMA/MACD/RSI/BBANDS/STOCH/ADX/ATR/OBV/etc) | `fetch_technical_indicator(symbol, function, ...)` |
+| **AV NEWS_SENTIMENT** | Sentiment scores | wired via `alpha_vantage_news_provider.py` |
+| **AV TREASURY_YIELD / CPI** | Macro | shipped |
+| **AV WTI / COPPER / WHEAT** | Commodity | shipped |
+| **FMP fundamentals** | `fcf_yield`, `book_to_market`, `ebitda_ev`, `f_score`, P/E, P/B, buyback yield | `financial_validation_service.py` |
+
+### 9.2 Coverage map — every v2 primitive
+
+Categorical column key:
+- **✅ Local** — computable from data we already fetch; no new endpoint
+- **🟢 New endpoint, AV/FMP has it** — needs wiring; data exists
+- **🟡 Approximation** — proxy required because true metric isn't on AV/FMP
+- **🔴 Not available** — would need a new data provider
+
+| Family | New primitive(s) | Coverage | Notes |
+|---|---|---|---|
+| MACD | All 5 derivatives | ✅ Local | Computed from `macd` line + signal line we already fetch |
+| RSI | All 7 derivatives | ✅ Local | Computed from `rsi` value series |
+| Bollinger | All 7 derivatives (%B, BBW, squeeze, fire, walk, tag×2) | ✅ Local | %B/BBW are simple algebra over BB outputs |
+| ADX / DMI | `adx_regime`, `adx_rising`, `di_cross_bullish/bearish` | ✅ Local | AV `function=PLUS_DI` and `MINUS_DI` already callable; needs new pass-through methods |
+| MA | `price_above_ma`, `price_ma_cross_up/down`, `golden_cross`, `death_cross`, `ma_slope_positive` | ✅ Local | Computed from existing SMA/EMA series + close |
+| Stochastic | `stoch_k_d_cross`, `stoch_oversold_cross_up`, `stoch_overbought_cross_down` | ✅ Local | AV STOCH returns both `SlowK` and `SlowD` already |
+| **52-week extrema** | All 7 (distance, ratio, breakout, zone, days_since) | ✅ Local | Pure rolling max/min over daily bars |
+| Volume — RVOL family | `rvol`, `rvol_surge` | ✅ Local | Volume / rolling mean of volume |
+| Volume — OBV divergence | `obv_divergence_bullish/bearish` | ✅ Local | OBV already fetched; peak-trough detection local |
+| Volume — Anchored VWAP | `anchored_vwap`, `distance_to_anchored_vwap`, `price_above_anchored_vwap` | ✅ Local + 🟢 anchor source | VWAP computation is local. The *anchor date* needs to come from somewhere — for earnings-anchored, see PEAD row below |
+| Volatility — Chandelier | All 3 (long/short/breach) | ✅ Local | ATR already fetched; rolling HH/LL local |
+| Volatility — Supertrend | All 3 (line/flip/above_price) | ✅ Local | hl2 + ATR + state machine, local |
+| Volatility — TTM Squeeze | `ttm_squeeze`, `ttm_squeeze_fire` | ✅ Local | Bollinger (have) ∩ Keltner (compute: SMA ± 1.5×ATR — both local) |
+| Momentum — 12-1 single-symbol | `momentum_12_1`, `momentum_acceleration` | ✅ Local | Pure price-history math |
+| Momentum — cross-sectional z-score | `momentum_12_1_zscore`, `momentum_composite_zscore` | ✅ Local | Cross-sectional means we need the *universe's* return data; we already maintain `SP500_TICKERS` so this is fine for equities. Other asset classes need universe definitions |
+| **Events — PEAD signal** | `pead_signal` | 🟡 **Approximation** | AV's `EARNINGS` endpoint returns `surprise` + `surprisePercentage` per quarter, but **NOT the standard-error of historical analyst estimates**. True SUE requires that std-err. We approximate by computing trailing 8-quarter std-dev of `surprisePercentage` and dividing — that's not academically rigorous SUE, but it's the standard fallback when raw SUE isn't sourceable. Document this clearly |
+| Events — PEAD drift window | `pead_drift_window` | 🟢 New endpoint | AV `function=EARNINGS` returns `reportedDate` per quarter. Wire a new `fetch_earnings_history(symbol)` method on the AV client. Cacheable monthly |
+| Events — earnings dates | `days_to_earnings`, `days_since_earnings` | 🟢 New endpoint | AV `function=EARNINGS_CALENDAR&horizon=3month` (returns CSV). Wire a new `fetch_earnings_calendar()` method. Cacheable daily (universe-level fetch, not per-symbol) |
+| Events — estimate revision cross | `estimate_revision_positive_cross` | ✅ Local | Extends shipped `estimate_revision_3m` (already in v1 catalog from FMP); just a sign-cross detector |
+| Events — insider surge | `insider_net_buy_surge` | 🟢 New endpoint | AV `function=INSIDER_TRANSACTIONS` (Alpha Intelligence). **Confirmed included on our $49.99/75-RPM plan** (per AV premium docs — all Alpha Intelligence endpoints are part of base premium; only real-time market data is gated above $49.99). Wire `fetch_insider_transactions(symbol)` on the AV client; cache TTL 7 days |
+| Candle structure — Heikin-Ashi | All 3 (trend / consecutive / color flip) | ✅ Local | Pure OHLC arithmetic |
+
+**Summary**:
+- **~58 of 65 new primitives are ✅ Local** — computed from data we already fetch. Zero new AV calls.
+- **3 need new AV endpoint wiring** (EARNINGS, EARNINGS_CALENDAR, INSIDER_TRANSACTIONS) — all exist on AV and **all confirmed available on our $49.99/75-RPM plan**.
+- **1 requires 🟡 approximation**: PEAD `pead_signal` true SUE → trailing-std proxy because AV doesn't expose analyst-estimate std-err. Document the proxy in catalog `long_description`.
+
+### 9.3 New AV client methods to add in this PRD
+
+Three new methods on `AlphaVantageClient` (apps/api/app/services/alpha_vantage.py):
+
+```python
+async def fetch_earnings_history(self, symbol: str) -> dict:
+    """AV function=EARNINGS. Returns quarterlyEarnings array with
+    reportedDate, reportedEPS, estimatedEPS, surprise, surprisePercentage.
+    Cache TTL: 30 days (re-fetch only after a new quarter prints)."""
+
+async def fetch_earnings_calendar(self, horizon: str = "3month") -> list[dict]:
+    """AV function=EARNINGS_CALENDAR. CSV response — parse with csv.DictReader.
+    Universe-level (not per-symbol). Cache TTL: 24 hours."""
+
+async def fetch_insider_transactions(self, symbol: str) -> list[dict]:
+    """AV function=INSIDER_TRANSACTIONS. Form 4 list.
+    Confirmed available on our $49.99 premium tier (all Alpha Intelligence
+    endpoints are bundled at the $49.99 level). Cache TTL: 7 days."""
+```
+
+No feature flag needed — the endpoint is on our plan. (Earlier draft included an `AV_INSIDER_TXN_ENABLED` flag; removed 2026-06-12 once AV plan was confirmed.)
+
+### 9.4 Rate-limit budget impact
+
+Our shipped Premium plan (presumably 75 req/min or 150 req/min — confirm with Jimmy before PR) handles v1's ~12 calls/symbol/day comfortably. The three new endpoints add minimal load:
+
+| Endpoint | Frequency | Per-symbol? | Daily calls @ 1k-symbol universe |
+|---|---|---|---|
+| EARNINGS_CALENDAR | 1×/day | No | 1 |
+| EARNINGS history | 1×/30 days | Yes | ~33/day amortized |
+| INSIDER_TRANSACTIONS | 1×/7 days | Yes | ~143/day amortized |
+
+At 75 req/min that's still <0.5% of the budget. No tier upgrade needed for v2.
+
+### 9.5 What's genuinely blocked (not in v2 scope — flagged for transparency)
+
+These are NOT in PRD-22b, but agents reading the v2 spec might ask: why no VIX term structure / put-call / short interest?
+
+| Idiom | Status | Why |
+|---|---|---|
+| VIX term structure (front vs back month) | 🔴 Not on AV | Needs CBOE or Cboe Datashop. Separate PRD |
+| Put-call ratio | 🔴 Not on AV | Needs options-data provider. Separate PRD |
+| Short interest | 🔴 Not on AV (✅ on FMP for premium) | FMP has `/v4/stock_short_interest` — could ship if we upgrade FMP tier. Separate PRD |
+| Days to cover | 🔴 Same as above | Derived from short interest + volume |
+| Beta / factor exposures | 🟡 Compute locally from returns | Doable but cross-sectional infra needed. Separate PRD |
+| Earnings call transcripts NLP | 🔴 Not on AV directly | Out of scope per user's 2026-06-08 decision (no NLP for now) |
+
+The v2 spec §7 already flagged these as out of scope; this section says it more concretely.
+
+---
+
+*PRD drafted 2026-06-12. Cross-references: v2 spec at `/Quant Strategy/framework/signal_catalog_v2_spec.html` §3+§4, parent HANDOFF at `agent-system/plans/HANDOFF-livermore-signal-catalog-v2.md`, depends on PRD-22a. §9 data-source audit added 2026-06-12 in response to feasibility check.*
