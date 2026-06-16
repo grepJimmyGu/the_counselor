@@ -12,6 +12,48 @@
 
 ---
 
+## 0. Scope addendum (2026-06-16) — finishing 22c so it actually works + feeds PRD-23
+
+Three adjustments from the 2026-06-16 design session (Jimmy). This mode is the foundation
+the Market Screener (PRD-23) reuses, so "finished" must mean *functional end-to-end*, not just
+rendered.
+
+1. **The engine operator-dispatch is IN SCOPE here — it was wrongly punted.** §3.3 says the
+   new-operator dispatch is "a PRD-22b concern." PRD-22b shipped content-only and never added
+   it. Ground truth: `StrategyRule.operator` is `Literal["gt","gte","lt","lte","crosses_above",
+   "crosses_below"]` and `engine._apply_rule_threshold` **raises for anything but gt/gte/lt/lte**
+   (even `crosses_above` is unimplemented in custom_build). So the new widgets currently
+   serialize to operators the backtester rejects. Finishing 22c therefore includes a small
+   additive **backend foundation slice**: widen `StrategyRule.operator` (+ `fires`, `is_true`,
+   `crosses_up`, `crosses_down`, `in_range`, `equals`, `divergence_bullish/bearish`), widen
+   `threshold` (`float → Union[float, dict, str]` for ranges + regime values), extend
+   `_apply_rule_threshold`, and add `parameter_overrides` (§3.5). This is also the prerequisite
+   for PRD-23, whose scan filter + rank backtest evaluate these same rules.
+
+2. **The reading layer folds in here** (was tentatively PRD-23b). Two additive catalog fields —
+   `reading` (plain-English "what a trader reads when this fires") and `intent_group` (the chip
+   it lives under) — ship as part of 22c, backfilled across the ~72 primitives, same additive
+   pattern as PRD-22a. The intent chips + per-kind widgets are the intent-first composer that
+   PRD-23's `<ReadingComposer>` reuses wholesale.
+
+3. **Catalog frozen at ~72.** No net-new primitive families during 22c. Existing non-VALUE
+   primitives already exercise every widget except DIVERGENCE: `ma_crossover` (CROSS),
+   `donchian_breakout` (EVENT), `vol_regime` (REGIME), the 52-week family (DISTANCE/EVENT/LEVEL),
+   RVOL/Chandelier/TTM (EVENT/REGIME). MACD's 3 cross/event children remain optional demo
+   sugar, not a blocker.
+
+**Real file targets** (the §3 paths are aspirational): the composer is
+`apps/web/src/lib/flows/bricks/custom-build-rule-composer.tsx` + `custom-build-rule-card.tsx`
+(the refactor target, currently VALUE-only with a hardcoded binary special-case); the browser is
+`apps/web/src/components/signal-library/signal-catalog-browser.tsx`; rule types in
+`apps/web/src/lib/contracts.ts` + `custom-build-mode-context.tsx`.
+
+**Build order**: (a) backend operator-dispatch foundation → (b) reading layer (catalog fields +
+backfill + types) → (c) frontend kind-dispatch shell + 6 widgets + ValueRule refactor → (d)
+catalog kind-filter + `composes` drawer + per-kind e2e. Each its own PR.
+
+---
+
 ## 🤖 Coding-agent kickoff prompt
 
 ```

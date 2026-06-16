@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import date
 from enum import Enum
-from typing import Literal, Optional, Union
+from typing import Any, Literal, Optional, Union
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -119,9 +119,23 @@ class StrategyRule(BaseModel):
     # ── Original fields (preserved unchanged) ────────────────────────────────
     indicator: Optional[str] = None
     lookback_days: Optional[int] = None
-    threshold: Optional[float] = None
+    # `float` for VALUE rules (the common case, unchanged). PRD-22c widens it:
+    # a `{"min","max"}` dict for DISTANCE `in_range`, a code/string for REGIME
+    # `equals`. Additive — existing rules keep using a bare float.
+    threshold: Optional[Union[float, dict[str, Any], str]] = None
     operator: Optional[
-        Literal["gt", "gte", "lt", "lte", "crosses_above", "crosses_below"]
+        Literal[
+            "gt", "gte", "lt", "lte", "crosses_above", "crosses_below",
+            # ── PRD-22c kind-dispatch operators (additive) ────────────────────
+            "fires",        # EVENT      — primitive fires this bar (value != 0)
+            "is_true",      # LEVEL      — condition holds (bool of value)
+            "crosses_up",   # CROSS      — bullish cross (value == +1)
+            "crosses_down", # CROSS      — bearish cross (value == -1)
+            "in_range",     # DISTANCE   — value between threshold.min / .max
+            "equals",       # REGIME     — value equals threshold (code/str)
+            "divergence_bullish",  # DIVERGENCE — bullish pattern (value == +1)
+            "divergence_bearish",  # DIVERGENCE — bearish pattern (value == -1)
+        ]
     ] = None
     source: Optional[
         Literal["close", "adjusted_close", "return", "moving_average", "rsi", "high"]

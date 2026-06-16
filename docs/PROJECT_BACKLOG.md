@@ -131,6 +131,18 @@ Surfaced 2026-06-12 by Mr Gu's hand-written SpaceX-ripple strategy — a real-wo
 
 > Context: the 2026-06-12 real-OHLCV fix (#199) already unblocked the **volume + range** primitives (`avg_dollar_volume`, `obv`, `atr`, `stoch`, …) in the single-asset composer backtest — they now compute on real `price_bars` data instead of fabricated `volume=1.0`/`high=low=close`.
 
+### Signal Catalog v2 → Market Screener sequencing (decided 2026-06-16)
+
+The catalog v2 work (PRD-22) pivoted toward the **Market Screener** (PRD-23) — the productized form of the parked "multi-asset filter → rank → top-K composer" item above. Agreed plan (Mr Gu, 2026-06-16):
+
+1. **Finish PRD-22c** (composer kind-dispatch) — the foundation the screener reuses. Scope-corrected to include the **engine operator-dispatch** (widen `StrategyRule.operator`/`threshold` + extend `_apply_rule_threshold` for `fires`/`crosses_up`/`in_range`/…) that 22c wrongly punted to 22b, plus the additive `reading` + `intent_group` catalog fields (intent-first composer). 4 slices: (a) engine foundation → (b) reading layer → (c) widgets → (d) kind-filter + `composes` drawer. **In progress.**
+2. **Build the PRD-23 thin slice (23a)** on the frozen 72-primitive catalog — prove the universe → scan → ranked-basket loop works **end-to-end on live data** before expanding. DoD = a real working demo, not just unit tests (Mr Gu's bar).
+3. **Backfill PRD-22b's remaining families incrementally** once the screener is live — each a small additive PR that immediately makes the live screener more powerful. Better feedback loop than 3 weeks of speculative editorial before the feature exists.
+
+**Catalog FROZEN at ~72** until the screener loop is proven. Shipped: PRD-22a semantics (#203), 22b 52-week-extrema (#204) + RVOL/Chandelier/TTM (#205). **Deferred 22b families** (spec'd in PRD-22b §3.1/§9, resumable as 1-PR adds): MACD/RSI/Bollinger/ADX/Stoch decompositions, Anchored VWAP (user `anchor_date` param), Supertrend, Momentum z-score, divergences (numpy peak/trough — NOT scipy, which isn't pinned in requirements), Heikin-Ashi, PEAD/insider (need new AV endpoints), KB-lookup enrichment.
+
+**Why not finish all of 22b first:** the screener's risk is its new architecture/UX, not primitive count; new primitives are additive (no rework); finishing the catalog first front-loads the low-uncertainty work and defers validating the uncertain thing. PRD-23 doc: `agent-system/plans/PRD-23-market-screener-mode.md` (PR #206 draft). The §4 "Multi-asset filter → rank → top-K" parked item is now **superseded by PRD-23**.
+
 ---
 
 ## 4b. Market Pulse v2 — Phase 1 status
