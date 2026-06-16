@@ -40,7 +40,7 @@ from app.schemas.signal_primitive import (
 )
 
 
-# ── Trend (12 primitives) ────────────────────────────────────────────────────
+# ── Trend (25 primitives) ────────────────────────────────────────────────────
 # Moving averages + trend-strength oscillators. Every one of these answers
 # "is the market in an up-trend?" — the variations differ in lag, sensitivity
 # to recent prices, and how they handle noise.
@@ -284,10 +284,355 @@ _TREND: list[SignalPrimitive] = [
         data_source="price",
         compute_strategy="av_endpoint",
     ),
+    # ── MA + MACD events (PRD-22b) ────────────────────────────────────────────
+    # v2 decomposes the MA/MACD families' canonical *consumption patterns*
+    # (price-vs-MA, MA-vs-MA crossover, signal-line cross, zero-line cross,
+    # histogram flip) into standalone event/cross/level primitives, so the
+    # composer offers "golden cross fired" directly instead of asking the
+    # user to threshold a raw scalar. Descriptions sourced from the v2 spec
+    # §MACD/§Moving-Average family prose (editorial gate: PR review).
+    SignalPrimitive(
+        id="price_above_ma",
+        category=SignalCategory.TREND,
+        family="MA",
+        name="Price above moving average",
+        description="True while close trades above its moving average — the textbook bull-market filter (close above the 200-day).",
+        long_description=(
+            "A LEVEL primitive: holds true for as long as price stays above "
+            "its N-day simple moving average, rather than firing once. The "
+            "200-day is the classic long-term bull/bear dividing line; "
+            "shorter windows gate swing entries to the side of the trend."
+        ),
+        parameters=[
+            Parameter(name="period", default=200, min_value=5, max_value=400,
+                      description="Moving-average window in trading days"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="A",
+        provider_impl="price_above_ma",
+        data_source="price",
+        output_kind=OutputKind.LEVEL,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="price_ma_cross_up",
+        category=SignalCategory.TREND,
+        family="MA",
+        name="Price crosses above moving average",
+        description="Marks the bar on which close crosses above its moving average.",
+        long_description=(
+            "The entry-side companion to price_above_ma: fires only on the "
+            "transition bar where close moves from below to above its N-day "
+            "moving average, isolating the cross itself rather than the whole "
+            "above-the-line stretch."
+        ),
+        parameters=[
+            Parameter(name="period", default=50, min_value=5, max_value=400,
+                      description="Moving-average window in trading days"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="A",
+        provider_impl="price_ma_cross_up",
+        data_source="price",
+        output_kind=OutputKind.CROSS,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="price_ma_cross_down",
+        category=SignalCategory.TREND,
+        family="MA",
+        name="Price crosses below moving average",
+        description="Marks the bar on which close crosses below its moving average.",
+        long_description=(
+            "The bearish mirror of price_ma_cross_up: fires only on the "
+            "transition bar where close moves from above to below its N-day "
+            "moving average — a trend-loss or exit trigger."
+        ),
+        parameters=[
+            Parameter(name="period", default=50, min_value=5, max_value=400,
+                      description="Moving-average window in trading days"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="A",
+        provider_impl="price_ma_cross_down",
+        data_source="price",
+        output_kind=OutputKind.CROSS,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="golden_cross",
+        category=SignalCategory.TREND,
+        family="MA",
+        name="Golden cross",
+        description="Marks the bar on which the fast MA crosses above the slow MA — the 50-over-200 golden cross.",
+        long_description=(
+            "The textbook long-term trend-turn signal: the 50-day SMA "
+            "crossing above the 200-day SMA. Default periods are configurable "
+            "for faster or slower variants."
+        ),
+        parameters=[
+            Parameter(name="fast_period", default=50, min_value=2, max_value=200,
+                      description="Fast MA window"),
+            Parameter(name="slow_period", default=200, min_value=5, max_value=500,
+                      description="Slow MA window"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="A",
+        provider_impl="golden_cross",
+        data_source="price",
+        output_kind=OutputKind.CROSS,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="death_cross",
+        category=SignalCategory.TREND,
+        family="MA",
+        name="Death cross",
+        description="Marks the bar on which the fast MA crosses below the slow MA — the death cross, inverse of the golden cross.",
+        long_description=(
+            "The bearish inverse of the golden cross: the 50-day SMA crossing "
+            "below the 200-day SMA, the textbook long-term trend-down signal. "
+            "Default periods are configurable."
+        ),
+        parameters=[
+            Parameter(name="fast_period", default=50, min_value=2, max_value=200,
+                      description="Fast MA window"),
+            Parameter(name="slow_period", default=200, min_value=5, max_value=500,
+                      description="Slow MA window"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="A",
+        provider_impl="death_cross",
+        data_source="price",
+        output_kind=OutputKind.CROSS,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="ma_slope_positive",
+        category=SignalCategory.TREND,
+        family="MA",
+        name="Moving average rising",
+        description="True while the moving average is rising — MA(t) above MA(t−N).",
+        long_description=(
+            "A trend-strength LEVEL filter: true for as long as the N-day "
+            "moving average today sits above where it was `lookback` bars ago. "
+            "Layered on a directional entry, it keeps trades to names whose "
+            "trend is still rising rather than flattening."
+        ),
+        parameters=[
+            Parameter(name="period", default=50, min_value=5, max_value=400,
+                      description="Moving-average window in trading days"),
+            Parameter(name="lookback", default=10, min_value=1, max_value=120,
+                      description="Bars back to measure the slope over"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="B",
+        provider_impl="ma_slope_positive",
+        data_source="price",
+        output_kind=OutputKind.LEVEL,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="macd_signal_cross",
+        category=SignalCategory.TREND,
+        family="MACD",
+        name="MACD signal-line cross",
+        description="Marks the bar on which the MACD line crosses its signal line — the canonical MACD entry.",
+        long_description=(
+            "The textbook MACD trade: a bullish cross when the MACD line "
+            "moves above its signal line, bearish when it moves below. The "
+            "composer exposes an above/below direction picker. Composes on "
+            "the macd primitive's fast/slow/signal periods."
+        ),
+        parameters=[
+            Parameter(name="fast_period", default=12, min_value=2, max_value=100,
+                      description="Fast EMA period"),
+            Parameter(name="slow_period", default=26, min_value=2, max_value=200,
+                      description="Slow EMA period"),
+            Parameter(name="signal_period", default=9, min_value=2, max_value=50,
+                      description="Signal-line smoothing period"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="A",
+        provider_impl="macd_signal_cross",
+        data_source="price",
+        output_kind=OutputKind.CROSS,
+        composes=["macd"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="macd_histogram_flip",
+        category=SignalCategory.TREND,
+        family="MACD",
+        name="MACD histogram flip",
+        description="Fires on the bar the MACD histogram changes sign — the earliest momentum-shift signal.",
+        long_description=(
+            "The MACD histogram is the MACD line minus its signal line; its "
+            "sign-change is the moment momentum tips from bearish to bullish "
+            "or back. Fires in either direction — a direction-agnostic "
+            "momentum-shift trigger. Composes on the macd primitive."
+        ),
+        parameters=[
+            Parameter(name="fast_period", default=12, min_value=2, max_value=100,
+                      description="Fast EMA period"),
+            Parameter(name="slow_period", default=26, min_value=2, max_value=200,
+                      description="Slow EMA period"),
+            Parameter(name="signal_period", default=9, min_value=2, max_value=50,
+                      description="Signal-line smoothing period"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="B",
+        provider_impl="macd_histogram_flip",
+        data_source="price",
+        output_kind=OutputKind.EVENT,
+        composes=["macd"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="macd_zero_line_cross",
+        category=SignalCategory.TREND,
+        family="MACD",
+        name="MACD zero-line cross",
+        description="Marks the bar on which the MACD line crosses zero — a trend-regime change.",
+        long_description=(
+            "Where the signal-line cross times entries, the zero-line cross "
+            "is the slower trend-bias flip: the MACD line itself moving above "
+            "zero (fast EMA above slow EMA) marks a bullish regime, below "
+            "zero bearish. Composes on the macd primitive."
+        ),
+        parameters=[
+            Parameter(name="fast_period", default=12, min_value=2, max_value=100,
+                      description="Fast EMA period"),
+            Parameter(name="slow_period", default=26, min_value=2, max_value=200,
+                      description="Slow EMA period"),
+            Parameter(name="signal_period", default=9, min_value=2, max_value=50,
+                      description="Signal-line smoothing period"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="A",
+        provider_impl="macd_zero_line_cross",
+        data_source="price",
+        output_kind=OutputKind.CROSS,
+        composes=["macd"],
+        resolution=["daily"],
+    ),
+    # ── ADX / DMI events (PRD-22b) ────────────────────────────────────────────
+    # The DMI consumption patterns: a trend-strength regime, an ADX-momentum
+    # filter, and the DI+/DI- directional crosses. All compose on `adx`.
+    SignalPrimitive(
+        id="adx_regime",
+        category=SignalCategory.TREND,
+        family="ADX",
+        name="ADX trend regime",
+        description="Classifies trend strength from ADX: ranging, weak, or trending.",
+        long_description=(
+            "A REGIME classifier on ADX — 0 = ranging (ADX < 20), 1 = weak "
+            "(20 ≤ ADX ≤ 25), 2 = trending (ADX > 25). Use as a gate, e.g. "
+            "act on directional signals only when the regime is trending."
+        ),
+        parameters=[
+            Parameter(name="period", default=14, min_value=5, max_value=100,
+                      description="ADX smoothing period"),
+            Parameter(name="ranging_below", default=20, min_value=5, max_value=40,
+                      description="ADX below this counts as ranging"),
+            Parameter(name="trending_above", default=25, min_value=10, max_value=60,
+                      description="ADX above this counts as trending"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="A",
+        provider_impl="adx_regime",
+        data_source="price",
+        output_kind=OutputKind.REGIME,
+        composes=["adx"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="adx_rising",
+        category=SignalCategory.TREND,
+        family="ADX",
+        name="ADX rising",
+        description="True while ADX is higher than it was N bars ago — trend strength building.",
+        long_description=(
+            "A LEVEL filter on ADX momentum: holds true while today's ADX "
+            "sits above its value `lookback` bars ago. Rising ADX means the "
+            "prevailing move — up or down — is gaining conviction."
+        ),
+        parameters=[
+            Parameter(name="period", default=14, min_value=5, max_value=100,
+                      description="ADX smoothing period"),
+            Parameter(name="lookback", default=5, min_value=1, max_value=60,
+                      description="Bars back to compare ADX against"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="B",
+        provider_impl="adx_rising",
+        data_source="price",
+        output_kind=OutputKind.LEVEL,
+        composes=["adx"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="di_cross_bullish",
+        category=SignalCategory.TREND,
+        family="ADX",
+        name="DI+ crosses above DI-",
+        description="Marks the bar DI+ crosses above DI- — directional momentum shifting up.",
+        long_description=(
+            "The Wilder directional-movement entry: the +DI line crossing "
+            "above the -DI line signals buyers taking control. Often paired "
+            "with an ADX > 25 filter so it only counts in a trending regime."
+        ),
+        parameters=[
+            Parameter(name="period", default=14, min_value=5, max_value=100,
+                      description="Directional-movement smoothing period"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="A",
+        provider_impl="di_cross_bullish",
+        data_source="price",
+        output_kind=OutputKind.CROSS,
+        composes=["adx"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="di_cross_bearish",
+        category=SignalCategory.TREND,
+        family="ADX",
+        name="DI- crosses above DI+",
+        description="Marks the bar DI- crosses above DI+ — directional momentum shifting down.",
+        long_description=(
+            "The bearish mirror of the DI+ cross: the -DI line crossing above "
+            "the +DI line signals sellers taking control of the move."
+        ),
+        parameters=[
+            Parameter(name="period", default=14, min_value=5, max_value=100,
+                      description="Directional-movement smoothing period"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="A",
+        provider_impl="di_cross_bearish",
+        data_source="price",
+        output_kind=OutputKind.CROSS,
+        composes=["adx"],
+        resolution=["daily"],
+    ),
 ]
 
 
-# ── Mean Reversion (9 primitives) ─────────────────────────────────────────────
+# ── Mean Reversion (14 primitives) ────────────────────────────────────────────
 # Oscillators measuring how stretched price is relative to its recent range.
 
 _MEAN_REVERSION: list[SignalPrimitive] = [
@@ -459,6 +804,142 @@ _MEAN_REVERSION: list[SignalPrimitive] = [
         provider_impl="ultosc",
         data_source="price",
         compute_strategy="av_endpoint",
+    ),
+    # ── RSI + Stochastic events (PRD-22b) ─────────────────────────────────────
+    # The mean-reversion families' canonical level/cross/event consumption
+    # patterns. RSI children compose on `rsi`; Stochastic children on `stoch`.
+    SignalPrimitive(
+        id="rsi_oversold",
+        category=SignalCategory.MEAN_REVERSION,
+        family="RSI",
+        name="RSI oversold",
+        description="True while RSI sits below its oversold threshold (default 30).",
+        long_description=(
+            "A LEVEL primitive: holds true for as long as RSI stays below the "
+            "oversold line rather than firing once. The classic 30 line marks "
+            "stretched-to-the-downside conditions mean-reversion traders fade."
+        ),
+        parameters=[
+            Parameter(name="period", default=14, min_value=2, max_value=100,
+                      description="RSI look-back period"),
+            Parameter(name="threshold", default=30, min_value=5, max_value=50,
+                      description="Oversold line"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="A",
+        provider_impl="rsi_oversold",
+        data_source="price",
+        output_kind=OutputKind.LEVEL,
+        composes=["rsi"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="rsi_overbought",
+        category=SignalCategory.MEAN_REVERSION,
+        family="RSI",
+        name="RSI overbought",
+        description="True while RSI sits above its overbought threshold (default 70).",
+        long_description=(
+            "The upper mirror of RSI oversold: holds true while RSI stays "
+            "above the overbought line (70 by default), flagging "
+            "stretched-to-the-upside conditions."
+        ),
+        parameters=[
+            Parameter(name="period", default=14, min_value=2, max_value=100,
+                      description="RSI look-back period"),
+            Parameter(name="threshold", default=70, min_value=50, max_value=95,
+                      description="Overbought line"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="A",
+        provider_impl="rsi_overbought",
+        data_source="price",
+        output_kind=OutputKind.LEVEL,
+        composes=["rsi"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="stoch_k_d_cross",
+        category=SignalCategory.MEAN_REVERSION,
+        family="STOCH",
+        name="Stochastic %K/%D cross",
+        description="Marks the bar %K crosses its %D signal line — direction-aware.",
+        long_description=(
+            "The core stochastic trade: %K (the fast line) crossing %D (its "
+            "smoothed signal). A cross up is a bullish trigger, a cross down "
+            "bearish. The composer exposes an above/below direction picker."
+        ),
+        parameters=[
+            Parameter(name="k_period", default=14, min_value=2, max_value=100,
+                      description="%K look-back period"),
+            Parameter(name="d_period", default=3, min_value=1, max_value=50,
+                      description="%D smoothing period"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="A",
+        provider_impl="stoch_k_d_cross",
+        data_source="price",
+        output_kind=OutputKind.CROSS,
+        composes=["stoch"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="stoch_oversold_cross_up",
+        category=SignalCategory.MEAN_REVERSION,
+        family="STOCH",
+        name="Stochastic oversold cross-up",
+        description="Fires when %K crosses above %D while still in oversold territory (below 20).",
+        long_description=(
+            "The Wilder-style stochastic entry: a %K-over-%D cross that "
+            "happens while the oscillator is still below the oversold line "
+            "(20 by default), catching the turn from washed-out conditions."
+        ),
+        parameters=[
+            Parameter(name="k_period", default=14, min_value=2, max_value=100,
+                      description="%K look-back period"),
+            Parameter(name="d_period", default=3, min_value=1, max_value=50,
+                      description="%D smoothing period"),
+            Parameter(name="oversold", default=20, min_value=5, max_value=45,
+                      description="Oversold line the cross must sit below"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="B",
+        provider_impl="stoch_oversold_cross_up",
+        data_source="price",
+        output_kind=OutputKind.EVENT,
+        composes=["stoch"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="stoch_overbought_cross_down",
+        category=SignalCategory.MEAN_REVERSION,
+        family="STOCH",
+        name="Stochastic overbought cross-down",
+        description="Fires when %K crosses below %D while still in overbought territory (above 80).",
+        long_description=(
+            "The symmetric short-side trigger: a %K-under-%D cross while the "
+            "oscillator is still above the overbought line (80 by default)."
+        ),
+        parameters=[
+            Parameter(name="k_period", default=14, min_value=2, max_value=100,
+                      description="%K look-back period"),
+            Parameter(name="d_period", default=3, min_value=1, max_value=50,
+                      description="%D smoothing period"),
+            Parameter(name="overbought", default=80, min_value=55, max_value=95,
+                      description="Overbought line the cross must sit above"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="B",
+        provider_impl="stoch_overbought_cross_down",
+        data_source="price",
+        output_kind=OutputKind.EVENT,
+        composes=["stoch"],
+        resolution=["daily"],
     ),
 ]
 
@@ -1621,6 +2102,20 @@ _READINGS: dict[str, str] = {
     "aroon": "How fresh the trend's highs are",
     "sar": "The trailing trend-flip level",
     "ht_trendline": "The smoothed trend line",
+    # MA + MACD events (PRD-22b)
+    "price_above_ma": "Price above its moving average",
+    "price_ma_cross_up": "Price crossing above its moving average",
+    "price_ma_cross_down": "Price crossing below its moving average",
+    "golden_cross": "The golden cross (fast over slow MA)",
+    "death_cross": "The death cross (fast under slow MA)",
+    "ma_slope_positive": "Whether the moving average is rising",
+    "macd_signal_cross": "MACD crossing its signal line",
+    "macd_histogram_flip": "MACD momentum flipping (histogram)",
+    "macd_zero_line_cross": "MACD crossing zero (trend bias)",
+    "adx_regime": "Trend-strength regime (ADX)",
+    "adx_rising": "Whether trend strength is building",
+    "di_cross_bullish": "DI+ crossing above DI−",
+    "di_cross_bearish": "DI− crossing above DI+",
     # Mean reversion
     "rsi": "Overbought / oversold extreme",
     "stoch": "Where price sits in its recent range",
@@ -1631,6 +2126,11 @@ _READINGS: dict[str, str] = {
     "bbands": "How stretched price is from its bands",
     "mfi": "Overbought / oversold, weighted by volume",
     "ultosc": "Overbought / oversold across timeframes",
+    "rsi_oversold": "RSI in oversold territory",
+    "rsi_overbought": "RSI in overbought territory",
+    "stoch_k_d_cross": "Stochastic %K crossing %D",
+    "stoch_oversold_cross_up": "Stochastic turning up from oversold",
+    "stoch_overbought_cross_down": "Stochastic turning down from overbought",
     # Momentum
     "roc": "Rate of price change",
     "mom": "Raw price momentum",
