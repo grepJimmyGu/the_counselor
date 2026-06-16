@@ -15,6 +15,11 @@ import type {
   RobustnessJobResponse,
   SavedStrategy,
   SandboxReviewResponse,
+  ScreenCountResponse,
+  ScreenRankRequest,
+  ScreenRankResponse,
+  ScreenScanRequest,
+  ScreenScanResponse,
   StrategyChatResponse,
   StrategyMarkdownParseResponse,
   StrategyJson,
@@ -182,6 +187,49 @@ export async function runBacktest(
       // Stage 3: when set, templates bypass the custom-strategy caps.
       ...(opts.templateId ? { template_id: opts.templateId } : {}),
     }),
+  });
+}
+
+// ── PRD-23b: Market Screener (/api/screen/*) ─────────────────────────────────
+// Distinct from the older `/api/screener/*` preset helpers below. scan/count
+// are allow_anonymous (pass the token if signed in, like runBacktest); rank is
+// sign-in-gated and REQUIRES the Bearer token (trap #18/#19).
+
+function _bearer(backendToken?: string): Record<string, string> {
+  return backendToken ? { Authorization: `Bearer ${backendToken}` } : {};
+}
+
+export async function screenScan(
+  body: ScreenScanRequest,
+  opts: { backendToken?: string } = {},
+) {
+  return fetchApi<ScreenScanResponse>("/api/screen/scan", {
+    method: "POST",
+    headers: _bearer(opts.backendToken),
+    body: JSON.stringify(body),
+  });
+}
+
+export async function screenCount(
+  body: ScreenScanRequest,
+  opts: { backendToken?: string } = {},
+) {
+  return fetchApi<ScreenCountResponse>("/api/screen/count", {
+    method: "POST",
+    headers: _bearer(opts.backendToken),
+    body: JSON.stringify(body),
+  });
+}
+
+export async function screenRank(
+  body: ScreenRankRequest,
+  opts: { backendToken: string },
+) {
+  // rank is the expensive, sign-in-gated step — the token is required.
+  return fetchApi<ScreenRankResponse>("/api/screen/rank", {
+    method: "POST",
+    headers: _bearer(opts.backendToken),
+    body: JSON.stringify(body),
   });
 }
 

@@ -396,6 +396,67 @@ export interface StrategyJson {
   inherited_universe?: string[];
 }
 
+// ── PRD-23b: Market Screener contracts ───────────────────────────────────────
+// Mirror apps/api/app/schemas/screener_scan.py exactly. `/api/screen/*` is a
+// SEPARATE feature from the older `/api/screener/*` preset filters.
+
+/** symbols | watchlist | portfolio | sp500 | sector_<key> (e.g. sector_XLK). */
+export type ScreenUniverseId = string;
+
+export interface ScreenScanRequest {
+  universe_id: ScreenUniverseId;
+  rules: StrategyRule[];
+  /** Membership for the client-supplied tiers (entered symbols / watchlist /
+   *  portfolio). Ignored for sp500 / sector. */
+  symbols?: string[];
+}
+
+export interface ScreenScanResponse {
+  matched: string[];
+  /** symbol -> satisfied rule readings ("why this matched"). */
+  readings: Record<string, string[]>;
+  as_of_date: string | null;
+  universe_size: number;
+  matched_count: number;
+  /** Rule primitives not covered by the daily snapshot (can't match yet). */
+  unsupported_primitives: string[];
+  /** Covered primitives whose rule overrides indicator params — scanned at
+   *  default periods (an approximation; rank uses the real params). */
+  default_param_primitives: string[];
+}
+
+export interface ScreenCountResponse {
+  matched_count: number;
+  universe_size: number;
+  as_of_date: string | null;
+  unsupported_primitives: string[];
+  default_param_primitives: string[];
+}
+
+export interface ScreenRankRequest extends ScreenScanRequest {
+  strategy: StrategyJson;
+  top_k: number;
+}
+
+export interface RankedSymbol {
+  symbol: string;
+  total_return: number;
+  annualized_return: number | null;
+  sharpe_ratio: number | null;
+  readings: string[];
+}
+
+export interface ScreenRankResponse {
+  ranked: RankedSymbol[];
+  as_of_date: string | null;
+  matched_count: number;
+  backtested_count: number;
+  dropped_count: number;
+  universe_size: number;
+  unsupported_primitives: string[];
+  default_param_primitives: string[];
+}
+
 // ── PRD-13b: Portfolio Mode contracts ────────────────────────────────────────
 
 export interface Holding {
