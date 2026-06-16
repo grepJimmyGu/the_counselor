@@ -102,6 +102,21 @@ def test_response_includes_at_least_one_primitive_per_category(category: str) ->
     assert len(matches) >= 1, f"No primitives returned for category '{category}'"
 
 
+def test_catalog_exposes_reading_layer_fields() -> None:
+    """PRD-22c slice b: every catalog row carries intent_group (the chip
+    grouping) + reading (the headline) so the composer can render the
+    intent-first 'what are you reading?' UI."""
+    valid_groups = {
+        "trend", "momentum", "overbought_oversold", "breakout", "volatility",
+        "volume", "value_quality", "sentiment_events", "relative_strength",
+    }
+    r = client.get("/api/signal-primitives")
+    assert r.status_code == 200
+    for entry in r.json()["primitives"]:
+        assert entry["intent_group"] in valid_groups, entry["id"]
+        assert isinstance(entry["reading"], str) and entry["reading"], entry["id"]
+
+
 def test_catalog_exposes_v2_semantic_fields() -> None:
     """PRD-22a: every catalog row carries output_kind / output_channels /
     composes so the composer (PRD-22c) can dispatch on semantic kind.

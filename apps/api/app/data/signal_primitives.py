@@ -32,6 +32,7 @@ Adding a new entry:
 from __future__ import annotations
 
 from app.schemas.signal_primitive import (
+    IntentGroup,
     OutputKind,
     Parameter,
     SignalCategory,
@@ -1568,9 +1569,142 @@ def _apply_intraday_resolution(primitives: list[SignalPrimitive]) -> list[Signal
     return primitives
 
 
+# ── Reading layer (PRD-22c slice b) ──────────────────────────────────────────
+# The intent-first composer fronts the catalog with "what are you reading?"
+# chips. Two additive fields, backfilled in one place (the editorial gate):
+#   - intent_group: which chip the primitive lives under (one per primitive).
+#   - reading: a short, direction-neutral "what a trader reads" headline.
+# Mutated in-place after assembly, same pattern as _apply_intraday_resolution.
+
+_DEFAULT_INTENT_GROUP_BY_CATEGORY: dict[SignalCategory, IntentGroup] = {
+    SignalCategory.TREND: IntentGroup.TREND,
+    SignalCategory.MEAN_REVERSION: IntentGroup.OVERBOUGHT_OVERSOLD,
+    SignalCategory.MOMENTUM: IntentGroup.MOMENTUM,
+    SignalCategory.VOLUME: IntentGroup.VOLUME,
+    SignalCategory.VOLATILITY: IntentGroup.VOLATILITY,
+    SignalCategory.FUNDAMENTAL: IntentGroup.VALUE_QUALITY,
+    SignalCategory.SENTIMENT: IntentGroup.SENTIMENT_EVENTS,
+    SignalCategory.CROSS_SECTIONAL: IntentGroup.RELATIVE_STRENGTH,
+}
+
+# Primitives whose intent chip differs from their category default.
+_INTENT_GROUP_OVERRIDES: dict[str, IntentGroup] = {
+    "macd": IntentGroup.MOMENTUM,            # trend-following momentum reads as momentum
+    # Breakout + 52-week-extrema family (MOMENTUM category) → its own intent.
+    "donchian_breakout": IntentGroup.BREAKOUT,
+    "distance_to_52w_high": IntentGroup.BREAKOUT,
+    "distance_to_52w_low": IntentGroup.BREAKOUT,
+    "price_52w_high_ratio": IntentGroup.BREAKOUT,
+    "price_52w_high_breakout": IntentGroup.BREAKOUT,
+    "price_52w_low_breakdown": IntentGroup.BREAKOUT,
+    "price_in_52w_high_zone": IntentGroup.BREAKOUT,
+    "days_since_52w_high": IntentGroup.BREAKOUT,
+    # Growth/event signals living in the FUNDAMENTAL category.
+    "estimate_revision_3m": IntentGroup.SENTIMENT_EVENTS,
+    "earnings_surprise": IntentGroup.SENTIMENT_EVENTS,
+}
+
+# Short, direction-neutral "what a trader reads" headlines — the EDITORIAL
+# product (Jimmy's review gate). Direction-aware copy (up/down) is the
+# composer widget's job; this is the base. One per primitive.
+_READINGS: dict[str, str] = {
+    # Trend
+    "sma": "The long-term trend line",
+    "ema": "A faster-reacting trend line",
+    "wma": "A weighted trend line",
+    "dema": "A low-lag trend line",
+    "tema": "An ultra-low-lag trend line",
+    "kama": "A trend line that adapts to noise",
+    "ma_crossover": "Fast MA crossing slow MA (golden / death cross)",
+    "macd": "Momentum — fast vs slow EMAs",
+    "adx": "How strong the trend is",
+    "aroon": "How fresh the trend's highs are",
+    "sar": "The trailing trend-flip level",
+    "ht_trendline": "The smoothed trend line",
+    # Mean reversion
+    "rsi": "Overbought / oversold extreme",
+    "stoch": "Where price sits in its recent range",
+    "stochrsi": "An extra-sensitive overbought / oversold",
+    "willr": "Overbought / oversold (Williams %R)",
+    "cci": "How far price is from its average",
+    "cmo": "Momentum of recent up vs down moves",
+    "bbands": "How stretched price is from its bands",
+    "mfi": "Overbought / oversold, weighted by volume",
+    "ultosc": "Overbought / oversold across timeframes",
+    # Momentum
+    "roc": "Rate of price change",
+    "mom": "Raw price momentum",
+    "trix": "Smoothed momentum (triple EMA)",
+    "apo": "Absolute momentum (fast − slow EMA)",
+    "ppo": "Percent momentum (fast vs slow EMA)",
+    "donchian_breakout": "A breakout above the N-day high",
+    "time_series_momentum": "12-1 trend (own-history momentum)",
+    "bop": "Buyers vs sellers, per bar",
+    "adxr": "Trend strength, smoothed",
+    "aroonosc": "Up-trend vs down-trend balance",
+    # 52-week extrema
+    "distance_to_52w_high": "How far below the 52-week high",
+    "distance_to_52w_low": "How far above the 52-week low",
+    "price_52w_high_ratio": "Proximity to the 52-week high",
+    "price_52w_high_breakout": "A new 52-week high",
+    "price_52w_low_breakdown": "A new 52-week low",
+    "price_in_52w_high_zone": "In the breakout-setup zone below highs",
+    "days_since_52w_high": "How long since the last 52-week high",
+    # Volume
+    "obv": "Volume flowing in or out",
+    "ad": "Accumulation vs distribution",
+    "adosc": "Momentum of accumulation / distribution",
+    "vwap": "The volume-weighted average price",
+    "avg_dollar_volume": "How liquid the stock is",
+    "rvol": "Today's volume vs normal",
+    "rvol_surge": "A volume surge (catalyst day)",
+    # Volatility
+    "atr": "Typical daily price range",
+    "natr": "Daily range as a % of price",
+    "trange": "Today's true range",
+    "realized_vol": "Recent realized volatility",
+    "vol_regime": "High- or low-volatility regime",
+    "chandelier_exit_long": "Volatility trailing stop (long)",
+    "chandelier_exit_short": "Volatility trailing stop (short)",
+    "chandelier_exit_breach": "Price broke its trailing stop",
+    "ttm_squeeze": "A low-volatility coiling squeeze",
+    "ttm_squeeze_fire": "The squeeze releasing (breakout)",
+    # Fundamental
+    "fcf_yield": "Free cash flow vs market cap",
+    "book_to_market": "Book value vs market cap (value)",
+    "ebitda_ev": "Earnings vs enterprise value (value)",
+    "f_score": "Financial health (Piotroski)",
+    "buyback_yield_ttm": "How much stock is being bought back",
+    "estimate_revision_3m": "Whether EPS estimates are rising",
+    "earnings_surprise": "Beating or missing earnings",
+    # Sentiment / events
+    "sentiment_score": "News sentiment trend",
+    "insider_net_buy": "Insiders buying or selling",
+    "analyst_rating_change": "Analyst upgrades or downgrades",
+    # Cross-sectional
+    "rank_return_6m": "6-month return vs peers",
+    "rank_composite_score": "A blended rank vs peers",
+    "sector_rotation_rank": "Sector strength vs peers",
+    "pair_spread_zscore": "How stretched a pair spread is",
+}
+
+
+def _apply_reading_layer(primitives: list[SignalPrimitive]) -> list[SignalPrimitive]:
+    """Backfill the PRD-22c reading layer in-place (mutable Pydantic models,
+    same pattern as `_apply_intraday_resolution`): every primitive gets an
+    `intent_group` (override else category default) and its `reading` headline."""
+    for p in primitives:
+        p.intent_group = _INTENT_GROUP_OVERRIDES.get(
+            p.id, _DEFAULT_INTENT_GROUP_BY_CATEGORY[p.category]
+        )
+        if p.id in _READINGS:
+            p.reading = _READINGS[p.id]
+    return primitives
+
+
 # ── Full catalog ──────────────────────────────────────────────────────────────
 
-SIGNAL_PRIMITIVES: list[SignalPrimitive] = _apply_intraday_resolution([
+SIGNAL_PRIMITIVES: list[SignalPrimitive] = _apply_reading_layer(_apply_intraday_resolution([
     *_TREND,
     *_MEAN_REVERSION,
     *_MOMENTUM,
@@ -1579,7 +1713,7 @@ SIGNAL_PRIMITIVES: list[SignalPrimitive] = _apply_intraday_resolution([
     *_FUNDAMENTAL,
     *_SENTIMENT,
     *_CROSS_SECTIONAL,
-])
+]))
 
 
 def get_catalog_version_hash() -> str:
