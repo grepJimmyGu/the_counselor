@@ -280,6 +280,31 @@ class MacdSignalProvider(TechnicalSignalProvider):
         return macd_line - signal_line
 
 
+def _adx_components(
+    frame: pd.DataFrame, period: int
+) -> "tuple[pd.Series, pd.Series, pd.Series]":
+    """Shared Wilder directional-movement decomposition: returns
+    (adx, plus_di, minus_di). Single source of truth for `adx` and the
+    PRD-22b ADX-family children (adx_regime / adx_rising / di crosses) so
+    `composes=["adx"]` stays byte-consistent with the parent."""
+    high, low, close = frame["high"], frame["low"], frame["close"]
+    up_move = high.diff()
+    down_move = -low.diff()
+    plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
+    minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
+    tr = pd.concat([
+        (high - low).abs(),
+        (high - close.shift()).abs(),
+        (low - close.shift()).abs(),
+    ], axis=1).max(axis=1)
+    atr = tr.ewm(alpha=1 / period, adjust=False).mean()
+    plus_di = 100 * (plus_dm.ewm(alpha=1 / period, adjust=False).mean() / atr)
+    minus_di = 100 * (minus_dm.ewm(alpha=1 / period, adjust=False).mean() / atr)
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
+    adx = dx.ewm(alpha=1 / period, adjust=False).mean()
+    return adx, plus_di, minus_di
+
+
 class AdxSignalProvider(TechnicalSignalProvider):
     """Average Directional Index — Wilder's smoothed directional movement.
     Returns ADX values (0-100); >25 typically means trending."""
@@ -292,22 +317,8 @@ class AdxSignalProvider(TechnicalSignalProvider):
         return int(self.params["period"]) * 5
 
     def _compute(self, frame: pd.DataFrame) -> pd.Series:
-        period = int(self.params["period"])
-        high, low, close = frame["high"], frame["low"], frame["close"]
-        up_move = high.diff()
-        down_move = -low.diff()
-        plus_dm = up_move.where((up_move > down_move) & (up_move > 0), 0.0)
-        minus_dm = down_move.where((down_move > up_move) & (down_move > 0), 0.0)
-        tr = pd.concat([
-            (high - low).abs(),
-            (high - close.shift()).abs(),
-            (low - close.shift()).abs(),
-        ], axis=1).max(axis=1)
-        atr = tr.ewm(alpha=1 / period, adjust=False).mean()
-        plus_di = 100 * (plus_dm.ewm(alpha=1 / period, adjust=False).mean() / atr)
-        minus_di = 100 * (minus_dm.ewm(alpha=1 / period, adjust=False).mean() / atr)
-        dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
-        return dx.ewm(alpha=1 / period, adjust=False).mean()
+        adx, _, _ = _adx_components(frame, int(self.params["period"]))
+        return adx
 
 
 class AroonSignalProvider(TechnicalSignalProvider):
@@ -1445,6 +1456,193 @@ class MacdZeroLineCrossSignalProvider(TechnicalSignalProvider):
         return out
 
 
+# ── RSI / Stochastic / ADX-DMI events (PRD-22b) ─────────────────────────────
+# v2 decomposes the mean-reversion + directional-movement families' canonical
+# consumption patterns into level/event/cross/regime primitives. RSI +
+# Stochastic children compose on the existing `rsi`/`stoch` scalars; the ADX
+# children compose on `adx` via the shared `_adx_components` helper.
+
+
+class RsiOversoldSignalProvider(TechnicalSignalProvider):
+    """LEVEL: 1.0 while RSI sits below its oversold threshold (default 30)."""
+    name = "rsi_oversold"
+
+    def _default_params(self) -> dict:
+        return {"period": 14, "threshold": 30}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) * 4
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        rsi = RsiSignalProvider(period=int(self.params["period"]))._compute(frame)
+        return (rsi < float(self.params["threshold"])).astype(float)
+
+
+class RsiOverboughtSignalProvider(TechnicalSignalProvider):
+    """LEVEL: 1.0 while RSI sits above its overbought threshold (default 70)."""
+    name = "rsi_overbought"
+
+    def _default_params(self) -> dict:
+        return {"period": 14, "threshold": 70}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) * 4
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        rsi = RsiSignalProvider(period=int(self.params["period"]))._compute(frame)
+        return (rsi > float(self.params["threshold"])).astype(float)
+
+
+def _stoch_k_d(
+    frame: pd.DataFrame, k_period: int, d_period: int
+) -> "tuple[pd.Series, pd.Series]":
+    """Shared stochastic decomposition: %K (matches the `stoch` primitive)
+    and %D = SMA(%K, d_period). Keeps the cross children byte-consistent
+    with the parent `stoch` scalar."""
+    lowest = frame["low"].rolling(k_period).min()
+    highest = frame["high"].rolling(k_period).max()
+    k = 100 * (frame["close"] - lowest) / (highest - lowest).replace(0, np.nan)
+    d = k.rolling(d_period).mean()
+    return k, d
+
+
+class StochKDCrossSignalProvider(TechnicalSignalProvider):
+    """CROSS: +1 when %K crosses above %D, −1 when it crosses below."""
+    name = "stoch_k_d_cross"
+
+    def _default_params(self) -> dict:
+        return {"k_period": 14, "d_period": 3}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["k_period"]) + int(self.params["d_period"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        k, d = _stoch_k_d(frame, int(self.params["k_period"]), int(self.params["d_period"]))
+        above = k > d
+        up = above & ~above.shift(1, fill_value=False)
+        down = (~above) & above.shift(1, fill_value=False)
+        out = pd.Series(0.0, index=frame.index)
+        out[up] = 1.0
+        out[down] = -1.0
+        return out
+
+
+class StochOversoldCrossUpSignalProvider(TechnicalSignalProvider):
+    """EVENT: fires when %K crosses above %D while the %D signal line is
+    still in the oversold zone (below the oversold level, default 20) — the
+    Wilder-style entry. Gating on %D (the slower line) rather than %K keeps
+    the trigger from being skipped when %K rockets off a sharp bottom."""
+    name = "stoch_oversold_cross_up"
+
+    def _default_params(self) -> dict:
+        return {"k_period": 14, "d_period": 3, "oversold": 20}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["k_period"]) + int(self.params["d_period"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        k, d = _stoch_k_d(frame, int(self.params["k_period"]), int(self.params["d_period"]))
+        above = k > d
+        cross_up = above & ~above.shift(1, fill_value=False)
+        fire = cross_up & (d < float(self.params["oversold"]))
+        return fire.astype(float)
+
+
+class StochOverboughtCrossDownSignalProvider(TechnicalSignalProvider):
+    """EVENT: fires when %K crosses below %D while the %D signal line is
+    still in the overbought zone (above the overbought level, default 80) —
+    the symmetric short entry. Gating on %D rather than %K keeps the trigger
+    from being skipped when %K plunges off a sharp top."""
+    name = "stoch_overbought_cross_down"
+
+    def _default_params(self) -> dict:
+        return {"k_period": 14, "d_period": 3, "overbought": 80}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["k_period"]) + int(self.params["d_period"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        k, d = _stoch_k_d(frame, int(self.params["k_period"]), int(self.params["d_period"]))
+        above = k > d
+        cross_down = (~above) & above.shift(1, fill_value=False)
+        fire = cross_down & (d > float(self.params["overbought"]))
+        return fire.astype(float)
+
+
+class AdxRegimeSignalProvider(TechnicalSignalProvider):
+    """REGIME: trend-strength regime from ADX. Codes: 0 = ranging
+    (ADX < 20), 1 = weak (20 ≤ ADX ≤ 25), 2 = trending (ADX > 25)."""
+    name = "adx_regime"
+
+    def _default_params(self) -> dict:
+        return {"period": 14, "ranging_below": 20, "trending_above": 25}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) * 5
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        adx, _, _ = _adx_components(frame, int(self.params["period"]))
+        ranging = float(self.params["ranging_below"])
+        trending = float(self.params["trending_above"])
+        out = pd.Series(1.0, index=frame.index)  # weak by default
+        out[adx < ranging] = 0.0
+        out[adx > trending] = 2.0
+        out[adx.isna()] = float("nan")  # warmup bars carry no regime
+        return out
+
+
+class AdxRisingSignalProvider(TechnicalSignalProvider):
+    """LEVEL: 1.0 while ADX is higher than it was `lookback` bars ago —
+    trend strength building."""
+    name = "adx_rising"
+
+    def _default_params(self) -> dict:
+        return {"period": 14, "lookback": 5}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) * 5 + int(self.params["lookback"])
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        adx, _, _ = _adx_components(frame, int(self.params["period"]))
+        return (adx > adx.shift(int(self.params["lookback"]))).astype(float)
+
+
+class DiCrossBullishSignalProvider(TechnicalSignalProvider):
+    """CROSS: +1 on the bar DI+ crosses above DI− — directional momentum
+    shifting up."""
+    name = "di_cross_bullish"
+
+    def _default_params(self) -> dict:
+        return {"period": 14}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) * 5
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        _, plus_di, minus_di = _adx_components(frame, int(self.params["period"]))
+        above = plus_di > minus_di
+        cross_up = above & ~above.shift(1, fill_value=False)
+        return cross_up.astype(float)
+
+
+class DiCrossBearishSignalProvider(TechnicalSignalProvider):
+    """CROSS: −1 on the bar DI− crosses above DI+ — directional momentum
+    shifting down."""
+    name = "di_cross_bearish"
+
+    def _default_params(self) -> dict:
+        return {"period": 14}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) * 5
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        _, plus_di, minus_di = _adx_components(frame, int(self.params["period"]))
+        below = minus_di > plus_di
+        cross_down = below & ~below.shift(1, fill_value=False)
+        return cross_down.astype(float) * -1.0
+
+
 # ── Registry assembly ──────────────────────────────────────────────────────
 
 
@@ -1498,5 +1696,11 @@ def get_technical_providers() -> dict:
         DeathCrossSignalProvider, MaSlopePositiveSignalProvider,
         MacdSignalCrossSignalProvider, MacdHistogramFlipSignalProvider,
         MacdZeroLineCrossSignalProvider,
+        # RSI / Stochastic / ADX-DMI events (PRD-22b)
+        RsiOversoldSignalProvider, RsiOverboughtSignalProvider,
+        StochKDCrossSignalProvider, StochOversoldCrossUpSignalProvider,
+        StochOverboughtCrossDownSignalProvider, AdxRegimeSignalProvider,
+        AdxRisingSignalProvider, DiCrossBullishSignalProvider,
+        DiCrossBearishSignalProvider,
     ]
     return {cls.name: cls() for cls in classes}
