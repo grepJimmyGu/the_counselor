@@ -174,11 +174,11 @@ Each PRD updates this section at PR close. ♻️ = reused, 🆕 = new.
 
 | Brick | Owner PRD | Status |
 |---|---|---|
-| `universe_resolver` (`universe_id → [symbol]`) + tier gate | PRD-23a | ⏳ |
-| `signal_snapshot` table + daily warm cron + `SignalSnapshotService` | PRD-23a | ⏳ |
-| `scan_service` (rule → matched basket over snapshot) | PRD-23a | ⏳ |
-| `POST /api/screen/scan` + `POST /api/screen/count` | PRD-23a | ⏳ |
-| `rank_service` (backtest matched subset, `(symbol, rule_hash)` cache) | PRD-23a | ⏳ |
+| `universe_resolver` (`universe_id → [symbol]`) + tier gate + `is_standing_universe` switch | PRD-23a | ✅ slice 1 |
+| `signal_snapshot` table + daily warm cron (gated `SCREENER_SNAPSHOT_ENABLED`) + `SignalSnapshotService` | PRD-23a | ✅ slice 2 |
+| `scan_service` (rule → matched basket + readings over snapshot) | PRD-23a | ✅ slice 3 |
+| `POST /api/screen/scan` + `POST /api/screen/count` | PRD-23a | ✅ slice 4 |
+| `rank_service` (backtest matched subset, `(symbol, rule_hash, as_of_date)` cache) + `POST /api/screen/rank` | PRD-23a | ✅ slice 5 |
 | `custom_build_mode` *extension* — universe selector (incl. entered-symbols tier) + scan/results path (NOT a new FlowDefinition) | PRD-23b | ⏳ |
 | `<UniverseSelector>` / `<ReadingComposer>` / `<ScreenResults>` | PRD-23b | ⏳ |
 | Intent / reading layer (`reading` + `intent_group` catalog fields) | PRD-22c (folded in) | ⏳ |
