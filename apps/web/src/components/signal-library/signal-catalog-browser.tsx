@@ -17,12 +17,27 @@ import { useEffect, useMemo, useState } from "react";
 import { getSignalPrimitives } from "@/lib/api";
 import type {
   SignalCategory,
+  SignalOutputKind,
   SignalPrimitive,
 } from "@/lib/contracts";
 import { SIGNAL_CATEGORY_LABEL } from "@/lib/contracts";
 import { cn } from "@/lib/utils";
 
 import { SignalPrimitiveCard } from "./signal-primitive-card";
+
+// PRD-22c: filter the catalog by semantic kind (multi-select; empty = all).
+const ALL_KINDS: SignalOutputKind[] = [
+  "value", "event", "level", "cross", "regime", "distance", "divergence",
+];
+const KIND_LABEL: Record<SignalOutputKind, string> = {
+  value: "Value",
+  event: "Event",
+  level: "Level",
+  cross: "Cross",
+  regime: "Regime",
+  distance: "Distance",
+  divergence: "Divergence",
+};
 
 interface Props {
   onPick?: (primitive: SignalPrimitive) => void;
@@ -43,7 +58,16 @@ export function SignalCatalogBrowser({
   const [error, setError] = useState<string | null>(null);
 
   const [activeCategory, setActiveCategory] = useState<SignalCategory | "all">("all");
+  const [activeKinds, setActiveKinds] = useState<Set<SignalOutputKind>>(new Set());
   const [query, setQuery] = useState("");
+
+  const toggleKind = (k: SignalOutputKind) =>
+    setActiveKinds((prev) => {
+      const next = new Set(prev);
+      if (next.has(k)) next.delete(k);
+      else next.add(k);
+      return next;
+    });
 
   useEffect(() => {
     let cancelled = false;
@@ -70,6 +94,7 @@ export function SignalCatalogBrowser({
     const lowerQ = query.trim().toLowerCase();
     return primitives.filter((p) => {
       if (activeCategory !== "all" && p.category !== activeCategory) return false;
+      if (activeKinds.size > 0 && !activeKinds.has(p.output_kind)) return false;
       if (!lowerQ) return true;
       return (
         p.name.toLowerCase().includes(lowerQ) ||
@@ -78,7 +103,7 @@ export function SignalCatalogBrowser({
         p.id.toLowerCase().includes(lowerQ)
       );
     });
-  }, [primitives, activeCategory, query]);
+  }, [primitives, activeCategory, activeKinds, query]);
 
   // Counts per category for the sidebar. Computed off the FULL list,
   // not the filtered one — the sidebar shows the same numbers regardless
@@ -175,6 +200,30 @@ export function SignalCatalogBrowser({
           data-testid="catalog-search"
           className="w-full rounded-md border border-slate-200 bg-white px-3 py-2 text-sm placeholder:text-slate-400 focus:border-slate-400 focus:outline-none focus:ring-2 focus:ring-slate-200"
         />
+
+        {/* PRD-22c — filter by semantic kind (multi-select; none = all). */}
+        <div className="flex flex-wrap gap-1.5" data-testid="kind-filter">
+          {ALL_KINDS.map((k) => {
+            const on = activeKinds.has(k);
+            return (
+              <button
+                key={k}
+                type="button"
+                onClick={() => toggleKind(k)}
+                data-testid={`kind-chip-${k}`}
+                aria-pressed={on}
+                className={cn(
+                  "rounded-full border px-2.5 py-1 text-[12px] transition",
+                  on
+                    ? "border-slate-900 bg-slate-900 text-white"
+                    : "border-slate-200 text-slate-600 hover:bg-slate-100",
+                )}
+              >
+                {KIND_LABEL[k]}
+              </button>
+            );
+          })}
+        </div>
 
         {filtered.length === 0 ? (
           <p

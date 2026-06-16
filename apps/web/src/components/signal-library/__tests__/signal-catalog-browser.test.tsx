@@ -159,6 +159,36 @@ describe("SignalCatalogBrowser", () => {
     expect(onPick.mock.calls[0][0].id).toBe("rsi");
   });
 
+  it("filters by output_kind (PRD-22c) — multi-select chips", async () => {
+    (getSignalPrimitives as ReturnType<typeof vi.fn>).mockResolvedValue({
+      primitives: [
+        _p("rsi", "mean_reversion", { output_kind: "value" }),
+        _p("ma_crossover", "trend", { output_kind: "cross" }),
+        _p("donchian_breakout", "momentum", { output_kind: "event" }),
+      ],
+      categories: _response().categories,
+      version_hash: "kindtest",
+    });
+    render(<SignalCatalogBrowser />);
+    await waitFor(() => expect(screen.getByText("rsi")).toBeTruthy());
+
+    // EVENT only → just donchian_breakout.
+    fireEvent.click(screen.getByTestId("kind-chip-event"));
+    expect(screen.getByText("donchian_breakout")).toBeTruthy();
+    expect(screen.queryByText("rsi")).toBeNull();
+    expect(screen.queryByText("ma_crossover")).toBeNull();
+
+    // Add CROSS → event + cross; value still hidden.
+    fireEvent.click(screen.getByTestId("kind-chip-cross"));
+    expect(screen.getByText("ma_crossover")).toBeTruthy();
+    expect(screen.queryByText("rsi")).toBeNull();
+
+    // Toggle EVENT off → only cross remains.
+    fireEvent.click(screen.getByTestId("kind-chip-event"));
+    expect(screen.queryByText("donchian_breakout")).toBeNull();
+    expect(screen.getByText("ma_crossover")).toBeTruthy();
+  });
+
   it("surfaces an error message when the catalog fetch fails", async () => {
     (getSignalPrimitives as ReturnType<typeof vi.fn>).mockRejectedValue(
       new Error("Network down"),
