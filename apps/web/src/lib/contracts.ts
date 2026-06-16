@@ -2701,6 +2701,20 @@ export type SignalOutputKind =
   | "cross"
   | "divergence";
 
+/** Trader-facing intent chip a primitive lives under (PRD-22c reading layer).
+ *  Drives the composer's "what are you reading?" grouping. Mirrors
+ *  `IntentGroup` in `apps/api/app/schemas/signal_primitive.py`. */
+export type SignalIntentGroup =
+  | "trend"
+  | "momentum"
+  | "overbought_oversold"
+  | "breakout"
+  | "volatility"
+  | "volume"
+  | "value_quality"
+  | "sentiment_events"
+  | "relative_strength";
+
 /** One catalog row. Mirrors `SignalPrimitive` in the backend schema. */
 export interface SignalPrimitive {
   id: string;
@@ -2728,6 +2742,13 @@ export interface SignalPrimitive {
   /** Parent primitive ids this is derived from. [] for standalone v1
    *  primitives; populated by PRD-22b's derived primitives. */
   composes: string[];
+  // ── PRD-22c reading layer (additive) ──
+  /** Trader-facing intent chip this primitive lives under (the "what are you
+   *  reading?" grouping). Backfilled for every primitive. */
+  intent_group: SignalIntentGroup | null;
+  /** Short "what a trader reads" headline for the rule card — punchier than
+   *  `description`. null → fall back to `description`. */
+  reading: string | null;
 }
 
 /** Response for `GET /api/signal-primitives`. The `version_hash` is the

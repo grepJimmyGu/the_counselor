@@ -111,6 +111,45 @@ class OutputKind(str, Enum):
     """Pattern: indicator swings disagree with price swings. Lookback + direction."""
 
 
+class IntentGroup(str, Enum):
+    """Trader-facing intent the user is *reading for* — the chip taxonomy that
+    fronts the catalog in the composer (PRD-22c reading layer). Cuts lightly
+    across `SignalCategory` (e.g. the 52-week-extrema family lives under
+    BREAKOUT though its category is MOMENTUM). One per primitive; the composer
+    groups the catalog by this for the "what are you reading?" chips.
+
+    `str, Enum` (matching `SignalCategory`/`OutputKind`) so it JSON-serializes
+    to its string value in the catalog payload.
+    """
+
+    TREND = "trend"
+    """Direction + strength of the prevailing trend (MAs, ADX, AROON, SAR)."""
+
+    MOMENTUM = "momentum"
+    """Acceleration + momentum shifts (MACD, ROC, MOM, 12-1)."""
+
+    OVERBOUGHT_OVERSOLD = "overbought_oversold"
+    """Stretched extremes that tend to revert (RSI, Stochastic, Bollinger)."""
+
+    BREAKOUT = "breakout"
+    """Breakouts + distance to 52-week extremes (Donchian, 52w family)."""
+
+    VOLATILITY = "volatility"
+    """Volatility regime, squeezes, trailing stops (ATR, TTM, Chandelier)."""
+
+    VOLUME = "volume"
+    """Conviction behind price (OBV, VWAP, RVOL, liquidity)."""
+
+    VALUE_QUALITY = "value_quality"
+    """Business value + quality from the financials (FCF yield, P/B, F-score)."""
+
+    SENTIMENT_EVENTS = "sentiment_events"
+    """News, insiders, analyst + earnings events (sentiment, surprise, revisions)."""
+
+    RELATIVE_STRENGTH = "relative_strength"
+    """Strength ranked against a peer universe (cross-sectional rank, rotation)."""
+
+
 class Parameter(BaseModel):
     """One tunable knob on a signal primitive.
 
@@ -251,6 +290,27 @@ class SignalPrimitive(BaseModel):
             "Parent primitive_ids this is derived from (e.g. a future "
             "macd_signal_cross composes=['macd']). Default = standalone. "
             "PRD-22b is the first consumer."
+        ),
+    )
+
+    # ── PRD-22c reading layer (additive; intent-first composer) ───────────────
+    intent_group: Optional[IntentGroup] = Field(
+        default=None,
+        description=(
+            "Trader-facing intent chip this primitive lives under (the "
+            "'what are you reading?' grouping in the composer). Backfilled for "
+            "EVERY primitive by the reading-layer normalization pass in "
+            "`app/data/signal_primitives.py`; None only pre-normalization."
+        ),
+    )
+    reading: Optional[str] = Field(
+        default=None,
+        description=(
+            "Short plain-English 'what a trader reads when this triggers' "
+            "headline for the rule card — punchier than `description`. "
+            "Direction-aware copy (up/down) is added by the composer widget; "
+            "this is the direction-neutral base. None → UI falls back to "
+            "`description`."
         ),
     )
 
