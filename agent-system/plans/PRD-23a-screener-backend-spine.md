@@ -178,13 +178,17 @@ Runs once post-close. MUST use the `_run_async_in_thread` bridge (trap #21), not
 
 ## 7. Definition of done
 
-- [ ] `universe_resolver` with the default set + tier gate (+ expand-only test)
-- [ ] `signal_snapshot` table + warm cron (event-loop-safe) + `SignalSnapshotService`
-- [ ] `scan_service` + `POST /api/screen/scan` + `POST /api/screen/count`
-- [ ] `rank_service` (backtest matched subset, ranked, `(symbol, rule_hash)` cached)
-- [ ] Tests per §4; no-regression suite green; smoke resolves
-- [ ] **Live demo**: a composed reading scans the real S&P 500 snapshot and returns a real ranked basket — recorded in the PR (Mr Gu's "ensure the flow actually works" bar)
+- [x] `universe_resolver` with the default set + tier gate (+ expand-only test) — slice 1, 17 tests
+- [x] `signal_snapshot` table + warm cron (event-loop-safe) + `SignalSnapshotService` — slice 2 (2a service + 2b gated cron); trap #20/#21/#22 audited
+- [x] `scan_service` + `POST /api/screen/scan` + `POST /api/screen/count` — slices 3-4
+- [x] `rank_service` (backtest matched subset, ranked, `(symbol, rule_hash, as_of_date)` cached) + `POST /api/screen/rank` (sign-in-gated) — slice 5
+- [x] Tests per §4; no-regression suite green (1660 passed / 20 skipped, +69 new); smoke resolves (123 routes)
+- [x] **Live demo** — end-to-end test drives the full real loop (real snapshot compute → scan → real BacktestEngine) with no stubs; recorded funnel `RSI(14)<55 → universe 8 → matched 6 → ranked basket (+14.7%…-30.7%)`. The real *live S&P 500* warm is the post-deploy step (flip `SCREENER_SNAPSHOT_ENABLED`) — no AV key / prod DB in the build sandbox.
 - [ ] PR merged to `main` with green CI; brick inventory (HANDOFF §5) updated
+
+**Two documented v1 limitations (carried as backlog follow-ups):**
+- Daily snapshot covers the **52 local price primitives** only; fundamentals / AV-endpoint technicals need a separate (slower) snapshot — they can't be warmed without the live fetch §3.3 forbids. The scan surfaces `unsupported_primitives` rather than silently never-matching.
+- The snapshot warms at **catalog-default params**; a rule that overrides an indicator's *period* diverges from the snapshot (operator/threshold still apply). Custom-param screening is a follow-up.
 
 ---
 

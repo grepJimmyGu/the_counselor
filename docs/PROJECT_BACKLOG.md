@@ -76,6 +76,7 @@ actively blocking development; all are gates on going-live activities.
 | `POSTHOG_API_KEY` + `NEXT_PUBLIC_POSTHOG_KEY` | When ready to collect analytics | Railway (backend) + Vercel (frontend) | 5 min |
 | `RESEND_API_KEY` | When ready to send welcome email | Railway env var; safe no-op until set | 1 min |
 | Verify `GATING_ENABLED=true` was intentional | Now (one-off) | Railway env var; confirmed 2026-05-21 ✓ | done |
+| Set `SCREENER_SNAPSHOT_ENABLED=true` on Railway | When PRD-23b ships the screener UI (or to run the real live-data S&P demo). The 23:00 UTC `signal_snapshot_warm` cron is registered but no-ops until this is set, so it adds zero load pre-launch. First enable warms ~52 primitives × 525 S&P symbols ≈ 27k rows daily from cached bars. | Railway env var (PRD-23a slice 2b) | 1 min |
 
 ---
 
