@@ -1469,3 +1469,43 @@ Data sources:
     growth drivers, key risks, competitor segment filtering
 ```
 
+---
+
+## 2026-06-16 — Signal Catalog v2 backfill: MA/MACD + RSI/Stoch/ADX event primitives (PRD-22b slices 1-2)
+
+> This chronological log skipped late-May → mid-June; that history lives in
+> `agent-system/WORK_LOG.md` (session checkpoints) and
+> `docs/BUILDING_LIVERMORE_JOURNAL.md` (Episodes 28-41 — Sprint 1 product
+> flow, PRD-16a/b/c Custom Mode, PRD-19 notifications, PRD-23 Market
+> Screener, the June outages). Resuming the chronological log here.
+
+### What shipped (PR #215, catalog 69 → 87 primitives)
+
+The Market Screener (PRD-23a/b) went live on a real S&P snapshot, lifting the
+catalog freeze. These are the first two slices of the PRD-22b indicator-family
+backfill — each turns a raw indicator *scalar* into the event/cross/level/regime
+primitives the industry actually trades:
+
+- **Slice 1 — MA + MACD events (9):** `price_above_ma` (LEVEL), `price_ma_cross_up`/`_down` (CROSS), `golden_cross`/`death_cross` (CROSS), `ma_slope_positive` (LEVEL); `macd_signal_cross` (CROSS), `macd_histogram_flip` (EVENT), `macd_zero_line_cross` (CROSS).
+- **Slice 2 — RSI + Stochastic + ADX/DMI events (9):** `rsi_oversold`/`overbought` (LEVEL); `stoch_k_d_cross` (CROSS), `stoch_oversold_cross_up`/`overbought_cross_down` (EVENT); `adx_regime` (REGIME), `adx_rising` (LEVEL), `di_cross_bullish`/`bearish` (CROSS).
+
+All 18 are local `TechnicalSignalProvider`s → auto-join the daily screener snapshot. Encoding matches the engine's `_apply_rule_threshold` (CROSS ±1/0, EVENT fires, LEVEL 1-while-true, REGIME discrete code via `equals`). Descriptions sourced from the v2 catalog spec's own prose (editorial gate = PR review). Extracted `_adx_components` as the single ADX source-of-truth for the `composes=["adx"]` contract. 22 new tests; **1796 backend tests green**.
+
+### Key bugs fixed (build-time — correct providers, degenerate test fixtures)
+
+- **Pure monotonic rally → RSI = NaN** (avg_loss = 0 → divide by zero), not 100. Fixture needs pullbacks.
+- **Perfectly linear trend → ADX flatlines** (constant DX → `ewm(constant)` is flat) → `adx_rising` never True. Fixture needs a choppy→trend regime change.
+- **Monotonic move with `high==low==close` → %K saturates 0/100** → stochastic cross never transitions. Fixture needs an oscillating (triangle) series.
+- **Provider refinement:** stochastic zone-crosses now gate on the `%D` signal line, not `%K` (which whips out of the oversold/overbought zone off a sharp turn, silently never firing).
+
+### Editorial follow-ups (carried to PROJECT_BACKLOG §4)
+
+- `macd_histogram_flip` emits a **byte-identical** series to `macd_signal_cross` (kept distinct only by `output_kind`) — confirm or switch to a histogram-inflection detector.
+- `intent_group` **auto-derives from category** on all new primitives (unused in UI), pending the intent-taxonomy deep research Mr Gu is running.
+
+### Deferred
+
+Slices 3-6 (Bollinger, Supertrend + Anchored VWAP, momentum z-scores + Heikin-Ashi, divergences via **numpy** peak/trough) scoped to the primitive in PROJECT_BACKLOG §4. Fundamental/events family parked pending an earnings-calendar source.
+
+Docs: PR #216 (this log + LEARNINGS "Signal primitives + indicators" + Journal Episode 41).
+
