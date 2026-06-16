@@ -15,6 +15,7 @@ from app.api.routes.company_overview import router as company_overview_router
 from app.api.routes.fundamental import router as fundamental_router
 from app.api.routes.insights import router as insights_router
 from app.api.routes.screener import router as screener_router
+from app.api.routes.screen import router as screen_router
 from app.api.routes.market_data import router as market_data_router
 from app.api.routes.qa import router as qa_router
 from app.api.routes.robustness import router as robustness_router
@@ -611,6 +612,7 @@ app.include_router(strategy_router)
 app.include_router(backtest_router)
 app.include_router(fundamental_router)
 app.include_router(screener_router)
+app.include_router(screen_router)
 app.include_router(company_overview_router)
 app.include_router(insights_router)
 app.include_router(market_data_router)
