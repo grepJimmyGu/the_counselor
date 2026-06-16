@@ -30,7 +30,7 @@
  */
 
 import { useRouter } from "next/navigation";
-import { ArrowRight, Search, Upload, Wand2 } from "lucide-react";
+import { ArrowRight, Filter, Search, Upload, Wand2 } from "lucide-react";
 import { startFlow } from "../runtime";
 import { registerModeCopy, useFlowCopy } from "../copy";
 import "../portfolio-mode";
@@ -55,6 +55,10 @@ registerModeCopy("home_picker", {
   custom_build_desc:
     "Combine signal primitives with AND / OR rules. Optional intraday monitoring + multi-tier exits when you're ready to run live.",
   custom_build_cta: "Open composer",
+  screen_market_label: "Screen the market",
+  screen_market_desc:
+    "Compose a reading and watch it narrow the S&P 500 to a matched basket, ranked by backtested return.",
+  screen_market_cta: "Open screener",
 });
 
 export interface EntryModePickerProps {
@@ -87,6 +91,10 @@ export function EntryModePicker({
   const customBuildDesc = useFlowCopy("home_picker", "custom_build_desc");
   const customBuildCta = useFlowCopy("home_picker", "custom_build_cta");
 
+  const screenMarketLabel = useFlowCopy("home_picker", "screen_market_label");
+  const screenMarketDesc = useFlowCopy("home_picker", "screen_market_desc");
+  const screenMarketCta = useFlowCopy("home_picker", "screen_market_cta");
+
   function launchOneAssetFlow() {
     startFlow("one_asset_mode", {
       initialContext: { fromTrigger: `${from}/pick_asset` },
@@ -110,6 +118,18 @@ export function EntryModePicker({
       initialContext: {
         ...INITIAL_CUSTOM_BUILD_CONTEXT,
         fromTrigger: `${from}/custom_build`,
+      },
+    });
+  }
+
+  function launchScreenMarketFlow() {
+    // PRD-23b — the SAME custom_build_mode flow, with a standing universe
+    // preselected (unified mode). The size-branch routes sp500 → scan→rank.
+    startFlow("custom_build_mode", {
+      initialContext: {
+        ...INITIAL_CUSTOM_BUILD_CONTEXT,
+        universe_id: "sp500",
+        fromTrigger: `${from}/screen_market`,
       },
     });
   }
@@ -145,7 +165,7 @@ export function EntryModePicker({
         <p className="text-sm text-muted-foreground">{sectionSubtitle}</p>
       </div>
 
-      <div className="mt-8 grid gap-5 lg:grid-cols-3">
+      <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
         {/* 1. Pick an asset — startFlow('one_asset_mode') per Sprint 2 */}
         <button
           type="button"
@@ -211,6 +231,30 @@ export function EntryModePicker({
           </p>
           <span className="mt-6 inline-flex w-fit items-center gap-1.5 text-sm font-medium text-primary">
             {customBuildCta}
+            <ArrowRight className="h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
+          </span>
+        </button>
+
+        {/* 4. Screen the market — same custom_build_mode, standing universe
+            preselected (PRD-23b unified mode). */}
+        <button
+          type="button"
+          data-testid="entry-mode-screen-market"
+          data-from={from}
+          onClick={launchScreenMarketFlow}
+          onMouseEnter={prefetchCustomBuild}
+          onFocus={prefetchCustomBuild}
+          className="group flex flex-col rounded-2xl border border-border/60 bg-white/80 p-6 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
+        >
+          <div className="mb-5 inline-flex h-12 w-12 items-center justify-center rounded-xl border border-primary/20 bg-primary/5">
+            <Filter className="h-6 w-6 text-primary" />
+          </div>
+          <h3 className="font-heading text-lg font-semibold">{screenMarketLabel}</h3>
+          <p className="mt-2 flex-1 text-sm leading-relaxed text-muted-foreground">
+            {screenMarketDesc}
+          </p>
+          <span className="mt-6 inline-flex w-fit items-center gap-1.5 text-sm font-medium text-primary">
+            {screenMarketCta}
             <ArrowRight className="h-3.5 w-3.5 transition-transform duration-200 group-hover:translate-x-0.5" />
           </span>
         </button>
