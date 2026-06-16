@@ -141,7 +141,7 @@ Bricks created across the packet. Each PRD updates this section at PR close.
 | `SignalPrimitive.composes` field | PRD-22a | ✅ | Derived primitives (signal_cross, divergence, etc.) |
 | v1 catalog backfill (~55 entries) | PRD-22a | ✅ | Backward compat; all consumers |
 | 11 family upgrade primitives (~30 entries) | PRD-22b | ⏳ | Composer (when kind-dispatch ready) |
-| 52-week extrema family (7 primitives) | PRD-22b | ⏳ | Distance/breakout/zone rule consumers |
+| 52-week extrema family (7 primitives) | PRD-22b | ✅ | Distance/breakout/zone rule consumers |
 | TTM Squeeze + Supertrend + Chandelier (8 primitives) | PRD-22b | ⏳ | Volatility consumers; multi-tier exits |
 | RVOL + Anchored VWAP family (5 primitives) | PRD-22b | ⏳ | Volume consumers |
 | 12-1 Momentum + z-score family (4 primitives) | PRD-22b | ⏳ | Cross-sectional momentum strategies |

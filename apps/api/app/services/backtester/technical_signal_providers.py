@@ -947,6 +947,144 @@ class AnalystRatingChangeSignalProvider(TechnicalSignalProvider):
         return pd.Series(np.nan, index=frame.index, name=self.name)
 
 
+# ── 52-week extrema providers (PRD-22b) ─────────────────────────────────────
+# Proximity + breakout primitives over a rolling 52-week (252-day) window.
+# Pure rolling max/min over daily closes — no new data source. The DISTANCE
+# kind (signed % gap) powers the "within 2-25% of the 52-week high" setup
+# filter; the EVENT kinds fire only on the bar a new extreme is first printed
+# (strictly above the PRIOR window high / below the prior low), not while the
+# extreme persists.
+
+
+class DistanceTo52wHighProvider(TechnicalSignalProvider):
+    """Signed percent gap from the rolling 52-week high. Negative = below
+    the high; zero = at a fresh high. DISTANCE kind."""
+    name = "distance_to_52w_high"
+
+    def _default_params(self) -> dict:
+        return {"lookback": 252}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["lookback"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        lookback = int(self.params["lookback"])
+        high = frame["close"].rolling(lookback, min_periods=20).max()
+        return (frame["close"] / high.replace(0, np.nan) - 1.0) * 100
+
+
+class DistanceTo52wLowProvider(TechnicalSignalProvider):
+    """Signed percent gap from the rolling 52-week low. Positive = above
+    the low; zero = at a fresh low. DISTANCE kind."""
+    name = "distance_to_52w_low"
+
+    def _default_params(self) -> dict:
+        return {"lookback": 252}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["lookback"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        lookback = int(self.params["lookback"])
+        low = frame["close"].rolling(lookback, min_periods=20).min()
+        return (frame["close"] / low.replace(0, np.nan) - 1.0) * 100
+
+
+class Price52wHighRatioProvider(TechnicalSignalProvider):
+    """Close as a fraction of the rolling 52-week high (0-1). 1.0 = at the
+    annual peak. Comparable across names of any price level."""
+    name = "price_52w_high_ratio"
+
+    def _default_params(self) -> dict:
+        return {"lookback": 252}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["lookback"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        lookback = int(self.params["lookback"])
+        high = frame["close"].rolling(lookback, min_periods=20).max()
+        return frame["close"] / high.replace(0, np.nan)
+
+
+class Price52wHighBreakoutProvider(TechnicalSignalProvider):
+    """EVENT: 1.0 only on the bar price first closes strictly above the
+    PRIOR 52-week high; 0.0 elsewhere (including while the breakout run
+    persists)."""
+    name = "price_52w_high_breakout"
+
+    def _default_params(self) -> dict:
+        return {"lookback": 252}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["lookback"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        lookback = int(self.params["lookback"])
+        prior_high = frame["close"].rolling(lookback, min_periods=20).max().shift(1)
+        breakout = frame["close"] > prior_high
+        event = breakout & ~breakout.shift(1, fill_value=False)
+        return event.astype(float)
+
+
+class Price52wLowBreakdownProvider(TechnicalSignalProvider):
+    """EVENT: 1.0 only on the bar price first closes strictly below the
+    PRIOR 52-week low; 0.0 elsewhere."""
+    name = "price_52w_low_breakdown"
+
+    def _default_params(self) -> dict:
+        return {"lookback": 252}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["lookback"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        lookback = int(self.params["lookback"])
+        prior_low = frame["close"].rolling(lookback, min_periods=20).min().shift(1)
+        breakdown = frame["close"] < prior_low
+        event = breakdown & ~breakdown.shift(1, fill_value=False)
+        return event.astype(float)
+
+
+class PriceIn52wHighZoneProvider(TechnicalSignalProvider):
+    """LEVEL: true (1.0) while price sits in a band below the 52-week high
+    (default 2-25% below) — the breakout-setup zone."""
+    name = "price_in_52w_high_zone"
+
+    def _default_params(self) -> dict:
+        return {"min_pct": 2.0, "max_pct": 25.0, "lookback": 252}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["lookback"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        lookback = int(self.params["lookback"])
+        high = frame["close"].rolling(lookback, min_periods=20).max()
+        distance = (frame["close"] / high.replace(0, np.nan) - 1.0) * 100
+        min_pct = float(self.params["min_pct"])
+        max_pct = float(self.params["max_pct"])
+        return ((distance <= -min_pct) & (distance >= -max_pct)).astype(float)
+
+
+class DaysSince52wHighProvider(TechnicalSignalProvider):
+    """Trading days since the rolling 52-week high was last printed.
+    0 = today is a fresh high; rises as price drifts from the peak."""
+    name = "days_since_52w_high"
+
+    def _default_params(self) -> dict:
+        return {"lookback": 252}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["lookback"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        lookback = int(self.params["lookback"])
+        # Bars since the rolling-window argmax (0 = the high is the last bar).
+        return frame["close"].rolling(lookback, min_periods=20).apply(
+            lambda w: float(len(w) - 1 - int(np.argmax(w))), raw=True,
+        )
+
+
 # ── Registry assembly ──────────────────────────────────────────────────────
 
 
@@ -984,5 +1122,10 @@ def get_technical_providers() -> dict:
         SectorRotationRankSignalProvider, PairSpreadZscoreSignalProvider,
         # Sentiment placeholder
         AnalystRatingChangeSignalProvider,
+        # 52-week extrema (PRD-22b)
+        DistanceTo52wHighProvider, DistanceTo52wLowProvider,
+        Price52wHighRatioProvider, Price52wHighBreakoutProvider,
+        Price52wLowBreakdownProvider, PriceIn52wHighZoneProvider,
+        DaysSince52wHighProvider,
     ]
     return {cls.name: cls() for cls in classes}

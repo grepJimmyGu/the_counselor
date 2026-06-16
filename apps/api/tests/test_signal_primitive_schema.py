@@ -98,6 +98,32 @@ _MULTI_CHANNEL = {
     "bbands": ["upper", "lower", "middle"],
 }
 
+# The frozen v1 catalog (PRD-16a, 55 entries). This lock scopes the
+# "default-kind" assertions to v1 ONLY — PRD-22b+ adds primitives with
+# legitimately non-VALUE kinds / composes, which must not trip the v1 audit.
+_V1_IDS = frozenset({
+    "sma", "ema", "wma", "dema", "tema", "kama", "ma_crossover", "macd", "adx",
+    "aroon", "sar", "ht_trendline", "rsi", "stoch", "stochrsi", "willr", "cci",
+    "cmo", "bbands", "mfi", "ultosc", "roc", "mom", "trix", "apo", "ppo",
+    "donchian_breakout", "time_series_momentum", "bop", "adxr", "aroonosc",
+    "obv", "ad", "adosc", "vwap", "avg_dollar_volume", "atr", "natr", "trange",
+    "realized_vol", "vol_regime", "fcf_yield", "book_to_market", "ebitda_ev",
+    "f_score", "buyback_yield_ttm", "estimate_revision_3m", "earnings_surprise",
+    "sentiment_score", "insider_net_buy", "analyst_rating_change",
+    "rank_return_6m", "rank_composite_score", "sector_rotation_rank",
+    "pair_spread_zscore",
+})
+
+
+def test_v1_id_set_is_present_and_complete() -> None:
+    """The 55 v1 ids must all still exist in the catalog (guards against a
+    v1 primitive being renamed/dropped, which would silently weaken the
+    audit below)."""
+    catalog_ids = {p.id for p in SIGNAL_PRIMITIVES}
+    assert len(_V1_IDS) == 55
+    missing = _V1_IDS - catalog_ids
+    assert not missing, f"v1 primitives missing from catalog: {missing}"
+
 
 def test_v1_output_kind_backfill_matches_audit() -> None:
     """Lock every primitive's output_kind to the §3.2 table. Non-VALUE
@@ -110,7 +136,7 @@ def test_v1_output_kind_backfill_matches_audit() -> None:
             f"'{pid}' should be {expected}, got {by_id[pid].output_kind}"
         )
     for p in SIGNAL_PRIMITIVES:
-        if p.id not in _NON_VALUE_KINDS:
+        if p.id in _V1_IDS and p.id not in _NON_VALUE_KINDS:
             assert p.output_kind == OutputKind.VALUE, (
                 f"'{p.id}' should be VALUE (default), got {p.output_kind}"
             )
@@ -126,7 +152,7 @@ def test_v1_multi_channel_declarations_match_audit() -> None:
             f"'{pid}' channels drifted: {by_id[pid].output_channels} != {channels}"
         )
     for p in SIGNAL_PRIMITIVES:
-        if p.id not in _MULTI_CHANNEL:
+        if p.id in _V1_IDS and p.id not in _MULTI_CHANNEL:
             assert p.output_channels == ["value"], (
                 f"'{p.id}' should be single-channel ['value'], "
                 f"got {p.output_channels}"
@@ -134,10 +160,12 @@ def test_v1_multi_channel_declarations_match_audit() -> None:
 
 
 def test_no_v1_primitive_is_derived() -> None:
-    """`composes` stays [] for all v1 primitives — derived primitives
-    (macd_signal_cross, divergences, …) arrive in PRD-22b."""
+    """`composes` stays [] for the v1 primitives — derived primitives
+    (macd_signal_cross, divergences, …) arrive in PRD-22b and declare their
+    own parents, so this lock is scoped to the frozen v1 set."""
     for p in SIGNAL_PRIMITIVES:
-        assert p.composes == [], f"'{p.id}' unexpectedly composes {p.composes}"
+        if p.id in _V1_IDS:
+            assert p.composes == [], f"'{p.id}' unexpectedly composes {p.composes}"
 
 
 def test_cross_event_regime_kinds_all_present() -> None:
