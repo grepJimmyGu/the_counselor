@@ -1085,6 +1085,145 @@ class DaysSince52wHighProvider(TechnicalSignalProvider):
         )
 
 
+# ── RVOL + Chandelier + TTM Squeeze providers (PRD-22b) ─────────────────────
+# Fully vectorized; formulas per v2 spec §4.3 / §4.1 / §4.5. ATR is reused
+# from AtrSignalProvider (Wilder smoothing) rather than recomputed. EVENT
+# kinds fire only on the transition bar.
+
+
+class RvolSignalProvider(TechnicalSignalProvider):
+    """Relative volume: today's volume over its trailing average. 1.0 =
+    average turnover; 2.0 = a volume surge."""
+    name = "rvol"
+
+    def _default_params(self) -> dict:
+        return {"lookback": 20}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["lookback"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        lookback = int(self.params["lookback"])
+        avg = frame["volume"].shift(1).rolling(lookback).mean()
+        return frame["volume"] / avg.replace(0, np.nan)
+
+
+class RvolSurgeSignalProvider(TechnicalSignalProvider):
+    """EVENT: fires on the bar relative volume first crosses above the
+    surge multiple (default 2.0)."""
+    name = "rvol_surge"
+
+    def _default_params(self) -> dict:
+        return {"lookback": 20, "surge_mult": 2.0}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["lookback"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        lookback = int(self.params["lookback"])
+        mult = float(self.params["surge_mult"])
+        avg = frame["volume"].shift(1).rolling(lookback).mean()
+        rvol = frame["volume"] / avg.replace(0, np.nan)
+        above = rvol > mult
+        event = above & ~above.shift(1, fill_value=False)
+        return event.astype(float)
+
+
+class ChandelierExitLongSignalProvider(TechnicalSignalProvider):
+    """Long-side volatility trailing stop: the N-bar highest high minus a
+    multiple of ATR. Ratchets up with new highs; price closing below it is
+    the long-exit flag."""
+    name = "chandelier_exit_long"
+
+    def _default_params(self) -> dict:
+        return {"period": 22, "atr_mult": 3.0}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) * 4
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        period = int(self.params["period"])
+        mult = float(self.params["atr_mult"])
+        atr = AtrSignalProvider(period=period)._compute(frame)
+        return frame["high"].rolling(period).max() - mult * atr
+
+
+class ChandelierExitShortSignalProvider(TechnicalSignalProvider):
+    """Short-side volatility trailing stop: the N-bar lowest low plus a
+    multiple of ATR. Price closing above it is the short-exit flag."""
+    name = "chandelier_exit_short"
+
+    def _default_params(self) -> dict:
+        return {"period": 22, "atr_mult": 3.0}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) * 4
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        period = int(self.params["period"])
+        mult = float(self.params["atr_mult"])
+        atr = AtrSignalProvider(period=period)._compute(frame)
+        return frame["low"].rolling(period).min() + mult * atr
+
+
+class ChandelierExitBreachSignalProvider(TechnicalSignalProvider):
+    """EVENT: fires on the bar price first closes below the long-side
+    Chandelier trailing stop."""
+    name = "chandelier_exit_breach"
+
+    def _default_params(self) -> dict:
+        return {"period": 22, "atr_mult": 3.0}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) * 4
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        period = int(self.params["period"])
+        mult = float(self.params["atr_mult"])
+        atr = AtrSignalProvider(period=period)._compute(frame)
+        ce_long = frame["high"].rolling(period).max() - mult * atr
+        breach = frame["close"] < ce_long
+        event = breach & ~breach.shift(1, fill_value=False)
+        return event.astype(float)
+
+
+class TtmSqueezeSignalProvider(TechnicalSignalProvider):
+    """REGIME: 1.0 while the Bollinger Bands sit inside the Keltner
+    Channels (a low-volatility squeeze); 0.0 otherwise."""
+    name = "ttm_squeeze"
+
+    def _default_params(self) -> dict:
+        return {"period": 20, "bb_std": 2.0, "kc_mult": 1.5}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) * 4
+
+    def _squeeze_on(self, frame: pd.DataFrame) -> pd.Series:
+        period = int(self.params["period"])
+        bb_std = float(self.params["bb_std"])
+        kc_mult = float(self.params["kc_mult"])
+        ma = frame["close"].rolling(period).mean()
+        std = frame["close"].rolling(period).std()
+        atr = AtrSignalProvider(period=period)._compute(frame)
+        bb_u, bb_l = ma + bb_std * std, ma - bb_std * std
+        kc_u, kc_l = ma + kc_mult * atr, ma - kc_mult * atr
+        return (bb_u < kc_u) & (bb_l > kc_l)
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        return self._squeeze_on(frame).astype(float)
+
+
+class TtmSqueezeFireSignalProvider(TtmSqueezeSignalProvider):
+    """EVENT: fires on the bar the squeeze releases — Bollinger Bands
+    expand back outside the Keltner Channels (the breakout trigger)."""
+    name = "ttm_squeeze_fire"
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        squeeze_on = self._squeeze_on(frame)
+        fire = (~squeeze_on) & squeeze_on.shift(1, fill_value=False)
+        return fire.astype(float)
+
+
 # ── Registry assembly ──────────────────────────────────────────────────────
 
 
@@ -1127,5 +1266,10 @@ def get_technical_providers() -> dict:
         Price52wHighRatioProvider, Price52wHighBreakoutProvider,
         Price52wLowBreakdownProvider, PriceIn52wHighZoneProvider,
         DaysSince52wHighProvider,
+        # RVOL + Chandelier + TTM Squeeze (PRD-22b)
+        RvolSignalProvider, RvolSurgeSignalProvider,
+        ChandelierExitLongSignalProvider, ChandelierExitShortSignalProvider,
+        ChandelierExitBreachSignalProvider,
+        TtmSqueezeSignalProvider, TtmSqueezeFireSignalProvider,
     ]
     return {cls.name: cls() for cls in classes}

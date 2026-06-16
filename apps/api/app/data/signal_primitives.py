@@ -1,7 +1,8 @@
 """Signal primitive catalog — the editorial product of PRD-16a Slice 1.
 
-62 hand-authored entries spanning 8 categories (55 from PRD-16a +
-the 7-entry 52-week-extrema family from PRD-22b). Every description is
+69 hand-authored entries spanning 8 categories (55 from PRD-16a + the
+PRD-22b 52-week-extrema (7), RVOL (2), and Chandelier+TTM-Squeeze (5)
+families). Every description is
 plain English ("Measures overbought/oversold extremes…") not prescriptive
 ("Buy when RSI < 30") — that's the load-bearing UX choice the spec
 calls out as pitfall A.
@@ -821,8 +822,9 @@ _MOMENTUM: list[SignalPrimitive] = [
 ]
 
 
-# ── Volume (5 primitives) ─────────────────────────────────────────────────────
+# ── Volume (7 primitives) ─────────────────────────────────────────────────────
 # Volume-aware primitives — they confirm or contradict price-only signals.
+# Includes the PRD-22b relative-volume (RVOL) family.
 
 _VOLUME: list[SignalPrimitive] = [
     SignalPrimitive(
@@ -924,12 +926,63 @@ _VOLUME: list[SignalPrimitive] = [
         provider_impl="avg_dollar_volume",
         data_source="price",
     ),
+    # ── Relative volume (PRD-22b) ─────────────────────────────────────────────
+    SignalPrimitive(
+        id="rvol",
+        category=SignalCategory.VOLUME,
+        family="RVOL",
+        name="Relative Volume (RVOL)",
+        description="Today's volume divided by its trailing-20-day average — 2.0 means twice normal turnover.",
+        long_description=(
+            "The catalyst-confirmation gauge. Readings above 1.5 are elevated, "
+            "above 2.0 a surge, above 3.0 a major-catalyst day. Independent of "
+            "price direction."
+        ),
+        parameters=[
+            Parameter(name="lookback", default=20, min_value=5, max_value=120,
+                      description="Average-volume look-back window in days"),
+        ],
+        default_thresholds={"elevated": 1.5, "surge": 2.0},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="rvol",
+        data_source="price",
+        output_kind=OutputKind.VALUE,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="rvol_surge",
+        category=SignalCategory.VOLUME,
+        family="RVOL",
+        name="Relative Volume surge",
+        description="Marks the bar on which relative volume first crosses above the surge multiple (2.0 default).",
+        long_description=(
+            "Isolates the day a volume spike begins rather than every day "
+            "volume stays elevated — pairs with a price trigger to confirm a "
+            "move has conviction behind it."
+        ),
+        parameters=[
+            Parameter(name="lookback", default=20, min_value=5, max_value=120,
+                      description="Average-volume look-back window in days"),
+            Parameter(name="surge_mult", default=2.0, min_value=1.0, max_value=10.0,
+                      description="Relative-volume multiple that counts as a surge"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="rvol_surge",
+        data_source="price",
+        output_kind=OutputKind.EVENT,
+        composes=["rvol"],
+        resolution=["daily"],
+    ),
 ]
 
 
-# ── Volatility (5 primitives) ─────────────────────────────────────────────────
+# ── Volatility (10 primitives) ────────────────────────────────────────────────
 # Volatility primitives — used as risk overlays + position sizing inputs more
-# than as directional signals.
+# than as directional signals. Includes the PRD-22b Chandelier Exit + TTM
+# Squeeze families.
 
 _VOLATILITY: list[SignalPrimitive] = [
     SignalPrimitive(
@@ -1028,6 +1081,136 @@ _VOLATILITY: list[SignalPrimitive] = [
         provider_impl="vol_regime",
         data_source="price",
         output_kind=OutputKind.REGIME,
+    ),
+    # ── Chandelier Exit + TTM Squeeze (PRD-22b) ───────────────────────────────
+    SignalPrimitive(
+        id="chandelier_exit_long",
+        category=SignalCategory.VOLATILITY,
+        family="CHANDELIER",
+        name="Chandelier Exit (long)",
+        description="Long-side volatility trailing stop — the 22-day highest high minus three times ATR.",
+        long_description=(
+            "A stop level that ratchets up as price makes new highs but never "
+            "loosens. Charles Le Beau's construction; price closing below it is "
+            "the classic long-exit flag."
+        ),
+        parameters=[
+            Parameter(name="period", default=22, min_value=5, max_value=100,
+                      description="High + ATR look-back window in days"),
+            Parameter(name="atr_mult", default=3.0, min_value=0.5, max_value=10.0,
+                      description="ATR multiple subtracted from the rolling high"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="chandelier_exit_long",
+        data_source="price",
+        output_kind=OutputKind.VALUE,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="chandelier_exit_short",
+        category=SignalCategory.VOLATILITY,
+        family="CHANDELIER",
+        name="Chandelier Exit (short)",
+        description="Short-side volatility trailing stop — the 22-day lowest low plus three times ATR.",
+        long_description=(
+            "The short-side mirror of the long Chandelier stop. Price closing "
+            "above it is the short-exit flag."
+        ),
+        parameters=[
+            Parameter(name="period", default=22, min_value=5, max_value=100,
+                      description="Low + ATR look-back window in days"),
+            Parameter(name="atr_mult", default=3.0, min_value=0.5, max_value=10.0,
+                      description="ATR multiple added to the rolling low"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="chandelier_exit_short",
+        data_source="price",
+        output_kind=OutputKind.VALUE,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="chandelier_exit_breach",
+        category=SignalCategory.VOLATILITY,
+        family="CHANDELIER",
+        name="Chandelier Exit breach (long)",
+        description="Marks the bar on which price first closes below the long-side Chandelier trailing stop.",
+        long_description=(
+            "The discrete exit event for a long Chandelier stop — fires once on "
+            "the breach, not on every bar price stays below the line."
+        ),
+        parameters=[
+            Parameter(name="period", default=22, min_value=5, max_value=100,
+                      description="High + ATR look-back window in days"),
+            Parameter(name="atr_mult", default=3.0, min_value=0.5, max_value=10.0,
+                      description="ATR multiple subtracted from the rolling high"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="chandelier_exit_breach",
+        data_source="price",
+        output_kind=OutputKind.EVENT,
+        composes=["chandelier_exit_long"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="ttm_squeeze",
+        category=SignalCategory.VOLATILITY,
+        family="TTM_SQUEEZE",
+        name="TTM Squeeze",
+        description="True while the Bollinger Bands sit inside the Keltner Channels — a low-volatility coiling regime.",
+        long_description=(
+            "John Carter's squeeze: volatility compresses until the Bollinger "
+            "Bands contract inside the Keltner Channels, often preceding a "
+            "directional expansion. Default 20-period, 2-sigma Bollinger vs "
+            "1.5x-ATR Keltner."
+        ),
+        parameters=[
+            Parameter(name="period", default=20, min_value=5, max_value=100,
+                      description="Bollinger + Keltner look-back window in days"),
+            Parameter(name="bb_std", default=2.0, min_value=0.5, max_value=4.0,
+                      description="Bollinger band width in standard deviations"),
+            Parameter(name="kc_mult", default=1.5, min_value=0.5, max_value=4.0,
+                      description="Keltner channel width in ATR multiples"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="ttm_squeeze",
+        data_source="price",
+        output_kind=OutputKind.REGIME,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="ttm_squeeze_fire",
+        category=SignalCategory.VOLATILITY,
+        family="TTM_SQUEEZE",
+        name="TTM Squeeze fire",
+        description="Marks the bar the squeeze releases — Bollinger Bands expand back outside the Keltner Channels.",
+        long_description=(
+            "The breakout trigger that follows a TTM squeeze: fires once when "
+            "the compression ends, signaling volatility is expanding again."
+        ),
+        parameters=[
+            Parameter(name="period", default=20, min_value=5, max_value=100,
+                      description="Bollinger + Keltner look-back window in days"),
+            Parameter(name="bb_std", default=2.0, min_value=0.5, max_value=4.0,
+                      description="Bollinger band width in standard deviations"),
+            Parameter(name="kc_mult", default=1.5, min_value=0.5, max_value=4.0,
+                      description="Keltner channel width in ATR multiples"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="ttm_squeeze_fire",
+        data_source="price",
+        output_kind=OutputKind.EVENT,
+        composes=["ttm_squeeze"],
+        resolution=["daily"],
     ),
 ]
 
