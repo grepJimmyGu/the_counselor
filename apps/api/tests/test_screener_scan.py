@@ -85,6 +85,27 @@ def test_unsupported_primitive_is_surfaced_not_silent(seeded, db):
     assert res.unsupported_primitives == ["fcf_yield"]
 
 
+def test_param_override_on_covered_primitive_is_surfaced(seeded, db):
+    # A period override on a covered primitive is scanned at default params
+    # (the snapshot only has the default column) — surfaced, never silent.
+    rules = [
+        StrategyRule(
+            primitive_id="rsi", operator="lt", threshold=30,
+            primitive_params={"period": 7},
+        )
+    ]
+    res = _scan(db, seeded, rules)
+    assert res.default_param_primitives == ["rsi"]
+    # Still evaluates against the default-param column (approximation, not empty).
+    assert set(res.matched) == {"AAPL", "TSLA"}
+
+
+def test_default_param_rule_not_flagged(seeded, db):
+    rules = [StrategyRule(primitive_id="rsi", operator="lt", threshold=30)]
+    res = _scan(db, seeded, rules)
+    assert res.default_param_primitives == []
+
+
 def test_readings_explain_each_match(seeded, db):
     rules = [StrategyRule(primitive_id="rsi", operator="lt", threshold=30)]
     res = _scan(db, seeded, rules)

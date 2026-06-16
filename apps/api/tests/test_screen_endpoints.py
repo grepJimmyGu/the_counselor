@@ -124,6 +124,30 @@ def _rank_body():
     }
 
 
+def test_invalid_universe_id_returns_422_not_500(client):
+    # Bad universe ids are rejected at the schema boundary (422), never an
+    # unhandled ValueError -> 500 on these anonymous-reachable endpoints.
+    for bad in ("garbage", "sector_", "nasdaq100"):
+        r = client.post(
+            "/api/screen/scan",
+            json={"universe_id": bad, "rules": [{"primitive_id": "rsi", "operator": "lt", "threshold": 30}]},
+        )
+        assert r.status_code == 422, f"{bad!r} -> {r.status_code}"
+    # /count too.
+    r = client.post("/api/screen/count", json={"universe_id": "garbage", "rules": []})
+    assert r.status_code == 422
+
+
+def test_scan_surfaces_default_param_primitives(client):
+    body = {
+        "universe_id": "symbols",
+        "symbols": ["AAPL", "MSFT"],
+        "rules": [{"primitive_id": "rsi", "operator": "lt", "threshold": 30, "primitive_params": {"period": 7}}],
+    }
+    data = client.post("/api/screen/scan", json=body).json()
+    assert data["default_param_primitives"] == ["rsi"]
+
+
 def test_rank_requires_sign_in(client):
     # Rank is the expensive step — anonymous callers are gated (401/402).
     r = client.post("/api/screen/rank", json=_rank_body())

@@ -100,6 +100,17 @@ async def test_cache_invalidates_on_new_as_of():
     assert len(calls) == 2  # new snapshot day → re-backtest
 
 
+async def test_cache_evicts_prior_day_entries():
+    svc = RankService()
+    fn = _stub({"AAPL": 0.1})
+    await svc.rank(None, ["AAPL"], _strategy(), as_of_date=AS_OF, backtest_fn=fn)
+    assert len(svc._cache) == 1
+    # A newer snapshot day evicts the prior day's entries (no unbounded growth).
+    await svc.rank(None, ["AAPL"], _strategy(), as_of_date=date(2026, 6, 16), backtest_fn=fn)
+    assert len(svc._cache) == 1
+    assert all(key[2] == date(2026, 6, 16) for key in svc._cache)
+
+
 async def test_failed_backtest_is_skipped():
     svc = RankService()
     res = await svc.rank(

@@ -108,6 +108,14 @@ class RankService:
         fn = backtest_fn or self._default_backtest
         rhash = rule_hash(strategy_json)
 
+        # Evict prior-day entries (the as_of_date key self-invalidates but never
+        # self-removes) so the process-level cache can't grow unboundedly across
+        # snapshot days.
+        if as_of_date is not None:
+            stale = [k for k in self._cache if k[2] is not None and k[2] < as_of_date]
+            for k in stale:
+                del self._cache[k]
+
         candidates = list(matched)
         # Cheap-proxy pre-order so the top-K cap keeps the most promising names.
         if proxy_scores:

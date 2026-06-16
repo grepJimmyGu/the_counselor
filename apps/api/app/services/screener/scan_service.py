@@ -14,6 +14,14 @@ matters for shape ops like `fires`, where `NaN != 0` would otherwise be True).
 Rules fold left-to-right via `logic_with_prior` (AND/OR), exactly as the
 engine folds them.
 
+The byte-identical guarantee holds for the operator/threshold and for
+default-param rules. It does NOT cover an indicator-*period* override: the
+snapshot is warmed at catalog-default params, so a rule with a non-default
+`primitive_params` is scanned against the default-param value — an
+approximation. Those primitives are surfaced as `default_param_primitives`
+(and logged), never silently divergent; the sign-in-gated rank step
+re-backtests with the real params.
+
 A rule whose primitive isn't in the daily snapshot coverage (e.g. a
 fundamental) can never match here; rather than fail silently, the result
 surfaces those `unsupported_primitives` and logs them (no-silent-cap).
@@ -51,6 +59,13 @@ class ScanResult:
     # Rule primitives not covered by the daily snapshot (can't match) —
     # surfaced so the UI can tell the user, never a silent always-false.
     unsupported_primitives: List[str] = field(default_factory=list)
+    # Covered primitives whose rule sets a non-default `primitive_params`
+    # (e.g. RSI period=7 vs the cataloged 14). The daily snapshot is warmed at
+    # catalog-default params only, so the scan evaluates these against the
+    # DEFAULT-param value — an APPROXIMATION, not byte-identical to the
+    # backtest. Surfaced (never silent) so the UI can flag "screened at default
+    # periods"; the sign-in-gated rank step re-backtests with the real params.
+    default_param_primitives: List[str] = field(default_factory=list)
 
 
 def _reading_for(rule: StrategyRule, catalog_by_id: dict) -> str:
@@ -98,6 +113,26 @@ def scan(
             unsupported,
         )
 
+    # Covered primitives with a non-default param override: the snapshot holds
+    # only the default-param value, so the scan is an APPROXIMATION for these
+    # (not byte-identical). Conservative — flags any non-empty primitive_params
+    # (may over-flag a set that happens to equal defaults; never under-flags).
+    default_param = sorted(
+        {
+            r.primitive_id
+            for r in rules
+            if r.primitive_id in covered and r.primitive_params
+        }
+    )
+    if default_param:
+        logger.info(
+            "screener scan: %d rule(s) override indicator params but the snapshot "
+            "is default-param — scanned at default periods (rank re-backtests "
+            "with the real params): %s",
+            len(default_param),
+            default_param,
+        )
+
     if not syms or frame.empty or not rules:
         return ScanResult(
             matched=[],
@@ -106,6 +141,7 @@ def scan(
             universe_size=len(syms),
             matched_count=0,
             unsupported_primitives=unsupported,
+            default_param_primitives=default_param,
         )
 
     accumulator: Optional[pd.Series] = None
@@ -152,4 +188,5 @@ def scan(
         universe_size=len(syms),
         matched_count=len(matched),
         unsupported_primitives=unsupported,
+        default_param_primitives=default_param,
     )

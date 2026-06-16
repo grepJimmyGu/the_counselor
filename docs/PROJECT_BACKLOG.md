@@ -144,6 +144,12 @@ The catalog v2 work (PRD-22) pivoted toward the **Market Screener** (PRD-23) —
 
 **Why not finish all of 22b first:** the screener's risk is its new architecture/UX, not primitive count; new primitives are additive (no rework); finishing the catalog first front-loads the low-uncertainty work and defers validating the uncertain thing. **PRD-23 packet** (HANDOFF + sliced PRDs, mirroring the catalog-v2 packet): `agent-system/plans/HANDOFF-livermore-market-screener.md` + `PRD-23a-screener-backend-spine.md` (snapshot + scan + rank) + `PRD-23b-screener-mode-ui.md` (flow + composer + results) + `PRD-23c-screener-track-intraday.md` (save→notify + intraday). The §4 "Multi-asset filter → rank → top-K" parked item is now **superseded by PRD-23**.
 
+**PRD-23a v1 follow-ups (deferred from the pre-merge review of PR #212):**
+- **`/api/screen/rank` — trap #13 + run-quota** (deferred from review, not a blocker): rank backtests the matched subset sequentially while holding the request `db`; on a cold-cache symbol each `BacktestEngine.run` can `await` an AV fetch with the conn checked out. Bounded today by sign-in gating + `top_k<=200` + the warm-cache short-circuit, but before `/rank` is heavily trafficked: (a) use a fresh `SessionLocal()` per backtest (requires threading a sessionmaker so the in-memory e2e test still works), and (b) wire a per-tier run quota (Scout cap). Code comment marks the spot in `screen.py`.
+- **Param-override screening**: the daily snapshot is default-param only; a rule overriding an indicator *period* is scanned at default and surfaced via `default_param_primitives` (the rank re-backtests precisely). To screen precisely, warm a snapshot column per distinct param-set (or compute on-the-fly for the matched subset).
+- **Fundamental snapshot**: the 17 fundamental / AV-endpoint primitives are excluded from the daily price snapshot (would need the live fetch §3.3 forbids); a separate slower-cadence fundamental snapshot would let the screener filter on value/quality/sentiment.
+- **Sector-label normalization**: `sector_<key>` matches `SymbolCache.sector` verbatim; provider sector strings (e.g. "Information Technology") may not match the US_SECTORS ETF labels — normalize before the sector tier ships in the UI.
+
 ---
 
 ## 4b. Market Pulse v2 — Phase 1 status

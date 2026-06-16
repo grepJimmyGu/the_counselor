@@ -32,10 +32,33 @@ from app.schemas.screener_scan import (
 )
 from app.services.screener.rank_service import rank_service
 from app.services.screener.scan_service import scan
+from app.services.screener.signal_snapshot_service import SignalSnapshotService
 
 logger = logging.getLogger("livermore.screener.api")
 
 router = APIRouter(prefix="/api/screen", tags=["screener"])
+
+# Snapshot columns used (in order of preference) as the cheap-proxy pre-order
+# for the rank top-K cap, so a loose rule keeps the highest-momentum names
+# rather than an alphabetical slice.
+_PROXY_PRIMITIVES = ("time_series_momentum", "roc", "mom", "rank_return_6m")
+
+
+def _momentum_proxy(db: Session, symbols: List[str]):
+    """{symbol -> momentum score} from the snapshot's first available momentum
+    column, for the rank top-K pre-order. None if the snapshot has no such
+    column for these symbols (rank then falls back to scan order)."""
+    if not symbols:
+        return None
+    frame = SignalSnapshotService().get_snapshot(db, symbols).frame
+    for col in _PROXY_PRIMITIVES:
+        if col in frame.columns:
+            return {
+                str(sym): float(val)
+                for sym, val in frame[col].items()
+                if val == val  # drop NaN
+            }
+    return None
 
 
 def _db_sector_membership(db: Session):
@@ -80,6 +103,7 @@ async def screen_scan(
         universe_size=result.universe_size,
         matched_count=result.matched_count,
         unsupported_primitives=result.unsupported_primitives,
+        default_param_primitives=result.default_param_primitives,
     )
 
 
@@ -103,6 +127,7 @@ async def screen_count(
         universe_size=result.universe_size,
         as_of_date=result.as_of_date,
         unsupported_primitives=result.unsupported_primitives,
+        default_param_primitives=result.default_param_primitives,
     )
 
 
@@ -123,12 +148,19 @@ async def screen_rank(
         symbols=payload.symbols,
         sector_membership=_db_sector_membership(db),
     )
+    # NOTE (backlog — trap #13 / quota): rank backtests the matched subset
+    # sequentially while holding this request `db`; on a cold-cache symbol each
+    # run can await an AV fetch with the conn checked out. Bounded today by
+    # sign-in gating + top_k<=200 + the warm-cache short-circuit, but a
+    # fresh-SessionLocal-per-backtest + a per-tier run quota are tracked in
+    # PROJECT_BACKLOG before this is heavily trafficked.
     rank_result = await rank_service.rank(
         db,
         result.matched,
         payload.strategy,
         as_of_date=result.as_of_date,
         top_k=payload.top_k,
+        proxy_scores=_momentum_proxy(db, result.matched),
     )
     return ScreenRankResponse(
         ranked=[
@@ -147,4 +179,5 @@ async def screen_rank(
         dropped_count=rank_result.dropped_count,
         universe_size=result.universe_size,
         unsupported_primitives=result.unsupported_primitives,
+        default_param_primitives=result.default_param_primitives,
     )

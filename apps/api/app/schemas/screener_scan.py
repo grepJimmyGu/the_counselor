@@ -9,9 +9,13 @@ from __future__ import annotations
 from datetime import date
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from app.schemas.strategy import StrategyJSON, StrategyRule
+
+# The fixed universe tiers. `sector_<key>` is validated by prefix below.
+_FIXED_UNIVERSE_IDS = frozenset({"symbols", "watchlist", "portfolio", "sp500"})
+_SECTOR_PREFIX = "sector_"
 
 
 class ScreenScanRequest(BaseModel):
@@ -24,6 +28,21 @@ class ScreenScanRequest(BaseModel):
     # watchlist / portfolio). Ignored for sp500 / sector.
     symbols: Optional[List[str]] = None
 
+    @field_validator("universe_id")
+    @classmethod
+    def _validate_universe_id(cls, v: str) -> str:
+        # Reject bad ids at the request boundary -> 422, instead of letting the
+        # resolver's ValueError surface as an unhandled 500 on these
+        # anonymous-reachable endpoints.
+        if v in _FIXED_UNIVERSE_IDS:
+            return v
+        if v.startswith(_SECTOR_PREFIX) and len(v) > len(_SECTOR_PREFIX):
+            return v
+        raise ValueError(
+            "universe_id must be one of "
+            "symbols|watchlist|portfolio|sp500|sector_<key>"
+        )
+
 
 class ScreenScanResponse(BaseModel):
     matched: List[str]
@@ -34,6 +53,9 @@ class ScreenScanResponse(BaseModel):
     matched_count: int
     # Rule primitives not covered by the daily snapshot (can't match yet).
     unsupported_primitives: List[str] = Field(default_factory=list)
+    # Covered primitives whose rule overrides the indicator params — scanned at
+    # default periods (an approximation; the rank step uses the real params).
+    default_param_primitives: List[str] = Field(default_factory=list)
 
 
 class ScreenCountResponse(BaseModel):
@@ -44,6 +66,7 @@ class ScreenCountResponse(BaseModel):
     universe_size: int
     as_of_date: Optional[date]
     unsupported_primitives: List[str] = Field(default_factory=list)
+    default_param_primitives: List[str] = Field(default_factory=list)
 
 
 class ScreenRankRequest(ScreenScanRequest):
@@ -70,3 +93,4 @@ class ScreenRankResponse(BaseModel):
     dropped_count: int
     universe_size: int
     unsupported_primitives: List[str] = Field(default_factory=list)
+    default_param_primitives: List[str] = Field(default_factory=list)

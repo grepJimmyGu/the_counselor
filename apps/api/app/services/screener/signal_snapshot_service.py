@@ -110,14 +110,18 @@ def _engine_frame(raw: pd.DataFrame) -> pd.DataFrame:
     )
 
 
-def _last_finite(series: Optional[pd.Series]) -> Optional[float]:
-    """The last non-NaN, finite value of a series, or None — never fabricate."""
+def _last_bar_value(series: Optional[pd.Series]) -> Optional[float]:
+    """The value at the LITERAL last bar (None if it's NaN / non-finite).
+
+    Deliberately NOT "last non-NaN value": the backtest's `_apply_rule_threshold`
+    reads the final bar and treats NaN as no-signal (`accumulator.fillna(False)`).
+    So if the last bar is NaN (e.g. a stochastic's denominator-zero on a frozen/
+    halted window), we must store NO value — the scan's null-cell guard then
+    excludes the symbol exactly as the backtest would, instead of false-matching
+    on a stale-but-finite earlier bar. Never fabricate."""
     if series is None or len(series) == 0:
         return None
-    cleaned = series.dropna()
-    if cleaned.empty:
-        return None
-    value = float(cleaned.iloc[-1])
+    value = float(series.iloc[-1])
     return value if math.isfinite(value) else None
 
 
@@ -148,7 +152,7 @@ def compute_values_from_frame(
                 "signal_snapshot: _compute failed for primitive '%s'", primitive.id
             )
             continue
-        value = _last_finite(series)
+        value = _last_bar_value(series)
         if value is not None:
             values[primitive.id] = value
     return values, as_of

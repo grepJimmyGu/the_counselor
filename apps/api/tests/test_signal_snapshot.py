@@ -18,6 +18,7 @@ from app.models.signal_snapshot import SignalSnapshot
 from app.services.backtester.signal_provider import get_signal_provider
 from app.services.screener.signal_snapshot_service import (
     SignalSnapshotService,
+    _last_bar_value,
     compute_values_from_frame,
     local_price_providers,
     snapshot_primitive_ids,
@@ -68,6 +69,15 @@ def test_snapshot_covers_local_price_primitives_only():
 
 
 # ── pure value-encoding core ─────────────────────────────────────────────────
+
+
+def test_last_bar_value_is_literal_last_not_last_finite():
+    # Must use the LITERAL last bar (matches the backtest's NaN->no-signal),
+    # NOT the last non-NaN value — else a frozen/NaN final bar false-matches.
+    assert _last_bar_value(pd.Series([1.0, 2.0, np.nan])) is None
+    assert _last_bar_value(pd.Series([1.0, 2.0, 3.0])) == 3.0
+    assert _last_bar_value(pd.Series([np.nan])) is None
+    assert _last_bar_value(pd.Series([], dtype=float)) is None
 
 
 def test_empty_frame_yields_no_values():
