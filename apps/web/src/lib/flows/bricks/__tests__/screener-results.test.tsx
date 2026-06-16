@@ -106,6 +106,18 @@ describe("ScreenResults", () => {
     expect(rows[0].getAttribute("data-testid")).toBe("screen-result-row-MSFT");
   });
 
+  it("surfaces a rank failure inline without blanking the basket", async () => {
+    sessionValue = { data: { backendToken: "tok" }, status: "authenticated" };
+    (screenRank as ReturnType<typeof vi.fn>).mockRejectedValue(new Error("rank timed out"));
+    renderResults();
+    // The scan basket still renders...
+    await waitFor(() => expect(screen.getByTestId("screen-result-row-AAPL")).toBeTruthy());
+    // ...and the rank failure is shown inline (not a silent stuck skeleton).
+    await waitFor(() =>
+      expect(screen.getByTestId("screen-results-rank-error")).toBeTruthy(),
+    );
+  });
+
   it("shows the empty state when nothing matches", async () => {
     (screenScan as ReturnType<typeof vi.fn>).mockResolvedValue({
       matched: [],

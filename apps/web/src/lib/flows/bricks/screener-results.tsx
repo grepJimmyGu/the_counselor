@@ -165,6 +165,17 @@ export function ScreenResults({
         {loadingRank && (
           <p className="text-[12px] text-slate-500">Backtesting the matched basket…</p>
         )}
+        {/* Rank is an enrichment overlay — a rank failure (timeout/5xx) must
+            not blank the basket. Surface it inline; the matched names below
+            still render and still drill in. */}
+        {error && scan && (
+          <p
+            data-testid="screen-results-rank-error"
+            className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-[12px] text-amber-700"
+          >
+            Couldn&apos;t rank by return ({error}). The matched names are shown below.
+          </p>
+        )}
       </header>
 
       {matchedCount === 0 ? (
@@ -213,6 +224,10 @@ export function ScreenResults({
                       </>
                     ) : rankGated ? (
                       <span className="text-[11px] text-slate-400">sign in to rank</span>
+                    ) : error ? (
+                      // Rank failed — stop the perpetual skeleton; the banner
+                      // above explains why.
+                      <span className="text-[11px] text-slate-300">—</span>
                     ) : (
                       <div className="h-4 w-12 animate-pulse rounded bg-slate-100" />
                     )}
