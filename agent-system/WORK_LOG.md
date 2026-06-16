@@ -9,6 +9,28 @@
 
 ## Current Session
 
+**Status:** 2026-06-16 — **PRD-22b Signal Catalog backfill, slices 1-2 shipped + merged + documented.** The Market Screener (PRD-23a/b) is live on a real S&P snapshot, which lifted the catalog freeze; this session began the incremental indicator-family backfill. Catalog **69 → 87 primitives**.
+
+**Shipped this session:**
+
+| PR | Scope |
+|---|---|
+| #215 | PRD-22b slices 1-2 — 18 event/cross/level/regime primitives (MA/MACD events + RSI/Stoch/ADX events), all local → auto-join the daily screener snapshot. 22 new tests, 1796 backend green. |
+| #216 | docs — PROJECT_BACKLOG §4 resume plan, LEARNINGS "Signal primitives + indicators", Journal Episode 41, `project_log.md` entry |
+
+**Build-time bug log:** three "failing" tests were correct providers + degenerate fixtures (pure rally → RSI NaN; linear trend → flat ADX; monotonic move → %K saturates, no cross). One real provider fix: stochastic zone-crosses gate on `%D`, not `%K`. Detail in Journal Episode 41 + LEARNINGS.
+
+**Editorial follow-ups (need Mr Gu):** (1) `macd_histogram_flip` is byte-identical to `macd_signal_cross` (kept distinct only by `output_kind`) — confirm or switch to a histogram-inflection detector. (2) `intent_group` auto-derives from category (unused in UI), pending the intent-taxonomy deep research Mr Gu is running.
+
+### Next action
+1. **PRD-22b slices 3-6** — each a 1-PR additive backfill on the now-locked build pattern, scoped to the primitive in PROJECT_BACKLOG §4: Bollinger (+7) → Supertrend + Anchored VWAP (×6) → momentum z-scores + Heikin-Ashi → divergences (numpy peak/trough — NOT scipy). Fundamental/events deferred (needs earnings-calendar source).
+2. **Operationalize the intent taxonomy** when Mr Gu's deep research returns: map the 87 primitives → intent groups, write the `reading` lines, draft the taxonomy spec for sign-off, correct the improvised `IntentGroup` enum, THEN build the intent-first composer (composer steps 1-2 were never built — only step-3 kind widgets).
+3. **Extensible prewarm-universe registry + Nasdaq-100** (PROJECT_BACKLOG §4) — collapse the 4 hardcoded `SP500_TICKERS` spots to one `STANDING_UNIVERSES` source of truth.
+
+---
+
+### Prior checkpoint — 2026-06-11 (active-execution-v2)
+
 **Status:** 2026-06-11 — **active-execution-v2 (track REAL holdings) + Custom Mode made reachable + the live intraday chart. 11 PRs (#187 → #197), all merged, zero regressions.** The loop now runs end-to-end: Build from scratch → compose (non-daily + exit ladder) → backtest → save → land in **My Strategies** (`/account/strategies`, reachable from the nav + home tile) → open a strategy's **live dashboard** → **declare a position you hold** → the cron detects exit-tier triggers and **notifies** (never auto-sells) → you confirm your real fill → shares decrement. The dashboard now includes a **session-aware intraday price chart** (price line + exit-tier lines + trigger markers, ET date+time axis, gaps collapsed).
 
 **Shipped this session:**
