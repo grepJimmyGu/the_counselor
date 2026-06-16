@@ -23,10 +23,14 @@ from app.data.sp500_tickers import SP500_TICKERS
 from app.db.session import get_db
 from app.models.symbol import SymbolCache
 from app.schemas.screener_scan import (
+    RankedSymbol,
     ScreenCountResponse,
+    ScreenRankRequest,
+    ScreenRankResponse,
     ScreenScanRequest,
     ScreenScanResponse,
 )
+from app.services.screener.rank_service import rank_service
 from app.services.screener.scan_service import scan
 
 logger = logging.getLogger("livermore.screener.api")
@@ -98,5 +102,49 @@ async def screen_count(
         matched_count=result.matched_count,
         universe_size=result.universe_size,
         as_of_date=result.as_of_date,
+        unsupported_primitives=result.unsupported_primitives,
+    )
+
+
+@router.post("/rank", response_model=ScreenRankResponse)
+async def screen_rank(
+    payload: ScreenRankRequest,
+    auth: tuple = Depends(
+        # The expensive step — backtests the matched subset. Sign-in-gated
+        # (§3.6); the scan/count above stay anonymous-explorable.
+        require_entitlement(needs_run_quota=False, allow_anonymous=False, template_id_field=None)
+    ),
+    db: Session = Depends(get_db),
+) -> ScreenRankResponse:
+    result = scan(
+        db,
+        payload.universe_id,
+        payload.rules,
+        symbols=payload.symbols,
+        sector_membership=_db_sector_membership(db),
+    )
+    rank_result = await rank_service.rank(
+        db,
+        result.matched,
+        payload.strategy,
+        as_of_date=result.as_of_date,
+        top_k=payload.top_k,
+    )
+    return ScreenRankResponse(
+        ranked=[
+            RankedSymbol(
+                symbol=e.symbol,
+                total_return=e.total_return,
+                annualized_return=e.annualized_return,
+                sharpe_ratio=e.sharpe_ratio,
+                readings=result.readings.get(e.symbol, []),
+            )
+            for e in rank_result.ranked
+        ],
+        as_of_date=rank_result.as_of_date,
+        matched_count=rank_result.matched_count,
+        backtested_count=rank_result.backtested_count,
+        dropped_count=rank_result.dropped_count,
+        universe_size=result.universe_size,
         unsupported_primitives=result.unsupported_primitives,
     )

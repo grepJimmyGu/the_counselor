@@ -103,6 +103,33 @@ def test_scan_surfaces_unsupported_primitive(client):
     assert data["unsupported_primitives"] == ["fcf_yield"]
 
 
+def _rank_body():
+    return {
+        "universe_id": "symbols",
+        "symbols": ["AAPL", "MSFT", "TSLA"],
+        "rules": [{"primitive_id": "rsi", "operator": "lt", "threshold": 30}],
+        "top_k": 10,
+        "strategy": {
+            "strategy_name": "Screener reading",
+            "strategy_type": "custom_build",
+            "universe": ["SPY"],
+            "benchmark": "SPY",
+            "start_date": "2023-01-01",
+            "end_date": "2024-01-01",
+            "initial_capital": 100000,
+            "rebalance_frequency": "monthly",
+            "position_sizing": {"method": "equal_weight"},
+            "rules": [{"primitive_id": "rsi", "operator": "lt", "threshold": 30}],
+        },
+    }
+
+
+def test_rank_requires_sign_in(client):
+    # Rank is the expensive step — anonymous callers are gated (401/402).
+    r = client.post("/api/screen/rank", json=_rank_body())
+    assert r.status_code in (401, 402, 403)
+
+
 def test_and_fold_over_endpoint(client):
     body = {
         "universe_id": "symbols",

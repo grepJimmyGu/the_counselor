@@ -11,7 +11,7 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
-from app.schemas.strategy import StrategyRule
+from app.schemas.strategy import StrategyJSON, StrategyRule
 
 
 class ScreenScanRequest(BaseModel):
@@ -43,4 +43,30 @@ class ScreenCountResponse(BaseModel):
     matched_count: int
     universe_size: int
     as_of_date: Optional[date]
+    unsupported_primitives: List[str] = Field(default_factory=list)
+
+
+class ScreenRankRequest(ScreenScanRequest):
+    """Scan, then backtest + rank the matched subset. Carries the full reading
+    as a StrategyJSON so the rank can backtest each survivor."""
+
+    strategy: StrategyJSON
+    top_k: int = Field(50, ge=1, le=200)
+
+
+class RankedSymbol(BaseModel):
+    symbol: str
+    total_return: float
+    annualized_return: Optional[float] = None
+    sharpe_ratio: Optional[float] = None
+    readings: List[str] = Field(default_factory=list)
+
+
+class ScreenRankResponse(BaseModel):
+    ranked: List[RankedSymbol]
+    as_of_date: Optional[date]
+    matched_count: int
+    backtested_count: int
+    dropped_count: int
+    universe_size: int
     unsupported_primitives: List[str] = Field(default_factory=list)
