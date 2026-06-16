@@ -179,9 +179,9 @@ Each PRD updates this section at PR close. ♻️ = reused, 🆕 = new.
 | `scan_service` (rule → matched basket + readings over snapshot) | PRD-23a | ✅ slice 3 |
 | `POST /api/screen/scan` + `POST /api/screen/count` | PRD-23a | ✅ slice 4 |
 | `rank_service` (backtest matched subset, `(symbol, rule_hash, as_of_date)` cache) + `POST /api/screen/rank` | PRD-23a | ✅ slice 5 |
-| `custom_build_mode` *extension* — universe selector (incl. entered-symbols tier) + scan/results path (NOT a new FlowDefinition) | PRD-23b | ⏳ |
-| `<UniverseSelector>` / `<ReadingComposer>` / `<ScreenResults>` | PRD-23b | ⏳ |
-| Intent / reading layer (`reading` + `intent_group` catalog fields) | PRD-22c (folded in) | ⏳ |
+| `custom_build_mode` *extension* — universe selector (incl. entered-symbols tier) + scan/results path (NOT a new FlowDefinition) | PRD-23b | ✅ size-branch on `is_standing_universe` + `screen_results` step + Home tile |
+| `<UniverseSelector>` / `<ReadingComposer>` (live count folded into canvas) / `<ScreenResults>` | PRD-23b | ✅ + `<ScreenMatchCount>` live funnel + `screenScan/Count/Rank` api |
+| Intent / reading layer (`reading` + `intent_group` catalog fields) | PRD-22c (folded in) | ✅ shipped in PRD-22c |
 | Discover → track (basket → SavedStrategy → notify on new entrants) | PRD-23c | ⏳ |
 | Intraday snapshot (`resolution='intraday'`) | PRD-23c | ⏳ |
 
