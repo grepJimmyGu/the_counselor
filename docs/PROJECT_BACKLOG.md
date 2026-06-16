@@ -141,7 +141,7 @@ The catalog v2 work (PRD-22) pivoted toward the **Market Screener** (PRD-23) —
 
 **Catalog FROZEN at ~72** until the screener loop is proven. Shipped: PRD-22a semantics (#203), 22b 52-week-extrema (#204) + RVOL/Chandelier/TTM (#205). **Deferred 22b families** (spec'd in PRD-22b §3.1/§9, resumable as 1-PR adds): MACD/RSI/Bollinger/ADX/Stoch decompositions, Anchored VWAP (user `anchor_date` param), Supertrend, Momentum z-score, divergences (numpy peak/trough — NOT scipy, which isn't pinned in requirements), Heikin-Ashi, PEAD/insider (need new AV endpoints), KB-lookup enrichment.
 
-**Why not finish all of 22b first:** the screener's risk is its new architecture/UX, not primitive count; new primitives are additive (no rework); finishing the catalog first front-loads the low-uncertainty work and defers validating the uncertain thing. PRD-23 doc: `agent-system/plans/PRD-23-market-screener-mode.md` (PR #206 draft). The §4 "Multi-asset filter → rank → top-K" parked item is now **superseded by PRD-23**.
+**Why not finish all of 22b first:** the screener's risk is its new architecture/UX, not primitive count; new primitives are additive (no rework); finishing the catalog first front-loads the low-uncertainty work and defers validating the uncertain thing. **PRD-23 packet** (HANDOFF + sliced PRDs, mirroring the catalog-v2 packet): `agent-system/plans/HANDOFF-livermore-market-screener.md` + `PRD-23a-screener-backend-spine.md` (snapshot + scan + rank) + `PRD-23b-screener-mode-ui.md` (flow + composer + results) + `PRD-23c-screener-track-intraday.md` (save→notify + intraday). The §4 "Multi-asset filter → rank → top-K" parked item is now **superseded by PRD-23**.
 
 ---
 
