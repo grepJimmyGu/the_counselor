@@ -476,17 +476,50 @@ class BacktestEngine:
         """Apply the rule's operator + threshold to a primitive's value
         Series, producing a boolean Series.
 
-        Operators supported: gt, gte, lt, lte. crosses_above / crosses_below
-        and equality-class are out of scope for v1 (the composer UI
-        renders gt/gte/lt/lte chips only).
+        VALUE operators (gt/gte/lt/lte) compare against a numeric threshold;
+        when `threshold` is None the primitive's own value is the boolean
+        (e.g. `donchian_breakout` returns 0/1 already).
 
-        When the rule's `threshold` is None, we treat the primitive's
-        own value as the boolean (e.g. donchian_breakout returns 0/1
-        already)."""
+        PRD-22c kind-dispatch operators read the primitive's *emitted shape*
+        directly — no numeric threshold:
+            fires        → value != 0           (EVENT)
+            is_true      → bool(value)          (LEVEL)
+            crosses_up   → value == +1          (CROSS, bullish)
+            crosses_down → value == -1          (CROSS, bearish)
+            in_range     → between(min, max)    (DISTANCE; threshold={min,max})
+            equals       → value == target      (REGIME; threshold=code/str)
+            divergence_* → value == ±1          (DIVERGENCE)
+
+        These are evaluated FIRST so the legacy numeric path below stays
+        byte-identical for the gt/gte/lt/lte operators (no-regression)."""
+        op = rule.operator or "gt"
+
+        # ── Shape-reading operators (no numeric threshold) ────────────────────
+        if op == "fires":
+            return value_series != 0
+        if op == "is_true":
+            return value_series.astype(bool)
+        if op in ("crosses_up", "crosses_above", "divergence_bullish"):
+            return value_series == 1
+        if op in ("crosses_down", "crosses_below", "divergence_bearish"):
+            return value_series == -1
+        if op == "in_range":
+            rng = rule.threshold if isinstance(rule.threshold, dict) else {}
+            lo = float(rng.get("min", float("-inf")))
+            hi = float(rng.get("max", float("inf")))
+            lo, hi = (lo, hi) if lo <= hi else (hi, lo)
+            return value_series.between(lo, hi)
+        if op == "equals":
+            target = rule.threshold
+            try:
+                return value_series == float(target)
+            except (TypeError, ValueError):
+                return value_series.astype(str) == str(target)
+
+        # ── Numeric VALUE operators (legacy path — unchanged behavior) ────────
         if rule.threshold is None:
             return value_series.astype(bool)
         threshold = float(rule.threshold)
-        op = rule.operator or "gt"
         if op == "gt":
             return value_series > threshold
         if op == "gte":
@@ -496,7 +529,7 @@ class BacktestEngine:
         if op == "lte":
             return value_series <= threshold
         raise ValueError(
-            f"custom_build operator '{op}' not supported (use gt/gte/lt/lte)"
+            f"custom_build operator '{op}' not supported"
         )
 
     def _generate_weights(

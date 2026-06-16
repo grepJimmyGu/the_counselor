@@ -278,15 +278,19 @@ def test_operators_apply_correctly(operator: str, expected_fn) -> None:
     pd.testing.assert_series_equal(result, expected, check_names=False)
 
 
-def test_unsupported_operator_raises() -> None:
+def test_v2_cross_operator_now_evaluated_not_raised() -> None:
+    # PRD-22c (slice a): the v2 kind operators (crosses_above/up, fires,
+    # in_range, equals, divergence_*) are now evaluated by the custom_build
+    # fold — previously `crosses_above` was "out of scope" and raised. It now
+    # maps to the ±1 cross semantics; on `sma` (whose values are never ±1) the
+    # block is all-False, but crucially it does NOT raise.
     closes = _synthetic_close_matrix()
     engine = BacktestEngine()
-    # `crosses_above` is in the existing StrategyRule operator enum but
-    # not supported by the v1 custom_build fold.
-    rules = [StrategyRule(primitive_id="sma", operator="crosses_above",
-                          threshold=100.0)]
-    with pytest.raises(ValueError, match="not supported"):
-        engine._evaluate_custom_build_block(rules, closes, "SPY", _synthetic_ohlcv(closes))
+    rules = [StrategyRule(primitive_id="sma", operator="crosses_above")]
+    block = engine._evaluate_custom_build_block(
+        rules, closes, "SPY", _synthetic_ohlcv(closes))
+    assert isinstance(block, pd.Series)
+    assert not block.any()  # sma never equals +1
 
 
 def test_no_threshold_treats_primitive_as_boolean() -> None:
