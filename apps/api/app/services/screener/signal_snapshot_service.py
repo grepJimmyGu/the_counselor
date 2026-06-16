@@ -1,0 +1,302 @@
+"""SignalSnapshotService — pre-warm + read the screener's primitive cache (PRD-23a §3.3-3.5).
+
+Computes the latest value of every *locally-computable price* primitive for a
+universe symbol from cached `price_bars` (NO live AV/FMP fetch), and reads
+those values back as an in-memory frame the scan filters over.
+
+Fidelity contract (why the scan == the backtest): the stored value is exactly
+what `BacktestEngine._apply_rule_threshold` consumes at the last bar — the raw
+last finite value of `provider._compute(frame)`, where `frame` is built the
+same way the engine builds it (close = adjusted_close; real OHLV/volume). The
+scan (slice 3) re-wraps the stored scalar into a 1-element Series and calls the
+SAME evaluator, so a screen match is byte-identical to the backtest's signal on
+the snapshot date.
+
+Scope: the ~52 primitives whose provider is a local `TechnicalSignalProvider`
+(not an AV-endpoint one) — exactly the set the custom_build engine can backtest
+synchronously. AV-endpoint technicals + fundamentals/sentiment are excluded
+(they'd need the forbidden live fetch); a fundamental snapshot is a documented
+follow-up.
+
+Default parameterization: each primitive is warmed at its catalog-default
+params (the "lego brick" default). A rule's operator/threshold still apply at
+scan time (RSI < 30 works); only a rule that overrides the *indicator period*
+diverges from the snapshot — a documented v1 limitation.
+"""
+from __future__ import annotations
+
+import logging
+import math
+from dataclasses import dataclass
+from datetime import date, datetime
+from functools import lru_cache
+from typing import Dict, List, Optional, Sequence, Tuple
+
+import pandas as pd
+from sqlalchemy import delete, select
+from sqlalchemy.orm import Session
+
+from app.models.signal_snapshot import SignalSnapshot
+
+logger = logging.getLogger("livermore.screener.snapshot")
+
+# Wide enough to warm the longest-lookback local primitive (52-week extrema,
+# ~252 trading days) at the latest bar, with buffer. get_price_frame fetches
+# [end - lookback - 10, end], so ~345 trading days of history.
+SNAPSHOT_LOOKBACK_DAYS = 500
+
+
+# Provider/primitive pairing for the snapshot-able set. A pair is one
+# (catalog primitive, its stateless provider at default params). Providers are
+# pure over `_compute(frame)`, so a single instance is reused across all
+# symbols.
+ProviderPair = Tuple[object, object]
+
+
+@lru_cache(maxsize=1)
+def local_price_providers() -> Tuple[ProviderPair, ...]:
+    """The (primitive, provider) pairs the daily snapshot covers: local
+    `TechnicalSignalProvider`s only (not AV-endpoint, not fundamental)."""
+    from app.data.signal_primitives import SIGNAL_PRIMITIVES
+    from app.services.backtester.signal_provider import get_signal_provider
+    from app.services.backtester.technical_signal_providers import (
+        AVTechnicalSignalProvider,
+        TechnicalSignalProvider,
+    )
+
+    pairs: List[ProviderPair] = []
+    for primitive in SIGNAL_PRIMITIVES:
+        provider = get_signal_provider(primitive.provider_impl)
+        if isinstance(provider, TechnicalSignalProvider) and not isinstance(
+            provider, AVTechnicalSignalProvider
+        ):
+            pairs.append((primitive, provider))
+    return tuple(pairs)
+
+
+def snapshot_primitive_ids() -> List[str]:
+    """The primitive ids covered by the daily snapshot (introspection / tests)."""
+    return [p.id for p, _ in local_price_providers()]
+
+
+@dataclass
+class SnapshotFrame:
+    """An in-memory view of the snapshot for a set of symbols.
+
+    `frame`: index = symbol, columns = primitive_id, cell = stored value
+    (NaN where a symbol has no row for that primitive — a *null cell* the scan
+    must exclude from any referencing rule, never treat as a real value).
+    `as_of_date`: the freshest snapshot date among the rows (visible stamp).
+    """
+
+    frame: pd.DataFrame
+    as_of_date: Optional[date]
+
+
+def _engine_frame(raw: pd.DataFrame) -> pd.DataFrame:
+    """Rebuild the OHLCV frame the way `BacktestEngine` feeds providers: close =
+    adjusted_close (so close-based indicators match the backtest exactly), with
+    real open/high/low/volume."""
+    close = raw["adjusted_close"]
+    return pd.DataFrame(
+        {
+            "open": raw["open"],
+            "high": raw["high"],
+            "low": raw["low"],
+            "close": close,
+            "adjusted_close": close,
+            "volume": raw["volume"],
+        }
+    )
+
+
+def _last_finite(series: Optional[pd.Series]) -> Optional[float]:
+    """The last non-NaN, finite value of a series, or None — never fabricate."""
+    if series is None or len(series) == 0:
+        return None
+    cleaned = series.dropna()
+    if cleaned.empty:
+        return None
+    value = float(cleaned.iloc[-1])
+    return value if math.isfinite(value) else None
+
+
+def compute_values_from_frame(
+    frame: Optional[pd.DataFrame],
+    providers: Optional[Sequence[ProviderPair]] = None,
+) -> Tuple[Dict[str, float], Optional[date]]:
+    """PURE core: a price frame -> {primitive_id: latest value} + as_of_date.
+
+    Only finite values are returned (un-computable primitives are omitted — no
+    null/placeholder rows). `as_of_date` is the latest bar's date, or None if
+    the frame is empty.
+    """
+    if frame is None or frame.empty:
+        return {}, None
+
+    pairs = providers if providers is not None else local_price_providers()
+    eframe = _engine_frame(frame)
+    as_of = pd.Timestamp(eframe.index[-1]).date()
+
+    values: Dict[str, float] = {}
+    for primitive, provider in pairs:
+        try:
+            series = provider._compute(eframe)
+        except Exception:
+            # One bad primitive must not sink the whole symbol's snapshot.
+            logger.exception(
+                "signal_snapshot: _compute failed for primitive '%s'", primitive.id
+            )
+            continue
+        value = _last_finite(series)
+        if value is not None:
+            values[primitive.id] = value
+    return values, as_of
+
+
+class SignalSnapshotService:
+    def __init__(self, price_svc=None) -> None:
+        # Lazily import so the service module is importable without dragging the
+        # full price stack into unit tests of the pure core.
+        if price_svc is None:
+            from app.services.price_data_service import PriceDataService
+
+            price_svc = PriceDataService()
+        self.price_svc = price_svc
+
+    # ── write path ────────────────────────────────────────────────────────────
+
+    def write_symbol(
+        self,
+        db: Session,
+        symbol: str,
+        values: Dict[str, float],
+        as_of: date,
+        *,
+        resolution: str = "daily",
+    ) -> int:
+        """Idempotent upsert: replace all rows for (symbol, resolution) with the
+        freshly computed set. Delete-then-insert so a primitive that stops
+        computing loses its (now-stale) row. Flushes; the CALLER commits."""
+        symbol = symbol.upper()
+        db.execute(
+            delete(SignalSnapshot).where(
+                SignalSnapshot.symbol == symbol,
+                SignalSnapshot.resolution == resolution,
+            )
+        )
+        now = datetime.utcnow()
+        db.add_all(
+            [
+                SignalSnapshot(
+                    symbol=symbol,
+                    primitive_id=pid,
+                    resolution=resolution,
+                    value=value,
+                    as_of_date=as_of,
+                    computed_at=now,
+                )
+                for pid, value in values.items()
+            ]
+        )
+        db.flush()
+        return len(values)
+
+    async def warm_symbol(
+        self,
+        db: Session,
+        symbol: str,
+        *,
+        resolution: str = "daily",
+        as_of: Optional[date] = None,
+    ) -> int:
+        """Fetch this symbol's cached bars, compute every snapshot primitive's
+        latest value, and persist them. Returns the row count written (0 if the
+        symbol has no bars — a null/skip, never a fabricated row)."""
+        symbol = symbol.upper()
+        end = as_of or date.today()
+        frame = await self.price_svc.get_price_frame(
+            db, symbol, end, end, lookback_days=SNAPSHOT_LOOKBACK_DAYS
+        )
+        values, frame_as_of = compute_values_from_frame(frame)
+        if frame_as_of is None:
+            logger.info("signal_snapshot: '%s' has no cached bars — skipped", symbol)
+            return 0
+        return self.write_symbol(
+            db, symbol, values, frame_as_of, resolution=resolution
+        )
+
+    async def warm_universe(
+        self,
+        db: Session,
+        symbols: Sequence[str],
+        *,
+        resolution: str = "daily",
+        as_of: Optional[date] = None,
+    ) -> Dict[str, int]:
+        """Warm the whole universe, committing per symbol (short transactions —
+        traps #13/#21). Returns a summary and logs the totals (trap #10)."""
+        ok = empty = total_rows = 0
+        for symbol in symbols:
+            try:
+                n = await self.warm_symbol(
+                    db, symbol, resolution=resolution, as_of=as_of
+                )
+                db.commit()
+            except Exception:
+                db.rollback()
+                logger.exception("signal_snapshot: warm failed for '%s'", symbol)
+                empty += 1
+                continue
+            if n > 0:
+                ok += 1
+                total_rows += n
+            else:
+                empty += 1
+        logger.info(
+            "signal_snapshot warm complete: %d symbols ok, %d empty, %d rows "
+            "(resolution=%s)",
+            ok,
+            empty,
+            total_rows,
+            resolution,
+        )
+        return {"symbols_ok": ok, "symbols_empty": empty, "rows": total_rows}
+
+    # ── read path ─────────────────────────────────────────────────────────────
+
+    def get_snapshot(
+        self,
+        db: Session,
+        symbols: Sequence[str],
+        *,
+        resolution: str = "daily",
+    ) -> SnapshotFrame:
+        """Load the snapshot rows for `symbols` into one in-memory frame the
+        scan filters over (one indexed query). Missing cells are NaN."""
+        syms = [s.upper() for s in symbols]
+        if not syms:
+            return SnapshotFrame(frame=pd.DataFrame(), as_of_date=None)
+
+        rows = (
+            db.execute(
+                select(SignalSnapshot).where(
+                    SignalSnapshot.symbol.in_(syms),
+                    SignalSnapshot.resolution == resolution,
+                )
+            )
+            .scalars()
+            .all()
+        )
+        if not rows:
+            return SnapshotFrame(frame=pd.DataFrame(index=syms), as_of_date=None)
+
+        data: Dict[str, Dict[str, float]] = {}
+        as_of: Optional[date] = None
+        for row in rows:
+            data.setdefault(row.symbol, {})[row.primitive_id] = row.value
+            if as_of is None or row.as_of_date > as_of:
+                as_of = row.as_of_date
+
+        frame = pd.DataFrame.from_dict(data, orient="index").reindex(syms)
+        return SnapshotFrame(frame=frame, as_of_date=as_of)
