@@ -30,6 +30,7 @@ Adding a new entry:
 from __future__ import annotations
 
 from app.schemas.signal_primitive import (
+    OutputKind,
     Parameter,
     SignalCategory,
     SignalPrimitive,
@@ -171,6 +172,7 @@ _TREND: list[SignalPrimitive] = [
         evidence_tier="A",
         provider_impl="ma_crossover",
         data_source="price",
+        output_kind=OutputKind.CROSS,
     ),
     SignalPrimitive(
         id="macd",
@@ -196,6 +198,7 @@ _TREND: list[SignalPrimitive] = [
         evidence_tier="A",
         provider_impl="macd",
         data_source="price",
+        output_channels=["macd_line", "signal_line", "histogram"],
     ),
     SignalPrimitive(
         id="adx",
@@ -218,6 +221,7 @@ _TREND: list[SignalPrimitive] = [
         evidence_tier="A",
         provider_impl="adx",
         data_source="price",
+        output_channels=["adx", "plus_di", "minus_di"],
     ),
     SignalPrimitive(
         id="aroon",
@@ -323,6 +327,7 @@ _MEAN_REVERSION: list[SignalPrimitive] = [
         evidence_tier="A",
         provider_impl="stoch",
         data_source="price",
+        output_channels=["k", "d"],
     ),
     SignalPrimitive(
         id="stochrsi",
@@ -413,6 +418,7 @@ _MEAN_REVERSION: list[SignalPrimitive] = [
         evidence_tier="A",
         provider_impl="bbands",
         data_source="price",
+        output_channels=["upper", "lower", "middle"],
     ),
     SignalPrimitive(
         id="mfi",
@@ -565,6 +571,7 @@ _MOMENTUM: list[SignalPrimitive] = [
         evidence_tier="A",
         provider_impl="donchian_breakout",
         data_source="price",
+        output_kind=OutputKind.EVENT,
     ),
     SignalPrimitive(
         id="time_series_momentum",
@@ -848,6 +855,7 @@ _VOLATILITY: list[SignalPrimitive] = [
         evidence_tier="B",
         provider_impl="vol_regime",
         data_source="price",
+        output_kind=OutputKind.REGIME,
     ),
 ]
 

@@ -100,3 +100,20 @@ def test_response_includes_at_least_one_primitive_per_category(category: str) ->
     body = r.json()
     matches = [p for p in body["primitives"] if p["category"] == category]
     assert len(matches) >= 1, f"No primitives returned for category '{category}'"
+
+
+def test_catalog_exposes_v2_semantic_fields() -> None:
+    """PRD-22a: every catalog row carries output_kind / output_channels /
+    composes so the composer (PRD-22c) can dispatch on semantic kind.
+    Serialization is automatic via Pydantic once the schema accepts them."""
+    valid_kinds = {
+        "value", "event", "regime", "level", "distance", "cross", "divergence",
+    }
+    r = client.get("/api/signal-primitives")
+    assert r.status_code == 200
+    for entry in r.json()["primitives"]:
+        assert entry["output_kind"] in valid_kinds, entry["id"]
+        # Always at least one channel; default single-channel is ["value"].
+        assert isinstance(entry["output_channels"], list)
+        assert entry["output_channels"], entry["id"]
+        assert isinstance(entry["composes"], list)

@@ -2689,6 +2689,18 @@ export interface SignalPrimitiveParameter {
   description: string;
 }
 
+/** Semantic shape of the signal a primitive emits at each bar (PRD-22a).
+ *  Drives the composer's kind-specific rule-builder (PRD-22c). Mirrors
+ *  `OutputKind` in `apps/api/app/schemas/signal_primitive.py`. */
+export type SignalOutputKind =
+  | "value"
+  | "event"
+  | "regime"
+  | "level"
+  | "distance"
+  | "cross"
+  | "divergence";
+
 /** One catalog row. Mirrors `SignalPrimitive` in the backend schema. */
 export interface SignalPrimitive {
   id: string;
@@ -2706,6 +2718,16 @@ export interface SignalPrimitive {
   resolution: ("daily" | "intraday")[];
   is_ranking: boolean;
   compute_strategy: "local" | "av_endpoint";
+  // ── PRD-22a semantics layer (additive; backward-compatible defaults) ──
+  /** Semantic kind. v1 default = "value" (the existing threshold widget). */
+  output_kind: SignalOutputKind;
+  /** Named channels emitted. Single-channel primitives are ["value"];
+   *  MACD/ADX/Stoch/Bollinger declare several. These names are a public
+   *  contract once shipped — never rename, only deprecate. */
+  output_channels: string[];
+  /** Parent primitive ids this is derived from. [] for standalone v1
+   *  primitives; populated by PRD-22b's derived primitives. */
+  composes: string[];
 }
 
 /** Response for `GET /api/signal-primitives`. The `version_hash` is the
