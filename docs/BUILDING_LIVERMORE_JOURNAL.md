@@ -2141,3 +2141,39 @@ Three env vars away from a fully active end-to-end alert + triage loop. Held bac
 *"PR #138's 'verified live in production' was one curl that returned 2 seconds. The bug needed concurrency to manifest. It took two days to find users. The fix took 30 minutes. The four PRs to make sure I find the NEXT bug myself — before users do — took the rest of the day. Reliability isn't a feature; it's the four cheap layers between 'something broke' and 'someone is diagnosing.'"*
 
 *Last updated: 2026-06-07 (evening, Episode 34 added).*
+
+---
+
+### Episode 41 — Backfilling the catalog: 18 trader-grade primitives, and three "broken" tests that were really broken fixtures (June 16)
+
+The Market Screener (PRD-23a/b) shipped and warmed a real S&P snapshot, which lifted the catalog freeze. The plan all along was to backfill PRD-22b's deferred indicator families *incrementally* once the screener loop was proven — each a small additive PR that immediately makes the live screener more powerful. Today was the first two slices.
+
+**What shipped (PR #215, catalog 69 → 87):**
+- **Slice 1 — MA + MACD events (9):** `price_above_ma`, `price_ma_cross_up`/`_down`, `golden_cross`, `death_cross`, `ma_slope_positive`, `macd_signal_cross`, `macd_histogram_flip`, `macd_zero_line_cross`. The MA/MACD families used to emit only VALUE scalars and made the user threshold a number. Now the composer can say "golden cross fired."
+- **Slice 2 — RSI + Stochastic + ADX/DMI events (9):** `rsi_oversold`/`overbought`, `stoch_k_d_cross`, `stoch_oversold_cross_up`/`overbought_cross_down`, `adx_regime`, `adx_rising`, `di_cross_bullish`/`bearish`.
+
+All 18 are local `TechnicalSignalProvider`s, so they auto-join the daily snapshot and become screenable on the next warm — no wiring. The encoding is dictated by the engine's `_apply_rule_threshold`: CROSS = +1/−1/0, EVENT = nonzero on the transition bar, LEVEL = 1-while-true, REGIME = discrete code. Descriptions came straight from the v2 catalog spec's own family prose — the editorial gate is the PR review, not an LLM writing copy.
+
+**The discipline that mattered: don't improvise the taxonomy.** A prior session had invented an `intent_group` enum out of thin air; Mr Gu caught it ("where did you get this? let's not improvise") and is running the intent taxonomy as proper deep research. So today every new primitive lets `intent_group` *auto-derive from category* — nobody hand-assigns a chip. The whole reading/intent layer gets corrected wholesale when the research lands. Restraint as a feature.
+
+**The one genuinely interesting design call:** `macd_histogram_flip` (EVENT) and `macd_signal_cross` (CROSS) are *the same event*. Histogram = macd_line − signal_line, so the histogram changing sign IS the MACD line crossing its signal line — byte-identical bars. The v2 spec lists both, distinguished only by `output_kind` (a direction-agnostic "momentum flipped" trigger vs a direction-aware picker). Shipped both per the spec, but flagged the identity loudly (docstring + PR body) and wrote a test that *asserts they're equal* — so if anyone "fixes" one into an inflection detector later, the wire trips and the decision gets re-made on purpose.
+
+#### Bug log — three "failing" tests that were correct code + broken fixtures
+
+The providers were right; my synthetic test frames were too clean to exercise them. All three used `high==low==close` ramps — and degenerate ramps break indicator maths in ways that look like provider bugs:
+
+1. **`rsi_overbought` "doesn't fire on a rally."** A *pure* monotonic rise has zero down-bars → `avg_loss = 0` → `rs = avg_gain/0 = NaN` → RSI is **undefined, not 100**. Fix: a rally fixture with periodic 1-pt pullbacks so the loss term exists.
+2. **`adx_rising` "never True in a strong trend."** A *perfectly linear* decline produces a **constant** DX (≈100), and `ewm(constant) = constant`, so ADX is a dead-flat line — never "higher than N bars ago." Fix: a choppy→trend fixture so ADX climbs off a low base.
+3. **`stoch_overbought_cross_down` "never fires off the top."** With `high==low==close`, a one-directional move pins `%K` (then `%D`) to 0/100, so `%K==%D` and the "above→below" transition never happens. Fix: a 90↔110 triangle so the lines oscillate and cross at mid-range.
+
+And one real *provider* refinement the fixtures surfaced: the stochastic zone-cross events originally gated on `%K < oversold`. But `%K` rockets off a sharp bottom and is already above 20 by the bar it crosses `%D` — so the trigger silently never fired. Switched the gate to the **`%D` signal line** (it lags, stays in-zone at the cross) — both more correct and the standard read. Now a lesson in `docs/LEARNINGS.md` under "Signal primitives + indicators."
+
+Also extracted `_adx_components(frame, period) → (adx, +DI, −DI)` as the single source of truth so `adx` and its four new children stay byte-consistent (the `composes=["adx"]` contract) — the kind of refactor that pays for itself the first time someone tweaks the ADX formula.
+
+**Where it stands:** 1796 backend tests green (22 new), merged clean. Slices 3-6 (Bollinger, Supertrend + Anchored VWAP, momentum z-scores + Heikin-Ashi, and a numpy peak/trough divergence detector) are scoped to the primitive in `docs/PROJECT_BACKLOG.md` §4, each a 1-PR add on the now-locked build pattern. The fundamental/event family stays deferred until there's an earnings-calendar source.
+
+#### Content hook
+
+*"Three tests failed and every instinct said 'the indicator is wrong.' All three were the opposite: the indicator was right and my test data was too clean to make it do anything. A pure straight-line rally has no losses, so RSI divides by zero. A perfectly steady trend has constant directional movement, so ADX flatlines and can never 'rise.' An indicator's interesting behavior lives entirely in its turns and curvature — feed it a ruler and it has nothing to measure."*
+
+*Last updated: 2026-06-16 (Episode 41 added — PRD-22b catalog backfill slices 1-2).*
