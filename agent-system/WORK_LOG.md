@@ -9,6 +9,30 @@
 
 ## Current Session
 
+**Status:** 2026-06-17 — **PRD-23c (Market Screener: Discover → Track) PR1 + PR2 shipped + merged.** A standing screen can now be **saved, tracked, and it alerts on new basket entrants** — the save→track→notify loop is live and the "Save + track" CTA works end-to-end (Strategist+ gated). Two pieces remain (see Next action) — **one of which closes a rough edge PR2 introduced.**
+
+**Shipped this session:**
+
+| PR | Scope |
+|---|---|
+| #220 | PRD-23c PR1 — backend core. `screen_basket_member` table (append-only membership → current basket + entrant/exit history); `saved_screen_service.rescan_and_diff()` (re-scans via the SAME `scan()` the route uses, transition-only diff, idempotent per `as_of_date`); `POST /api/screen/save` (Strategist+ gated via new `screen_tracking_locked` 402, standing-universe-only, **seeds the basket SILENTLY** so the first cron tick doesn't storm); `monitor_saved_screens` cron (23:30 UTC, gated by `SCREENER_SNAPSHOT_ENABLED`, reuses the PRD-19 dispatcher + throttle — one `SignalEvent` + banner/email per new entrant; sync def on APScheduler's threadpool, traps #21/#22 safe). 12 tests. |
+| #221 | PRD-23c PR2 — the UI half. `GET /api/screen/saved` + `/saved/{id}` (basket + entrant/exit history, owner-gated 404); the disabled "Coming soon" button → a working **"Save + track"** CTA (saves the composed screen, shows "✓ Tracking — watching N names", Strategist+ gate for anon, Scout 402 → upgrade modal); `saveScreen`/`getSavedScreen`/`listSavedScreens` api + contracts. +5 backend e2e (incl. Scout→402, non-owner→404) + 2 vitest; full suite **1982 green**, 126 routes, `npm run build` clean. |
+
+**Design decisions (Mr Gu, confirmed):** tier gate = **Strategist + Quant**; **backend-first** order (PR1 backend → PR2 UI → PR3 intraday); sibling cron (not extending `compute_all_signals`); new table (for history); transition-only alerts.
+
+### Next action — finish the PRD-23c packet
+1. **PR2c — saved-screen view + the rough-edge fix (NOT optional).** PR2 created a gap: a saved screen is a `SavedStrategy` (`kind="screen"`), and `GET /api/strategies` (`list_saved_strategies`, `app/api/routes/saved_strategies.py:54`) returns ALL of a user's SavedStrategies with **NO filter** — so a saved screen **leaks into "My Strategies"** and, when clicked, routes to the strategy-detail page which expects a *backtest* → renders broken/empty. PR2c must: **(a)** filter `kind=="screen"` out of the strategies list (or route screens to their own view), and **(b)** build the standalone **`/screens/[id]` dashboard** (current basket + entrant/exit history via `getSavedScreen`) + a **"My Screens"** list. The backend reads (#221) already back it. This is in the PRD-23c §3.3 DoD.
+2. **PR3 — intraday snapshot (genuinely optional).** The spec frames intraday as "the option": warm a `resolution='intraday'` `signal_snapshot` on the PRD-16c FMP cadence so the scan runs mid-session; tier-gate intraday screens. Daily already works — additive value, not a gap.
+3. **Then mark the PRD-23 packet complete** (HANDOFF brick inventory + backlog row).
+
+**Resume context:** branch off `origin/main`; the 23c code lives in `app/services/screener/saved_screen_service.py`, `app/jobs/saved_screen_cron.py`, `app/models/screen_basket_member.py`, `app/api/routes/screen.py` (`/save`, `/saved`, `/saved/{id}`), `apps/web/.../bricks/screener-results.tsx` (the CTA). Tests: `tests/test_saved_screen_tracking.py`.
+
+**Carry-forwards (unchanged):** PRD-22b deferred remnants (Fundamental+Events needs an earnings calendar; 2 cross-sectional momentum z-scores; 2 RSI failure swings); operationalize the **intent taxonomy** when the research lands (still auto-derived from category, unused in UI); the **prewarm-universe registry + Nasdaq-100**; the two #215 editorial follow-ups (`macd_histogram_flip` identity; `intent_group`).
+
+---
+
+### Prior checkpoint — 2026-06-16 (PRD-22b catalog backfill complete)
+
 **Status:** 2026-06-16 — **PRD-22b local catalog backfill COMPLETE (catalog 110).** The Market Screener (PRD-23a/b) is live on a real S&P snapshot, which lifted the catalog freeze; this session ran the incremental indicator-family backfill to completion across slices 1-6. Catalog **69 → 87 → 110 primitives**. All 23 slice-3-6 additions are local `TechnicalSignalProvider`s → they auto-join the daily screener snapshot + scan. What's left of PRD-22b is the deliberately-deferred remnants (need an earnings-calendar source / universe standardization / a distinct Wilder pattern — see Next action).
 
 **Shipped this session:**

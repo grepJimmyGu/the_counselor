@@ -2211,3 +2211,49 @@ The composes-contract refactor also reached its final shape across the whole bac
 *"A metric read −38 on a chart that was climbing in a clean straight line — the one case it was built to call 'steady.' The code was 'right': it subtracted a 3-month return from a 9-month return, exactly as written. But a 9-month return is mechanically bigger than a 3-month one because money compounds, so the subtraction was quietly measuring how strong the trend was, not whether it was speeding up. Two slashes fixed it — divide each return by its own number of months first. Anytime you difference two windows of different length, normalize to a rate before you subtract, or you'll measure size when you meant to measure change."*
 
 *Last updated: 2026-06-16 (Episode 42 added — PRD-22b catalog backfill slices 3-6, catalog → 110).*
+
+---
+
+### Episode 43 — The screen that watches the market for you (June 17)
+
+With the catalog filled out, the Market Screener got its third act: PRD-23c,
+"Discover → Track." 23a/b let you *find* a basket; 23c turns a one-time scan
+into a standing screen — save it, and a nightly cron re-scans, diffs the basket,
+and pings you when a **new name** enters. The trick was that we'd already built
+the whole notification machine for PRD-19 (single-strategy signal alerts), so
+23c is almost entirely *reuse*: a saved screen is just a `SavedStrategy`
+(`kind="screen"`), and a new name entering its basket is just a `SignalEvent`
+flowing through the same dispatcher + throttle. The only genuinely new state is
+a `screen_basket_members` table — append-only membership rows so "current
+basket" is `exited_date IS NULL` and re-entries keep the full history.
+
+**Shipped, both merged the same day:** PR1 (#220) — the table, the
+`rescan_and_diff` service (re-scans through the *same* `scan()` the live route
+uses, so a tracked screen and a fresh scan agree byte-for-byte; transition-only;
+idempotent), the tier-gated `POST /api/screen/save` (which **seeds the initial
+basket silently** so the first cron tick doesn't fire fifty "new entrant"
+alerts), and the `monitor_saved_screens` cron. PR2 (#221) — the read endpoints
+and the moment the "Save + track" button stopped saying *"Coming soon"* and
+started actually working.
+
+**The honest part.** When Mr Gu asked "why are both remaining pieces optional?"
+I'd been sloppy — I'd lumped the saved-screen *dashboard* (PR2c) in with the
+*intraday* option (PR3) and called both optional. Checking the code made the
+difference obvious and made me wrong about PR2c: `GET /api/strategies` returns
+*all* of a user's SavedStrategies with no filter, so the screens I was now
+creating would **leak into "My Strategies"** and render broken on the
+strategy-detail page (which expects a backtest). That's not optional — it's a
+rough edge PR2 *introduced*. PR3 (intraday) genuinely is optional; the spec even
+calls it "the option." Good reminder that "optional" should mean "the product is
+complete without it," not "I haven't built it yet."
+
+#### Content hook
+
+*"The feature was 'done' — you could save a screen and it would email you when a
+new stock matched. Then someone asked why the last two tickets were optional,
+and checking the code turned up the answer: the thing I'd just shipped quietly
+put a broken page into every user's saved-strategies list. The loop worked; the
+loose end was real. 'Optional' has to mean the product stands without it — not
+that I simply hadn't gotten to it."*
+
+*Last updated: 2026-06-17 (Episode 43 added — PRD-23c PR1 + PR2; the rough edge flagged for PR2c).*
