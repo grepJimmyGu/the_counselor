@@ -1538,3 +1538,47 @@ Encoding still matches the engine (CROSS/EVENT ±1, LEVEL 1-while-true, REGIME d
 - **2 cross-sectional momentum z-scores** (`momentum_12_1_zscore`, `momentum_composite_zscore`) — need universe standardization (MSCI-style, per-symbol snapshot can't compute).
 - **2 RSI failure swings** — a distinct multi-point Wilder pattern, not a pivot divergence.
 
+---
+
+## 2026-06-17 — Market Screener: Discover → Track (PRD-23c PR1 + PR2)
+
+### What shipped
+
+Turns a one-time screener scan into a **standing screen**: save it, and the cron
+alerts you when a NEW name enters the matched basket. Reuses the PRD-19
+notification stack wholesale (no new machinery).
+
+- **PR1 (#220) — backend core (save → track → notify):** `screen_basket_member`
+  table (append-only membership → current basket + entrant/exit history);
+  `saved_screen_service.rescan_and_diff()` (re-scans via the SAME `scan()` the
+  live route uses; transition-only; idempotent per `as_of_date`);
+  `POST /api/screen/save` (Strategist+ gated via the new `screen_tracking_locked`
+  402; standing-universe only; seeds the initial basket silently);
+  `monitor_saved_screens` cron (23:30 UTC, gated by `SCREENER_SNAPSHOT_ENABLED`;
+  one `SignalEvent` + in-app banner + best-effort email per new entrant; sync
+  def on APScheduler's threadpool — traps #21/#22 safe). 12 tests.
+- **PR2 (#221) — the UI half:** `GET /api/screen/saved` + `/saved/{id}` (basket +
+  entrant/exit history, owner-gated 404); the disabled "Coming soon" button →
+  a working **"Save + track"** CTA (saves the composed screen, "✓ Tracking —
+  watching N names" confirmation, Strategist+ gate for anonymous, Scout 402 →
+  upgrade modal); `saveScreen`/`getSavedScreen`/`listSavedScreens` api + types.
+  +5 backend e2e (incl. Scout→402, non-owner→404) + 2 vitest; full suite **1982
+  passed**, 126 routes, `npm run build` clean.
+
+### Known rough edge to fix next (PR2c)
+
+A saved screen is a `SavedStrategy` (`kind="screen"`), and
+`GET /api/strategies` returns ALL of a user's SavedStrategies with **no filter**
+— so a saved screen currently **leaks into "My Strategies"** and would render
+broken on the strategy-detail page (which expects a backtest). PR2c must filter
+screens out of that list (or route them to their own view) AND ship the
+standalone `/screens/[id]` dashboard + "My Screens" list. This is the next task
+(see `agent-system/WORK_LOG.md`).
+
+### Deferred
+
+- **PR2c** — the screen dashboard/list + the rough-edge fix above (NOT optional;
+  spec §3.3 DoD).
+- **PR3** — intraday snapshot (`resolution='intraday'`), genuinely optional (the
+  spec's "the option"); daily screening already works.
+
