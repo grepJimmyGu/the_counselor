@@ -19,18 +19,28 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.api.deps_entitlement import require_entitlement
+from app.api.entitlement_errors import upgrade_error
 from app.data.sp500_tickers import SP500_TICKERS
 from app.db.session import get_db
+from app.models.saved_strategy import SavedStrategy
+from app.models.signal_alert_subscription import SignalAlertSubscription
 from app.models.symbol import SymbolCache
 from app.schemas.screener_scan import (
     RankedSymbol,
     ScreenCountResponse,
     ScreenRankRequest,
     ScreenRankResponse,
+    ScreenSaveRequest,
+    ScreenSaveResponse,
     ScreenScanRequest,
     ScreenScanResponse,
 )
+from app.services.saved_strategy_service import SaveStrategyRequest, save_strategy
 from app.services.screener.rank_service import rank_service
+from app.services.screener.saved_screen_service import (
+    rescan_and_diff,
+    screen_strategy_json,
+)
 from app.services.screener.scan_service import scan
 from app.services.screener.signal_snapshot_service import SignalSnapshotService
 
@@ -180,4 +190,60 @@ async def screen_rank(
         universe_size=result.universe_size,
         unsupported_primitives=result.unsupported_primitives,
         default_param_primitives=result.default_param_primitives,
+    )
+
+
+@router.post("/save", response_model=ScreenSaveResponse)
+async def screen_save(
+    payload: ScreenSaveRequest,
+    auth: tuple = Depends(
+        require_entitlement(needs_run_quota=False, allow_anonymous=False, template_id_field=None)
+    ),
+    db: Session = Depends(get_db),
+) -> ScreenSaveResponse:
+    """Persist a standing screen + start tracking it (PRD-23c §3.1).
+
+    The screen is a `SavedStrategy` (kind="screen"); a `SignalAlertSubscription`
+    wires it into the `monitor_saved_screens` cron, which notifies on each NEW
+    basket entrant. Tier-gated Strategist+ (standing-screen tracking is a paid
+    feature). The initial basket is seeded SILENTLY here so the first cron tick
+    doesn't fire a "new entrant" alert for every current match.
+    """
+    user, ent = auth
+    # Snapshot ORM-bound scalars before any commit expires them (trap #17).
+    user_id: str = user.id
+    tier: str = ent.tier
+
+    if tier not in ("strategist", "quant"):
+        raise upgrade_error(
+            "screen_tracking_locked",
+            current_tier=tier,
+            current_value=tier,
+            limit_value="strategist",
+        )
+
+    sj = screen_strategy_json(payload.universe_id, payload.rules)
+    # save_strategy enforces the per-tier saved-strategy cap + commits.
+    saved = save_strategy(
+        db,
+        user,
+        SaveStrategyRequest(title=payload.title, strategy_json=sj, is_public=False),
+    )
+    saved_id: str = saved.id
+
+    # Subscribe so the cron tracks it + dispatches new-entrant alerts.
+    db.add(
+        SignalAlertSubscription(
+            user_id=user_id, saved_strategy_id=saved_id, email_enabled=True
+        )
+    )
+    db.commit()
+
+    # Seed the initial basket (writes members; no dispatch happens here).
+    diff = rescan_and_diff(db, db.get(SavedStrategy, saved_id))
+    return ScreenSaveResponse(
+        saved_strategy_id=saved_id,
+        basket=diff.basket,
+        as_of_date=diff.as_of_date,
+        universe_size=diff.universe_size,
     )

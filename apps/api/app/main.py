@@ -395,6 +395,20 @@ def _start_scheduler() -> None:
             max_instances=1,
             misfire_grace_time=3600,
         )
+        # PRD-23c — saved-screen tracker. Fires at 23:30 UTC, AFTER the 23:00
+        # signal_snapshot_warm has refreshed today's snapshot, so each screen's
+        # re-scan reads current values. Re-scans every subscribed screen, diffs
+        # its basket, and notifies on new entrants (transition-only). No-ops
+        # unless SCREENER_SNAPSHOT_ENABLED is set (same gate as the warm).
+        # Plain def on APScheduler's threadpool — mirrors compute_all_signals'
+        # dispatch path (traps #21/#22 safe; holds no shared asyncio primitives).
+        from app.jobs.saved_screen_cron import monitor_saved_screens
+        scheduler.add_job(
+            monitor_saved_screens, "cron", hour=23, minute=30,
+            id="saved_screen_monitor",
+            max_instances=1,
+            misfire_grace_time=3600,
+        )
         # PRD-16c — intraday position monitor. Every 5 minutes during US
         # market hours (M-F, 14:00-20:55 UTC ≈ 10am-4:55pm ET; one hour
         # ahead of NYSE open to cover any pre-market positions). The job
