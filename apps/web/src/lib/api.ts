@@ -18,8 +18,12 @@ import type {
   ScreenCountResponse,
   ScreenRankRequest,
   ScreenRankResponse,
+  ScreenSaveRequest,
+  ScreenSaveResponse,
   ScreenScanRequest,
   ScreenScanResponse,
+  SavedScreenDetail,
+  SavedScreensListResponse,
   StrategyChatResponse,
   StrategyMarkdownParseResponse,
   StrategyJson,
@@ -230,6 +234,35 @@ export async function screenRank(
     method: "POST",
     headers: _bearer(opts.backendToken),
     body: JSON.stringify(body),
+  });
+}
+
+// PRD-23c — save + track a standing screen. All three REQUIRE the token
+// (Strategist+ feature; the save endpoint 402s on Scout via fetchApi's
+// UpgradeRequiredError + the global upgrade modal).
+export async function saveScreen(
+  body: ScreenSaveRequest,
+  opts: { backendToken: string },
+) {
+  return fetchApi<ScreenSaveResponse>("/api/screen/save", {
+    method: "POST",
+    headers: _bearer(opts.backendToken),
+    body: JSON.stringify(body),
+  });
+}
+
+export async function getSavedScreen(
+  savedStrategyId: string,
+  opts: { backendToken: string },
+) {
+  return fetchApi<SavedScreenDetail>(`/api/screen/saved/${savedStrategyId}`, {
+    headers: _bearer(opts.backendToken),
+  });
+}
+
+export async function listSavedScreens(opts: { backendToken: string }) {
+  return fetchApi<SavedScreensListResponse>("/api/screen/saved", {
+    headers: _bearer(opts.backendToken),
   });
 }
 

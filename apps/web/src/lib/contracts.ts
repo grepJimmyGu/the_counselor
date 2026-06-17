@@ -457,6 +457,48 @@ export interface ScreenRankResponse {
   default_param_primitives: string[];
 }
 
+// ── PRD-23c: save + track a standing screen ──────────────────────────────────
+
+export interface ScreenSaveRequest {
+  title: string;
+  universe_id: ScreenUniverseId;
+  rules: StrategyRule[];
+}
+
+export interface ScreenSaveResponse {
+  saved_strategy_id: string;
+  /** The seeded current basket as of the save. */
+  basket: string[];
+  as_of_date: string | null;
+  universe_size: number;
+}
+
+/** One membership stint in a screen's basket (entrant/exit history). */
+export interface ScreenBasketEntry {
+  symbol: string;
+  entered_date: string;
+  exited_date: string | null;
+  is_current: boolean;
+}
+
+export interface SavedScreenSummary {
+  saved_strategy_id: string;
+  title: string;
+  universe_id: string;
+  basket_size: number;
+  created_at: string | null;
+}
+
+export interface SavedScreensListResponse {
+  screens: SavedScreenSummary[];
+}
+
+export interface SavedScreenDetail extends SavedScreenSummary {
+  rules: StrategyRule[];
+  basket: string[];
+  history: ScreenBasketEntry[];
+}
+
 // ── PRD-13b: Portfolio Mode contracts ────────────────────────────────────────
 
 export interface Holding {
