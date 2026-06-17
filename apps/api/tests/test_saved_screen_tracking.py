@@ -246,3 +246,105 @@ def test_save_endpoint_requires_auth():
     finally:
         app.dependency_overrides.pop(get_db, None)
         engine.dispose()
+
+
+# ── authed endpoint e2e: tier-gate (save) + owner-gate (read) ────────────────
+
+from app.api.deps import get_current_user  # noqa: E402
+from app.api.routes.auth import _create_user_with_plan  # noqa: E402
+
+
+@pytest.fixture
+def authed(monkeypatch):
+    """Shared-engine TestClient + a `set_user(tier)` factory. `scan()` is
+    stubbed so /save's basket seed is deterministic."""
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool, future=True
+    )
+    Base.metadata.create_all(engine)
+    Local = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
+    seed = Local()
+    state: dict = {"user": None}
+
+    def _override_db():
+        s = Local()
+        try:
+            yield s
+        finally:
+            s.close()
+
+    app.dependency_overrides[get_db] = _override_db
+    app.dependency_overrides[get_current_user] = lambda: state["user"]
+    monkeypatch.setattr(
+        saved_screen_service, "scan", lambda db, uid, rules, **kw: _scan_result(["AAPL", "MSFT"])
+    )
+
+    def set_user(tier="strategist", email="t@x.com"):
+        u = _create_user_with_plan(seed, email=email, password_hash=None, oauth_provider=None, oauth_subject=None)
+        if tier != "scout":
+            u.plan.tier = tier
+            seed.commit()
+            seed.refresh(u)
+        _ = u.plan.tier  # force-load plan so cross-session reads don't lazy-load
+        state["user"] = u
+        return u
+
+    yield TestClient(app), set_user, seed
+    seed.close()
+    app.dependency_overrides.pop(get_db, None)
+    app.dependency_overrides.pop(get_current_user, None)
+    engine.dispose()
+
+
+def _save_body(title="Pullback screen"):
+    return {"title": title, "universe_id": "sp500", "rules": []}
+
+
+def test_save_endpoint_seeds_basket_for_strategist(authed):
+    client, set_user, _ = authed
+    set_user(tier="strategist")
+    r = client.post("/api/screen/save", json=_save_body())
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert sorted(data["basket"]) == ["AAPL", "MSFT"]
+    assert data["saved_strategy_id"]
+
+
+def test_save_endpoint_blocks_scout_with_402(authed):
+    client, set_user, _ = authed
+    set_user(tier="scout")
+    r = client.post("/api/screen/save", json=_save_body())
+    assert r.status_code == 402, r.text
+    assert r.json()["detail"]["entitlement"]["code"] == "screen_tracking_locked"
+
+
+def test_get_saved_screen_returns_basket_and_history(authed):
+    client, set_user, _ = authed
+    set_user(tier="strategist")
+    saved_id = client.post("/api/screen/save", json=_save_body()).json()["saved_strategy_id"]
+    r = client.get(f"/api/screen/saved/{saved_id}")
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert sorted(data["basket"]) == ["AAPL", "MSFT"]
+    assert data["basket_size"] == 2
+    assert {h["symbol"] for h in data["history"]} == {"AAPL", "MSFT"}
+    assert all(h["is_current"] for h in data["history"])
+
+
+def test_get_saved_screen_404_for_non_owner(authed):
+    client, set_user, _ = authed
+    set_user(tier="strategist", email="owner@x.com")
+    saved_id = client.post("/api/screen/save", json=_save_body()).json()["saved_strategy_id"]
+    set_user(tier="strategist", email="intruder@x.com")  # different user
+    assert client.get(f"/api/screen/saved/{saved_id}").status_code == 404
+
+
+def test_list_saved_screens_returns_the_users_screens(authed):
+    client, set_user, _ = authed
+    set_user(tier="strategist")
+    client.post("/api/screen/save", json=_save_body("Screen A"))
+    r = client.get("/api/screen/saved")
+    assert r.status_code == 200, r.text
+    screens = r.json()["screens"]
+    assert len(screens) == 1
+    assert screens[0]["title"] == "Screen A" and screens[0]["basket_size"] == 2
