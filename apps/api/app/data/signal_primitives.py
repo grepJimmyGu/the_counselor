@@ -629,6 +629,78 @@ _TREND: list[SignalPrimitive] = [
         composes=["adx"],
         resolution=["daily"],
     ),
+    # ── Heikin-Ashi candle structure (PRD-22b) ────────────────────────────────
+    # Smoothed candles for a cleaner trend read — fewer false flips than raw
+    # price, at the cost of a 1-2 bar lag.
+    SignalPrimitive(
+        id="heikin_ashi_trend",
+        category=SignalCategory.TREND,
+        family="HEIKIN_ASHI",
+        name="Heikin-Ashi trend",
+        description="Up/down trend from the Heikin-Ashi candle (smoothed close vs open).",
+        long_description=(
+            "Heikin-Ashi candles smooth price into a cleaner trend read: the "
+            "candle is up (1) when its HA close is above its HA open, down (0) "
+            "otherwise. Fewer false flips than raw candles."
+        ),
+        parameters=[
+            Parameter(name="smoothing", default=1, min_value=1, max_value=20,
+                      description="EMA smoothing applied to the HA lines (1 = raw Heikin-Ashi)"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="B",
+        provider_impl="heikin_ashi_trend",
+        data_source="price",
+        output_kind=OutputKind.REGIME,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="heikin_ashi_consecutive",
+        category=SignalCategory.TREND,
+        family="HEIKIN_ASHI",
+        name="Heikin-Ashi consecutive count",
+        description="Signed count of consecutive same-color Heikin-Ashi candles - a trend-persistence metric.",
+        long_description=(
+            "Counts how many Heikin-Ashi candles in a row share a direction: "
+            "positive for a green (up) streak, negative for a red (down) "
+            "streak. A larger magnitude means a more persistent trend."
+        ),
+        parameters=[
+            Parameter(name="smoothing", default=1, min_value=1, max_value=20,
+                      description="EMA smoothing applied to the HA lines (1 = raw Heikin-Ashi)"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="B",
+        provider_impl="heikin_ashi_consecutive",
+        data_source="price",
+        output_kind=OutputKind.VALUE,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="heikin_ashi_color_flip",
+        category=SignalCategory.TREND,
+        family="HEIKIN_ASHI",
+        name="Heikin-Ashi color flip",
+        description="Fires the bar a Heikin-Ashi candle changes color - a trend-reversal trigger. +1 to green, -1 to red.",
+        long_description=(
+            "The Heikin-Ashi reversal trigger: fires +1 when a red candle "
+            "turns green (up-flip) and -1 when green turns red. Trades a 1-2 "
+            "bar lag for far fewer whipsaws than raw-price color changes."
+        ),
+        parameters=[
+            Parameter(name="smoothing", default=1, min_value=1, max_value=20,
+                      description="EMA smoothing applied to the HA lines (1 = raw Heikin-Ashi)"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="B",
+        provider_impl="heikin_ashi_color_flip",
+        data_source="price",
+        output_kind=OutputKind.EVENT,
+        resolution=["daily"],
+    ),
 ]
 
 
@@ -939,6 +1011,177 @@ _MEAN_REVERSION: list[SignalPrimitive] = [
         data_source="price",
         output_kind=OutputKind.EVENT,
         composes=["stoch"],
+        resolution=["daily"],
+    ),
+    # ── Bollinger Band events (PRD-22b) ───────────────────────────────────────
+    # The Bollinger family's consumption patterns beyond %B (already shipped as
+    # `bbands`): the bandwidth metric, the squeeze regime + its release event,
+    # and the band-walk + band-tag events. All compose on `bbands`.
+    SignalPrimitive(
+        id="bb_bandwidth",
+        category=SignalCategory.MEAN_REVERSION,
+        family="BBANDS",
+        name="Bollinger Bandwidth",
+        description="(upper - lower) / middle - the band-compression metric a squeeze is built on.",
+        long_description=(
+            "Bollinger Bandwidth normalizes the band width by the middle "
+            "band, so it's comparable across price levels. Low BBW = "
+            "compressed bands (coiling); a multi-month BBW low often precedes "
+            "a volatility expansion."
+        ),
+        parameters=[
+            Parameter(name="period", default=20, min_value=5, max_value=100,
+                      description="Bollinger look-back window"),
+            Parameter(name="std_dev", default=2.0, min_value=0.5, max_value=4.0,
+                      description="Band width in standard deviations"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="A",
+        provider_impl="bb_bandwidth",
+        data_source="price",
+        output_kind=OutputKind.VALUE,
+        composes=["bbands"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="bb_squeeze",
+        category=SignalCategory.MEAN_REVERSION,
+        family="BBANDS",
+        name="Bollinger squeeze",
+        description="True while Bollinger Bandwidth is below the squeeze threshold (default 4%) - a low-volatility coil.",
+        long_description=(
+            "A REGIME classifier: 1 = squeeze active (bandwidth below the "
+            "threshold), 0 = normal. Compressed bands mean volatility has "
+            "contracted and often precede a directional expansion - pair with "
+            "bb_squeeze_fire to catch the release."
+        ),
+        parameters=[
+            Parameter(name="period", default=20, min_value=5, max_value=100,
+                      description="Bollinger look-back window"),
+            Parameter(name="std_dev", default=2.0, min_value=0.5, max_value=4.0,
+                      description="Band width in standard deviations"),
+            Parameter(name="bandwidth_threshold", default=0.04, min_value=0.01, max_value=0.5,
+                      description="Bandwidth below this counts as a squeeze"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="bb_squeeze",
+        data_source="price",
+        output_kind=OutputKind.REGIME,
+        composes=["bbands"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="bb_squeeze_fire",
+        category=SignalCategory.MEAN_REVERSION,
+        family="BBANDS",
+        name="Bollinger squeeze fire",
+        description="Fires the bar a squeeze releases - close exits a band after the squeeze was active. Direction-aware.",
+        long_description=(
+            "The breakout trigger: the squeeze was active last bar and price "
+            "closes outside a band this bar. Fires +1 on an upside break "
+            "(close above the upper band) and -1 on a downside break - the "
+            "direction the energy released."
+        ),
+        parameters=[
+            Parameter(name="period", default=20, min_value=5, max_value=100,
+                      description="Bollinger look-back window"),
+            Parameter(name="std_dev", default=2.0, min_value=0.5, max_value=4.0,
+                      description="Band width in standard deviations"),
+            Parameter(name="bandwidth_threshold", default=0.04, min_value=0.01, max_value=0.5,
+                      description="Bandwidth below this counts as a squeeze"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="bb_squeeze_fire",
+        data_source="price",
+        output_kind=OutputKind.EVENT,
+        composes=["bbands"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="bb_walk_upper",
+        category=SignalCategory.MEAN_REVERSION,
+        family="BBANDS",
+        name="Bollinger band walk (upper)",
+        description="Fires when price closes above the upper band N bars in a row - riding the band in a strong trend.",
+        long_description=(
+            "A band-walk is the trend-continuation tell that mean-reversion "
+            "traders fade at their peril: when price closes above the upper "
+            "band for several consecutive bars, it's riding the band in a "
+            "powerful up-move rather than being overextended."
+        ),
+        parameters=[
+            Parameter(name="period", default=20, min_value=5, max_value=100,
+                      description="Bollinger look-back window"),
+            Parameter(name="std_dev", default=2.0, min_value=0.5, max_value=4.0,
+                      description="Band width in standard deviations"),
+            Parameter(name="consecutive", default=3, min_value=2, max_value=20,
+                      description="Consecutive closes above the upper band to confirm the walk"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="bb_walk_upper",
+        data_source="price",
+        output_kind=OutputKind.EVENT,
+        composes=["bbands"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="bb_tag_upper",
+        category=SignalCategory.MEAN_REVERSION,
+        family="BBANDS",
+        name="Bollinger upper-band tag",
+        description="Fires on a bar that closes above the upper band - the reversal-trader entry.",
+        long_description=(
+            "A single-bar tag of the upper band flags a stretched-to-the-"
+            "upside close that mean-reversion traders fade. Distinct from "
+            "bb_walk_upper, which requires several consecutive closes to "
+            "confirm a trend instead of a reversal."
+        ),
+        parameters=[
+            Parameter(name="period", default=20, min_value=5, max_value=100,
+                      description="Bollinger look-back window"),
+            Parameter(name="std_dev", default=2.0, min_value=0.5, max_value=4.0,
+                      description="Band width in standard deviations"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="B",
+        provider_impl="bb_tag_upper",
+        data_source="price",
+        output_kind=OutputKind.EVENT,
+        composes=["bbands"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="bb_tag_lower",
+        category=SignalCategory.MEAN_REVERSION,
+        family="BBANDS",
+        name="Bollinger lower-band tag",
+        description="Fires on a bar that closes below the lower band - the oversold-bounce entry.",
+        long_description=(
+            "The downside mirror of the upper-band tag: a single-bar close "
+            "below the lower band flags a stretched-to-the-downside condition "
+            "mean-reversion traders buy."
+        ),
+        parameters=[
+            Parameter(name="period", default=20, min_value=5, max_value=100,
+                      description="Bollinger look-back window"),
+            Parameter(name="std_dev", default=2.0, min_value=0.5, max_value=4.0,
+                      description="Band width in standard deviations"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="B",
+        provider_impl="bb_tag_lower",
+        data_source="price",
+        output_kind=OutputKind.EVENT,
+        composes=["bbands"],
         resolution=["daily"],
     ),
 ]
@@ -1301,6 +1544,37 @@ _MOMENTUM: list[SignalPrimitive] = [
         output_kind=OutputKind.VALUE,
         resolution=["daily"],
     ),
+    # ── Momentum acceleration (PRD-22b) ───────────────────────────────────────
+    # 12-1 momentum is already shipped as `time_series_momentum`; the 12-1 /
+    # composite z-scores are cross-sectional (standardized across the universe)
+    # and belong to the rank/cross-sectional path, so only acceleration is new.
+    SignalPrimitive(
+        id="momentum_acceleration",
+        category=SignalCategory.MOMENTUM,
+        family="MOMENTUM_FACTOR",
+        name="Momentum acceleration",
+        description="Recent-3-month vs trailing-9-month return rate (per month) - positive when momentum is speeding up.",
+        long_description=(
+            "The change in momentum: positive when the recent 3-month return "
+            "rate outpaces the trailing 9-month rate, flagging an accelerating "
+            "move that often precedes a regime shift; ~0 for a steady trend; "
+            "negative when momentum is fading. Rates are compared per-month so "
+            "the metric reflects acceleration, not raw trend magnitude."
+        ),
+        parameters=[
+            Parameter(name="short_months", default=3, min_value=1, max_value=12,
+                      description="Recent-return window in months"),
+            Parameter(name="long_months", default=9, min_value=2, max_value=24,
+                      description="Trailing-return window in months"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="momentum_acceleration",
+        data_source="price",
+        output_kind=OutputKind.VALUE,
+        resolution=["daily"],
+    ),
 ]
 
 
@@ -1456,6 +1730,81 @@ _VOLUME: list[SignalPrimitive] = [
         data_source="price",
         output_kind=OutputKind.EVENT,
         composes=["rvol"],
+        resolution=["daily"],
+    ),
+    # ── Anchored VWAP (PRD-22b) ───────────────────────────────────────────────
+    # v1 anchors to a trailing window; a fixed date / most-recent-earnings
+    # anchor is deferred behind the earnings-calendar source.
+    SignalPrimitive(
+        id="anchored_vwap",
+        category=SignalCategory.VOLUME,
+        family="AVWAP",
+        name="Anchored VWAP",
+        description="Volume-weighted average price since the anchor - an institutional reference level.",
+        long_description=(
+            "VWAP accumulated from an anchor point rather than reset daily. v1 "
+            "anchors to a trailing window (default ~one quarter); institutions "
+            "watch it as a fair-value line buyers defend and sellers cap. A "
+            "fixed date / most-recent-earnings anchor is a future enhancement."
+        ),
+        parameters=[
+            Parameter(name="anchor_lookback", default=63, min_value=5, max_value=504,
+                      description="Bars back to anchor the VWAP window"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="anchored_vwap",
+        data_source="price",
+        output_kind=OutputKind.VALUE,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="distance_to_anchored_vwap",
+        category=SignalCategory.VOLUME,
+        family="AVWAP",
+        name="Distance to anchored VWAP",
+        description="Signed percent gap between close and the anchored VWAP - composer renders as a range.",
+        long_description=(
+            "How far above (positive) or below (negative) the anchored VWAP "
+            "price is trading. A range filter catches names hovering near "
+            "their institutional reference line, or stretched far from it."
+        ),
+        parameters=[
+            Parameter(name="anchor_lookback", default=63, min_value=5, max_value=504,
+                      description="Bars back to anchor the VWAP window"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="distance_to_anchored_vwap",
+        data_source="price",
+        output_kind=OutputKind.DISTANCE,
+        composes=["anchored_vwap"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="price_above_anchored_vwap",
+        category=SignalCategory.VOLUME,
+        family="AVWAP",
+        name="Price above anchored VWAP",
+        description="True while close trades above the anchored VWAP - a persistent buyer-control flag.",
+        long_description=(
+            "Holds true for as long as price stays above its anchored VWAP - "
+            "the side of the institutional reference line buyers control. A "
+            "clean regime filter to layer under directional entries."
+        ),
+        parameters=[
+            Parameter(name="anchor_lookback", default=63, min_value=5, max_value=504,
+                      description="Bars back to anchor the VWAP window"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="price_above_anchored_vwap",
+        data_source="price",
+        output_kind=OutputKind.LEVEL,
+        composes=["anchored_vwap"],
         resolution=["daily"],
     ),
 ]
@@ -1692,6 +2041,84 @@ _VOLATILITY: list[SignalPrimitive] = [
         data_source="price",
         output_kind=OutputKind.EVENT,
         composes=["ttm_squeeze"],
+        resolution=["daily"],
+    ),
+    # ── Supertrend (PRD-22b) ──────────────────────────────────────────────────
+    SignalPrimitive(
+        id="supertrend",
+        category=SignalCategory.VOLATILITY,
+        family="SUPERTREND",
+        name="Supertrend",
+        description="ATR-banded trailing line (hl2 ± mult × ATR) - a trend-following trailing stop.",
+        long_description=(
+            "Supertrend plots a trailing line that sits below price in an "
+            "up-trend and flips above it in a down-trend, using an ATR band "
+            "around the hl2 midpoint. Default ATR period 10, multiplier 3."
+        ),
+        parameters=[
+            Parameter(name="period", default=10, min_value=2, max_value=100,
+                      description="ATR look-back period"),
+            Parameter(name="mult", default=3.0, min_value=0.5, max_value=10.0,
+                      description="ATR band multiplier"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="B",
+        provider_impl="supertrend",
+        data_source="price",
+        output_kind=OutputKind.VALUE,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="supertrend_flip",
+        category=SignalCategory.VOLATILITY,
+        family="SUPERTREND",
+        name="Supertrend flip",
+        description="Fires the bar the Supertrend flips direction - a trend-regime change. +1 to up, -1 to down.",
+        long_description=(
+            "The Supertrend's regime-change trigger: fires +1 when the line "
+            "flips below price (new up-trend) and -1 when it flips above (new "
+            "down-trend). The canonical Supertrend entry/exit signal."
+        ),
+        parameters=[
+            Parameter(name="period", default=10, min_value=2, max_value=100,
+                      description="ATR look-back period"),
+            Parameter(name="mult", default=3.0, min_value=0.5, max_value=10.0,
+                      description="ATR band multiplier"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="B",
+        provider_impl="supertrend_flip",
+        data_source="price",
+        output_kind=OutputKind.EVENT,
+        composes=["supertrend"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="supertrend_above_price",
+        category=SignalCategory.VOLATILITY,
+        family="SUPERTREND",
+        name="Supertrend above price",
+        description="True while the Supertrend line sits above price - a persistent down-trend flag.",
+        long_description=(
+            "Holds true for as long as the Supertrend line is above price - "
+            "the down-trend regime. The inverse is the up-trend; use as a "
+            "directional regime filter under entries."
+        ),
+        parameters=[
+            Parameter(name="period", default=10, min_value=2, max_value=100,
+                      description="ATR look-back period"),
+            Parameter(name="mult", default=3.0, min_value=0.5, max_value=10.0,
+                      description="ATR band multiplier"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="B",
+        provider_impl="supertrend_above_price",
+        data_source="price",
+        output_kind=OutputKind.LEVEL,
+        composes=["supertrend"],
         resolution=["daily"],
     ),
 ]
@@ -2006,6 +2433,187 @@ _CROSS_SECTIONAL: list[SignalPrimitive] = [
 ]
 
 
+# ── Divergences (PRD-22b) ─────────────────────────────────────────────────────
+# Price-vs-oscillator divergences across the MACD / RSI / OBV families. Each is
+# unidirectional (a named bull or bear setup) and emits +1 / -1 on confirmation
+# (held a few bars so the daily snapshot catches it). Categories follow the
+# parent family; all compose on the parent indicator.
+_DIVERGENCE: list[SignalPrimitive] = [
+    SignalPrimitive(
+        id="macd_bullish_divergence",
+        category=SignalCategory.TREND,
+        family="MACD",
+        name="MACD bullish divergence",
+        description="Price makes a lower low while the MACD line makes a higher low - a reversal setup.",
+        long_description=(
+            "Regular bullish divergence: price prints a lower low but momentum "
+            "(the MACD line) prints a higher low, hinting the down-move is "
+            "losing force and may reverse."
+        ),
+        parameters=[
+            Parameter(name="order", default=5, min_value=2, max_value=30,
+                      description="Pivot sensitivity - bars on each side of a swing"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="macd_bullish_divergence",
+        data_source="price",
+        output_kind=OutputKind.DIVERGENCE,
+        composes=["macd"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="macd_bearish_divergence",
+        category=SignalCategory.TREND,
+        family="MACD",
+        name="MACD bearish divergence",
+        description="Price makes a higher high while the MACD line makes a lower high - an exhaustion setup.",
+        long_description=(
+            "Regular bearish divergence: price prints a higher high but the "
+            "MACD line prints a lower high, hinting the up-move is running out "
+            "of momentum."
+        ),
+        parameters=[
+            Parameter(name="order", default=5, min_value=2, max_value=30,
+                      description="Pivot sensitivity - bars on each side of a swing"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="macd_bearish_divergence",
+        data_source="price",
+        output_kind=OutputKind.DIVERGENCE,
+        composes=["macd"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="rsi_bullish_divergence",
+        category=SignalCategory.MEAN_REVERSION,
+        family="RSI",
+        name="RSI bullish divergence",
+        description="Price makes a lower low while RSI makes a higher low - a reversal setup.",
+        long_description=(
+            "Regular bullish divergence on RSI: a lower price low against a "
+            "higher RSI low, the classic mean-reversion reversal tell."
+        ),
+        parameters=[
+            Parameter(name="order", default=5, min_value=2, max_value=30,
+                      description="Pivot sensitivity - bars on each side of a swing"),
+            Parameter(name="period", default=14, min_value=2, max_value=100,
+                      description="RSI look-back period"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="rsi_bullish_divergence",
+        data_source="price",
+        output_kind=OutputKind.DIVERGENCE,
+        composes=["rsi"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="rsi_bearish_divergence",
+        category=SignalCategory.MEAN_REVERSION,
+        family="RSI",
+        name="RSI bearish divergence",
+        description="Price makes a higher high while RSI makes a lower high - an exhaustion setup.",
+        long_description=(
+            "Regular bearish divergence on RSI: a higher price high against a "
+            "lower RSI high, flagging fading upside momentum."
+        ),
+        parameters=[
+            Parameter(name="order", default=5, min_value=2, max_value=30,
+                      description="Pivot sensitivity - bars on each side of a swing"),
+            Parameter(name="period", default=14, min_value=2, max_value=100,
+                      description="RSI look-back period"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="rsi_bearish_divergence",
+        data_source="price",
+        output_kind=OutputKind.DIVERGENCE,
+        composes=["rsi"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="rsi_hidden_bullish_div",
+        category=SignalCategory.MEAN_REVERSION,
+        family="RSI",
+        name="RSI hidden bullish divergence",
+        description="Price makes a higher low while RSI makes a lower low - a trend-continuation re-entry.",
+        long_description=(
+            "Hidden bullish divergence: a higher price low against a lower RSI "
+            "low. Where regular divergence calls reversals, hidden divergence "
+            "signals a pullback in an up-trend is done - a continuation entry."
+        ),
+        parameters=[
+            Parameter(name="order", default=5, min_value=2, max_value=30,
+                      description="Pivot sensitivity - bars on each side of a swing"),
+            Parameter(name="period", default=14, min_value=2, max_value=100,
+                      description="RSI look-back period"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="rsi_hidden_bullish_div",
+        data_source="price",
+        output_kind=OutputKind.DIVERGENCE,
+        composes=["rsi"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="obv_divergence_bullish",
+        category=SignalCategory.VOLUME,
+        family="OBV",
+        name="OBV bullish divergence",
+        description="Price makes a lower low while OBV makes a higher low - accumulation despite weakness.",
+        long_description=(
+            "On-Balance Volume diverging bullishly: price prints a lower low "
+            "but volume flow (OBV) prints a higher low, hinting that buyers "
+            "are quietly accumulating into the weakness."
+        ),
+        parameters=[
+            Parameter(name="order", default=5, min_value=2, max_value=30,
+                      description="Pivot sensitivity - bars on each side of a swing"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="obv_divergence_bullish",
+        data_source="price",
+        output_kind=OutputKind.DIVERGENCE,
+        composes=["obv"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="obv_divergence_bearish",
+        category=SignalCategory.VOLUME,
+        family="OBV",
+        name="OBV bearish divergence",
+        description="Price makes a higher high while OBV makes a lower high - distribution.",
+        long_description=(
+            "On-Balance Volume diverging bearishly: price prints a higher high "
+            "but OBV prints a lower high, hinting sellers are distributing into "
+            "the strength."
+        ),
+        parameters=[
+            Parameter(name="order", default=5, min_value=2, max_value=30,
+                      description="Pivot sensitivity - bars on each side of a swing"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="obv_divergence_bearish",
+        data_source="price",
+        output_kind=OutputKind.DIVERGENCE,
+        composes=["obv"],
+        resolution=["daily"],
+    ),
+]
+
+
 # ── PRD-16c-4 editorial: intraday-eligible primitives ──────────────────────
 #
 # Technical indicators that work on any bar series (price-derived, no
@@ -2112,6 +2720,9 @@ _READINGS: dict[str, str] = {
     "macd_signal_cross": "MACD crossing its signal line",
     "macd_histogram_flip": "MACD momentum flipping (histogram)",
     "macd_zero_line_cross": "MACD crossing zero (trend bias)",
+    "heikin_ashi_trend": "Smoothed candle trend (Heikin-Ashi)",
+    "heikin_ashi_consecutive": "How long the HA trend has run",
+    "heikin_ashi_color_flip": "Heikin-Ashi flipping color (reversal)",
     "adx_regime": "Trend-strength regime (ADX)",
     "adx_rising": "Whether trend strength is building",
     "di_cross_bullish": "DI+ crossing above DI−",
@@ -2131,6 +2742,12 @@ _READINGS: dict[str, str] = {
     "stoch_k_d_cross": "Stochastic %K crossing %D",
     "stoch_oversold_cross_up": "Stochastic turning up from oversold",
     "stoch_overbought_cross_down": "Stochastic turning down from overbought",
+    "bb_bandwidth": "How compressed the bands are",
+    "bb_squeeze": "A low-volatility band squeeze",
+    "bb_squeeze_fire": "A Bollinger squeeze releasing",
+    "bb_walk_upper": "Price walking the upper band",
+    "bb_tag_upper": "Price tagged the upper band",
+    "bb_tag_lower": "Price tagged the lower band",
     # Momentum
     "roc": "Rate of price change",
     "mom": "Raw price momentum",
@@ -2142,6 +2759,7 @@ _READINGS: dict[str, str] = {
     "bop": "Buyers vs sellers, per bar",
     "adxr": "Trend strength, smoothed",
     "aroonosc": "Up-trend vs down-trend balance",
+    "momentum_acceleration": "Whether momentum is speeding up",
     # 52-week extrema
     "distance_to_52w_high": "How far below the 52-week high",
     "distance_to_52w_low": "How far above the 52-week low",
@@ -2158,6 +2776,9 @@ _READINGS: dict[str, str] = {
     "avg_dollar_volume": "How liquid the stock is",
     "rvol": "Today's volume vs normal",
     "rvol_surge": "A volume surge (catalyst day)",
+    "anchored_vwap": "The anchored volume-weighted price",
+    "distance_to_anchored_vwap": "How far price is from anchored VWAP",
+    "price_above_anchored_vwap": "Price above the anchored VWAP",
     # Volatility
     "atr": "Typical daily price range",
     "natr": "Daily range as a % of price",
@@ -2169,6 +2790,9 @@ _READINGS: dict[str, str] = {
     "chandelier_exit_breach": "Price broke its trailing stop",
     "ttm_squeeze": "A low-volatility coiling squeeze",
     "ttm_squeeze_fire": "The squeeze releasing (breakout)",
+    "supertrend": "The trend-following trailing line",
+    "supertrend_flip": "The Supertrend flipping direction",
+    "supertrend_above_price": "Supertrend in a down-trend",
     # Fundamental
     "fcf_yield": "Free cash flow vs market cap",
     "book_to_market": "Book value vs market cap (value)",
@@ -2186,6 +2810,14 @@ _READINGS: dict[str, str] = {
     "rank_composite_score": "A blended rank vs peers",
     "sector_rotation_rank": "Sector strength vs peers",
     "pair_spread_zscore": "How stretched a pair spread is",
+    # Divergences
+    "macd_bullish_divergence": "MACD bullish divergence (reversal)",
+    "macd_bearish_divergence": "MACD bearish divergence (exhaustion)",
+    "rsi_bullish_divergence": "RSI bullish divergence (reversal)",
+    "rsi_bearish_divergence": "RSI bearish divergence (exhaustion)",
+    "rsi_hidden_bullish_div": "RSI hidden bullish divergence (continuation)",
+    "obv_divergence_bullish": "OBV bullish divergence (accumulation)",
+    "obv_divergence_bearish": "OBV bearish divergence (distribution)",
 }
 
 
@@ -2213,6 +2845,7 @@ SIGNAL_PRIMITIVES: list[SignalPrimitive] = _apply_reading_layer(_apply_intraday_
     *_FUNDAMENTAL,
     *_SENTIMENT,
     *_CROSS_SECTIONAL,
+    *_DIVERGENCE,
 ]))
 
 

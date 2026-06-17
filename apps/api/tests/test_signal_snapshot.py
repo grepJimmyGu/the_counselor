@@ -64,10 +64,12 @@ def test_snapshot_covers_local_price_primitives_only():
     assert "rsi" in ids and "sma" in ids and "donchian_breakout" in ids
     assert "kama" not in ids  # AV-endpoint
     assert "fcf_yield" not in ids  # fundamental
-    # The 9 PRD-22b MA/MACD event primitives are local → covered too.
+    # The PRD-22b backfill primitives are all local → covered too.
     assert "golden_cross" in ids and "macd_signal_cross" in ids
-    # ~61 of the 78-primitive catalog (range leaves headroom for later slices).
-    assert 45 <= len(ids) <= 80
+    assert "bb_squeeze" in ids and "supertrend" in ids and "anchored_vwap" in ids
+    # Grows with each PRD-22b backfill slice; upper bound leaves headroom for
+    # the remaining momentum/Heikin-Ashi + divergence slices.
+    assert 45 <= len(ids) <= 110
 
 
 # ── pure value-encoding core ─────────────────────────────────────────────────

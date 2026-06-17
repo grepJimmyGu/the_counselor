@@ -479,6 +479,20 @@ class CmoSignalProvider(TechnicalSignalProvider):
         return 100 * (up - down) / (up + down).replace(0, np.nan)
 
 
+def _bollinger_bands(
+    frame: pd.DataFrame, period: int, std_dev: float
+) -> "tuple[pd.Series, pd.Series, pd.Series]":
+    """Shared Bollinger decomposition: returns (upper, middle, lower).
+    Single source of truth for `bbands` and the PRD-22b Bollinger children
+    (%B / bandwidth / squeeze / tags) so `composes=["bbands"]` stays
+    byte-consistent with the parent."""
+    middle = frame["close"].rolling(period).mean()
+    std = frame["close"].rolling(period).std()
+    upper = middle + std_dev * std
+    lower = middle - std_dev * std
+    return upper, middle, lower
+
+
 class BbandsSignalProvider(TechnicalSignalProvider):
     """Returns %B — where price sits within the bands ((close - lower) /
     (upper - lower)). 0 = on the lower band; 1 = on the upper band. The
@@ -492,12 +506,9 @@ class BbandsSignalProvider(TechnicalSignalProvider):
         return int(self.params["period"]) + 30
 
     def _compute(self, frame: pd.DataFrame) -> pd.Series:
-        period = int(self.params["period"])
-        std_dev = float(self.params["std_dev"])
-        sma = frame["close"].rolling(period).mean()
-        std = frame["close"].rolling(period).std()
-        upper = sma + std_dev * std
-        lower = sma - std_dev * std
+        upper, _, lower = _bollinger_bands(
+            frame, int(self.params["period"]), float(self.params["std_dev"])
+        )
         return (frame["close"] - lower) / (upper - lower).replace(0, np.nan)
 
 
@@ -1643,6 +1654,580 @@ class DiCrossBearishSignalProvider(TechnicalSignalProvider):
         return cross_down.astype(float) * -1.0
 
 
+# ── Bollinger Band events (PRD-22b) ─────────────────────────────────────────
+# v2 decomposes the Bollinger family into its consumption patterns: the
+# bandwidth compression metric, the squeeze regime + its release event, and
+# the band-walk + band-tag events. All compose on `bbands` via the shared
+# `_bollinger_bands` helper. (%B is already shipped as the `bbands` primitive.)
+
+
+class BbBandwidthSignalProvider(TechnicalSignalProvider):
+    """VALUE: Bollinger Bandwidth = (upper − lower) / middle — the
+    band-compression metric the squeeze is built on."""
+    name = "bb_bandwidth"
+
+    def _default_params(self) -> dict:
+        return {"period": 20, "std_dev": 2.0}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        upper, middle, lower = _bollinger_bands(
+            frame, int(self.params["period"]), float(self.params["std_dev"])
+        )
+        return (upper - lower) / middle.replace(0, np.nan)
+
+
+class BbSqueezeSignalProvider(TechnicalSignalProvider):
+    """REGIME: 1.0 while Bollinger Bandwidth sits below the squeeze
+    threshold (default 4%) — a low-volatility coiling regime; 0.0 otherwise."""
+    name = "bb_squeeze"
+
+    def _default_params(self) -> dict:
+        return {"period": 20, "std_dev": 2.0, "bandwidth_threshold": 0.04}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        upper, middle, lower = _bollinger_bands(
+            frame, int(self.params["period"]), float(self.params["std_dev"])
+        )
+        bbw = (upper - lower) / middle.replace(0, np.nan)
+        out = (bbw < float(self.params["bandwidth_threshold"])).astype(float)
+        out[bbw.isna()] = float("nan")  # warmup carries no regime
+        return out
+
+
+class BbSqueezeFireSignalProvider(TechnicalSignalProvider):
+    """EVENT: fires the bar a squeeze releases — the squeeze was active
+    last bar and close exits a band this bar. +1 breakout above the upper
+    band, −1 breakdown below the lower band."""
+    name = "bb_squeeze_fire"
+
+    def _default_params(self) -> dict:
+        return {"period": 20, "std_dev": 2.0, "bandwidth_threshold": 0.04}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        upper, middle, lower = _bollinger_bands(
+            frame, int(self.params["period"]), float(self.params["std_dev"])
+        )
+        bbw = (upper - lower) / middle.replace(0, np.nan)
+        squeeze_on = bbw < float(self.params["bandwidth_threshold"])
+        exits_up = frame["close"] > upper
+        exits_down = frame["close"] < lower
+        fired = squeeze_on.shift(1, fill_value=False) & (exits_up | exits_down)
+        out = pd.Series(0.0, index=frame.index)
+        out[fired & exits_up] = 1.0
+        out[fired & exits_down] = -1.0
+        return out
+
+
+class BbWalkUpperSignalProvider(TechnicalSignalProvider):
+    """EVENT: fires when price completes N consecutive closes above the
+    upper band — a band-walk, the trend-continuation signal."""
+    name = "bb_walk_upper"
+
+    def _default_params(self) -> dict:
+        return {"period": 20, "std_dev": 2.0, "consecutive": 3}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        upper, _, _ = _bollinger_bands(
+            frame, int(self.params["period"]), float(self.params["std_dev"])
+        )
+        above = (frame["close"] > upper).astype(int)
+        # consecutive run-length of closes above the upper band (the leading
+        # below-band bar in each group contributes 0, so the count is clean)
+        run = above.groupby((above == 0).cumsum()).cumsum()
+        return (run == int(self.params["consecutive"])).astype(float)
+
+
+class BbTagUpperSignalProvider(TechnicalSignalProvider):
+    """EVENT: 1.0 on any bar that closes above the upper band — a band
+    tag, the reversal-trader entry."""
+    name = "bb_tag_upper"
+
+    def _default_params(self) -> dict:
+        return {"period": 20, "std_dev": 2.0}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        upper, _, _ = _bollinger_bands(
+            frame, int(self.params["period"]), float(self.params["std_dev"])
+        )
+        return (frame["close"] > upper).astype(float)
+
+
+class BbTagLowerSignalProvider(TechnicalSignalProvider):
+    """EVENT: 1.0 on any bar that closes below the lower band."""
+    name = "bb_tag_lower"
+
+    def _default_params(self) -> dict:
+        return {"period": 20, "std_dev": 2.0}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        _, _, lower = _bollinger_bands(
+            frame, int(self.params["period"]), float(self.params["std_dev"])
+        )
+        return (frame["close"] < lower).astype(float)
+
+
+# ── Supertrend (PRD-22b) ────────────────────────────────────────────────────
+# An ATR-banded trailing line that flips between an upper (down-trend) and
+# lower (up-trend) band. The carry-forward band + direction logic is stateful
+# (each bar depends on the prior bar), so it's an explicit O(n) pass.
+
+
+def _supertrend(
+    frame: pd.DataFrame, period: int, mult: float
+) -> "tuple[pd.Series, pd.Series]":
+    """Shared Supertrend decomposition: returns (line, direction). Direction
+    is +1 in an up-trend (line = lower band, below price) and −1 in a
+    down-trend (line = upper band, above price). Single source of truth for
+    the supertrend / flip / above-price children."""
+    high, low, close = frame["high"], frame["low"], frame["close"]
+    hl2 = (high + low) / 2.0
+    atr = AtrSignalProvider(period=period)._compute(frame)
+    upper = (hl2 + mult * atr).values
+    lower = (hl2 - mult * atr).values
+    close_v = close.values
+    n = len(frame)
+    fu = upper.copy()
+    fl = lower.copy()
+    line = np.full(n, np.nan)
+    direction = np.full(n, np.nan)
+    for i in range(1, n):
+        # carry-forward final upper band
+        if np.isnan(fu[i - 1]) or upper[i] < fu[i - 1] or close_v[i - 1] > fu[i - 1]:
+            fu[i] = upper[i]
+        else:
+            fu[i] = fu[i - 1]
+        # carry-forward final lower band
+        if np.isnan(fl[i - 1]) or lower[i] > fl[i - 1] or close_v[i - 1] < fl[i - 1]:
+            fl[i] = lower[i]
+        else:
+            fl[i] = fl[i - 1]
+        # direction: stay until price breaks the opposite band
+        if np.isnan(direction[i - 1]):
+            direction[i] = 1.0 if close_v[i] > fu[i] else -1.0
+        elif direction[i - 1] == 1.0:
+            direction[i] = -1.0 if close_v[i] < fl[i] else 1.0
+        else:
+            direction[i] = 1.0 if close_v[i] > fu[i] else -1.0
+        line[i] = fl[i] if direction[i] == 1.0 else fu[i]
+    return (
+        pd.Series(line, index=frame.index),
+        pd.Series(direction, index=frame.index),
+    )
+
+
+class SupertrendSignalProvider(TechnicalSignalProvider):
+    """VALUE: the Supertrend trailing line (hl2 ± mult × ATR with the
+    direction carry-forward). Sits below price in an up-trend, above in a
+    down-trend — a trailing stop level."""
+    name = "supertrend"
+
+    def _default_params(self) -> dict:
+        return {"period": 10, "mult": 3.0}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) * 5
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        line, _ = _supertrend(frame, int(self.params["period"]), float(self.params["mult"]))
+        return line
+
+
+class SupertrendFlipSignalProvider(TechnicalSignalProvider):
+    """EVENT: fires the bar the Supertrend flips direction — +1 on a flip
+    to up-trend (green), −1 on a flip to down-trend (red). A trend-regime
+    change."""
+    name = "supertrend_flip"
+
+    def _default_params(self) -> dict:
+        return {"period": 10, "mult": 3.0}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) * 5
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        _, direction = _supertrend(frame, int(self.params["period"]), float(self.params["mult"]))
+        flipped = (direction != direction.shift(1)) & direction.shift(1).notna()
+        out = pd.Series(0.0, index=frame.index)
+        out[flipped & (direction == 1.0)] = 1.0
+        out[flipped & (direction == -1.0)] = -1.0
+        return out
+
+
+class SupertrendAbovePriceSignalProvider(TechnicalSignalProvider):
+    """LEVEL: 1.0 while the Supertrend line sits above price (a down-trend /
+    persistent short flag); 0.0 in an up-trend."""
+    name = "supertrend_above_price"
+
+    def _default_params(self) -> dict:
+        return {"period": 10, "mult": 3.0}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) * 5
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        _, direction = _supertrend(frame, int(self.params["period"]), float(self.params["mult"]))
+        out = (direction == -1.0).astype(float)
+        out[direction.isna()] = float("nan")  # warmup carries no direction
+        return out
+
+
+# ── Anchored VWAP (PRD-22b) ─────────────────────────────────────────────────
+# v1 anchors to a trailing `anchor_lookback`-bar window (the last-bar value
+# equals a true VWAP anchored that many bars back). A fixed date / most-recent-
+# earnings anchor is a future enhancement (it needs the earnings-calendar
+# source that the fundamental/event family is deferred behind).
+
+
+def _anchored_vwap(frame: pd.DataFrame, lookback: int) -> pd.Series:
+    """Volume-weighted average typical price over a trailing `lookback`
+    window. Single source of truth for the AVWAP children."""
+    typical = (frame["high"] + frame["low"] + frame["close"]) / 3.0
+    tpv = (typical * frame["volume"]).rolling(lookback).sum()
+    vol = frame["volume"].rolling(lookback).sum()
+    return tpv / vol.replace(0, np.nan)
+
+
+class AnchoredVwapSignalProvider(TechnicalSignalProvider):
+    """VALUE: anchored VWAP — the volume-weighted average price since the
+    anchor — an institutional reference level."""
+    name = "anchored_vwap"
+
+    def _default_params(self) -> dict:
+        return {"anchor_lookback": 63}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["anchor_lookback"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        return _anchored_vwap(frame, int(self.params["anchor_lookback"]))
+
+
+class DistanceToAnchoredVwapSignalProvider(TechnicalSignalProvider):
+    """DISTANCE: signed percent gap between close and the anchored VWAP.
+    Positive = price above the reference, negative = below."""
+    name = "distance_to_anchored_vwap"
+
+    def _default_params(self) -> dict:
+        return {"anchor_lookback": 63}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["anchor_lookback"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        avwap = _anchored_vwap(frame, int(self.params["anchor_lookback"]))
+        return 100.0 * (frame["close"] - avwap) / avwap.replace(0, np.nan)
+
+
+class PriceAboveAnchoredVwapSignalProvider(TechnicalSignalProvider):
+    """LEVEL: 1.0 while close trades above the anchored VWAP — a persistent
+    buyer-control flag from the anchor date."""
+    name = "price_above_anchored_vwap"
+
+    def _default_params(self) -> dict:
+        return {"anchor_lookback": 63}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["anchor_lookback"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        avwap = _anchored_vwap(frame, int(self.params["anchor_lookback"]))
+        return (frame["close"] > avwap).astype(float)
+
+
+# ── Momentum acceleration + Heikin-Ashi (PRD-22b) ───────────────────────────
+# `momentum_12_1` is already shipped as `time_series_momentum` (12-month
+# return ex the recent month), so only the acceleration delta is new here.
+# The 12-1 / composite z-scores are cross-sectional (standardized across the
+# universe) and belong to the rank/cross-sectional path, not the per-symbol
+# snapshot — deferred.
+
+
+class MomentumAccelerationSignalProvider(TechnicalSignalProvider):
+    """VALUE: difference between the recent-3-month and trailing-9-month
+    return *rates* (each normalized to a per-month rate). Positive =
+    momentum is accelerating; ~0 for a steady trend; negative when fading.
+
+    Note: the rates are compared per-month rather than as raw cumulative
+    returns — a 9-month cumulative return is mechanically larger than a
+    3-month one (compounding), so a raw `ret_3mo - ret_9mo` would just track
+    trend magnitude, not acceleration."""
+    name = "momentum_acceleration"
+
+    def _default_params(self) -> dict:
+        return {"short_months": 3, "long_months": 9}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["long_months"]) * 21 + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        short_m = int(self.params["short_months"])
+        long_m = int(self.params["long_months"])
+        short_rate = frame["close"].pct_change(short_m * 21) / short_m
+        long_rate = frame["close"].pct_change(long_m * 21) / long_m
+        return short_rate - long_rate
+
+
+def _heikin_ashi(frame: pd.DataFrame, smoothing: int = 1) -> "tuple[pd.Series, pd.Series]":
+    """Shared Heikin-Ashi decomposition: returns (ha_open, ha_close). HA_open
+    is recursive (½ of the prior HA open + close), so it's an explicit O(n)
+    pass. HA_close is the bar's OHLC average. `smoothing` > 1 applies an EMA
+    to both lines (the "smoothed HA" variant); smoothing=1 is raw HA."""
+    ha_close = (frame["open"] + frame["high"] + frame["low"] + frame["close"]) / 4.0
+    open_v = frame["open"].values
+    close_v = frame["close"].values
+    hac = ha_close.values
+    n = len(frame)
+    ha_open_arr = np.full(n, np.nan)
+    if n:
+        ha_open_arr[0] = (open_v[0] + close_v[0]) / 2.0
+    for i in range(1, n):
+        ha_open_arr[i] = (ha_open_arr[i - 1] + hac[i - 1]) / 2.0
+    ha_open = pd.Series(ha_open_arr, index=frame.index)
+    if smoothing > 1:
+        ha_open = ha_open.ewm(span=smoothing, adjust=False).mean()
+        ha_close = ha_close.ewm(span=smoothing, adjust=False).mean()
+    return ha_open, ha_close
+
+
+class HeikinAshiTrendSignalProvider(TechnicalSignalProvider):
+    """REGIME: 1.0 while the Heikin-Ashi candle is up (HA close above HA
+    open), 0.0 while down — the smoothed trend direction."""
+    name = "heikin_ashi_trend"
+
+    def _default_params(self) -> dict:
+        return {"smoothing": 1}
+
+    def _lookback_days(self) -> int:
+        return 60
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        ha_open, ha_close = _heikin_ashi(frame, int(self.params["smoothing"]))
+        return (ha_close > ha_open).astype(float)
+
+
+class HeikinAshiConsecutiveSignalProvider(TechnicalSignalProvider):
+    """VALUE: signed count of consecutive same-direction Heikin-Ashi candles
+    — +N for N green in a row, −N for N red. A trend-persistence metric."""
+    name = "heikin_ashi_consecutive"
+
+    def _default_params(self) -> dict:
+        return {"smoothing": 1}
+
+    def _lookback_days(self) -> int:
+        return 60
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        ha_open, ha_close = _heikin_ashi(frame, int(self.params["smoothing"]))
+        color = np.sign((ha_close - ha_open).values)
+        n = len(color)
+        run = np.zeros(n)
+        for i in range(n):
+            if i > 0 and color[i] != 0 and color[i] == color[i - 1]:
+                run[i] = run[i - 1] + color[i]
+            else:
+                run[i] = color[i]
+        return pd.Series(run, index=frame.index)
+
+
+class HeikinAshiColorFlipSignalProvider(TechnicalSignalProvider):
+    """EVENT: fires the bar a Heikin-Ashi candle changes color — +1 on a
+    flip to green (up), −1 on a flip to red (down). A trend-reversal trigger
+    with a 1-2 bar delay vs raw price."""
+    name = "heikin_ashi_color_flip"
+
+    def _default_params(self) -> dict:
+        return {"smoothing": 1}
+
+    def _lookback_days(self) -> int:
+        return 60
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        ha_open, ha_close = _heikin_ashi(frame, int(self.params["smoothing"]))
+        color = pd.Series(np.sign((ha_close - ha_open).values), index=frame.index)
+        prev = color.shift(1)
+        flipped = (color != prev) & (color != 0) & prev.notna()
+        out = pd.Series(0.0, index=frame.index)
+        out[flipped & (color == 1.0)] = 1.0
+        out[flipped & (color == -1.0)] = -1.0
+        return out
+
+
+# ── Divergences (PRD-22b) ───────────────────────────────────────────────────
+# Regular + hidden divergences between price and an oscillator (MACD line,
+# RSI, OBV). A pivot is a strict local extreme over a ±`order` window (numpy,
+# NOT scipy — scipy isn't a pinned dependency). The signal is held for `order`
+# bars after the second pivot is confirmed, so the daily screener snapshot can
+# catch a recently-formed divergence rather than only the exact confirm bar.
+
+
+def _pivot_indices(vals: "np.ndarray", order: int, want_min: bool) -> "list[int]":
+    """Indices that are a strict local min (want_min) or max over a ±order
+    window. Confirmed `order` bars after the pivot (the right window must
+    exist), so there's no look-ahead."""
+    n = len(vals)
+    out: "list[int]" = []
+    for i in range(order, n - order):
+        left = vals[i - order:i]
+        right = vals[i + 1:i + order + 1]
+        c = vals[i]
+        if np.isnan(c) or np.isnan(left).any() or np.isnan(right).any():
+            continue
+        if want_min and c < left.min() and c < right.min():
+            out.append(i)
+        elif not want_min and c > left.max() and c > right.max():
+            out.append(i)
+    return out
+
+
+def _divergence_signal(
+    price: pd.Series,
+    indicator: pd.Series,
+    order: int,
+    *,
+    troughs: bool,
+    price_lower: bool,
+    ind_lower: bool,
+    sign: int,
+) -> pd.Series:
+    """Compare consecutive price pivots: emit `sign` when the price move
+    (lower/higher) disagrees with the indicator move at the same pivots —
+    the divergence. Held for `order` bars from the confirmation of the
+    second pivot.
+
+      regular bullish: troughs, price lower-low, indicator higher-low  (+1)
+      regular bearish: peaks,   price higher-high, indicator lower-high (-1)
+      hidden bullish:  troughs, price higher-low, indicator lower-low   (+1)
+    """
+    p = price.values
+    ind = indicator.values
+    n = len(p)
+    out = np.zeros(n)
+    pivots = _pivot_indices(p, order, want_min=troughs)
+    for a, b in zip(pivots, pivots[1:]):
+        if np.isnan(ind[a]) or np.isnan(ind[b]):
+            continue
+        price_ok = (p[b] < p[a]) if price_lower else (p[b] > p[a])
+        ind_ok = (ind[b] < ind[a]) if ind_lower else (ind[b] > ind[a])
+        if price_ok and ind_ok:
+            start = b + order  # the bar the second pivot is confirmed
+            for k in range(start, min(start + order, n)):
+                out[k] = float(sign)
+    return pd.Series(out, index=price.index)
+
+
+class _DivergenceProvider(TechnicalSignalProvider):
+    """Base for the divergence primitives. Subclasses set the indicator + the
+    pivot/comparison directions. DIVERGENCE encoding: +1 bullish / -1 bearish,
+    0 elsewhere (consumed via `divergence_bullish` / `divergence_bearish`)."""
+    _troughs = True
+    _price_lower = True
+    _ind_lower = False
+    _sign = 1
+
+    def _default_params(self) -> dict:
+        return {"order": 5}
+
+    def _lookback_days(self) -> int:
+        return 250
+
+    def _indicator(self, frame: pd.DataFrame) -> pd.Series:
+        raise NotImplementedError
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        return _divergence_signal(
+            frame["close"],
+            self._indicator(frame),
+            int(self.params["order"]),
+            troughs=self._troughs,
+            price_lower=self._price_lower,
+            ind_lower=self._ind_lower,
+            sign=self._sign,
+        )
+
+
+class _MacdDivergenceMixin:
+    def _indicator(self, frame: pd.DataFrame) -> pd.Series:
+        macd_line, _ = _macd_lines(frame, 12, 26, 9)
+        return macd_line
+
+
+class MacdBullishDivergenceSignalProvider(_MacdDivergenceMixin, _DivergenceProvider):
+    """DIVERGENCE: price makes a lower low while the MACD line makes a higher
+    low — a reversal setup. Emits +1."""
+    name = "macd_bullish_divergence"
+    _troughs, _price_lower, _ind_lower, _sign = True, True, False, 1
+
+
+class MacdBearishDivergenceSignalProvider(_MacdDivergenceMixin, _DivergenceProvider):
+    """DIVERGENCE: price makes a higher high while the MACD line makes a lower
+    high — an exhaustion setup. Emits -1."""
+    name = "macd_bearish_divergence"
+    _troughs, _price_lower, _ind_lower, _sign = False, False, True, -1
+
+
+class _RsiDivergenceMixin:
+    def _default_params(self) -> dict:
+        return {"order": 5, "period": 14}
+
+    def _indicator(self, frame: pd.DataFrame) -> pd.Series:
+        return RsiSignalProvider(period=int(self.params["period"]))._compute(frame)
+
+
+class RsiBullishDivergenceSignalProvider(_RsiDivergenceMixin, _DivergenceProvider):
+    """DIVERGENCE: regular bullish — price lower low, RSI higher low. Emits +1."""
+    name = "rsi_bullish_divergence"
+    _troughs, _price_lower, _ind_lower, _sign = True, True, False, 1
+
+
+class RsiBearishDivergenceSignalProvider(_RsiDivergenceMixin, _DivergenceProvider):
+    """DIVERGENCE: regular bearish — price higher high, RSI lower high. Emits -1."""
+    name = "rsi_bearish_divergence"
+    _troughs, _price_lower, _ind_lower, _sign = False, False, True, -1
+
+
+class RsiHiddenBullishDivergenceSignalProvider(_RsiDivergenceMixin, _DivergenceProvider):
+    """DIVERGENCE: hidden bullish — price higher low, RSI lower low — a
+    trend-continuation re-entry signal. Emits +1."""
+    name = "rsi_hidden_bullish_div"
+    _troughs, _price_lower, _ind_lower, _sign = True, False, True, 1
+
+
+class _ObvDivergenceMixin:
+    def _indicator(self, frame: pd.DataFrame) -> pd.Series:
+        return ObvSignalProvider()._compute(frame)
+
+
+class ObvDivergenceBullishSignalProvider(_ObvDivergenceMixin, _DivergenceProvider):
+    """DIVERGENCE: price lower low, OBV higher low — accumulation despite
+    weakness. Emits +1."""
+    name = "obv_divergence_bullish"
+    _troughs, _price_lower, _ind_lower, _sign = True, True, False, 1
+
+
+class ObvDivergenceBearishSignalProvider(_ObvDivergenceMixin, _DivergenceProvider):
+    """DIVERGENCE: price higher high, OBV lower high — distribution. Emits -1."""
+    name = "obv_divergence_bearish"
+    _troughs, _price_lower, _ind_lower, _sign = False, False, True, -1
+
+
 # ── Registry assembly ──────────────────────────────────────────────────────
 
 
@@ -1702,5 +2287,21 @@ def get_technical_providers() -> dict:
         StochOverboughtCrossDownSignalProvider, AdxRegimeSignalProvider,
         AdxRisingSignalProvider, DiCrossBullishSignalProvider,
         DiCrossBearishSignalProvider,
+        # Bollinger Band events (PRD-22b)
+        BbBandwidthSignalProvider, BbSqueezeSignalProvider,
+        BbSqueezeFireSignalProvider, BbWalkUpperSignalProvider,
+        BbTagUpperSignalProvider, BbTagLowerSignalProvider,
+        # Supertrend + Anchored VWAP (PRD-22b)
+        SupertrendSignalProvider, SupertrendFlipSignalProvider,
+        SupertrendAbovePriceSignalProvider, AnchoredVwapSignalProvider,
+        DistanceToAnchoredVwapSignalProvider, PriceAboveAnchoredVwapSignalProvider,
+        # Momentum acceleration + Heikin-Ashi (PRD-22b)
+        MomentumAccelerationSignalProvider, HeikinAshiTrendSignalProvider,
+        HeikinAshiConsecutiveSignalProvider, HeikinAshiColorFlipSignalProvider,
+        # Divergences (PRD-22b)
+        MacdBullishDivergenceSignalProvider, MacdBearishDivergenceSignalProvider,
+        RsiBullishDivergenceSignalProvider, RsiBearishDivergenceSignalProvider,
+        RsiHiddenBullishDivergenceSignalProvider,
+        ObvDivergenceBullishSignalProvider, ObvDivergenceBearishSignalProvider,
     ]
     return {cls.name: cls() for cls in classes}
