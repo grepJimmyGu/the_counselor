@@ -629,6 +629,78 @@ _TREND: list[SignalPrimitive] = [
         composes=["adx"],
         resolution=["daily"],
     ),
+    # ── Heikin-Ashi candle structure (PRD-22b) ────────────────────────────────
+    # Smoothed candles for a cleaner trend read — fewer false flips than raw
+    # price, at the cost of a 1-2 bar lag.
+    SignalPrimitive(
+        id="heikin_ashi_trend",
+        category=SignalCategory.TREND,
+        family="HEIKIN_ASHI",
+        name="Heikin-Ashi trend",
+        description="Up/down trend from the Heikin-Ashi candle (smoothed close vs open).",
+        long_description=(
+            "Heikin-Ashi candles smooth price into a cleaner trend read: the "
+            "candle is up (1) when its HA close is above its HA open, down (0) "
+            "otherwise. Fewer false flips than raw candles."
+        ),
+        parameters=[
+            Parameter(name="smoothing", default=1, min_value=1, max_value=20,
+                      description="EMA smoothing applied to the HA lines (1 = raw Heikin-Ashi)"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="B",
+        provider_impl="heikin_ashi_trend",
+        data_source="price",
+        output_kind=OutputKind.REGIME,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="heikin_ashi_consecutive",
+        category=SignalCategory.TREND,
+        family="HEIKIN_ASHI",
+        name="Heikin-Ashi consecutive count",
+        description="Signed count of consecutive same-color Heikin-Ashi candles - a trend-persistence metric.",
+        long_description=(
+            "Counts how many Heikin-Ashi candles in a row share a direction: "
+            "positive for a green (up) streak, negative for a red (down) "
+            "streak. A larger magnitude means a more persistent trend."
+        ),
+        parameters=[
+            Parameter(name="smoothing", default=1, min_value=1, max_value=20,
+                      description="EMA smoothing applied to the HA lines (1 = raw Heikin-Ashi)"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="B",
+        provider_impl="heikin_ashi_consecutive",
+        data_source="price",
+        output_kind=OutputKind.VALUE,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="heikin_ashi_color_flip",
+        category=SignalCategory.TREND,
+        family="HEIKIN_ASHI",
+        name="Heikin-Ashi color flip",
+        description="Fires the bar a Heikin-Ashi candle changes color - a trend-reversal trigger. +1 to green, -1 to red.",
+        long_description=(
+            "The Heikin-Ashi reversal trigger: fires +1 when a red candle "
+            "turns green (up-flip) and -1 when green turns red. Trades a 1-2 "
+            "bar lag for far fewer whipsaws than raw-price color changes."
+        ),
+        parameters=[
+            Parameter(name="smoothing", default=1, min_value=1, max_value=20,
+                      description="EMA smoothing applied to the HA lines (1 = raw Heikin-Ashi)"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="B",
+        provider_impl="heikin_ashi_color_flip",
+        data_source="price",
+        output_kind=OutputKind.EVENT,
+        resolution=["daily"],
+    ),
 ]
 
 
@@ -1468,6 +1540,37 @@ _MOMENTUM: list[SignalPrimitive] = [
         asset_compat=["equity", "etf"],
         evidence_tier="C",
         provider_impl="days_since_52w_high",
+        data_source="price",
+        output_kind=OutputKind.VALUE,
+        resolution=["daily"],
+    ),
+    # ── Momentum acceleration (PRD-22b) ───────────────────────────────────────
+    # 12-1 momentum is already shipped as `time_series_momentum`; the 12-1 /
+    # composite z-scores are cross-sectional (standardized across the universe)
+    # and belong to the rank/cross-sectional path, so only acceleration is new.
+    SignalPrimitive(
+        id="momentum_acceleration",
+        category=SignalCategory.MOMENTUM,
+        family="MOMENTUM_FACTOR",
+        name="Momentum acceleration",
+        description="Recent-3-month vs trailing-9-month return rate (per month) - positive when momentum is speeding up.",
+        long_description=(
+            "The change in momentum: positive when the recent 3-month return "
+            "rate outpaces the trailing 9-month rate, flagging an accelerating "
+            "move that often precedes a regime shift; ~0 for a steady trend; "
+            "negative when momentum is fading. Rates are compared per-month so "
+            "the metric reflects acceleration, not raw trend magnitude."
+        ),
+        parameters=[
+            Parameter(name="short_months", default=3, min_value=1, max_value=12,
+                      description="Recent-return window in months"),
+            Parameter(name="long_months", default=9, min_value=2, max_value=24,
+                      description="Trailing-return window in months"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="momentum_acceleration",
         data_source="price",
         output_kind=OutputKind.VALUE,
         resolution=["daily"],
@@ -2436,6 +2539,9 @@ _READINGS: dict[str, str] = {
     "macd_signal_cross": "MACD crossing its signal line",
     "macd_histogram_flip": "MACD momentum flipping (histogram)",
     "macd_zero_line_cross": "MACD crossing zero (trend bias)",
+    "heikin_ashi_trend": "Smoothed candle trend (Heikin-Ashi)",
+    "heikin_ashi_consecutive": "How long the HA trend has run",
+    "heikin_ashi_color_flip": "Heikin-Ashi flipping color (reversal)",
     "adx_regime": "Trend-strength regime (ADX)",
     "adx_rising": "Whether trend strength is building",
     "di_cross_bullish": "DI+ crossing above DI−",
@@ -2472,6 +2578,7 @@ _READINGS: dict[str, str] = {
     "bop": "Buyers vs sellers, per bar",
     "adxr": "Trend strength, smoothed",
     "aroonosc": "Up-trend vs down-trend balance",
+    "momentum_acceleration": "Whether momentum is speeding up",
     # 52-week extrema
     "distance_to_52w_high": "How far below the 52-week high",
     "distance_to_52w_low": "How far above the 52-week low",

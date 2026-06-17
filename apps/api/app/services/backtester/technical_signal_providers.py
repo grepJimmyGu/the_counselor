@@ -1952,6 +1952,124 @@ class PriceAboveAnchoredVwapSignalProvider(TechnicalSignalProvider):
         return (frame["close"] > avwap).astype(float)
 
 
+# ── Momentum acceleration + Heikin-Ashi (PRD-22b) ───────────────────────────
+# `momentum_12_1` is already shipped as `time_series_momentum` (12-month
+# return ex the recent month), so only the acceleration delta is new here.
+# The 12-1 / composite z-scores are cross-sectional (standardized across the
+# universe) and belong to the rank/cross-sectional path, not the per-symbol
+# snapshot — deferred.
+
+
+class MomentumAccelerationSignalProvider(TechnicalSignalProvider):
+    """VALUE: difference between the recent-3-month and trailing-9-month
+    return *rates* (each normalized to a per-month rate). Positive =
+    momentum is accelerating; ~0 for a steady trend; negative when fading.
+
+    Note: the rates are compared per-month rather than as raw cumulative
+    returns — a 9-month cumulative return is mechanically larger than a
+    3-month one (compounding), so a raw `ret_3mo - ret_9mo` would just track
+    trend magnitude, not acceleration."""
+    name = "momentum_acceleration"
+
+    def _default_params(self) -> dict:
+        return {"short_months": 3, "long_months": 9}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["long_months"]) * 21 + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        short_m = int(self.params["short_months"])
+        long_m = int(self.params["long_months"])
+        short_rate = frame["close"].pct_change(short_m * 21) / short_m
+        long_rate = frame["close"].pct_change(long_m * 21) / long_m
+        return short_rate - long_rate
+
+
+def _heikin_ashi(frame: pd.DataFrame, smoothing: int = 1) -> "tuple[pd.Series, pd.Series]":
+    """Shared Heikin-Ashi decomposition: returns (ha_open, ha_close). HA_open
+    is recursive (½ of the prior HA open + close), so it's an explicit O(n)
+    pass. HA_close is the bar's OHLC average. `smoothing` > 1 applies an EMA
+    to both lines (the "smoothed HA" variant); smoothing=1 is raw HA."""
+    ha_close = (frame["open"] + frame["high"] + frame["low"] + frame["close"]) / 4.0
+    open_v = frame["open"].values
+    close_v = frame["close"].values
+    hac = ha_close.values
+    n = len(frame)
+    ha_open_arr = np.full(n, np.nan)
+    if n:
+        ha_open_arr[0] = (open_v[0] + close_v[0]) / 2.0
+    for i in range(1, n):
+        ha_open_arr[i] = (ha_open_arr[i - 1] + hac[i - 1]) / 2.0
+    ha_open = pd.Series(ha_open_arr, index=frame.index)
+    if smoothing > 1:
+        ha_open = ha_open.ewm(span=smoothing, adjust=False).mean()
+        ha_close = ha_close.ewm(span=smoothing, adjust=False).mean()
+    return ha_open, ha_close
+
+
+class HeikinAshiTrendSignalProvider(TechnicalSignalProvider):
+    """REGIME: 1.0 while the Heikin-Ashi candle is up (HA close above HA
+    open), 0.0 while down — the smoothed trend direction."""
+    name = "heikin_ashi_trend"
+
+    def _default_params(self) -> dict:
+        return {"smoothing": 1}
+
+    def _lookback_days(self) -> int:
+        return 60
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        ha_open, ha_close = _heikin_ashi(frame, int(self.params["smoothing"]))
+        return (ha_close > ha_open).astype(float)
+
+
+class HeikinAshiConsecutiveSignalProvider(TechnicalSignalProvider):
+    """VALUE: signed count of consecutive same-direction Heikin-Ashi candles
+    — +N for N green in a row, −N for N red. A trend-persistence metric."""
+    name = "heikin_ashi_consecutive"
+
+    def _default_params(self) -> dict:
+        return {"smoothing": 1}
+
+    def _lookback_days(self) -> int:
+        return 60
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        ha_open, ha_close = _heikin_ashi(frame, int(self.params["smoothing"]))
+        color = np.sign((ha_close - ha_open).values)
+        n = len(color)
+        run = np.zeros(n)
+        for i in range(n):
+            if i > 0 and color[i] != 0 and color[i] == color[i - 1]:
+                run[i] = run[i - 1] + color[i]
+            else:
+                run[i] = color[i]
+        return pd.Series(run, index=frame.index)
+
+
+class HeikinAshiColorFlipSignalProvider(TechnicalSignalProvider):
+    """EVENT: fires the bar a Heikin-Ashi candle changes color — +1 on a
+    flip to green (up), −1 on a flip to red (down). A trend-reversal trigger
+    with a 1-2 bar delay vs raw price."""
+    name = "heikin_ashi_color_flip"
+
+    def _default_params(self) -> dict:
+        return {"smoothing": 1}
+
+    def _lookback_days(self) -> int:
+        return 60
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        ha_open, ha_close = _heikin_ashi(frame, int(self.params["smoothing"]))
+        color = pd.Series(np.sign((ha_close - ha_open).values), index=frame.index)
+        prev = color.shift(1)
+        flipped = (color != prev) & (color != 0) & prev.notna()
+        out = pd.Series(0.0, index=frame.index)
+        out[flipped & (color == 1.0)] = 1.0
+        out[flipped & (color == -1.0)] = -1.0
+        return out
+
+
 # ── Registry assembly ──────────────────────────────────────────────────────
 
 
@@ -2019,5 +2137,8 @@ def get_technical_providers() -> dict:
         SupertrendSignalProvider, SupertrendFlipSignalProvider,
         SupertrendAbovePriceSignalProvider, AnchoredVwapSignalProvider,
         DistanceToAnchoredVwapSignalProvider, PriceAboveAnchoredVwapSignalProvider,
+        # Momentum acceleration + Heikin-Ashi (PRD-22b)
+        MomentumAccelerationSignalProvider, HeikinAshiTrendSignalProvider,
+        HeikinAshiConsecutiveSignalProvider, HeikinAshiColorFlipSignalProvider,
     ]
     return {cls.name: cls() for cls in classes}
