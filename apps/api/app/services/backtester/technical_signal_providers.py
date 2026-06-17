@@ -479,6 +479,20 @@ class CmoSignalProvider(TechnicalSignalProvider):
         return 100 * (up - down) / (up + down).replace(0, np.nan)
 
 
+def _bollinger_bands(
+    frame: pd.DataFrame, period: int, std_dev: float
+) -> "tuple[pd.Series, pd.Series, pd.Series]":
+    """Shared Bollinger decomposition: returns (upper, middle, lower).
+    Single source of truth for `bbands` and the PRD-22b Bollinger children
+    (%B / bandwidth / squeeze / tags) so `composes=["bbands"]` stays
+    byte-consistent with the parent."""
+    middle = frame["close"].rolling(period).mean()
+    std = frame["close"].rolling(period).std()
+    upper = middle + std_dev * std
+    lower = middle - std_dev * std
+    return upper, middle, lower
+
+
 class BbandsSignalProvider(TechnicalSignalProvider):
     """Returns %B — where price sits within the bands ((close - lower) /
     (upper - lower)). 0 = on the lower band; 1 = on the upper band. The
@@ -492,12 +506,9 @@ class BbandsSignalProvider(TechnicalSignalProvider):
         return int(self.params["period"]) + 30
 
     def _compute(self, frame: pd.DataFrame) -> pd.Series:
-        period = int(self.params["period"])
-        std_dev = float(self.params["std_dev"])
-        sma = frame["close"].rolling(period).mean()
-        std = frame["close"].rolling(period).std()
-        upper = sma + std_dev * std
-        lower = sma - std_dev * std
+        upper, _, lower = _bollinger_bands(
+            frame, int(self.params["period"]), float(self.params["std_dev"])
+        )
         return (frame["close"] - lower) / (upper - lower).replace(0, np.nan)
 
 
@@ -1643,6 +1654,136 @@ class DiCrossBearishSignalProvider(TechnicalSignalProvider):
         return cross_down.astype(float) * -1.0
 
 
+# ── Bollinger Band events (PRD-22b) ─────────────────────────────────────────
+# v2 decomposes the Bollinger family into its consumption patterns: the
+# bandwidth compression metric, the squeeze regime + its release event, and
+# the band-walk + band-tag events. All compose on `bbands` via the shared
+# `_bollinger_bands` helper. (%B is already shipped as the `bbands` primitive.)
+
+
+class BbBandwidthSignalProvider(TechnicalSignalProvider):
+    """VALUE: Bollinger Bandwidth = (upper − lower) / middle — the
+    band-compression metric the squeeze is built on."""
+    name = "bb_bandwidth"
+
+    def _default_params(self) -> dict:
+        return {"period": 20, "std_dev": 2.0}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        upper, middle, lower = _bollinger_bands(
+            frame, int(self.params["period"]), float(self.params["std_dev"])
+        )
+        return (upper - lower) / middle.replace(0, np.nan)
+
+
+class BbSqueezeSignalProvider(TechnicalSignalProvider):
+    """REGIME: 1.0 while Bollinger Bandwidth sits below the squeeze
+    threshold (default 4%) — a low-volatility coiling regime; 0.0 otherwise."""
+    name = "bb_squeeze"
+
+    def _default_params(self) -> dict:
+        return {"period": 20, "std_dev": 2.0, "bandwidth_threshold": 0.04}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        upper, middle, lower = _bollinger_bands(
+            frame, int(self.params["period"]), float(self.params["std_dev"])
+        )
+        bbw = (upper - lower) / middle.replace(0, np.nan)
+        out = (bbw < float(self.params["bandwidth_threshold"])).astype(float)
+        out[bbw.isna()] = float("nan")  # warmup carries no regime
+        return out
+
+
+class BbSqueezeFireSignalProvider(TechnicalSignalProvider):
+    """EVENT: fires the bar a squeeze releases — the squeeze was active
+    last bar and close exits a band this bar. +1 breakout above the upper
+    band, −1 breakdown below the lower band."""
+    name = "bb_squeeze_fire"
+
+    def _default_params(self) -> dict:
+        return {"period": 20, "std_dev": 2.0, "bandwidth_threshold": 0.04}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        upper, middle, lower = _bollinger_bands(
+            frame, int(self.params["period"]), float(self.params["std_dev"])
+        )
+        bbw = (upper - lower) / middle.replace(0, np.nan)
+        squeeze_on = bbw < float(self.params["bandwidth_threshold"])
+        exits_up = frame["close"] > upper
+        exits_down = frame["close"] < lower
+        fired = squeeze_on.shift(1, fill_value=False) & (exits_up | exits_down)
+        out = pd.Series(0.0, index=frame.index)
+        out[fired & exits_up] = 1.0
+        out[fired & exits_down] = -1.0
+        return out
+
+
+class BbWalkUpperSignalProvider(TechnicalSignalProvider):
+    """EVENT: fires when price completes N consecutive closes above the
+    upper band — a band-walk, the trend-continuation signal."""
+    name = "bb_walk_upper"
+
+    def _default_params(self) -> dict:
+        return {"period": 20, "std_dev": 2.0, "consecutive": 3}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        upper, _, _ = _bollinger_bands(
+            frame, int(self.params["period"]), float(self.params["std_dev"])
+        )
+        above = (frame["close"] > upper).astype(int)
+        # consecutive run-length of closes above the upper band (the leading
+        # below-band bar in each group contributes 0, so the count is clean)
+        run = above.groupby((above == 0).cumsum()).cumsum()
+        return (run == int(self.params["consecutive"])).astype(float)
+
+
+class BbTagUpperSignalProvider(TechnicalSignalProvider):
+    """EVENT: 1.0 on any bar that closes above the upper band — a band
+    tag, the reversal-trader entry."""
+    name = "bb_tag_upper"
+
+    def _default_params(self) -> dict:
+        return {"period": 20, "std_dev": 2.0}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        upper, _, _ = _bollinger_bands(
+            frame, int(self.params["period"]), float(self.params["std_dev"])
+        )
+        return (frame["close"] > upper).astype(float)
+
+
+class BbTagLowerSignalProvider(TechnicalSignalProvider):
+    """EVENT: 1.0 on any bar that closes below the lower band."""
+    name = "bb_tag_lower"
+
+    def _default_params(self) -> dict:
+        return {"period": 20, "std_dev": 2.0}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        _, _, lower = _bollinger_bands(
+            frame, int(self.params["period"]), float(self.params["std_dev"])
+        )
+        return (frame["close"] < lower).astype(float)
+
+
 # ── Registry assembly ──────────────────────────────────────────────────────
 
 
@@ -1702,5 +1843,9 @@ def get_technical_providers() -> dict:
         StochOverboughtCrossDownSignalProvider, AdxRegimeSignalProvider,
         AdxRisingSignalProvider, DiCrossBullishSignalProvider,
         DiCrossBearishSignalProvider,
+        # Bollinger Band events (PRD-22b)
+        BbBandwidthSignalProvider, BbSqueezeSignalProvider,
+        BbSqueezeFireSignalProvider, BbWalkUpperSignalProvider,
+        BbTagUpperSignalProvider, BbTagLowerSignalProvider,
     ]
     return {cls.name: cls() for cls in classes}

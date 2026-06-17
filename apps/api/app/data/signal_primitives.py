@@ -941,6 +941,177 @@ _MEAN_REVERSION: list[SignalPrimitive] = [
         composes=["stoch"],
         resolution=["daily"],
     ),
+    # ── Bollinger Band events (PRD-22b) ───────────────────────────────────────
+    # The Bollinger family's consumption patterns beyond %B (already shipped as
+    # `bbands`): the bandwidth metric, the squeeze regime + its release event,
+    # and the band-walk + band-tag events. All compose on `bbands`.
+    SignalPrimitive(
+        id="bb_bandwidth",
+        category=SignalCategory.MEAN_REVERSION,
+        family="BBANDS",
+        name="Bollinger Bandwidth",
+        description="(upper - lower) / middle - the band-compression metric a squeeze is built on.",
+        long_description=(
+            "Bollinger Bandwidth normalizes the band width by the middle "
+            "band, so it's comparable across price levels. Low BBW = "
+            "compressed bands (coiling); a multi-month BBW low often precedes "
+            "a volatility expansion."
+        ),
+        parameters=[
+            Parameter(name="period", default=20, min_value=5, max_value=100,
+                      description="Bollinger look-back window"),
+            Parameter(name="std_dev", default=2.0, min_value=0.5, max_value=4.0,
+                      description="Band width in standard deviations"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="A",
+        provider_impl="bb_bandwidth",
+        data_source="price",
+        output_kind=OutputKind.VALUE,
+        composes=["bbands"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="bb_squeeze",
+        category=SignalCategory.MEAN_REVERSION,
+        family="BBANDS",
+        name="Bollinger squeeze",
+        description="True while Bollinger Bandwidth is below the squeeze threshold (default 4%) - a low-volatility coil.",
+        long_description=(
+            "A REGIME classifier: 1 = squeeze active (bandwidth below the "
+            "threshold), 0 = normal. Compressed bands mean volatility has "
+            "contracted and often precede a directional expansion - pair with "
+            "bb_squeeze_fire to catch the release."
+        ),
+        parameters=[
+            Parameter(name="period", default=20, min_value=5, max_value=100,
+                      description="Bollinger look-back window"),
+            Parameter(name="std_dev", default=2.0, min_value=0.5, max_value=4.0,
+                      description="Band width in standard deviations"),
+            Parameter(name="bandwidth_threshold", default=0.04, min_value=0.01, max_value=0.5,
+                      description="Bandwidth below this counts as a squeeze"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="bb_squeeze",
+        data_source="price",
+        output_kind=OutputKind.REGIME,
+        composes=["bbands"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="bb_squeeze_fire",
+        category=SignalCategory.MEAN_REVERSION,
+        family="BBANDS",
+        name="Bollinger squeeze fire",
+        description="Fires the bar a squeeze releases - close exits a band after the squeeze was active. Direction-aware.",
+        long_description=(
+            "The breakout trigger: the squeeze was active last bar and price "
+            "closes outside a band this bar. Fires +1 on an upside break "
+            "(close above the upper band) and -1 on a downside break - the "
+            "direction the energy released."
+        ),
+        parameters=[
+            Parameter(name="period", default=20, min_value=5, max_value=100,
+                      description="Bollinger look-back window"),
+            Parameter(name="std_dev", default=2.0, min_value=0.5, max_value=4.0,
+                      description="Band width in standard deviations"),
+            Parameter(name="bandwidth_threshold", default=0.04, min_value=0.01, max_value=0.5,
+                      description="Bandwidth below this counts as a squeeze"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="bb_squeeze_fire",
+        data_source="price",
+        output_kind=OutputKind.EVENT,
+        composes=["bbands"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="bb_walk_upper",
+        category=SignalCategory.MEAN_REVERSION,
+        family="BBANDS",
+        name="Bollinger band walk (upper)",
+        description="Fires when price closes above the upper band N bars in a row - riding the band in a strong trend.",
+        long_description=(
+            "A band-walk is the trend-continuation tell that mean-reversion "
+            "traders fade at their peril: when price closes above the upper "
+            "band for several consecutive bars, it's riding the band in a "
+            "powerful up-move rather than being overextended."
+        ),
+        parameters=[
+            Parameter(name="period", default=20, min_value=5, max_value=100,
+                      description="Bollinger look-back window"),
+            Parameter(name="std_dev", default=2.0, min_value=0.5, max_value=4.0,
+                      description="Band width in standard deviations"),
+            Parameter(name="consecutive", default=3, min_value=2, max_value=20,
+                      description="Consecutive closes above the upper band to confirm the walk"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="bb_walk_upper",
+        data_source="price",
+        output_kind=OutputKind.EVENT,
+        composes=["bbands"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="bb_tag_upper",
+        category=SignalCategory.MEAN_REVERSION,
+        family="BBANDS",
+        name="Bollinger upper-band tag",
+        description="Fires on a bar that closes above the upper band - the reversal-trader entry.",
+        long_description=(
+            "A single-bar tag of the upper band flags a stretched-to-the-"
+            "upside close that mean-reversion traders fade. Distinct from "
+            "bb_walk_upper, which requires several consecutive closes to "
+            "confirm a trend instead of a reversal."
+        ),
+        parameters=[
+            Parameter(name="period", default=20, min_value=5, max_value=100,
+                      description="Bollinger look-back window"),
+            Parameter(name="std_dev", default=2.0, min_value=0.5, max_value=4.0,
+                      description="Band width in standard deviations"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="B",
+        provider_impl="bb_tag_upper",
+        data_source="price",
+        output_kind=OutputKind.EVENT,
+        composes=["bbands"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="bb_tag_lower",
+        category=SignalCategory.MEAN_REVERSION,
+        family="BBANDS",
+        name="Bollinger lower-band tag",
+        description="Fires on a bar that closes below the lower band - the oversold-bounce entry.",
+        long_description=(
+            "The downside mirror of the upper-band tag: a single-bar close "
+            "below the lower band flags a stretched-to-the-downside condition "
+            "mean-reversion traders buy."
+        ),
+        parameters=[
+            Parameter(name="period", default=20, min_value=5, max_value=100,
+                      description="Bollinger look-back window"),
+            Parameter(name="std_dev", default=2.0, min_value=0.5, max_value=4.0,
+                      description="Band width in standard deviations"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="B",
+        provider_impl="bb_tag_lower",
+        data_source="price",
+        output_kind=OutputKind.EVENT,
+        composes=["bbands"],
+        resolution=["daily"],
+    ),
 ]
 
 
@@ -2131,6 +2302,12 @@ _READINGS: dict[str, str] = {
     "stoch_k_d_cross": "Stochastic %K crossing %D",
     "stoch_oversold_cross_up": "Stochastic turning up from oversold",
     "stoch_overbought_cross_down": "Stochastic turning down from overbought",
+    "bb_bandwidth": "How compressed the bands are",
+    "bb_squeeze": "A low-volatility band squeeze",
+    "bb_squeeze_fire": "A Bollinger squeeze releasing",
+    "bb_walk_upper": "Price walking the upper band",
+    "bb_tag_upper": "Price tagged the upper band",
+    "bb_tag_lower": "Price tagged the lower band",
     # Momentum
     "roc": "Rate of price change",
     "mom": "Raw price momentum",
