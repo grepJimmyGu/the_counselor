@@ -43,6 +43,8 @@ CodeT = Literal[
     "screener_preset_locked",
     # PRD-13b (2026-05-26) — Portfolio Mode diagnose rate-limit
     "portfolio_diagnose_rate_limit",
+    # PRD-23c (2026-06-17) — standing-screen tracking (Strategist+)
+    "screen_tracking_locked",
 ]
 
 
@@ -77,6 +79,7 @@ _CTA_COPY: dict[str, str] = {
     "chat_quota_exhausted": "Sign up for unlimited chat",
     "screener_preset_locked": "Upgrade to unlock this preset screen",
     "portfolio_diagnose_rate_limit": "Upgrade for more portfolio diagnoses per hour",
+    "screen_tracking_locked": "Upgrade to Strategist to track standing screens",
 }
 
 # Which tier unlocks each code.
@@ -89,6 +92,7 @@ _REQUIRED_TIER: dict[str, Optional[str]] = {
     "market_pulse_ticker_out_of_scope": "strategist",
     "chat_quota_exhausted": "strategist",  # Scout cap → upgrade to Strategist
     "portfolio_diagnose_rate_limit": "strategist",  # Scout: 5/h, Strategist: 50/h
+    "screen_tracking_locked": "strategist",  # standing-screen tracking is Strategist+
     # Anonymous codes resolve to signup; no required_tier.
 }
 

@@ -94,3 +94,33 @@ class ScreenRankResponse(BaseModel):
     universe_size: int
     unsupported_primitives: List[str] = Field(default_factory=list)
     default_param_primitives: List[str] = Field(default_factory=list)
+
+
+class ScreenSaveRequest(BaseModel):
+    """Persist + track a standing screen (PRD-23c). Only standing universes
+    (sp500 / sector_<key>) are trackable — a single entered symbol is the
+    build-from-scratch / active-execution path, not a basket that gains and
+    loses members."""
+
+    title: str = Field(..., min_length=3, max_length=120)
+    universe_id: str = Field(...)
+    rules: List[StrategyRule] = Field(default_factory=list)
+
+    @field_validator("universe_id")
+    @classmethod
+    def _standing_only(cls, v: str) -> str:
+        if v == "sp500" or (
+            v.startswith(_SECTOR_PREFIX) and len(v) > len(_SECTOR_PREFIX)
+        ):
+            return v
+        raise ValueError(
+            "Only standing universes (sp500 | sector_<key>) can be tracked"
+        )
+
+
+class ScreenSaveResponse(BaseModel):
+    saved_strategy_id: str
+    # The seeded current basket as of the save (so the UI shows it immediately).
+    basket: List[str]
+    as_of_date: Optional[date]
+    universe_size: int
