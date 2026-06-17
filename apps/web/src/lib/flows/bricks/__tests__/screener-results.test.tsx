@@ -2,7 +2,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 
-vi.mock("@/lib/api", () => ({ screenScan: vi.fn(), screenRank: vi.fn() }));
+vi.mock("@/lib/api", () => ({ screenScan: vi.fn(), screenRank: vi.fn(), saveScreen: vi.fn() }));
 const mockPush = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mockPush }) }));
 let sessionValue: { data: unknown; status: string } = {
@@ -11,7 +11,7 @@ let sessionValue: { data: unknown; status: string } = {
 };
 vi.mock("next-auth/react", () => ({ useSession: () => sessionValue }));
 
-import { screenScan, screenRank } from "@/lib/api";
+import { screenScan, screenRank, saveScreen } from "@/lib/api";
 import type { CustomBuildModeContext } from "@/lib/flows/custom-build-mode-context";
 import type { SignalPrimitive } from "@/lib/contracts";
 import { ScreenResults } from "../screener-results";
@@ -138,5 +138,42 @@ describe("ScreenResults", () => {
     });
     renderResults();
     await waitFor(() => expect(screen.getByTestId("screen-results-empty")).toBeTruthy());
+  });
+
+  it("shows the save sign-in gate when anonymous", async () => {
+    renderResults(); // default sessionValue is unauthenticated
+    await waitFor(() =>
+      expect(screen.getByTestId("screen-results-save-gate")).toBeTruthy(),
+    );
+    expect(saveScreen).not.toHaveBeenCalled();
+  });
+
+  it("saves + tracks the screen when signed in, then confirms", async () => {
+    sessionValue = { data: { backendToken: "tok" }, status: "authenticated" };
+    (screenRank as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ranked: [],
+      as_of_date: "2026-06-15",
+      matched_count: 2,
+      backtested_count: 0,
+      dropped_count: 0,
+      universe_size: 503,
+      unsupported_primitives: [],
+      default_param_primitives: [],
+    });
+    (saveScreen as ReturnType<typeof vi.fn>).mockResolvedValue({
+      saved_strategy_id: "s1",
+      basket: ["AAPL", "MSFT"],
+      as_of_date: "2026-06-17",
+      universe_size: 503,
+    });
+    renderResults();
+    await waitFor(() => expect(screen.getByTestId("screen-results-save")).toBeTruthy());
+    screen.getByTestId("screen-results-save").click();
+    await waitFor(() => expect(screen.getByTestId("screen-results-saved")).toBeTruthy());
+    expect(saveScreen).toHaveBeenCalledWith(
+      expect.objectContaining({ universe_id: "sp500", title: "S&P 500 screen" }),
+      { backendToken: "tok" },
+    );
+    expect(screen.getByText(/watching 2 names/)).toBeTruthy();
   });
 });

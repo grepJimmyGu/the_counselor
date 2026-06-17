@@ -124,3 +124,30 @@ class ScreenSaveResponse(BaseModel):
     basket: List[str]
     as_of_date: Optional[date]
     universe_size: int
+
+
+class ScreenBasketEntry(BaseModel):
+    """One membership stint in a screen's basket (PRD-23c dashboard history)."""
+
+    symbol: str
+    entered_date: date
+    exited_date: Optional[date]
+    is_current: bool
+
+
+class SavedScreenSummary(BaseModel):
+    saved_strategy_id: str
+    title: str
+    universe_id: str
+    basket_size: int  # current members (exited_date IS NULL)
+    created_at: Optional[str] = None
+
+
+class SavedScreensListResponse(BaseModel):
+    screens: List[SavedScreenSummary]
+
+
+class SavedScreenDetail(SavedScreenSummary):
+    rules: List[StrategyRule]
+    basket: List[str]  # current members, symbols only
+    history: List[ScreenBasketEntry]  # every stint, newest first

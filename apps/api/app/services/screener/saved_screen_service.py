@@ -99,6 +99,38 @@ def current_basket(db: Session, saved_strategy_id: str) -> List[ScreenBasketMemb
     )
 
 
+def screen_history(db: Session, saved_strategy_id: str) -> List[ScreenBasketMember]:
+    """Every membership stint for a screen — current + exited — newest first.
+    Backs the dashboard's entrant/exit history."""
+    return list(
+        db.execute(
+            select(ScreenBasketMember)
+            .where(ScreenBasketMember.saved_strategy_id == saved_strategy_id)
+            .order_by(
+                ScreenBasketMember.entered_date.desc(),
+                ScreenBasketMember.symbol.asc(),
+            )
+        )
+        .scalars()
+        .all()
+    )
+
+
+def list_user_screens(db: Session, user_id: str) -> List[SavedStrategy]:
+    """The user's saved *screens* (SavedStrategies with kind=="screen"),
+    newest first. Plain single-asset strategies are excluded."""
+    rows = (
+        db.execute(
+            select(SavedStrategy)
+            .where(SavedStrategy.user_id == user_id)
+            .order_by(SavedStrategy.created_at.desc())
+        )
+        .scalars()
+        .all()
+    )
+    return [s for s in rows if is_screen(s)]
+
+
 def rescan_and_diff(db: Session, saved: SavedStrategy) -> ScreenDiff:
     """Re-scan a saved screen, diff today's matched basket vs the persisted
     current basket, and update membership in place: insert a row per new

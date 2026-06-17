@@ -16,9 +16,10 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 
-import { screenRank, screenScan } from "@/lib/api";
+import { saveScreen, screenRank, screenScan } from "@/lib/api";
 import type {
   RankedSymbol,
+  ScreenSaveResponse,
   ScreenScanResponse,
   StrategyJson,
 } from "@/lib/contracts";
@@ -33,6 +34,14 @@ import { cn } from "@/lib/utils";
 function pct(v: number | null | undefined): string {
   if (v == null || Number.isNaN(v)) return "—";
   return `${v >= 0 ? "+" : ""}${(v * 100).toFixed(1)}%`;
+}
+
+function deriveScreenTitle(universeId: string): string {
+  if (universeId === "sp500") return "S&P 500 screen";
+  if (universeId.startsWith("sector_")) {
+    return `${universeId.slice("sector_".length)} sector screen`;
+  }
+  return "My market screen";
 }
 
 export function ScreenResults({
@@ -55,6 +64,34 @@ export function ScreenResults({
 
   const rules = useMemo(() => buildScreenRules(context.rules), [context.rules]);
   const rankGated = sessionStatus === "unauthenticated" || !backendToken;
+
+  // PRD-23c — save + track this standing screen.
+  const screenTitle = useMemo(
+    () => deriveScreenTitle(context.universe_id),
+    [context.universe_id],
+  );
+  const [saveState, setSaveState] = useState<"idle" | "saving" | "saved">("idle");
+  const [savedScreen, setSavedScreen] = useState<ScreenSaveResponse | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const handleSave = useCallback(async () => {
+    if (!backendToken) return;
+    setSaveState("saving");
+    setSaveError(null);
+    try {
+      const resp = await saveScreen(
+        { title: screenTitle, universe_id: context.universe_id, rules },
+        { backendToken },
+      );
+      setSavedScreen(resp);
+      setSaveState("saved");
+    } catch (e: unknown) {
+      // A 402 (Scout) already pops the global upgrade modal via fetchApi; show
+      // a brief inline note for any failure so the click never feels dead.
+      setSaveState("idle");
+      setSaveError(e instanceof Error ? e.message : "Couldn't save this screen.");
+    }
+  }, [backendToken, screenTitle, context.universe_id, rules]);
 
   // Step 1 — scan (fast, anonymous-OK): the matched basket.
   useEffect(() => {
@@ -272,16 +309,44 @@ export function ScreenResults({
       )}
 
       {matchedCount > 0 && (
-        <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            data-testid="screen-results-save"
-            disabled
-            title="Coming soon (PRD-23c)"
-            className="rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-400"
-          >
-            Save + track this screen →
-          </button>
+        <div className="flex flex-col gap-2">
+          {saveState === "saved" && savedScreen ? (
+            <div
+              data-testid="screen-results-saved"
+              className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-900"
+            >
+              <p className="font-semibold">✓ Tracking “{screenTitle}”.</p>
+              <p className="mt-1 text-[13px] text-emerald-800">
+                Now watching {savedScreen.basket.length} names. We’ll alert you
+                when a new name enters this screen.
+              </p>
+            </div>
+          ) : rankGated ? (
+            <p
+              data-testid="screen-results-save-gate"
+              className="rounded-md bg-slate-50 px-4 py-2 text-[12px] text-slate-600"
+            >
+              Sign in (Strategist+) to save + track this screen for new entrants.
+            </p>
+          ) : (
+            <button
+              type="button"
+              data-testid="screen-results-save"
+              onClick={handleSave}
+              disabled={saveState === "saving"}
+              className="self-start rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:border-slate-400 disabled:opacity-50"
+            >
+              {saveState === "saving" ? "Saving…" : "Save + track this screen →"}
+            </button>
+          )}
+          {saveError && (
+            <p
+              data-testid="screen-results-save-error"
+              className="text-[12px] text-rose-600"
+            >
+              {saveError}
+            </p>
+          )}
         </div>
       )}
     </section>

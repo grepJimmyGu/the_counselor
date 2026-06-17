@@ -14,7 +14,7 @@ from __future__ import annotations
 import logging
 from typing import List
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -27,6 +27,10 @@ from app.models.signal_alert_subscription import SignalAlertSubscription
 from app.models.symbol import SymbolCache
 from app.schemas.screener_scan import (
     RankedSymbol,
+    SavedScreenDetail,
+    SavedScreenSummary,
+    SavedScreensListResponse,
+    ScreenBasketEntry,
     ScreenCountResponse,
     ScreenRankRequest,
     ScreenRankResponse,
@@ -35,10 +39,15 @@ from app.schemas.screener_scan import (
     ScreenScanRequest,
     ScreenScanResponse,
 )
+from app.schemas.strategy import StrategyRule
 from app.services.saved_strategy_service import SaveStrategyRequest, save_strategy
 from app.services.screener.rank_service import rank_service
 from app.services.screener.saved_screen_service import (
+    current_basket,
+    is_screen,
+    list_user_screens,
     rescan_and_diff,
+    screen_history,
     screen_strategy_json,
 )
 from app.services.screener.scan_service import scan
@@ -246,4 +255,64 @@ async def screen_save(
         basket=diff.basket,
         as_of_date=diff.as_of_date,
         universe_size=diff.universe_size,
+    )
+
+
+@router.get("/saved", response_model=SavedScreensListResponse)
+async def list_saved_screens(
+    auth: tuple = Depends(
+        require_entitlement(needs_run_quota=False, allow_anonymous=False, template_id_field=None)
+    ),
+    db: Session = Depends(get_db),
+) -> SavedScreensListResponse:
+    """The signed-in user's tracked screens (PRD-23c §3.3)."""
+    user, _ = auth
+    summaries = [
+        SavedScreenSummary(
+            saved_strategy_id=s.id,
+            title=s.title,
+            universe_id=(s.strategy_json or {}).get("universe_id", ""),
+            basket_size=len(current_basket(db, s.id)),
+            created_at=s.created_at.isoformat() if s.created_at else None,
+        )
+        for s in list_user_screens(db, user.id)
+    ]
+    return SavedScreensListResponse(screens=summaries)
+
+
+@router.get("/saved/{saved_strategy_id}", response_model=SavedScreenDetail)
+async def get_saved_screen(
+    saved_strategy_id: str,
+    auth: tuple = Depends(
+        require_entitlement(needs_run_quota=False, allow_anonymous=False, template_id_field=None)
+    ),
+    db: Session = Depends(get_db),
+) -> SavedScreenDetail:
+    """A tracked screen's current basket + entrant/exit history (PRD-23c §3.3).
+    Owner-gated: a non-owner (or a non-screen id) gets 404, so existence never
+    leaks."""
+    user, _ = auth
+    saved = db.get(SavedStrategy, saved_strategy_id)
+    if saved is None or saved.user_id != user.id or not is_screen(saved):
+        raise HTTPException(status_code=404, detail="Saved screen not found")
+
+    sj = saved.strategy_json or {}
+    members = current_basket(db, saved.id)
+    return SavedScreenDetail(
+        saved_strategy_id=saved.id,
+        title=saved.title,
+        universe_id=sj.get("universe_id", ""),
+        basket_size=len(members),
+        created_at=saved.created_at.isoformat() if saved.created_at else None,
+        rules=[StrategyRule.model_validate(r) for r in sj.get("rules", [])],
+        basket=sorted(m.symbol for m in members),
+        history=[
+            ScreenBasketEntry(
+                symbol=m.symbol,
+                entered_date=m.entered_date,
+                exited_date=m.exited_date,
+                is_current=m.exited_date is None,
+            )
+            for m in screen_history(db, saved.id)
+        ],
     )
