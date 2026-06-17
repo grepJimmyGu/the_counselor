@@ -1509,3 +1509,32 @@ Slices 3-6 (Bollinger, Supertrend + Anchored VWAP, momentum z-scores + Heikin-As
 
 Docs: PR #216 (this log + LEARNINGS "Signal primitives + indicators" + Journal Episode 41).
 
+---
+
+## 2026-06-16 (cont.) — Signal Catalog v2 backfill: Bollinger / Supertrend+AVWAP / momentum+Heikin-Ashi / divergence primitives (PRD-22b slices 3-6)
+
+### What shipped (PR #218, catalog 87 → 110 primitives)
+
+The remaining four indicator-family slices, finishing the technical half of the
+PRD-22b backfill. Same pattern as slices 1-2 — each raw indicator *scalar*
+decomposes into the event/cross/level/regime/divergence primitives the industry
+trades. All 23 new ones are local `TechnicalSignalProvider`s → auto-join the daily
+screener snapshot + scan:
+
+- **Slice 3 — Bollinger events (6), all `composes=["bbands"]`:** `bb_bandwidth` (VALUE), `bb_squeeze` (REGIME), `bb_squeeze_fire` (EVENT ±1), `bb_walk_upper` (EVENT), `bb_tag_upper`/`bb_tag_lower` (EVENT). %B is intentionally **not** re-added (the existing `bbands` primitive already emits it). Extracted a shared `_bollinger_bands` helper and refactored `bbands` onto it (the composes contract).
+- **Slice 4 — Supertrend ×3 + Anchored VWAP ×3:** `supertrend` (VALUE), `supertrend_flip` (EVENT ±1), `supertrend_above_price` (LEVEL); `anchored_vwap` (VALUE), `distance_to_anchored_vwap` (DISTANCE), `price_above_anchored_vwap` (LEVEL). Supertrend uses a stateful O(n) carry-forward (`_supertrend` helper). AVWAP v1 anchors to a trailing window; the fixed-date / most-recent-earnings anchor is **deferred** (needs the earnings-calendar source).
+- **Slice 5 — momentum_acceleration (VALUE) + Heikin-Ashi ×3:** `heikin_ashi_trend` (REGIME), `heikin_ashi_consecutive` (VALUE, signed run length), `heikin_ashi_color_flip` (EVENT ±1). `_heikin_ashi` helper; HA carries a `smoothing` param (the model requires ≥1 parameter, and "smoothed HA" is the spec's own variant). `momentum_12_1` was **skipped** (already ships as `time_series_momentum`).
+- **Slice 6 — numpy peak/trough detector (`_pivot_indices`, `_divergence_signal`; NOT scipy, which isn't a pinned dep) + 7 DIVERGENCE primitives:** `macd_bullish_divergence`, `macd_bearish_divergence`, `rsi_bullish_divergence`, `rsi_bearish_divergence`, `rsi_hidden_bullish_div`, `obv_divergence_bullish`, `obv_divergence_bearish`. Each is unidirectional (+1 bullish / -1 bearish), held `order` bars from confirmation so the daily snapshot catches a recently-formed divergence.
+
+Encoding still matches the engine (CROSS/EVENT ±1, LEVEL 1-while-true, REGIME discrete code). Descriptions sourced from the v2 catalog spec's own family prose (editorial gate = PR review); `intent_group` continues to auto-derive from category (unused in UI), pending the intent-taxonomy research. Helper extractions across the whole backfill for the composes contract: `_macd_lines`, `_adx_components`, `_bollinger_bands`, `_supertrend`, `_heikin_ashi`. 4 new test files (one per slice) — `test_bollinger_event_providers.py`, `test_supertrend_avwap_providers.py`, `test_momentum_heikin_ashi_providers.py`, `test_divergence_providers.py` (~39 new tests). **Full suite: 1965 passed, 20 skipped; static-import smoke: 123 routes OK.**
+
+### Key bugs fixed (caught in pre-test smoke, not a test failure)
+
+- **`momentum_acceleration` measured trend magnitude, not acceleration.** It first compared raw **cumulative** returns (`ret_3mo - ret_9mo`). That's biased: a 9-month cumulative return is mechanically larger than a 3-month one (compounding), so a strong *steady* uptrend read as ≈ -38. **Fix:** compare per-month return **rates** (`ret_3mo/3 - ret_9mo/9`) — accelerating → positive, steady → ~0, fading → negative.
+
+### Deferred (remaining PRD-22b)
+
+- **Fundamental + Events family** (PEAD, days-to/since-earnings, est-revision cross, insider surge) — needs an earnings-calendar data source.
+- **2 cross-sectional momentum z-scores** (`momentum_12_1_zscore`, `momentum_composite_zscore`) — need universe standardization (MSCI-style, per-symbol snapshot can't compute).
+- **2 RSI failure swings** — a distinct multi-point Wilder pattern, not a pivot divergence.
+

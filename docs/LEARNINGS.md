@@ -564,6 +564,33 @@ default. Source: https://github.com/multica-ai/andrej-karpathy-skills.
 
 ## Signal primitives + indicators
 
+### "Acceleration" of returns must compare per-period RATES — cumulative returns over unequal windows are biased by compounding
+**TL;DR:** `ret_3mo − ret_9mo` is NOT momentum-of-momentum: a 9-month cumulative return is mechanically larger than a 3-month one (compounding), so the difference is dominated by trend *magnitude*, not *acceleration*. Divide each leg by its horizon and compare the rates: `ret_3mo/3 − ret_9mo/9`.
+
+`momentum_acceleration` first computed `ret_3mo − ret_9mo` on raw cumulative returns. Because a longer window compounds more, even a perfectly steady uptrend read as a large *negative* "acceleration" (≈ −38 in smoke) — the metric was measuring "how much total return has the longer window accumulated," which is just trend strength. The fix normalizes both legs to a per-month rate so the sign means what the name says: accelerating → positive, steady → ~0, fading → negative. Caught in pre-test smoke (the number was absurd), not by a unit test — a reminder that "the test is green" doesn't mean "the metric is meaningful."
+
+**When to apply:** any metric that differences two cumulative/aggregate quantities measured over **unequal** spans — multi-horizon momentum, "acceleration," "second derivative," rate-of-change-of-rate. Before subtracting, put both terms on the same per-unit basis (per-period rate, annualized, per-bar). If the windows differ in length, raw cumulative differences are confounded by the window length itself.
+
+**See also:** PR #218; `momentum_acceleration` provider; `tests/test_momentum_heikin_ashi_providers.py`.
+
+### Bollinger bands self-inflate — a smooth trend can never close above its own ±2σ band, so band-tag/walk fixtures need an outlier or an accelerating tail
+**TL;DR:** the current bar is *inside* its own rolling window, so it drags the mean and the σ toward itself; a smoothly trending series therefore never closes above its own +2σ band. A band-**tag** fixture needs a single sharp outlier after a flat base (a low σ the spike can clear); a band-**walk** fixture needs a steeply *accelerating* tail (each new bar must outrun the σ it just widened).
+
+Building `bb_tag_upper` / `bb_tag_lower` / `bb_walk_upper`, the obvious fixture — a steady ramp — never tags: every bar that pushes the price up also pushes the rolling mean up and *widens* σ, so the +2σ band runs away from the price as fast as the price climbs. The band only gets tagged when a bar moves far more than the recent window's volatility: either a flat base (σ collapses) followed by one outlier (tag), or a tail whose *increments* keep growing (walk). This is intrinsic to any self-referential rolling envelope (Keltner, Donchian-on-close, any "N-sigma of a trailing window that includes the current point") — the band can't be outrun by the same slope that builds it.
+
+**When to apply:** writing fixtures (or sanity-checking live signals) for any band/channel primitive whose envelope is computed from a window that **includes the current bar**. If you expect "price pierces the band" on a smooth move and it never fires, the fixture is too smooth, not the provider — inject an outlier-after-flat (tag) or a convex/accelerating tail (walk).
+
+**See also:** PR #218; `tests/test_bollinger_event_providers.py`.
+
+### Divergences barely form in smooth synthetic OHLCV — test the pivot detector directly on hand-built peaks/troughs
+**TL;DR:** coaxing a real price-vs-indicator divergence out of a gently-shaped synthetic frame is a losing fight (e.g. with flat volume, a gentler-but-longer decline produces *more* down-bars → a *lower* OBV, the opposite of the higher-low a bullish OBV divergence needs). Don't fight per-indicator fixtures — feed the detector hand-built pivot arrays and assert on the divergence logic itself.
+
+The 7 divergence primitives all run through one peak/trough detector (`_pivot_indices` / `_divergence_signal`). Trying to manufacture, say, an RSI bullish divergence by sculpting OHLCV means simultaneously satisfying the price-makes-a-lower-low condition *and* the indicator-makes-a-higher-low condition — and the indicator is a non-linear function of the very bars you're bending, so the two conditions fight each other (the OBV case is the cleanest trap: flat volume makes OBV a pure function of up/down-bar *count*, so a slower decline with more red bars sinks OBV instead of lifting it). The detector is a pure function of `(price_pivots, indicator_pivots)`; test it by handing it two short arrays with the pivot relationship you want and checking the ±1 output, rather than reverse-engineering an OHLCV frame that yields those pivots.
+
+**When to apply:** unit-testing any two-series comparison gated on detected extrema — divergences (MACD/RSI/OBV), swing-failure patterns, lower-high/higher-low structure. Separate the *detector* (pure, hand-fed pivots) from the *indicator math* (tested on its own elsewhere); don't try to exercise both through one synthetic price series.
+
+**See also:** PR #218; `_pivot_indices` / `_divergence_signal`; `tests/test_divergence_providers.py`.
+
 ### Decomposing an indicator can produce two byte-identical primitives — distinguish by packaging, not maths
 **TL;DR:** `macd_histogram_flip` (EVENT) and `macd_signal_cross` (CROSS) fire on the *same bars* — histogram = macd_line − signal_line, so its zero-cross IS the signal-line cross. The only difference is the composer widget (`output_kind`), not the series.
 

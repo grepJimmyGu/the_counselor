@@ -2176,4 +2176,38 @@ Also extracted `_adx_components(frame, period) → (adx, +DI, −DI)` as the sin
 
 *"Three tests failed and every instinct said 'the indicator is wrong.' All three were the opposite: the indicator was right and my test data was too clean to make it do anything. A pure straight-line rally has no losses, so RSI divides by zero. A perfectly steady trend has constant directional movement, so ADX flatlines and can never 'rise.' An indicator's interesting behavior lives entirely in its turns and curvature — feed it a ruler and it has nothing to measure."*
 
-*Last updated: 2026-06-16 (Episode 41 added — PRD-22b catalog backfill slices 1-2).*
+### Episode 42 — Finishing the backfill: Bollinger, Supertrend, Heikin-Ashi, divergences, and the metric that was secretly measuring trend strength (June 16)
+
+Same day, same pattern, four more slices. Episode 41 proved the loop — small additive PR, new `TechnicalSignalProvider`s auto-join the daily snapshot — so slices 3-6 just ran it to the end of what the per-symbol snapshot can actually compute. The catalog crossed into triple digits.
+
+**What shipped (PR #218, catalog 87 → 110, +23):**
+- **Slice 3 — Bollinger family (6), all compose on `bbands`:** `bb_bandwidth` (VALUE), `bb_squeeze` (REGIME), `bb_squeeze_fire` (EVENT +1/−1), `bb_walk_upper` (EVENT), `bb_tag_upper`/`bb_tag_lower` (EVENT). %B is *intentionally not* re-added — the existing `bbands` primitive already emits it. Extracted a shared `_bollinger_bands` helper and refactored `bbands` onto it so the children stay byte-consistent (the `composes` contract again).
+- **Slice 4 — Supertrend ×3 + Anchored VWAP ×3:** `supertrend` (VALUE), `supertrend_flip` (EVENT +1/−1), `supertrend_above_price` (LEVEL); `anchored_vwap` (VALUE), `distance_to_anchored_vwap` (DISTANCE), `price_above_anchored_vwap` (LEVEL). Supertrend needs a stateful O(n) carry-forward (`_supertrend` helper) — the band "locks" until price breaks it, which a vectorized one-liner can't express.
+- **Slice 5 — momentum_acceleration (VALUE) + Heikin-Ashi ×3:** `heikin_ashi_trend` (REGIME), `heikin_ashi_consecutive` (VALUE, signed run length), `heikin_ashi_color_flip` (EVENT +1/−1). `_heikin_ashi` helper; HA got a `smoothing` param (the model requires ≥1 parameter, and "smoothed HA" is the spec's own variant).
+- **Slice 6 — divergences (7), on a numpy peak/trough detector:** `macd_bullish_divergence`, `macd_bearish_divergence`, `rsi_bullish_divergence`, `rsi_bearish_divergence`, `rsi_hidden_bullish_div`, `obv_divergence_bullish`, `obv_divergence_bearish`. Each is unidirectional (+1 bullish / −1 bearish) and held `order` bars from confirmation so the *daily* snapshot still catches a divergence that formed a few sessions ago. Built the pivot finder by hand (`_pivot_indices`, `_divergence_signal`) rather than reach for scipy — scipy isn't a pinned dep, and a peak/trough scan is fifteen lines of numpy.
+
+All 23 are local `TechnicalSignalProvider`s, so the now-familiar rule holds: they auto-join the daily snapshot and scan on the next warm, no wiring. `intent_group` keeps auto-deriving from category — still no hand-assigned chips, still waiting on the intent-taxonomy research. And the editorial gate is unchanged: every description is lifted from the v2 catalog spec's own family prose, with PR review as the gate.
+
+**The deferrals, kept honest.** Four things in these slices were deliberately *not* shipped, each for a structural reason, not laziness:
+- **AVWAP anchor.** v1 anchors to a trailing window. The "real" anchor — a fixed date or the most-recent earnings bar — needs the earnings-calendar source we don't have yet. Deferred with the rest of the fundamental/events family.
+- **`momentum_12_1`** was *skipped*, not deferred — it already ships as `time_series_momentum`. Re-adding it would be a duplicate primitive under a second name.
+- **`momentum_12_1_zscore` + `momentum_composite_zscore`** are cross-sectional / standardized *across the universe* (per MSCI). The per-symbol snapshot computes one symbol at a time and structurally cannot z-score against a universe it can't see. Deferred until there's a universe-standardization pass.
+- **The 2 RSI failure swings.** A distinct multi-point Wilder pattern, not a pivot divergence — different detector, so it doesn't ride along on slice 6's peak/trough machinery.
+
+#### Bug log — the acceleration metric that was secretly a trend-strength meter
+
+This one didn't show up as a red test — it surfaced in the pre-test smoke, eyeballing actual numbers, which is the only reason it got caught at all.
+
+`momentum_acceleration` is supposed to answer "is this trend speeding up or fading?" The first cut compared raw **cumulative** returns: `ret_3mo − ret_9mo`. That's biased on its face once you say it slowly — a 9-month cumulative return is *mechanically* larger than a 3-month one because returns compound, so subtracting them measures trend **magnitude**, not acceleration. A strong, perfectly *steady* uptrend — the textbook "not accelerating" case — read as about **−38**, i.e. screaming deceleration, because the 9-month total dwarfed the 3-month total no matter what the slope did.
+
+Fix: compare per-month **rates**, `ret_3mo/3 − ret_9mo/9`. Now a recent-quarter pace faster than the trailing pace reads positive (accelerating), a constant pace reads ~0 (steady), and a fading trend reads negative — which is what the name promised. The lesson generalizes: when you difference two cumulative windows of different length, you're comparing apples to a bigger bag of apples; normalize to a rate before you subtract.
+
+The composes-contract refactor also reached its final shape across the whole backfill — five helpers are now the single source of truth their families compose on: `_macd_lines`, `_adx_components`, `_bollinger_bands`, `_supertrend`, `_heikin_ashi`. Tweak a formula once, every child stays byte-consistent.
+
+**Where it stands:** full backend suite 1965 passed / 20 skipped; the static-import smoke shows 123 routes OK. Four new test files, one per slice — `test_bollinger_event_providers.py`, `test_supertrend_avwap_providers.py`, `test_momentum_heikin_ashi_providers.py`, `test_divergence_providers.py` (~39 new tests). Merged clean as squash `34730c2` on `main`. What's left of PRD-22b is the genuinely-blocked tail: the Fundamental + Events family (PEAD, days-to/since-earnings, est-revision cross, insider surge) waiting on an earnings-calendar source; the 2 cross-sectional momentum z-scores waiting on universe standardization; and the 2 RSI failure swings (their own Wilder pattern). The technical catalog the snapshot *can* compute is now done.
+
+#### Content hook
+
+*"A metric read −38 on a chart that was climbing in a clean straight line — the one case it was built to call 'steady.' The code was 'right': it subtracted a 3-month return from a 9-month return, exactly as written. But a 9-month return is mechanically bigger than a 3-month one because money compounds, so the subtraction was quietly measuring how strong the trend was, not whether it was speeding up. Two slashes fixed it — divide each return by its own number of months first. Anytime you difference two windows of different length, normalize to a rate before you subtract, or you'll measure size when you meant to measure change."*
+
+*Last updated: 2026-06-16 (Episode 42 added — PRD-22b catalog backfill slices 3-6, catalog → 110).*
