@@ -2070,6 +2070,164 @@ class HeikinAshiColorFlipSignalProvider(TechnicalSignalProvider):
         return out
 
 
+# ── Divergences (PRD-22b) ───────────────────────────────────────────────────
+# Regular + hidden divergences between price and an oscillator (MACD line,
+# RSI, OBV). A pivot is a strict local extreme over a ±`order` window (numpy,
+# NOT scipy — scipy isn't a pinned dependency). The signal is held for `order`
+# bars after the second pivot is confirmed, so the daily screener snapshot can
+# catch a recently-formed divergence rather than only the exact confirm bar.
+
+
+def _pivot_indices(vals: "np.ndarray", order: int, want_min: bool) -> "list[int]":
+    """Indices that are a strict local min (want_min) or max over a ±order
+    window. Confirmed `order` bars after the pivot (the right window must
+    exist), so there's no look-ahead."""
+    n = len(vals)
+    out: "list[int]" = []
+    for i in range(order, n - order):
+        left = vals[i - order:i]
+        right = vals[i + 1:i + order + 1]
+        c = vals[i]
+        if np.isnan(c) or np.isnan(left).any() or np.isnan(right).any():
+            continue
+        if want_min and c < left.min() and c < right.min():
+            out.append(i)
+        elif not want_min and c > left.max() and c > right.max():
+            out.append(i)
+    return out
+
+
+def _divergence_signal(
+    price: pd.Series,
+    indicator: pd.Series,
+    order: int,
+    *,
+    troughs: bool,
+    price_lower: bool,
+    ind_lower: bool,
+    sign: int,
+) -> pd.Series:
+    """Compare consecutive price pivots: emit `sign` when the price move
+    (lower/higher) disagrees with the indicator move at the same pivots —
+    the divergence. Held for `order` bars from the confirmation of the
+    second pivot.
+
+      regular bullish: troughs, price lower-low, indicator higher-low  (+1)
+      regular bearish: peaks,   price higher-high, indicator lower-high (-1)
+      hidden bullish:  troughs, price higher-low, indicator lower-low   (+1)
+    """
+    p = price.values
+    ind = indicator.values
+    n = len(p)
+    out = np.zeros(n)
+    pivots = _pivot_indices(p, order, want_min=troughs)
+    for a, b in zip(pivots, pivots[1:]):
+        if np.isnan(ind[a]) or np.isnan(ind[b]):
+            continue
+        price_ok = (p[b] < p[a]) if price_lower else (p[b] > p[a])
+        ind_ok = (ind[b] < ind[a]) if ind_lower else (ind[b] > ind[a])
+        if price_ok and ind_ok:
+            start = b + order  # the bar the second pivot is confirmed
+            for k in range(start, min(start + order, n)):
+                out[k] = float(sign)
+    return pd.Series(out, index=price.index)
+
+
+class _DivergenceProvider(TechnicalSignalProvider):
+    """Base for the divergence primitives. Subclasses set the indicator + the
+    pivot/comparison directions. DIVERGENCE encoding: +1 bullish / -1 bearish,
+    0 elsewhere (consumed via `divergence_bullish` / `divergence_bearish`)."""
+    _troughs = True
+    _price_lower = True
+    _ind_lower = False
+    _sign = 1
+
+    def _default_params(self) -> dict:
+        return {"order": 5}
+
+    def _lookback_days(self) -> int:
+        return 250
+
+    def _indicator(self, frame: pd.DataFrame) -> pd.Series:
+        raise NotImplementedError
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        return _divergence_signal(
+            frame["close"],
+            self._indicator(frame),
+            int(self.params["order"]),
+            troughs=self._troughs,
+            price_lower=self._price_lower,
+            ind_lower=self._ind_lower,
+            sign=self._sign,
+        )
+
+
+class _MacdDivergenceMixin:
+    def _indicator(self, frame: pd.DataFrame) -> pd.Series:
+        macd_line, _ = _macd_lines(frame, 12, 26, 9)
+        return macd_line
+
+
+class MacdBullishDivergenceSignalProvider(_MacdDivergenceMixin, _DivergenceProvider):
+    """DIVERGENCE: price makes a lower low while the MACD line makes a higher
+    low — a reversal setup. Emits +1."""
+    name = "macd_bullish_divergence"
+    _troughs, _price_lower, _ind_lower, _sign = True, True, False, 1
+
+
+class MacdBearishDivergenceSignalProvider(_MacdDivergenceMixin, _DivergenceProvider):
+    """DIVERGENCE: price makes a higher high while the MACD line makes a lower
+    high — an exhaustion setup. Emits -1."""
+    name = "macd_bearish_divergence"
+    _troughs, _price_lower, _ind_lower, _sign = False, False, True, -1
+
+
+class _RsiDivergenceMixin:
+    def _default_params(self) -> dict:
+        return {"order": 5, "period": 14}
+
+    def _indicator(self, frame: pd.DataFrame) -> pd.Series:
+        return RsiSignalProvider(period=int(self.params["period"]))._compute(frame)
+
+
+class RsiBullishDivergenceSignalProvider(_RsiDivergenceMixin, _DivergenceProvider):
+    """DIVERGENCE: regular bullish — price lower low, RSI higher low. Emits +1."""
+    name = "rsi_bullish_divergence"
+    _troughs, _price_lower, _ind_lower, _sign = True, True, False, 1
+
+
+class RsiBearishDivergenceSignalProvider(_RsiDivergenceMixin, _DivergenceProvider):
+    """DIVERGENCE: regular bearish — price higher high, RSI lower high. Emits -1."""
+    name = "rsi_bearish_divergence"
+    _troughs, _price_lower, _ind_lower, _sign = False, False, True, -1
+
+
+class RsiHiddenBullishDivergenceSignalProvider(_RsiDivergenceMixin, _DivergenceProvider):
+    """DIVERGENCE: hidden bullish — price higher low, RSI lower low — a
+    trend-continuation re-entry signal. Emits +1."""
+    name = "rsi_hidden_bullish_div"
+    _troughs, _price_lower, _ind_lower, _sign = True, False, True, 1
+
+
+class _ObvDivergenceMixin:
+    def _indicator(self, frame: pd.DataFrame) -> pd.Series:
+        return ObvSignalProvider()._compute(frame)
+
+
+class ObvDivergenceBullishSignalProvider(_ObvDivergenceMixin, _DivergenceProvider):
+    """DIVERGENCE: price lower low, OBV higher low — accumulation despite
+    weakness. Emits +1."""
+    name = "obv_divergence_bullish"
+    _troughs, _price_lower, _ind_lower, _sign = True, True, False, 1
+
+
+class ObvDivergenceBearishSignalProvider(_ObvDivergenceMixin, _DivergenceProvider):
+    """DIVERGENCE: price higher high, OBV lower high — distribution. Emits -1."""
+    name = "obv_divergence_bearish"
+    _troughs, _price_lower, _ind_lower, _sign = False, False, True, -1
+
+
 # ── Registry assembly ──────────────────────────────────────────────────────
 
 
@@ -2140,5 +2298,10 @@ def get_technical_providers() -> dict:
         # Momentum acceleration + Heikin-Ashi (PRD-22b)
         MomentumAccelerationSignalProvider, HeikinAshiTrendSignalProvider,
         HeikinAshiConsecutiveSignalProvider, HeikinAshiColorFlipSignalProvider,
+        # Divergences (PRD-22b)
+        MacdBullishDivergenceSignalProvider, MacdBearishDivergenceSignalProvider,
+        RsiBullishDivergenceSignalProvider, RsiBearishDivergenceSignalProvider,
+        RsiHiddenBullishDivergenceSignalProvider,
+        ObvDivergenceBullishSignalProvider, ObvDivergenceBearishSignalProvider,
     ]
     return {cls.name: cls() for cls in classes}

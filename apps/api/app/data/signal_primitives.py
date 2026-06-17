@@ -2433,6 +2433,187 @@ _CROSS_SECTIONAL: list[SignalPrimitive] = [
 ]
 
 
+# ── Divergences (PRD-22b) ─────────────────────────────────────────────────────
+# Price-vs-oscillator divergences across the MACD / RSI / OBV families. Each is
+# unidirectional (a named bull or bear setup) and emits +1 / -1 on confirmation
+# (held a few bars so the daily snapshot catches it). Categories follow the
+# parent family; all compose on the parent indicator.
+_DIVERGENCE: list[SignalPrimitive] = [
+    SignalPrimitive(
+        id="macd_bullish_divergence",
+        category=SignalCategory.TREND,
+        family="MACD",
+        name="MACD bullish divergence",
+        description="Price makes a lower low while the MACD line makes a higher low - a reversal setup.",
+        long_description=(
+            "Regular bullish divergence: price prints a lower low but momentum "
+            "(the MACD line) prints a higher low, hinting the down-move is "
+            "losing force and may reverse."
+        ),
+        parameters=[
+            Parameter(name="order", default=5, min_value=2, max_value=30,
+                      description="Pivot sensitivity - bars on each side of a swing"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="macd_bullish_divergence",
+        data_source="price",
+        output_kind=OutputKind.DIVERGENCE,
+        composes=["macd"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="macd_bearish_divergence",
+        category=SignalCategory.TREND,
+        family="MACD",
+        name="MACD bearish divergence",
+        description="Price makes a higher high while the MACD line makes a lower high - an exhaustion setup.",
+        long_description=(
+            "Regular bearish divergence: price prints a higher high but the "
+            "MACD line prints a lower high, hinting the up-move is running out "
+            "of momentum."
+        ),
+        parameters=[
+            Parameter(name="order", default=5, min_value=2, max_value=30,
+                      description="Pivot sensitivity - bars on each side of a swing"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="macd_bearish_divergence",
+        data_source="price",
+        output_kind=OutputKind.DIVERGENCE,
+        composes=["macd"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="rsi_bullish_divergence",
+        category=SignalCategory.MEAN_REVERSION,
+        family="RSI",
+        name="RSI bullish divergence",
+        description="Price makes a lower low while RSI makes a higher low - a reversal setup.",
+        long_description=(
+            "Regular bullish divergence on RSI: a lower price low against a "
+            "higher RSI low, the classic mean-reversion reversal tell."
+        ),
+        parameters=[
+            Parameter(name="order", default=5, min_value=2, max_value=30,
+                      description="Pivot sensitivity - bars on each side of a swing"),
+            Parameter(name="period", default=14, min_value=2, max_value=100,
+                      description="RSI look-back period"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="rsi_bullish_divergence",
+        data_source="price",
+        output_kind=OutputKind.DIVERGENCE,
+        composes=["rsi"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="rsi_bearish_divergence",
+        category=SignalCategory.MEAN_REVERSION,
+        family="RSI",
+        name="RSI bearish divergence",
+        description="Price makes a higher high while RSI makes a lower high - an exhaustion setup.",
+        long_description=(
+            "Regular bearish divergence on RSI: a higher price high against a "
+            "lower RSI high, flagging fading upside momentum."
+        ),
+        parameters=[
+            Parameter(name="order", default=5, min_value=2, max_value=30,
+                      description="Pivot sensitivity - bars on each side of a swing"),
+            Parameter(name="period", default=14, min_value=2, max_value=100,
+                      description="RSI look-back period"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="rsi_bearish_divergence",
+        data_source="price",
+        output_kind=OutputKind.DIVERGENCE,
+        composes=["rsi"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="rsi_hidden_bullish_div",
+        category=SignalCategory.MEAN_REVERSION,
+        family="RSI",
+        name="RSI hidden bullish divergence",
+        description="Price makes a higher low while RSI makes a lower low - a trend-continuation re-entry.",
+        long_description=(
+            "Hidden bullish divergence: a higher price low against a lower RSI "
+            "low. Where regular divergence calls reversals, hidden divergence "
+            "signals a pullback in an up-trend is done - a continuation entry."
+        ),
+        parameters=[
+            Parameter(name="order", default=5, min_value=2, max_value=30,
+                      description="Pivot sensitivity - bars on each side of a swing"),
+            Parameter(name="period", default=14, min_value=2, max_value=100,
+                      description="RSI look-back period"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="rsi_hidden_bullish_div",
+        data_source="price",
+        output_kind=OutputKind.DIVERGENCE,
+        composes=["rsi"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="obv_divergence_bullish",
+        category=SignalCategory.VOLUME,
+        family="OBV",
+        name="OBV bullish divergence",
+        description="Price makes a lower low while OBV makes a higher low - accumulation despite weakness.",
+        long_description=(
+            "On-Balance Volume diverging bullishly: price prints a lower low "
+            "but volume flow (OBV) prints a higher low, hinting that buyers "
+            "are quietly accumulating into the weakness."
+        ),
+        parameters=[
+            Parameter(name="order", default=5, min_value=2, max_value=30,
+                      description="Pivot sensitivity - bars on each side of a swing"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="obv_divergence_bullish",
+        data_source="price",
+        output_kind=OutputKind.DIVERGENCE,
+        composes=["obv"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="obv_divergence_bearish",
+        category=SignalCategory.VOLUME,
+        family="OBV",
+        name="OBV bearish divergence",
+        description="Price makes a higher high while OBV makes a lower high - distribution.",
+        long_description=(
+            "On-Balance Volume diverging bearishly: price prints a higher high "
+            "but OBV prints a lower high, hinting sellers are distributing into "
+            "the strength."
+        ),
+        parameters=[
+            Parameter(name="order", default=5, min_value=2, max_value=30,
+                      description="Pivot sensitivity - bars on each side of a swing"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="obv_divergence_bearish",
+        data_source="price",
+        output_kind=OutputKind.DIVERGENCE,
+        composes=["obv"],
+        resolution=["daily"],
+    ),
+]
+
+
 # ── PRD-16c-4 editorial: intraday-eligible primitives ──────────────────────
 #
 # Technical indicators that work on any bar series (price-derived, no
@@ -2629,6 +2810,14 @@ _READINGS: dict[str, str] = {
     "rank_composite_score": "A blended rank vs peers",
     "sector_rotation_rank": "Sector strength vs peers",
     "pair_spread_zscore": "How stretched a pair spread is",
+    # Divergences
+    "macd_bullish_divergence": "MACD bullish divergence (reversal)",
+    "macd_bearish_divergence": "MACD bearish divergence (exhaustion)",
+    "rsi_bullish_divergence": "RSI bullish divergence (reversal)",
+    "rsi_bearish_divergence": "RSI bearish divergence (exhaustion)",
+    "rsi_hidden_bullish_div": "RSI hidden bullish divergence (continuation)",
+    "obv_divergence_bullish": "OBV bullish divergence (accumulation)",
+    "obv_divergence_bearish": "OBV bearish divergence (distribution)",
 }
 
 
@@ -2656,6 +2845,7 @@ SIGNAL_PRIMITIVES: list[SignalPrimitive] = _apply_reading_layer(_apply_intraday_
     *_FUNDAMENTAL,
     *_SENTIMENT,
     *_CROSS_SECTIONAL,
+    *_DIVERGENCE,
 ]))
 
 
