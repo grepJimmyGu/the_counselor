@@ -9,7 +9,7 @@
 
 ## Current Session
 
-**Status:** 2026-06-16 — **PRD-22b Signal Catalog backfill, slices 1-2 shipped + merged + documented.** The Market Screener (PRD-23a/b) is live on a real S&P snapshot, which lifted the catalog freeze; this session began the incremental indicator-family backfill. Catalog **69 → 87 primitives**.
+**Status:** 2026-06-16 — **PRD-22b local catalog backfill COMPLETE (catalog 110).** The Market Screener (PRD-23a/b) is live on a real S&P snapshot, which lifted the catalog freeze; this session ran the incremental indicator-family backfill to completion across slices 1-6. Catalog **69 → 87 → 110 primitives**. All 23 slice-3-6 additions are local `TechnicalSignalProvider`s → they auto-join the daily screener snapshot + scan. What's left of PRD-22b is the deliberately-deferred remnants (need an earnings-calendar source / universe standardization / a distinct Wilder pattern — see Next action).
 
 **Shipped this session:**
 
@@ -17,14 +17,15 @@
 |---|---|
 | #215 | PRD-22b slices 1-2 — 18 event/cross/level/regime primitives (MA/MACD events + RSI/Stoch/ADX events), all local → auto-join the daily screener snapshot. 22 new tests, 1796 backend green. |
 | #216 | docs — PROJECT_BACKLOG §4 resume plan, LEARNINGS "Signal primitives + indicators", Journal Episode 41, `project_log.md` entry |
+| #218 | PRD-22b slices 3-6 (squash `34730c2`) — **23** local primitives, catalog **87 → 110**: slice 3 Bollinger ×6 (bb_bandwidth / bb_squeeze / bb_squeeze_fire / bb_walk_upper / bb_tag_upper / bb_tag_lower, all compose on `bbands`; %B not re-added — `bbands` already emits it); slice 4 Supertrend ×3 (supertrend / supertrend_flip / supertrend_above_price, stateful O(n) carry-forward) + Anchored VWAP ×3 (anchored_vwap / distance_to_anchored_vwap / price_above_anchored_vwap, trailing-window anchor v1); slice 5 momentum_acceleration + Heikin-Ashi ×3 (heikin_ashi_trend / heikin_ashi_consecutive / heikin_ashi_color_flip, `smoothing` param); slice 6 numpy peak/trough detector (`_pivot_indices` / `_divergence_signal`, NOT scipy) + 7 unidirectional DIVERGENCE primitives (macd_bull/bear, rsi_bull/bear, rsi_hidden_bullish, obv_bull/bear), each held `order` bars from confirmation. ~39 new tests across 4 files; full suite **1965 passed / 20 skipped**, static-import smoke 123 routes OK. |
 
 **Build-time bug log:** three "failing" tests were correct providers + degenerate fixtures (pure rally → RSI NaN; linear trend → flat ADX; monotonic move → %K saturates, no cross). One real provider fix: stochastic zone-crosses gate on `%D`, not `%K`. Detail in Journal Episode 41 + LEARNINGS.
 
 **Editorial follow-ups (need Mr Gu):** (1) `macd_histogram_flip` is byte-identical to `macd_signal_cross` (kept distinct only by `output_kind`) — confirm or switch to a histogram-inflection detector. (2) `intent_group` auto-derives from category (unused in UI), pending the intent-taxonomy deep research Mr Gu is running.
 
 ### Next action
-1. **PRD-22b slices 3-6** — each a 1-PR additive backfill on the now-locked build pattern, scoped to the primitive in PROJECT_BACKLOG §4: Bollinger (+7) → Supertrend + Anchored VWAP (×6) → momentum z-scores + Heikin-Ashi → divergences (numpy peak/trough — NOT scipy). Fundamental/events deferred (needs earnings-calendar source).
-2. **Operationalize the intent taxonomy** when Mr Gu's deep research returns: map the 87 primitives → intent groups, write the `reading` lines, draft the taxonomy spec for sign-off, correct the improvised `IntentGroup` enum, THEN build the intent-first composer (composer steps 1-2 were never built — only step-3 kind widgets).
+1. **PRD-22b deferred remnants** — the local-`TechnicalSignalProvider` backfill is done (catalog 110); what's left all needs data or methodology the per-symbol snapshot can't supply: (a) the **Fundamental + Events** family (PEAD, days-to/since-earnings, est-revision cross, insider surge) — blocked on an **earnings-calendar data source**; (b) **2 cross-sectional momentum z-scores** (`momentum_12_1_zscore`, `momentum_composite_zscore`) — need **universe standardization** (the snapshot is per-symbol, can't compute a universe-wide cross-section); (c) **2 RSI failure swings** — a distinct multi-point Wilder pattern, not a pivot divergence.
+2. **Operationalize the intent taxonomy** when Mr Gu's deep research returns: map the 110 primitives → intent groups, write the `reading` lines, draft the taxonomy spec for sign-off, correct the improvised `IntentGroup` enum (still auto-derived from category, unused in UI), THEN build the intent-first composer (composer steps 1-2 were never built — only step-3 kind widgets).
 3. **Extensible prewarm-universe registry + Nasdaq-100** (PROJECT_BACKLOG §4) — collapse the 4 hardcoded `SP500_TICKERS` spots to one `STANDING_UNIVERSES` source of truth.
 
 ---
