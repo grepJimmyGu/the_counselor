@@ -1784,6 +1784,174 @@ class BbTagLowerSignalProvider(TechnicalSignalProvider):
         return (frame["close"] < lower).astype(float)
 
 
+# ── Supertrend (PRD-22b) ────────────────────────────────────────────────────
+# An ATR-banded trailing line that flips between an upper (down-trend) and
+# lower (up-trend) band. The carry-forward band + direction logic is stateful
+# (each bar depends on the prior bar), so it's an explicit O(n) pass.
+
+
+def _supertrend(
+    frame: pd.DataFrame, period: int, mult: float
+) -> "tuple[pd.Series, pd.Series]":
+    """Shared Supertrend decomposition: returns (line, direction). Direction
+    is +1 in an up-trend (line = lower band, below price) and −1 in a
+    down-trend (line = upper band, above price). Single source of truth for
+    the supertrend / flip / above-price children."""
+    high, low, close = frame["high"], frame["low"], frame["close"]
+    hl2 = (high + low) / 2.0
+    atr = AtrSignalProvider(period=period)._compute(frame)
+    upper = (hl2 + mult * atr).values
+    lower = (hl2 - mult * atr).values
+    close_v = close.values
+    n = len(frame)
+    fu = upper.copy()
+    fl = lower.copy()
+    line = np.full(n, np.nan)
+    direction = np.full(n, np.nan)
+    for i in range(1, n):
+        # carry-forward final upper band
+        if np.isnan(fu[i - 1]) or upper[i] < fu[i - 1] or close_v[i - 1] > fu[i - 1]:
+            fu[i] = upper[i]
+        else:
+            fu[i] = fu[i - 1]
+        # carry-forward final lower band
+        if np.isnan(fl[i - 1]) or lower[i] > fl[i - 1] or close_v[i - 1] < fl[i - 1]:
+            fl[i] = lower[i]
+        else:
+            fl[i] = fl[i - 1]
+        # direction: stay until price breaks the opposite band
+        if np.isnan(direction[i - 1]):
+            direction[i] = 1.0 if close_v[i] > fu[i] else -1.0
+        elif direction[i - 1] == 1.0:
+            direction[i] = -1.0 if close_v[i] < fl[i] else 1.0
+        else:
+            direction[i] = 1.0 if close_v[i] > fu[i] else -1.0
+        line[i] = fl[i] if direction[i] == 1.0 else fu[i]
+    return (
+        pd.Series(line, index=frame.index),
+        pd.Series(direction, index=frame.index),
+    )
+
+
+class SupertrendSignalProvider(TechnicalSignalProvider):
+    """VALUE: the Supertrend trailing line (hl2 ± mult × ATR with the
+    direction carry-forward). Sits below price in an up-trend, above in a
+    down-trend — a trailing stop level."""
+    name = "supertrend"
+
+    def _default_params(self) -> dict:
+        return {"period": 10, "mult": 3.0}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) * 5
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        line, _ = _supertrend(frame, int(self.params["period"]), float(self.params["mult"]))
+        return line
+
+
+class SupertrendFlipSignalProvider(TechnicalSignalProvider):
+    """EVENT: fires the bar the Supertrend flips direction — +1 on a flip
+    to up-trend (green), −1 on a flip to down-trend (red). A trend-regime
+    change."""
+    name = "supertrend_flip"
+
+    def _default_params(self) -> dict:
+        return {"period": 10, "mult": 3.0}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) * 5
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        _, direction = _supertrend(frame, int(self.params["period"]), float(self.params["mult"]))
+        flipped = (direction != direction.shift(1)) & direction.shift(1).notna()
+        out = pd.Series(0.0, index=frame.index)
+        out[flipped & (direction == 1.0)] = 1.0
+        out[flipped & (direction == -1.0)] = -1.0
+        return out
+
+
+class SupertrendAbovePriceSignalProvider(TechnicalSignalProvider):
+    """LEVEL: 1.0 while the Supertrend line sits above price (a down-trend /
+    persistent short flag); 0.0 in an up-trend."""
+    name = "supertrend_above_price"
+
+    def _default_params(self) -> dict:
+        return {"period": 10, "mult": 3.0}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["period"]) * 5
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        _, direction = _supertrend(frame, int(self.params["period"]), float(self.params["mult"]))
+        out = (direction == -1.0).astype(float)
+        out[direction.isna()] = float("nan")  # warmup carries no direction
+        return out
+
+
+# ── Anchored VWAP (PRD-22b) ─────────────────────────────────────────────────
+# v1 anchors to a trailing `anchor_lookback`-bar window (the last-bar value
+# equals a true VWAP anchored that many bars back). A fixed date / most-recent-
+# earnings anchor is a future enhancement (it needs the earnings-calendar
+# source that the fundamental/event family is deferred behind).
+
+
+def _anchored_vwap(frame: pd.DataFrame, lookback: int) -> pd.Series:
+    """Volume-weighted average typical price over a trailing `lookback`
+    window. Single source of truth for the AVWAP children."""
+    typical = (frame["high"] + frame["low"] + frame["close"]) / 3.0
+    tpv = (typical * frame["volume"]).rolling(lookback).sum()
+    vol = frame["volume"].rolling(lookback).sum()
+    return tpv / vol.replace(0, np.nan)
+
+
+class AnchoredVwapSignalProvider(TechnicalSignalProvider):
+    """VALUE: anchored VWAP — the volume-weighted average price since the
+    anchor — an institutional reference level."""
+    name = "anchored_vwap"
+
+    def _default_params(self) -> dict:
+        return {"anchor_lookback": 63}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["anchor_lookback"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        return _anchored_vwap(frame, int(self.params["anchor_lookback"]))
+
+
+class DistanceToAnchoredVwapSignalProvider(TechnicalSignalProvider):
+    """DISTANCE: signed percent gap between close and the anchored VWAP.
+    Positive = price above the reference, negative = below."""
+    name = "distance_to_anchored_vwap"
+
+    def _default_params(self) -> dict:
+        return {"anchor_lookback": 63}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["anchor_lookback"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        avwap = _anchored_vwap(frame, int(self.params["anchor_lookback"]))
+        return 100.0 * (frame["close"] - avwap) / avwap.replace(0, np.nan)
+
+
+class PriceAboveAnchoredVwapSignalProvider(TechnicalSignalProvider):
+    """LEVEL: 1.0 while close trades above the anchored VWAP — a persistent
+    buyer-control flag from the anchor date."""
+    name = "price_above_anchored_vwap"
+
+    def _default_params(self) -> dict:
+        return {"anchor_lookback": 63}
+
+    def _lookback_days(self) -> int:
+        return int(self.params["anchor_lookback"]) + 30
+
+    def _compute(self, frame: pd.DataFrame) -> pd.Series:
+        avwap = _anchored_vwap(frame, int(self.params["anchor_lookback"]))
+        return (frame["close"] > avwap).astype(float)
+
+
 # ── Registry assembly ──────────────────────────────────────────────────────
 
 
@@ -1847,5 +2015,9 @@ def get_technical_providers() -> dict:
         BbBandwidthSignalProvider, BbSqueezeSignalProvider,
         BbSqueezeFireSignalProvider, BbWalkUpperSignalProvider,
         BbTagUpperSignalProvider, BbTagLowerSignalProvider,
+        # Supertrend + Anchored VWAP (PRD-22b)
+        SupertrendSignalProvider, SupertrendFlipSignalProvider,
+        SupertrendAbovePriceSignalProvider, AnchoredVwapSignalProvider,
+        DistanceToAnchoredVwapSignalProvider, PriceAboveAnchoredVwapSignalProvider,
     ]
     return {cls.name: cls() for cls in classes}

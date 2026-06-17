@@ -1629,6 +1629,81 @@ _VOLUME: list[SignalPrimitive] = [
         composes=["rvol"],
         resolution=["daily"],
     ),
+    # ── Anchored VWAP (PRD-22b) ───────────────────────────────────────────────
+    # v1 anchors to a trailing window; a fixed date / most-recent-earnings
+    # anchor is deferred behind the earnings-calendar source.
+    SignalPrimitive(
+        id="anchored_vwap",
+        category=SignalCategory.VOLUME,
+        family="AVWAP",
+        name="Anchored VWAP",
+        description="Volume-weighted average price since the anchor - an institutional reference level.",
+        long_description=(
+            "VWAP accumulated from an anchor point rather than reset daily. v1 "
+            "anchors to a trailing window (default ~one quarter); institutions "
+            "watch it as a fair-value line buyers defend and sellers cap. A "
+            "fixed date / most-recent-earnings anchor is a future enhancement."
+        ),
+        parameters=[
+            Parameter(name="anchor_lookback", default=63, min_value=5, max_value=504,
+                      description="Bars back to anchor the VWAP window"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="anchored_vwap",
+        data_source="price",
+        output_kind=OutputKind.VALUE,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="distance_to_anchored_vwap",
+        category=SignalCategory.VOLUME,
+        family="AVWAP",
+        name="Distance to anchored VWAP",
+        description="Signed percent gap between close and the anchored VWAP - composer renders as a range.",
+        long_description=(
+            "How far above (positive) or below (negative) the anchored VWAP "
+            "price is trading. A range filter catches names hovering near "
+            "their institutional reference line, or stretched far from it."
+        ),
+        parameters=[
+            Parameter(name="anchor_lookback", default=63, min_value=5, max_value=504,
+                      description="Bars back to anchor the VWAP window"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="distance_to_anchored_vwap",
+        data_source="price",
+        output_kind=OutputKind.DISTANCE,
+        composes=["anchored_vwap"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="price_above_anchored_vwap",
+        category=SignalCategory.VOLUME,
+        family="AVWAP",
+        name="Price above anchored VWAP",
+        description="True while close trades above the anchored VWAP - a persistent buyer-control flag.",
+        long_description=(
+            "Holds true for as long as price stays above its anchored VWAP - "
+            "the side of the institutional reference line buyers control. A "
+            "clean regime filter to layer under directional entries."
+        ),
+        parameters=[
+            Parameter(name="anchor_lookback", default=63, min_value=5, max_value=504,
+                      description="Bars back to anchor the VWAP window"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf"],
+        evidence_tier="B",
+        provider_impl="price_above_anchored_vwap",
+        data_source="price",
+        output_kind=OutputKind.LEVEL,
+        composes=["anchored_vwap"],
+        resolution=["daily"],
+    ),
 ]
 
 
@@ -1863,6 +1938,84 @@ _VOLATILITY: list[SignalPrimitive] = [
         data_source="price",
         output_kind=OutputKind.EVENT,
         composes=["ttm_squeeze"],
+        resolution=["daily"],
+    ),
+    # ── Supertrend (PRD-22b) ──────────────────────────────────────────────────
+    SignalPrimitive(
+        id="supertrend",
+        category=SignalCategory.VOLATILITY,
+        family="SUPERTREND",
+        name="Supertrend",
+        description="ATR-banded trailing line (hl2 ± mult × ATR) - a trend-following trailing stop.",
+        long_description=(
+            "Supertrend plots a trailing line that sits below price in an "
+            "up-trend and flips above it in a down-trend, using an ATR band "
+            "around the hl2 midpoint. Default ATR period 10, multiplier 3."
+        ),
+        parameters=[
+            Parameter(name="period", default=10, min_value=2, max_value=100,
+                      description="ATR look-back period"),
+            Parameter(name="mult", default=3.0, min_value=0.5, max_value=10.0,
+                      description="ATR band multiplier"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="B",
+        provider_impl="supertrend",
+        data_source="price",
+        output_kind=OutputKind.VALUE,
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="supertrend_flip",
+        category=SignalCategory.VOLATILITY,
+        family="SUPERTREND",
+        name="Supertrend flip",
+        description="Fires the bar the Supertrend flips direction - a trend-regime change. +1 to up, -1 to down.",
+        long_description=(
+            "The Supertrend's regime-change trigger: fires +1 when the line "
+            "flips below price (new up-trend) and -1 when it flips above (new "
+            "down-trend). The canonical Supertrend entry/exit signal."
+        ),
+        parameters=[
+            Parameter(name="period", default=10, min_value=2, max_value=100,
+                      description="ATR look-back period"),
+            Parameter(name="mult", default=3.0, min_value=0.5, max_value=10.0,
+                      description="ATR band multiplier"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="B",
+        provider_impl="supertrend_flip",
+        data_source="price",
+        output_kind=OutputKind.EVENT,
+        composes=["supertrend"],
+        resolution=["daily"],
+    ),
+    SignalPrimitive(
+        id="supertrend_above_price",
+        category=SignalCategory.VOLATILITY,
+        family="SUPERTREND",
+        name="Supertrend above price",
+        description="True while the Supertrend line sits above price - a persistent down-trend flag.",
+        long_description=(
+            "Holds true for as long as the Supertrend line is above price - "
+            "the down-trend regime. The inverse is the up-trend; use as a "
+            "directional regime filter under entries."
+        ),
+        parameters=[
+            Parameter(name="period", default=10, min_value=2, max_value=100,
+                      description="ATR look-back period"),
+            Parameter(name="mult", default=3.0, min_value=0.5, max_value=10.0,
+                      description="ATR band multiplier"),
+        ],
+        default_thresholds={},
+        asset_compat=["equity", "etf", "commodity"],
+        evidence_tier="B",
+        provider_impl="supertrend_above_price",
+        data_source="price",
+        output_kind=OutputKind.LEVEL,
+        composes=["supertrend"],
         resolution=["daily"],
     ),
 ]
@@ -2335,6 +2488,9 @@ _READINGS: dict[str, str] = {
     "avg_dollar_volume": "How liquid the stock is",
     "rvol": "Today's volume vs normal",
     "rvol_surge": "A volume surge (catalyst day)",
+    "anchored_vwap": "The anchored volume-weighted price",
+    "distance_to_anchored_vwap": "How far price is from anchored VWAP",
+    "price_above_anchored_vwap": "Price above the anchored VWAP",
     # Volatility
     "atr": "Typical daily price range",
     "natr": "Daily range as a % of price",
@@ -2346,6 +2502,9 @@ _READINGS: dict[str, str] = {
     "chandelier_exit_breach": "Price broke its trailing stop",
     "ttm_squeeze": "A low-volatility coiling squeeze",
     "ttm_squeeze_fire": "The squeeze releasing (breakout)",
+    "supertrend": "The trend-following trailing line",
+    "supertrend_flip": "The Supertrend flipping direction",
+    "supertrend_above_price": "Supertrend in a down-trend",
     # Fundamental
     "fcf_yield": "Free cash flow vs market cap",
     "book_to_market": "Book value vs market cap (value)",
