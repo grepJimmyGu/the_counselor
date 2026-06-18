@@ -17,11 +17,19 @@
  */
 
 import * as React from "react";
+import Link from "next/link";
+import type { Route } from "next";
 import { useSession } from "next-auth/react";
+import { ChevronDown, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { diagnosePortfolio, UpgradeRequiredError } from "@/lib/api";
-import type { PortfolioDiagnosis as PortfolioDiagnosisPayload } from "@/lib/contracts";
+import { cn } from "@/lib/utils";
+import { diagnosePortfolio, getFundamentalOverview, UpgradeRequiredError } from "@/lib/api";
+import type {
+  FundamentalSummary,
+  Holding,
+  PortfolioDiagnosis as PortfolioDiagnosisPayload,
+} from "@/lib/contracts";
 import type { FlowStepProps } from "../types";
 import { registerModeCopy, useFlowCopy } from "../copy";
 import type { PortfolioModeContext } from "../portfolio-mode-context";
@@ -34,6 +42,7 @@ registerModeCopy("portfolio_mode", {
   diagnose_sector_label: "Sector concentration",
   diagnose_behavior_label: "Behavior",
   diagnose_risk_label: "Realized risk (trailing 5y)",
+  diagnose_holdings_label: "Your holdings",
   diagnose_continue: "Continue → Pick overlay",
   diagnose_error: "We couldn't diagnose your portfolio. Try again.",
   diagnose_rate_limited: "You've hit your hourly diagnose limit. Upgrade for more.",
@@ -161,6 +170,155 @@ function BehaviorView({ diag }: { diag: PortfolioDiagnosisPayload }) {
   );
 }
 
+// ── Per-holding explorer (in-place preview + link to the full profile) ───────
+
+function fmtRatio(x?: number | null, d = 1): string {
+  if (x === null || x === undefined || Number.isNaN(x)) return "—";
+  return x.toFixed(d);
+}
+
+function fmtYield(x?: number | null, d = 1): string {
+  // KeyMetrics yields/returns are decimal ratios (0.015 = 1.5%).
+  if (x === null || x === undefined || Number.isNaN(x)) return "—";
+  return `${(x * 100).toFixed(d)}%`;
+}
+
+function HoldingPreview({ ticker, data }: { ticker: string; data: FundamentalSummary }) {
+  const p = data.profile;
+  const m = data.metrics;
+  const metrics: Array<[string, string]> = [
+    ["P/E", fmtRatio(m.pe_ratio)],
+    ["P/B", fmtRatio(m.pb_ratio)],
+    ["ROE", fmtYield(m.roe)],
+    ["Debt/Eq", fmtRatio(m.debt_to_equity, 2)],
+    ["Div yield", fmtYield(m.dividend_yield)],
+    ["FCF yield", fmtYield(m.free_cash_flow_yield)],
+  ];
+  return (
+    <div className="space-y-3">
+      <div>
+        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Business model
+        </h4>
+        {p.sector || p.industry ? (
+          <p className="mt-0.5 text-xs text-muted-foreground">
+            {[p.sector, p.industry].filter(Boolean).join(" · ")}
+          </p>
+        ) : null}
+        <p className="mt-1 line-clamp-4 text-sm leading-relaxed text-foreground/85">
+          {p.description || "No description available."}
+        </p>
+      </div>
+      <div>
+        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Fundamental analysis
+        </h4>
+        <dl className="mt-1 grid grid-cols-3 gap-2">
+          {metrics.map(([label, value]) => (
+            <div key={label} className="rounded-lg bg-muted/30 p-2">
+              <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</dt>
+              <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums">{value}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+      <Link
+        href={`/stocks/${ticker}` as Route}
+        target="_blank"
+        rel="noopener noreferrer"
+        data-testid={`holding-profile-link-${ticker}`}
+        className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+      >
+        Full details <ExternalLink className="h-3 w-3" />
+      </Link>
+    </div>
+  );
+}
+
+function HoldingsExplorer({ holdings, label }: { holdings: Holding[]; label: string }) {
+  const [open, setOpen] = React.useState<string | null>(null);
+  const [cache, setCache] = React.useState<
+    Record<string, FundamentalSummary | "loading" | "error">
+  >({});
+
+  if (holdings.length === 0) return null;
+
+  const toggle = (ticker: string) => {
+    const next = open === ticker ? null : ticker;
+    setOpen(next);
+    // Lazy fetch on first expand only — one ticker at a time keeps it cheap.
+    if (next && cache[next] === undefined) {
+      setCache((c) => ({ ...c, [next]: "loading" }));
+      getFundamentalOverview(next)
+        .then((d) => setCache((c) => ({ ...c, [next]: d })))
+        .catch(() => setCache((c) => ({ ...c, [next]: "error" })));
+    }
+  };
+
+  return (
+    <div data-testid="portfolio-diagnosis-holdings">
+      <h2 className="mb-2 text-sm font-semibold">{label}</h2>
+      <ul className="overflow-hidden rounded-xl border border-border">
+        {holdings.map((h, i) => {
+          const isOpen = open === h.ticker;
+          const entry = cache[h.ticker];
+          return (
+            <li key={h.ticker} className={i > 0 ? "border-t border-border" : ""}>
+              <button
+                type="button"
+                onClick={() => toggle(h.ticker)}
+                aria-expanded={isOpen}
+                data-testid={`holding-row-${h.ticker}`}
+                className="flex w-full items-center gap-3 px-3 py-2.5 text-left hover:bg-muted/30"
+              >
+                <span className="flex-1 font-mono text-sm font-semibold">{h.ticker}</span>
+                {h.weight !== undefined ? (
+                  <span className="font-mono text-xs text-muted-foreground">
+                    {(h.weight * 100).toFixed(0)}%
+                  </span>
+                ) : null}
+                <ChevronDown
+                  className={cn(
+                    "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+                    isOpen && "rotate-180",
+                  )}
+                  aria-hidden="true"
+                />
+              </button>
+              {isOpen ? (
+                <div className="border-t border-border bg-muted/10 px-3 py-3">
+                  {entry === undefined || entry === "loading" ? (
+                    <div className="space-y-2" data-testid={`holding-loading-${h.ticker}`}>
+                      <Skeleton className="h-3 w-1/3" />
+                      <Skeleton className="h-12" />
+                    </div>
+                  ) : entry === "error" ? (
+                    <div className="space-y-2">
+                      <p className="text-xs text-muted-foreground">
+                        Couldn&rsquo;t load {h.ticker}&rsquo;s profile.
+                      </p>
+                      <Link
+                        href={`/stocks/${h.ticker}` as Route}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+                      >
+                        Open full profile <ExternalLink className="h-3 w-3" />
+                      </Link>
+                    </div>
+                  ) : (
+                    <HoldingPreview ticker={h.ticker} data={entry} />
+                  )}
+                </div>
+              ) : null}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+  );
+}
+
 export function PortfolioDiagnosis({
   context,
   updateContext,
@@ -174,6 +332,7 @@ export function PortfolioDiagnosis({
   const sectorLabel = useFlowCopy("portfolio_mode", "diagnose_sector_label");
   const behaviorLabel = useFlowCopy("portfolio_mode", "diagnose_behavior_label");
   const riskLabel = useFlowCopy("portfolio_mode", "diagnose_risk_label");
+  const holdingsLabel = useFlowCopy("portfolio_mode", "diagnose_holdings_label");
   const continueLabel = useFlowCopy("portfolio_mode", "diagnose_continue");
   const errorMsg = useFlowCopy("portfolio_mode", "diagnose_error");
   const rateLimitMsg = useFlowCopy("portfolio_mode", "diagnose_rate_limited");
@@ -311,6 +470,8 @@ export function PortfolioDiagnosis({
           </div>
         </div>
       </div>
+
+      <HoldingsExplorer holdings={holdings ?? []} label={holdingsLabel} />
 
       {diagnosis.caveats.length > 0 ? (
         <ul className="space-y-1 rounded-xl bg-muted/30 p-3 text-xs text-muted-foreground">
