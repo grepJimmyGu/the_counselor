@@ -22,6 +22,7 @@ import type { FlowDefinition } from "./types";
 import { getFlow, registerFlow } from "./registry";
 import { registerModeCopy } from "./copy";
 import { CustomBuildCanvas } from "./bricks/custom-build-canvas";
+import { RecommendedTemplatesGallery } from "./bricks/recommended-templates-gallery";
 import { FlowBacktest } from "./bricks/flow-backtest";
 import { FlowReview } from "./bricks/flow-review";
 import { FlowSave } from "./bricks/flow-save";
@@ -83,8 +84,17 @@ export const CustomBuildModeFlow: FlowDefinition<CustomBuildModeContext> = {
   // collapses the catalog's 180-px-sidebar + 2-column primitive grid
   // into overlapping narrow cards.
   shellMaxWidthClass: "max-w-[1440px]",
-  initialStepId: "compose_signals",
+  // PRD-24a §5 — the recommended-templates gallery is the first step. It
+  // auto-advances to compose_signals for every entry EXCEPT a Home "Screen
+  // the market" launch (which sets context.show_template_gallery), so all
+  // other entries are unchanged.
+  initialStepId: "pick_template",
   steps: [
+    {
+      id: "pick_template",
+      brick: RecommendedTemplatesGallery,
+      next: () => "compose_signals",
+    },
     {
       id: "compose_signals",
       brick: CustomBuildCanvas,

@@ -42,7 +42,12 @@ describe("HomeFocusSections", () => {
 
     fireEvent.click(screen.getByTestId("focus-screen-market"));
     expect(startFlowMock).toHaveBeenCalledWith("custom_build_mode", {
-      initialContext: { universe_id: "sp500", fromTrigger: "home/screen_market" },
+      initialContext: {
+        universe_id: "sp500",
+        // PRD-24a §5 — only this entry opens on the gallery step.
+        show_template_gallery: true,
+        fromTrigger: "home/screen_market",
+      },
     });
   });
 
