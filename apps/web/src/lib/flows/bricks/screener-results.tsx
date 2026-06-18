@@ -31,6 +31,11 @@ import {
   buildScreenRules,
 } from "@/lib/flows/custom-build-strategy-json";
 import type { FlowStepProps } from "@/lib/flows/types";
+import { getRecommendedTemplate } from "@/lib/recommended-templates";
+import {
+  ThemeBanner,
+  TryOtherThemes,
+} from "@/components/templates/theme-landing-chrome";
 import { cn } from "@/lib/utils";
 
 function pct(v: number | null | undefined): string {
@@ -195,8 +200,15 @@ export function ScreenResults({
 
   const matchedCount = scan?.matched_count ?? 0;
 
+  const loadedTemplate = context.loaded_template_id
+    ? getRecommendedTemplate(context.loaded_template_id)
+    : undefined;
+
   return (
     <section data-testid="screen-results" className="flex flex-col gap-4">
+      {/* §3.10 — theme landing chrome when the reading came from a recommended
+          template (a Home theme card or the gallery). */}
+      {loadedTemplate ? <ThemeBanner template={loadedTemplate} /> : null}
       <header className="flex flex-col gap-1">
         {back && (
           <button
@@ -358,6 +370,10 @@ export function ScreenResults({
           )}
         </div>
       )}
+
+      {loadedTemplate ? (
+        <TryOtherThemes currentId={loadedTemplate.id} />
+      ) : null}
     </section>
   );
 }

@@ -72,6 +72,11 @@ export interface CustomBuildModeContext extends FlowContextBase {
    *  library links, a `?template=` deep link) leaves it undefined so the
    *  gallery step auto-advances straight to the blank composer. */
   show_template_gallery?: boolean;
+  /** PRD-24a §3.10 — the recommended-template id the composer was hydrated from
+   *  (set by useTemplatePreload). ScreenResults reads it to show the theme
+   *  landing chrome (banner + "try other themes"). Undefined for a hand-built
+   *  reading. */
+  loaded_template_id?: string;
   /** PRD-23b — the universe tier this reading runs over (the unified mode:
    *  a single symbol is a universe of size 1). One of
    *  "symbols"|"watchlist"|"portfolio"|"sp500"|"sector_<key>". Default

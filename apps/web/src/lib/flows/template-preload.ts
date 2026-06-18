@@ -157,7 +157,12 @@ export function useTemplatePreload(
           // Guarantee the surviving rules[0] has a null fold.
           rules[0] = { ...rules[0], logic_with_prior: null };
         }
-        updateRef.current({ rules, universe_id: composer.universe_id });
+        updateRef.current({
+          rules,
+          universe_id: composer.universe_id,
+          // §3.10 — let ScreenResults show the theme landing chrome.
+          loaded_template_id: composer.id,
+        });
         setState({ status: "done", templateName: composer.name });
         stripParams("template", "universe");
       })

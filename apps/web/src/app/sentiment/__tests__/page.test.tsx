@@ -45,8 +45,13 @@ describe("SentimentHubPage — theme deep-link (PRD-24a §3.10 B1)", () => {
         "news_community_confirmed",
       ),
     );
-    // Results header shows the ?display= override, not the raw toolkit name.
-    await waitFor(() => expect(screen.getByText("Mainstream Buyers")).toBeTruthy());
+    // §3.10 — news_community_confirmed is a recommended template, so the theme
+    // landing chrome (banner + "try other themes" footer) renders.
+    await waitFor(() => screen.getByTestId("theme-landing-banner"));
+    expect(screen.getByTestId("try-other-themes")).toBeTruthy();
+    // "Mainstream Buyers" shows in BOTH the banner (template name) and the
+    // results header (the ?display= override) — at least one, ≥1.
+    expect(screen.getAllByText("Mainstream Buyers").length).toBeGreaterThan(0);
   });
 
   it("does NOT auto-run without ?autorun=1", async () => {
