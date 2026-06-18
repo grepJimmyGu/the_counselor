@@ -3,34 +3,35 @@
 /**
  * <PortfolioUpload> — PRD-13b brick.
  *
- * The entry step of `portfolio_mode`. Three input methods:
- *   - CSV drop / file picker
- *   - Paste from clipboard (CSV format)
- *   - Manual ticker + weight entry (a small table)
+ * The entry step of `portfolio_mode`. The primary input is a ticker
+ * search (type a symbol/company → click → it's added to the holdings
+ * table). Bulk import (CSV drop / paste) is kept but demoted below the
+ * search + the editable holdings table.
  *
  * Validates locally:
  *   - At least one ticker.
  *   - Weights either all present (sum-to-1 warned, not blocked) or
  *     uniformly absent (engine defaults to equal-weight downstream).
  *
- * No backend call here — the next step (<PortfolioDiagnosis>) is what
- * hits POST /api/portfolio/diagnose.
+ * No backend call here except the symbol-search typeahead — the next step
+ * (<PortfolioDiagnosis>) is what hits POST /api/portfolio/diagnose.
  */
 
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import type { Holding } from "@/lib/contracts";
+import { searchSymbols } from "@/lib/api";
+import type { Holding, SymbolSearchItem } from "@/lib/contracts";
 import type { FlowStepProps } from "../types";
 import { registerModeCopy, useFlowCopy } from "../copy";
 import type { PortfolioModeContext } from "../portfolio-mode-context";
 
-// Mode-specific copy registers here as a side-effect of importing the
-// brick. The flow definition file imports this brick, so the copy lands
-// in MODE_COPY before any consumer renders the flow shell.
 registerModeCopy("portfolio_mode", {
   upload_title: "Upload your portfolio",
-  upload_subtitle: "Paste, drag, or type your holdings — five minutes max.",
+  upload_subtitle: "Search a ticker to add it, or import your holdings in bulk.",
+  upload_search_label: "Search & add a ticker",
+  upload_search_placeholder: "Search by symbol or company — AAPL, Nvidia…",
+  upload_bulk_label: "Or import in bulk",
   upload_paste_label: "Paste CSV",
   upload_manual_label: "Add ticker",
   upload_csv_help: "One row per holding. Columns: ticker, weight (optional)",
@@ -81,6 +82,9 @@ export function PortfolioUpload({
 }: FlowStepProps<PortfolioModeContext>) {
   const title = useFlowCopy("portfolio_mode", "upload_title");
   const subtitle = useFlowCopy("portfolio_mode", "upload_subtitle");
+  const searchLabel = useFlowCopy("portfolio_mode", "upload_search_label");
+  const searchPlaceholder = useFlowCopy("portfolio_mode", "upload_search_placeholder");
+  const bulkLabel = useFlowCopy("portfolio_mode", "upload_bulk_label");
   const pasteLabel = useFlowCopy("portfolio_mode", "upload_paste_label");
   const manualLabel = useFlowCopy("portfolio_mode", "upload_manual_label");
   const csvHelp = useFlowCopy("portfolio_mode", "upload_csv_help");
@@ -97,12 +101,54 @@ export function PortfolioUpload({
   });
   const [pasteText, setPasteText] = React.useState("");
 
-  const onPaste = () => {
-    const parsed = parseCsv(pasteText);
-    if (parsed.length > 0) {
-      setRows(parsed);
-      setPasteText("");
+  // ── Symbol-search typeahead (the primary add path) ──────────────────────
+  const [query, setQuery] = React.useState("");
+  const [suggestions, setSuggestions] = React.useState<SymbolSearchItem[]>([]);
+  const [searching, setSearching] = React.useState(false);
+
+  React.useEffect(() => {
+    if (!query.trim()) {
+      setSuggestions([]);
+      return;
     }
+    let cancelled = false;
+    setSearching(true);
+    // Debounce 200ms so the paid-cached /api/symbols/search isn't pummelled
+    // on every keystroke (mirrors the one-asset ticker typeahead).
+    const t = window.setTimeout(() => {
+      searchSymbols(query.trim())
+        .then((results) => {
+          if (!cancelled) setSuggestions(results.slice(0, 6));
+        })
+        .catch(() => {
+          if (!cancelled) setSuggestions([]);
+        })
+        .finally(() => {
+          if (!cancelled) setSearching(false);
+        });
+    }, 200);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(t);
+      setSearching(false);
+    };
+  }, [query]);
+
+  const addTicker = (symbol: string) => {
+    const tk = symbol.trim().toUpperCase();
+    if (!tk) return;
+    setRows((prev) => {
+      // Already in the list → no-op (no duplicate holdings).
+      if (prev.some((r) => r.ticker.trim().toUpperCase() === tk)) return prev;
+      // Fill the first empty row if there is one, else append.
+      const firstEmpty = prev.findIndex((r) => !r.ticker.trim());
+      if (firstEmpty >= 0) {
+        return prev.map((r, i) => (i === firstEmpty ? { ...r, ticker: tk } : r));
+      }
+      return [...prev, { ticker: tk, weightText: "" }];
+    });
+    setQuery("");
+    setSuggestions([]);
   };
 
   const setRow = (i: number, patch: Partial<ManualRow>) => {
@@ -115,6 +161,14 @@ export function PortfolioUpload({
 
   const addRow = () => {
     setRows((prev) => [...prev, { ticker: "", weightText: "" }]);
+  };
+
+  const onPaste = () => {
+    const parsed = parseCsv(pasteText);
+    if (parsed.length > 0) {
+      setRows(parsed);
+      setPasteText("");
+    }
   };
 
   const onCsvFile = (file: File) => {
@@ -144,56 +198,44 @@ export function PortfolioUpload({
         <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
       </header>
 
-      <div
-        className="rounded-xl border border-dashed border-border bg-muted/30 p-4 text-sm"
-        onDragOver={(e) => e.preventDefault()}
-        onDrop={(e) => {
-          e.preventDefault();
-          const f = e.dataTransfer.files?.[0];
-          if (f) onCsvFile(f);
-        }}
-      >
-        <div className="flex items-center gap-2">
-          <label className="cursor-pointer text-primary underline underline-offset-2">
-            Drop a CSV here or click to pick
-            <input
-              type="file"
-              accept=".csv,text/csv,text/plain"
-              className="hidden"
-              data-testid="portfolio-upload-file"
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) onCsvFile(f);
-              }}
-            />
-          </label>
-        </div>
-        <p className="mt-1 text-xs text-muted-foreground">{csvHelp}</p>
-      </div>
-
+      {/* Primary: search → add */}
       <div className="grid gap-2">
-        <label className="text-xs font-medium text-muted-foreground">{pasteLabel}</label>
-        <textarea
-          value={pasteText}
-          onChange={(e) => setPasteText(e.target.value)}
-          placeholder={"AAPL,0.4\nMSFT,0.3\nNVDA,0.3"}
-          rows={3}
-          className="w-full rounded-xl border border-border bg-background px-3 py-2 font-mono text-xs leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-          data-testid="portfolio-upload-paste"
+        <label className="text-xs font-medium text-muted-foreground">{searchLabel}</label>
+        <Input
+          value={query}
+          onChange={(e) => setQuery(e.target.value.toUpperCase())}
+          placeholder={searchPlaceholder}
+          autoComplete="off"
+          spellCheck={false}
+          className="font-mono"
+          data-testid="portfolio-upload-search"
         />
-        <div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onPaste}
-            disabled={!pasteText.trim()}
-            data-testid="portfolio-upload-paste-apply"
+        {searching && suggestions.length === 0 ? (
+          <p className="text-xs text-muted-foreground">Searching…</p>
+        ) : null}
+        {suggestions.length > 0 ? (
+          <ul
+            className="rounded-xl border border-border bg-card"
+            data-testid="portfolio-upload-suggestions"
           >
-            Apply paste
-          </Button>
-        </div>
+            {suggestions.map((s) => (
+              <li key={s.symbol} className="border-b border-border last:border-b-0">
+                <button
+                  type="button"
+                  onClick={() => addTicker(s.symbol)}
+                  className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-muted/30"
+                  data-testid={`portfolio-upload-suggestion-${s.symbol}`}
+                >
+                  <span className="font-mono text-sm font-semibold">{s.symbol}</span>
+                  <span className="truncate text-xs text-muted-foreground">{s.name}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
       </div>
 
+      {/* The holdings being built (editable). */}
       <div className="grid gap-2">
         <div className="grid grid-cols-[1fr_140px_40px] gap-2 text-xs font-medium text-muted-foreground">
           <span>Ticker</span>
@@ -239,6 +281,64 @@ export function PortfolioUpload({
       {weightWarning ? (
         <p className="text-xs text-amber-700">{weightWarning}</p>
       ) : null}
+
+      {/* Demoted: bulk import (CSV drop + paste). */}
+      <details className="rounded-xl border border-border/60 bg-muted/10">
+        <summary className="cursor-pointer px-4 py-2.5 text-xs font-medium text-muted-foreground">
+          {bulkLabel}
+        </summary>
+        <div className="flex flex-col gap-4 px-4 pb-4 pt-1">
+          <div
+            className="rounded-xl border border-dashed border-border bg-muted/30 p-4 text-sm"
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              const f = e.dataTransfer.files?.[0];
+              if (f) onCsvFile(f);
+            }}
+          >
+            <div className="flex items-center gap-2">
+              <label className="cursor-pointer text-primary underline underline-offset-2">
+                Drop a CSV here or click to pick
+                <input
+                  type="file"
+                  accept=".csv,text/csv,text/plain"
+                  className="hidden"
+                  data-testid="portfolio-upload-file"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) onCsvFile(f);
+                  }}
+                />
+              </label>
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">{csvHelp}</p>
+          </div>
+
+          <div className="grid gap-2">
+            <label className="text-xs font-medium text-muted-foreground">{pasteLabel}</label>
+            <textarea
+              value={pasteText}
+              onChange={(e) => setPasteText(e.target.value)}
+              placeholder={"AAPL,0.4\nMSFT,0.3\nNVDA,0.3"}
+              rows={3}
+              className="w-full rounded-xl border border-border bg-background px-3 py-2 font-mono text-xs leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+              data-testid="portfolio-upload-paste"
+            />
+            <div>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onPaste}
+                disabled={!pasteText.trim()}
+                data-testid="portfolio-upload-paste-apply"
+              >
+                Apply paste
+              </Button>
+            </div>
+          </div>
+        </div>
+      </details>
 
       <div>
         <Button

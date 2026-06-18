@@ -2,6 +2,11 @@
 
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
+
+vi.mock("@/lib/api", () => ({
+  searchSymbols: vi.fn(async () => [{ symbol: "NVDA", name: "NVIDIA Corp" }]),
+}));
+
 import { PortfolioUpload } from "../portfolio-upload";
 
 function renderUpload(overrides: { context?: Partial<{ holdings: any[] }> } = {}) {
@@ -69,6 +74,28 @@ describe("PortfolioUpload", () => {
     fireEvent.click(screen.getByTestId("portfolio-upload-continue"));
     const patch = updateContext.mock.calls[0][0];
     expect(patch.holdings[0].ticker).toBe("AAPL");
+  });
+
+  it("adds a holding from the search typeahead", async () => {
+    renderUpload();
+    fireEvent.change(screen.getByTestId("portfolio-upload-search"), {
+      target: { value: "NVDA" },
+    });
+    fireEvent.click(await screen.findByTestId("portfolio-upload-suggestion-NVDA"));
+    // The first (empty) row is filled with the picked ticker.
+    expect(
+      (screen.getByTestId("portfolio-upload-ticker-0") as HTMLInputElement).value,
+    ).toBe("NVDA");
+  });
+
+  it("does not add a duplicate ticker from search", async () => {
+    renderUpload({ context: { holdings: [{ ticker: "NVDA", shares: 1 }] } });
+    fireEvent.change(screen.getByTestId("portfolio-upload-search"), {
+      target: { value: "NVDA" },
+    });
+    fireEvent.click(await screen.findByTestId("portfolio-upload-suggestion-NVDA"));
+    // Already held → no second row appended.
+    expect(screen.queryByTestId("portfolio-upload-ticker-1")).toBeNull();
   });
 
   it("warns (does not block) when weights don't sum to 1.0", () => {
