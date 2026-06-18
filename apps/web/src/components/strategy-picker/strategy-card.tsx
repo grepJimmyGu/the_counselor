@@ -9,12 +9,14 @@
  *                            each column scrolls independently
  *
  * Pure presentational — all data comes from OverlayMeta. Dynamic content
- * (ticker, fit) is computed by the parent.
+ * (ticker, fit) is computed by the parent. When `demo` is set, the expanded
+ * card leads with a schematic <OverlayDemo> of the mechanic.
  */
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
 import type { OverlayMeta } from "@/lib/overlay-metadata";
+import { OverlayDemo } from "./overlay-demo";
 
 // ── Props ────────────────────────────────────────────────────────────────────
 
@@ -30,6 +32,8 @@ export interface StrategyCardProps {
   isSelected: boolean;
   /** Whether this card is disabled (e.g. insufficient holdings). */
   isDisabled: boolean;
+  /** Show the schematic mechanic demo at the top of the expanded card. */
+  demo?: boolean;
   /** Called when the user clicks the card to select it. */
   onSelect: () => void;
 }
@@ -62,6 +66,7 @@ export function StrategyCard({
   holdingsCount,
   isSelected,
   isDisabled,
+  demo = false,
   onSelect,
 }: StrategyCardProps) {
   const qualifies = holdingsCount >= meta.minHoldings;
@@ -85,11 +90,11 @@ export function StrategyCard({
         aria-disabled={isDisabled}
       >
         {/* Header */}
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-sm font-semibold">{meta.label}</span>
+        <div className="mb-2 flex items-center justify-between gap-2">
+          <span className="text-base font-semibold">{meta.label}</span>
           <span
             className={cn(
-              "rounded px-2 py-0.5 text-[10px] font-medium",
+              "shrink-0 rounded px-2 py-0.5 text-[11px] font-medium",
               meta.tier === "basic"
                 ? "bg-primary/10 text-primary"
                 : "bg-amber-100 text-amber-700",
@@ -100,16 +105,16 @@ export function StrategyCard({
         </div>
 
         {/* Idea */}
-        <p className="mb-2 text-xs leading-relaxed text-muted-foreground">
+        <p className="mb-2 text-sm leading-relaxed text-muted-foreground">
           {meta.idea}
         </p>
 
         {/* Tagline */}
-        <p className="text-xs font-medium">{meta.tagline}</p>
+        <p className="text-sm font-medium">{meta.tagline}</p>
 
         {/* Insufficient holdings badge */}
         {!qualifies && (
-          <p className="mt-2 inline-block rounded bg-red-50 px-1.5 py-0.5 text-[10px] font-medium text-red-600">
+          <p className="mt-2 inline-block rounded bg-red-50 px-1.5 py-0.5 text-[11px] font-medium text-red-600">
             Needs {meta.minHoldings}+ holdings
           </p>
         )}
@@ -131,12 +136,12 @@ export function StrategyCard({
     >
       <div className="p-5">
         {/* Header */}
-        <div className="mb-3 flex items-center justify-between">
-          <span className="text-sm font-semibold">{meta.label}</span>
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <span className="text-base font-semibold">{meta.label}</span>
           <div className="flex items-center gap-2">
             <span
               className={cn(
-                "rounded px-2 py-0.5 text-[10px] font-medium",
+                "rounded px-2 py-0.5 text-[11px] font-medium",
                 meta.tier === "basic"
                   ? "bg-primary/10 text-primary"
                   : "bg-amber-100 text-amber-700",
@@ -144,32 +149,39 @@ export function StrategyCard({
             >
               {meta.tier === "basic" ? "BASIC" : "ADVANCED"}
             </span>
-            <span className="rounded-full bg-primary px-2 py-0.5 text-[10px] font-medium text-primary-foreground">
+            <span className="rounded-full bg-primary px-2 py-0.5 text-[11px] font-medium text-primary-foreground">
               Selected
             </span>
           </div>
         </div>
 
         {/* Idea + Tagline */}
-        <p className="mb-1 text-xs leading-relaxed text-muted-foreground">
+        <p className="mb-1 text-sm leading-relaxed text-muted-foreground">
           {meta.idea}
         </p>
-        <p className="mb-4 text-xs font-medium">{meta.tagline}</p>
+        <p className="mb-4 text-sm font-medium">{meta.tagline}</p>
+
+        {/* Schematic mechanic demo */}
+        {demo && (
+          <div className="mb-4 rounded-lg border border-border bg-background p-3">
+            <OverlayDemo kind={meta.kind} />
+          </div>
+        )}
 
         {/* Two-column split */}
         <div className="grid gap-4 md:grid-cols-2">
           {/* Left: How it works */}
-          <div className="max-h-[360px] overflow-y-auto rounded-lg border border-border p-3">
-            <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="max-h-[440px] overflow-y-auto rounded-lg border border-border p-3">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               How it works
             </h3>
             <ul className="mb-3 space-y-1">
               {executionLines.map((line, i) => (
                 <li
                   key={i}
-                  className="flex items-start gap-1.5 text-xs leading-relaxed text-muted-foreground"
+                  className="flex items-start gap-1.5 text-sm leading-relaxed text-muted-foreground"
                 >
-                  <span className="mt-0.5 shrink-0 text-[10px] text-primary">
+                  <span className="mt-0.5 shrink-0 text-[11px] text-primary">
                     •
                   </span>
                   {line}
@@ -177,24 +189,24 @@ export function StrategyCard({
               ))}
             </ul>
 
-            <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Example
             </h3>
-            <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
+            <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
               {exampleText}
             </p>
 
             {/* Track record */}
-            <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Track record
             </h3>
             <div className="grid grid-cols-2 gap-2">
               {meta.trackRecord.map((m) => (
                 <div key={m.label} className="rounded-lg bg-muted/30 p-2">
-                  <dt className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+                  <dt className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
                     {m.label}
                   </dt>
-                  <dd className="mt-0.5 font-mono text-xs font-semibold tabular-nums">
+                  <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums">
                     {m.value}
                   </dd>
                 </div>
@@ -204,15 +216,15 @@ export function StrategyCard({
             {/* Fit + regime */}
             <div className="mt-3 space-y-0.5">
               {qualifies ? (
-                <p className="text-[11px] font-medium text-emerald-600">
+                <p className="text-xs font-medium text-emerald-600">
                   ✓ {meta.fitLabel}
                 </p>
               ) : (
-                <p className="text-[10px] font-medium text-red-600">
+                <p className="text-[11px] font-medium text-red-600">
                   Needs {meta.minHoldings}+ holdings
                 </p>
               )}
-              <p className="text-[11px] leading-relaxed text-muted-foreground">
+              <p className="text-xs leading-relaxed text-muted-foreground">
                 <span className="text-emerald-600">{meta.bestRegime}</span>
                 {" · "}
                 <span className="text-amber-600">{meta.worstRegime}</span>
@@ -221,29 +233,29 @@ export function StrategyCard({
           </div>
 
           {/* Right: Why it works */}
-          <div className="max-h-[360px] overflow-y-auto rounded-lg border border-border p-3">
-            <h3 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          <div className="max-h-[440px] overflow-y-auto rounded-lg border border-border p-3">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Why it works
             </h3>
-            <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
+            <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
               {meta.whyItWorks}
             </p>
 
-            <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               In detail
             </h3>
-            <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
+            <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
               {meta.mechanicDetail}
             </p>
 
-            <h3 className="mb-1.5 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Things to know
             </h3>
-            <p className="mb-3 text-xs leading-relaxed text-muted-foreground">
+            <p className="mb-3 text-sm leading-relaxed text-muted-foreground">
               {meta.watchFor}
             </p>
 
-            <p className="text-[10px] italic text-muted-foreground/70">
+            <p className="text-[11px] italic text-muted-foreground/70">
               {meta.research}
             </p>
           </div>

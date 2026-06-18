@@ -220,6 +220,7 @@ export function OverlayPicker({
                 holdingsCount={holdings.length}
                 isSelected={isSelected}
                 isDisabled={holdings.length < meta.minHoldings}
+                demo
                 onSelect={() => onPick(overlay)}
               />
             </React.Fragment>
