@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { MarketSnapshot } from "@/components/home/market-snapshot";
 import { SavedStrategiesTile } from "@/components/home/saved-strategies-tile";
 import { CapabilityGlossary } from "@/components/home/capability-glossary";
+import { HomeHeroSearch } from "@/components/home/home-hero-search";
 import { researchTemplates, type ResearchTemplate } from "@/lib/contracts";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
 import { ChatWidget } from "@/components/ChatWidget";
@@ -173,6 +174,11 @@ export default function HomePage() {
                 <Zap className="mr-2 h-4 w-4" />
                 Strategy Builder
               </Button>
+            </div>
+
+            {/* PRD-24a §3.3 — hero lookup with in-place stock preview */}
+            <div className="mt-8">
+              <HomeHeroSearch />
             </div>
 
             {/* Trust chips — compact inline row */}
