@@ -74,4 +74,47 @@ describe("recommended-templates registry", () => {
       ids.add(t.id);
     }
   });
+
+  it("ships a gallery of at least 10 recommended templates", () => {
+    expect(RECOMMENDED_TEMPLATES.length).toBeGreaterThanOrEqual(10);
+  });
+
+  it("every composer preset obeys the fold contract and references no degenerate primitive", () => {
+    const composers = RECOMMENDED_TEMPLATES.filter(
+      (t): t is ComposerTemplate => t.kind === "composer",
+    );
+    expect(composers.length).toBeGreaterThanOrEqual(5);
+    for (const c of composers) {
+      expect(c.universe_id).toBe("sp500");
+      expect(c.rules.length).toBeGreaterThan(0);
+      c.rules.forEach((r, i) => {
+        expect(typeof r.primitive_id).toBe("string");
+        expect(r.primitive_id).toBeTruthy();
+        expect(r.operator).toBeTruthy();
+        // First rule's fold must be null; every later one must be set.
+        if (i === 0) expect(r.logic_with_prior ?? null).toBeNull();
+        else expect(r.logic_with_prior).toBe("AND");
+      });
+      // No live preset may reference the known all-zero primitive (PR #234/#240).
+      expect(c.rules.some((r) => r.primitive_id === "rank_composite_score")).toBe(
+        false,
+      );
+    }
+  });
+
+  it("exposes the four added sentiment toolkits, each routing to its toolkit_id", () => {
+    for (const id of [
+      "positive_catalyst",
+      "news_community_confirmed",
+      "sentiment_reversal",
+      "community_hype",
+    ]) {
+      const t = getRecommendedTemplate(id);
+      expect(t?.kind).toBe("sentiment");
+      if (t?.kind === "sentiment") expect(t.toolkit_id).toBe(id);
+    }
+    // The display override is present where the shown name differs from the toolkit.
+    const mb = getRecommendedTemplate("news_community_confirmed");
+    if (mb?.kind === "sentiment") expect(mb.display_label).toBe("Mainstream Buyers");
+  });
 });

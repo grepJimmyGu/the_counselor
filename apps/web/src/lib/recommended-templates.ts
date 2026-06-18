@@ -114,6 +114,112 @@ export const RECOMMENDED_TEMPLATES: RecommendedTemplate[] = [
     ],
   },
   {
+    kind: "composer",
+    id: "breakout",
+    name: "Breakout to Highs",
+    category: "event",
+    tagline:
+      "Names pushing into their 52-week-high zone on above-average volume, with a strengthening trend.",
+    universe_id: "sp500",
+    // Verified live 2026-06-18 against /api/screen/scan (sp500): 9 matches
+    // (AMAT, DAL, GL, HUM, LRCX, RL …). distance_to_52w_high ≥ -0.05 = within
+    // 5% of the high; rvol is today's-volume-dependent (a feature here — the
+    // breakout wants the volume confirm).
+    rules: [
+      { primitive_id: "distance_to_52w_high", operator: "gte", threshold: -0.05 },
+      { primitive_id: "adx", operator: "gte", threshold: 20, logic_with_prior: "AND" },
+      { primitive_id: "rvol", operator: "gte", threshold: 1.2, logic_with_prior: "AND" },
+      {
+        primitive_id: "price_above_ma",
+        operator: "is_true",
+        primitive_params: { period: 50 },
+        logic_with_prior: "AND",
+      },
+    ],
+    primitives: ["distance_to_52w_high", "adx", "rvol", "price_above_ma"],
+  },
+  {
+    kind: "composer",
+    id: "oversold_bounce",
+    name: "Oversold in Uptrend",
+    category: "event",
+    tagline:
+      "Pulled back to oversold (RSI ≤ 40) while still holding above the 200-day line — a dip, not a downtrend.",
+    universe_id: "sp500",
+    // Verified live 2026-06-18: 9 matches (APA, CBOE, CF, CHRD, CTVA, CVX,
+    // DOW …). RSI ≤ 35 + a *rising* MA matched 0 (oversold dips in uptrends are
+    // brief), so the buy-the-dip read is "oversold but above the 200-DMA".
+    rules: [
+      { primitive_id: "rsi", operator: "lte", threshold: 40 },
+      {
+        primitive_id: "price_above_ma",
+        operator: "is_true",
+        primitive_params: { period: 200 },
+        logic_with_prior: "AND",
+      },
+    ],
+    primitives: ["rsi", "price_above_ma"],
+  },
+  {
+    kind: "composer",
+    id: "volatility_squeeze",
+    name: "Coiled Spring",
+    category: "event",
+    tagline:
+      "Quiet, range-compressed stocks (TTM squeeze) in an uptrend — coiled for an expansion move.",
+    universe_id: "sp500",
+    // Verified live 2026-06-18: 45 matches (ABNB, AES, AMT, AVB, BIIB, BKR …).
+    // Broader basket by design — a coiled-spring watchlist, not a fired signal.
+    rules: [
+      { primitive_id: "ttm_squeeze", operator: "is_true" },
+      {
+        primitive_id: "price_above_ma",
+        operator: "is_true",
+        primitive_params: { period: 200 },
+        logic_with_prior: "AND",
+      },
+      {
+        primitive_id: "ma_slope_positive",
+        operator: "is_true",
+        logic_with_prior: "AND",
+      },
+    ],
+    primitives: ["ttm_squeeze", "price_above_ma", "ma_slope_positive"],
+  },
+  {
+    kind: "composer",
+    id: "steady_uptrend",
+    name: "Trend Leader",
+    category: "momentum",
+    tagline:
+      "Durable uptrends — a strong directional move (ADX ≥ 25) above a rising 200-day line, near the highs.",
+    universe_id: "sp500",
+    // Verified live 2026-06-18: 14 matches (AMAT, AMD, C, DAL, DOCN, FTNT …).
+    // Partial overlap with best_momentum is expected — this reads trend
+    // *strength* (ADX + MA slope), that one reads cross-sectional momentum rank.
+    rules: [
+      { primitive_id: "adx", operator: "gte", threshold: 25 },
+      {
+        primitive_id: "ma_slope_positive",
+        operator: "is_true",
+        logic_with_prior: "AND",
+      },
+      {
+        primitive_id: "price_above_ma",
+        operator: "is_true",
+        primitive_params: { period: 200 },
+        logic_with_prior: "AND",
+      },
+      {
+        primitive_id: "distance_to_52w_high",
+        operator: "gte",
+        threshold: -0.15,
+        logic_with_prior: "AND",
+      },
+    ],
+    primitives: ["adx", "ma_slope_positive", "price_above_ma", "distance_to_52w_high"],
+  },
+  {
     kind: "sentiment",
     id: "rising_attention",
     name: "Rising Attention",
@@ -121,6 +227,43 @@ export const RECOMMENDED_TEMPLATES: RecommendedTemplate[] = [
     tagline:
       "Stocks with unusually high attention volume right now — an early-interest signal.",
     toolkit_id: "rising_attention",
+  },
+  {
+    kind: "sentiment",
+    id: "positive_catalyst",
+    name: "Positive Catalyst",
+    category: "catalyst",
+    tagline:
+      "A meaningful positive event just hit — earnings beat, upgrade, insider buying, or a news catalyst.",
+    toolkit_id: "positive_catalyst",
+  },
+  {
+    kind: "sentiment",
+    id: "news_community_confirmed",
+    name: "Mainstream Buyers",
+    category: "catalyst",
+    tagline:
+      "Both the news flow and the Livermore community are leaning bullish — a convergence signal.",
+    toolkit_id: "news_community_confirmed",
+    display_label: "Mainstream Buyers",
+  },
+  {
+    kind: "sentiment",
+    id: "sentiment_reversal",
+    name: "Sentiment Reversal",
+    category: "catalyst",
+    tagline:
+      "Names where the sentiment tone is turning up from negative — an early mood-shift signal.",
+    toolkit_id: "sentiment_reversal",
+  },
+  {
+    kind: "sentiment",
+    id: "community_hype",
+    name: "Community Hype",
+    category: "catalyst",
+    tagline:
+      "Unusually high community buzz right now — momentum, or a crowded top. Read it with care.",
+    toolkit_id: "community_hype",
   },
 ];
 
