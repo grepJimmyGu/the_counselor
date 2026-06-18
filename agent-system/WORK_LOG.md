@@ -9,6 +9,39 @@
 
 ## Current Session
 
+**Status:** 2026-06-18 — **PRD-24a (Home Discovery + Template Gallery) v1 COMPLETE — shipped end-to-end in 9 PRs (#235–#243), all merged.** The 3-layer disclosure is live: Home discovery (3 focuses + "Themes firing today" + hero index strip) → a browsable gallery of **10 vetted templates** (5 live-verified composer presets + 5 sentiment) as the FIRST step of "Screen the market" → composer pre-loaded (`?template=`) **or** the sentiment hub auto-run (`?toolkit=`) → results wrapped in theme-landing chrome (banner + "what this finds" + "try other themes"). The §6 silent-0 trap is now guarded (dead-primitive denylist + warm-time coverage WARNING).
+
+**Shipped this session (9 PRs, all merged):**
+
+| PR | Scope |
+|---|---|
+| #235 | §3.5–3.7 — 3-focus Home reorg (Discover · Build · Your Livermore); replaced `EntryModePicker` + marketing pillars; reuses `<HomeThemesFiringToday>` + `<SavedStrategiesTile>`. |
+| #236 | §5 — `?template=` composer pre-load. `useTemplatePreload` hydrates a registry preset's `StrategyRule[]` → `BuildRule[]` (catalog-backed) into the canvas; strips the param after. |
+| #237 | §0.3 — hero market strip (S&P/Nasdaq/Dow/Russell index board via the light `getMarketOverview`). |
+| #238 | Home discovery fixes — Try-a-template → `one_asset_mode` wizard; Screen-the-market elevated to a callout; hero headline → "Discover. Build. Track." |
+| #239 | §3.10 B1 — `/sentiment` deep-link wiring (`readSentimentDeepLink`): `?toolkit=&autorun=1&display=` focuses + auto-runs the toolkit + labels the header. |
+| #240 | §6 GATE — dead-primitive audit. `DEGENERATE_SNAPSHOT_PRIMITIVE_IDS` denylist (`rank_composite_score`) dropped from the snapshot vocab; `compute_snapshot_coverage()` + `warm_universe` logs a WARNING for any all-null/all-zero column. |
+| #241 | §6 — registry **2 → 10**. 4 new composer presets (`breakout`, `oversold_bounce`, `volatility_squeeze`, `steady_uptrend`) each LIVE-VERIFIED vs prod `/api/screen/scan`; 4 new sentiment (`positive_catalyst`, `news_community_confirmed`=Mainstream Buyers, `sentiment_reversal`, `community_hype`). |
+| #242 | §5 — `<RecommendedTemplatesGallery>` as `custom_build_mode`'s first step. Gated by `show_template_gallery` (set ONLY by Screen-the-market); auto-skips for Build-from-scratch / the /screens·/account·/signal-library links / `?template=` deep links. |
+| #243 | §3.10 B2/B3 — theme-landing chrome (`<ThemeBanner>` + `<TryOtherThemes>`), registry-driven, on `/sentiment` + `ScreenResults` (via new `loaded_template_id` context field). |
+
+**Design decisions (Mr Gu, confirmed):** gallery = the FIRST step of "Screen the market" (not a route / Home section); sentiment set = the 2 theme-card toolkits + reversal + hype (5 total); reuse-don't-replicate (PRD-13c) throughout — the preload, deep-link, and registry are all shared bricks.
+
+**Verified live:** every composer preset returns a non-empty, non-everything sp500 basket (breakout 9 · oversold 9 · squeeze 45 · trend 14 · best_momentum ~14). #240 is live on prod — `rank_composite_score` now reports `unsupported` instead of matching 0.
+
+**Prod incident (diagnosed, NOT a regression):** deploy `c570b80e` failed on a Postgres **DeadlockDetected** in `_warmup_market_pulse_loop` (`main.py:543`) → `InFailedSqlTransaction` cascade → container stopped. **Self-healed** — the retry (`00660056`, same code) started clean; prod stayed up on the prior container (trap #11). NOT caused by #240 (its code is absent from the trace). Logged as a backlog item (serialize/stagger the lifespan warmups).
+
+### Next action — PRD-24a Phase 2 / cleanup
+1. **Run the §6 dead-primitive sweep** (now unblocked by #240): after the snapshot warms in prod, read the Railway log `signal_snapshot coverage: N primitive(s) degenerate …` and add any newly-surfaced ids to `DEGENERATE_SNAPSHOT_PRIMITIVE_IDS` (one line each). Then more composer presets are safe to add.
+2. **Fix the startup-warmup deadlock** (backlog) — stagger/serialize the lifespan warmups; traps #21/#22 apply.
+3. **Deferred (not v1):** §1.6 daily-cache cron (Home themes fetch live on mount; endpoints cache server-side); telemetry (PostHog — `handleEvent` stub); **Insider Cluster + Quality@52w-Low** composer presets (need a fundamental snapshot the scan doesn't have yet).
+
+**Carry-forwards:** PRD-23c PR3 intraday snapshot (optional); PRD-22b deferred remnants; operationalize the intent taxonomy; the prewarm-universe registry + Nasdaq-100.
+
+---
+
+### Prior checkpoint — 2026-06-17 (PRD-23c Discover → Track)
+
 **Status:** 2026-06-17 — **PRD-23c (Market Screener: Discover → Track) PR1 + PR2 shipped + merged.** A standing screen can now be **saved, tracked, and it alerts on new basket entrants** — the save→track→notify loop is live and the "Save + track" CTA works end-to-end (Strategist+ gated). Two pieces remain (see Next action) — **one of which closes a rough edge PR2 introduced.**
 
 **Shipped this session:**
