@@ -162,7 +162,12 @@ export function HomeHeroSearch() {
       {selected ? (
         <div
           data-testid="home-hero-preview"
-          className="mt-3 overflow-hidden rounded-xl border border-border bg-white shadow-sm"
+          // The search input stays narrow (max-w-2xl), but the preview reuses
+          // the full 3-column stock-profile dashboard — too cramped at 672px
+          // (text wraps, metric chips truncate). On lg+ break the drawer out of
+          // the narrow hero column and center it on the viewport so the cards
+          // get their natural width. Mobile keeps the in-column width.
+          className="mt-3 overflow-hidden rounded-xl border border-border bg-white shadow-sm lg:relative lg:left-1/2 lg:w-[min(1080px,calc(100vw-3rem))] lg:max-w-none lg:-translate-x-1/2"
         >
           <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
             <QuoteHeader symbol={selected.symbol} name={selected.name} />
