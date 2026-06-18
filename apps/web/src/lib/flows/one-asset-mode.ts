@@ -8,13 +8,17 @@
  * runtime instead of opening the legacy in-page <StrategyBuilderModal>.
  *
  * Triggers:
- *   - `stock_page/apply_strategy` — ticker comes via initialContext, so
- *     the ticker step auto-advances.
- *   - `home/pick_asset` — no ticker; the ticker step renders a small
- *     symbol picker.
+ *   - `stock_page/apply_strategy` — ticker comes via initialContext and
+ *     pre-fills the summary's single-ticker field.
+ *   - `home/pick_asset` (Home "Try out strategy template" card) — no
+ *     ticker; the user picks the single ticker in the summary step.
  *
  * Steps:
- *   ticker → template-pick → summary → backtest → review → save
+ *   template-pick → summary → backtest → review → save
+ *
+ * There is no dedicated ticker step — the template is picked first, and
+ * the single ticker is chosen in the summary (`singleTicker`). A ticker
+ * seeded from a stock page flows through context into the summary prefill.
  *
  * The backtest / review / save bricks are mode-agnostic
  * (`flow-backtest.tsx`, `flow-review.tsx`, `flow-save.tsx`) — they read
@@ -31,7 +35,6 @@
 import type { FlowDefinition } from "./types";
 import { getFlow, registerFlow } from "./registry";
 import { registerModeCopy } from "./copy";
-import { OneAssetTicker } from "./bricks/one-asset-ticker";
 import { OneAssetTemplatePick } from "./bricks/one-asset-template-pick";
 import { OneAssetSummary } from "./bricks/one-asset-summary";
 import { FlowBacktest } from "./bricks/flow-backtest";
@@ -41,14 +44,6 @@ import type { OneAssetModeContext } from "./one-asset-mode-context";
 
 registerModeCopy("one_asset_mode", {
   flow_name: "Apply a Strategy",
-
-  // OneAssetTicker
-  ticker_title: "Which asset?",
-  ticker_subtitle:
-    "Pick the ticker you want to backtest a strategy on. We'll handle the rest.",
-  ticker_placeholder: "AAPL, NVDA, GOOGL…",
-  ticker_continue: "Continue →",
-  ticker_invalid: "Enter a valid ticker symbol (e.g. AAPL).",
 
   // OneAssetSummary fallback when the picker advanced without a
   // template mapping. Sprint 2 PRD-16 (Custom Build) replaces this.
@@ -87,9 +82,8 @@ export const OneAssetModeFlow: FlowDefinition<OneAssetModeContext> = {
     "stock_page/apply_strategy",
     "home/pick_asset",
   ],
-  initialStepId: "ticker",
+  initialStepId: "template-pick",
   steps: [
-    { id: "ticker",        brick: OneAssetTicker },
     { id: "template-pick", brick: OneAssetTemplatePick },
     { id: "summary",       brick: OneAssetSummary },
     { id: "backtest",      brick: FlowBacktest },

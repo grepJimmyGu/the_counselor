@@ -76,6 +76,11 @@ export interface SummaryStepProps {
   initialRiskPreset?: RiskPreset;
   /** Pre-filled tickers (e.g. from a stock-detail page click). */
   initialTickers?: string;
+  /** Restrict to a single ticker (Mode 1 "one asset" backtests): shows a
+   *  hint and blocks Continue unless exactly one ticker is entered.
+   *  Default false preserves the multi-ticker basket behaviour the legacy
+   *  strategy-builder modal relies on. */
+  singleTicker?: boolean;
   onContinue: (config: SummaryStepConfig) => void;
 }
 
@@ -84,6 +89,7 @@ export function SummaryStep({
   wizardStrategy,
   initialRiskPreset = "medium",
   initialTickers,
+  singleTicker = false,
   onContinue,
 }: SummaryStepProps) {
   const [tickers, setTickers] = useState<string>(
@@ -118,7 +124,8 @@ export function SummaryStep({
     [tickers],
   );
 
-  const isBasket = tickerList.length >= 2;
+  // In single-ticker mode there's never a basket (so no weights UI).
+  const isBasket = !singleTicker && tickerList.length >= 2;
 
   // Initialize custom weights to equal when switching modes
   useEffect(() => {
@@ -139,7 +146,9 @@ export function SummaryStep({
   }, [weightMode, customWeights, tickerList]);
 
   const weightValid = weightMode === "equal" || Math.abs(totalWeight - 100) < 0.1;
-  const tickersValid = tickerList.length > 0;
+  const tickersValid = singleTicker
+    ? tickerList.length === 1
+    : tickerList.length > 0;
   const capitalValid = capital >= 1_000 && capital <= 100_000_000;
   const canContinue = tickersValid && weightValid && capitalValid;
 
@@ -166,18 +175,34 @@ export function SummaryStep({
       </div>
 
       {/* WHAT */}
-      <Section icon={<Target className="h-4 w-4" />} title="What" subtitle="Which asset(s) the strategy trades">
+      <Section
+        icon={<Target className="h-4 w-4" />}
+        title="What"
+        subtitle={singleTicker ? "The single asset the strategy trades" : "Which asset(s) the strategy trades"}
+      >
         <label className="block">
           <span className="text-xs font-medium text-muted-foreground">
-            Tickers — comma or space separated
+            {singleTicker ? "Ticker" : "Tickers — comma or space separated"}
           </span>
           <Input
             value={tickers}
             onChange={(e) => setTickers(e.target.value)}
-            placeholder="AAPL, MSFT, NVDA"
+            placeholder={singleTicker ? "AAPL" : "AAPL, MSFT, NVDA"}
             className="mt-1.5 font-mono text-sm"
           />
         </label>
+        {singleTicker && (
+          <p
+            className={cn(
+              "mt-1.5 text-[11px]",
+              tickerList.length > 1 ? "text-red-500" : "text-muted-foreground",
+            )}
+          >
+            {tickerList.length > 1
+              ? "One ticker at a time — remove the extras to run this backtest."
+              : "Backtests one ticker at a time."}
+          </p>
+        )}
         {tickerList.length > 0 && (
           <div className="mt-2 flex flex-wrap gap-1.5">
             {tickerList.map((t) => (

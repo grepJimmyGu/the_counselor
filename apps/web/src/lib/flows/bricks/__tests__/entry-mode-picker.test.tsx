@@ -47,7 +47,7 @@ describe("EntryModePicker", () => {
     const upload = screen.getByTestId("entry-mode-upload-portfolio");
     const custom = screen.getByTestId("entry-mode-custom-build");
 
-    expect(pick.textContent).toContain("Pick an asset");
+    expect(pick.textContent).toContain("Try out strategy template");
     expect(upload.textContent).toContain("Upload portfolio");
     expect(custom.textContent).toContain("Build from scratch");
 
@@ -72,9 +72,10 @@ describe("EntryModePicker", () => {
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw!);
     expect(parsed.flowId).toBe("one_asset_mode");
-    expect(parsed.currentStepId).toBe("ticker");
+    // Ticker step was dropped — the flow now opens on the template picker;
+    // the single ticker is set later in the summary step.
+    expect(parsed.currentStepId).toBe("template-pick");
     expect(parsed.context.fromTrigger).toBe("home/pick_asset");
-    // No ticker on this entry path — the ticker step prompts for one.
     expect(parsed.context.ticker).toBeUndefined();
   });
 
