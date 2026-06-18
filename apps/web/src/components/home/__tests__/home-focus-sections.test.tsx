@@ -12,6 +12,7 @@ vi.mock("@/lib/flows/custom-build-mode-context", () => ({
   INITIAL_CUSTOM_BUILD_CONTEXT: {},
 }));
 // Side-effect flow registrations are no-ops under test.
+vi.mock("@/lib/flows/one-asset-mode", () => ({}));
 vi.mock("@/lib/flows/portfolio-mode", () => ({}));
 vi.mock("@/lib/flows/custom-build-mode", () => ({}));
 // Stub the two reused child tiles (they self-fetch / use live quotes).
@@ -45,15 +46,15 @@ describe("HomeFocusSections", () => {
     });
   });
 
-  it("Focus 2 routes Try-a-template to /templates and launches the two flow CTAs", () => {
+  it("Focus 2 launches all three build flows (template wizard, portfolio, custom build)", () => {
     render(<HomeFocusSections />);
 
-    // Try a template → the gallery route (no flow start).
-    expect(
-      (screen.getByTestId("focus-try-template") as HTMLAnchorElement).getAttribute(
-        "href",
-      ),
-    ).toBe("/templates");
+    // Try a template → the guided 5-step single-asset wizard (one_asset_mode),
+    // NOT the static /templates gallery.
+    fireEvent.click(screen.getByTestId("focus-try-template"));
+    expect(startFlowMock).toHaveBeenCalledWith("one_asset_mode", {
+      initialContext: { fromTrigger: "home/pick_asset" },
+    });
 
     fireEvent.click(screen.getByTestId("focus-upload-portfolio"));
     expect(startFlowMock).toHaveBeenCalledWith("portfolio_mode", {
