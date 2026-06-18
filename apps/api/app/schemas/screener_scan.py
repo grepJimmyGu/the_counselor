@@ -105,6 +105,8 @@ class ScreenSaveRequest(BaseModel):
     title: str = Field(..., min_length=3, max_length=120)
     universe_id: str = Field(...)
     rules: List[StrategyRule] = Field(default_factory=list)
+    # "daily" (the close-based screen) | "intraday" (mid-session, Quant-only).
+    bar_resolution: str = Field("daily")
 
     @field_validator("universe_id")
     @classmethod
@@ -116,6 +118,13 @@ class ScreenSaveRequest(BaseModel):
         raise ValueError(
             "Only standing universes (sp500 | sector_<key>) can be tracked"
         )
+
+    @field_validator("bar_resolution")
+    @classmethod
+    def _valid_resolution(cls, v: str) -> str:
+        if v in ("daily", "intraday"):
+            return v
+        raise ValueError("bar_resolution must be 'daily' or 'intraday'")
 
 
 class ScreenSaveResponse(BaseModel):

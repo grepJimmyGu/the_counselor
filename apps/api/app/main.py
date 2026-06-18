@@ -409,6 +409,20 @@ def _start_scheduler() -> None:
             max_instances=1,
             misfire_grace_time=3600,
         )
+        # PRD-23c — intraday screener snapshot warm. Market hours only (M-F,
+        # 14:00-20:45 UTC ≈ 10am-3:45pm ET), every 15 min. No-ops unless
+        # SCREENER_INTRADAY_ENABLED is set (default off) — the universe-wide
+        # intraday fetch is heavy, so it's opt-in + ops-validated separately
+        # (FMP rate limits). Sync wrapper around asyncio.run (trap #21);
+        # IntradayBarService holds no shared asyncio primitives (trap #22).
+        from app.jobs.signal_snapshot_job import warm_intraday_snapshot_job
+        scheduler.add_job(
+            warm_intraday_snapshot_job, "cron",
+            day_of_week="mon-fri", hour="14-20", minute="*/15",
+            id="intraday_snapshot_warm",
+            max_instances=1,
+            misfire_grace_time=300,
+        )
         # PRD-16c — intraday position monitor. Every 5 minutes during US
         # market hours (M-F, 14:00-20:55 UTC ≈ 10am-4:55pm ET; one hour
         # ahead of NYSE open to cover any pre-market positions). The job

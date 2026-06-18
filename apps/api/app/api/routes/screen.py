@@ -230,8 +230,18 @@ async def screen_save(
             current_value=tier,
             limit_value="strategist",
         )
+    # Intraday screening is Quant-only — the universe-wide intraday warm is the
+    # top-tier perk (PRD-23c PR3).
+    if payload.bar_resolution == "intraday" and tier != "quant":
+        raise upgrade_error(
+            "screen_tracking_locked",
+            current_tier=tier,
+            current_value="intraday",
+            limit_value="quant",
+            required_tier_override="quant",
+        )
 
-    sj = screen_strategy_json(payload.universe_id, payload.rules)
+    sj = screen_strategy_json(payload.universe_id, payload.rules, payload.bar_resolution)
     # save_strategy enforces the per-tier saved-strategy cap + commits.
     saved = save_strategy(
         db,

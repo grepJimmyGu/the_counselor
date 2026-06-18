@@ -38,12 +38,19 @@ def is_screen(saved: SavedStrategy) -> bool:
     return isinstance(sj, dict) and sj.get("kind") == SCREEN_KIND
 
 
-def screen_strategy_json(universe_id: str, rules: Sequence[StrategyRule]) -> dict:
-    """The canonical persisted shape of a screen — rehydrated by `rescan_and_diff`."""
+def screen_strategy_json(
+    universe_id: str,
+    rules: Sequence[StrategyRule],
+    bar_resolution: str = "daily",
+) -> dict:
+    """The canonical persisted shape of a screen — rehydrated by `rescan_and_diff`.
+    `bar_resolution` ("daily" | "intraday") selects which snapshot the re-scan
+    reads (PRD-23c PR3)."""
     return {
         "kind": SCREEN_KIND,
         "universe_id": universe_id,
         "rules": [r.model_dump(mode="json") for r in rules],
+        "bar_resolution": bar_resolution,
     }
 
 
@@ -82,7 +89,8 @@ def _parse_screen(saved: SavedStrategy):
     sj = saved.strategy_json or {}
     universe_id = sj.get("universe_id")
     rules = [StrategyRule.model_validate(r) for r in sj.get("rules", [])]
-    return universe_id, rules
+    bar_resolution = sj.get("bar_resolution", "daily")
+    return universe_id, rules, bar_resolution
 
 
 def current_basket(db: Session, saved_strategy_id: str) -> List[ScreenBasketMember]:
@@ -141,12 +149,18 @@ def rescan_and_diff(db: Session, saved: SavedStrategy) -> ScreenDiff:
     already current is neither re-added nor re-reported as a new entrant, so a
     re-run (redeploy, manual trigger) fires nothing.
     """
-    universe_id, rules = _parse_screen(saved)
+    universe_id, rules, bar_resolution = _parse_screen(saved)
     if not universe_id:
         logger.warning("saved screen %s has no universe_id; skipping", saved.id)
         return ScreenDiff([], [], None, [], 0)
 
-    result = scan(db, universe_id, rules, sector_membership=_db_sector_membership(db))
+    result = scan(
+        db,
+        universe_id,
+        rules,
+        sector_membership=_db_sector_membership(db),
+        resolution=bar_resolution,
+    )
     matched = set(result.matched)
     anchor = result.as_of_date or date.today()
 

@@ -65,3 +65,51 @@ def warm_signal_snapshot_job() -> None:
         logger.info("signal_snapshot_job complete: %s", summary)
     except Exception:
         logger.exception("signal_snapshot_job failed")  # trap #20
+
+
+# ── PRD-23c — intraday snapshot warm (the heavier, opt-in path) ──────────────
+
+
+def _intraday_enabled() -> bool:
+    return os.getenv("SCREENER_INTRADAY_ENABLED", "false").strip().lower() in (
+        "1",
+        "true",
+        "yes",
+        "on",
+    )
+
+
+async def _warm_sp500_intraday() -> Dict[str, int]:
+    """Warm the INTRADAY snapshot for the S&P 500 (resolution='intraday').
+
+    Unlike the daily warm (cache-hit `price_bars`), this fetches fresh intraday
+    bars per symbol via `IntradayBarService` (FMP ~15-min) — much heavier, so
+    it's behind its own flag + a market-hours cadence. Trap #22-safe:
+    `IntradayBarService` holds no shared asyncio primitives (the same path the
+    PRD-16c `monitor_active_positions` cron already uses safely)."""
+    from app.data.sp500_tickers import SP500_TICKERS
+    from app.db.session import SessionLocal
+    from app.services.screener.signal_snapshot_service import SignalSnapshotService
+
+    svc = SignalSnapshotService()
+    with SessionLocal() as db:
+        return await svc.warm_universe(db, sorted(SP500_TICKERS), resolution="intraday")
+
+
+def warm_intraday_snapshot_job() -> None:
+    """APScheduler entry point — intraday screener snapshot warm.
+
+    Gated by `SCREENER_INTRADAY_ENABLED` (default off). WARNING before
+    enabling: this fetches intraday bars for the ENTIRE S&P universe each tick
+    — validate FMP rate limits + Railway disk headroom first (the universe-wide
+    intraday fetch is the cost the daily warm deliberately avoids)."""
+    if not _intraday_enabled():
+        logger.info(
+            "intraday snapshot warm: SCREENER_INTRADAY_ENABLED is off — skipping"
+        )
+        return
+    try:
+        summary = asyncio.run(_warm_sp500_intraday())
+        logger.info("intraday snapshot warm complete: %s", summary)
+    except Exception:
+        logger.exception("intraday snapshot warm failed")  # trap #20

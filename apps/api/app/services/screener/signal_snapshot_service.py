@@ -216,8 +216,14 @@ class SignalSnapshotService:
     ) -> int:
         """Fetch this symbol's cached bars, compute every snapshot primitive's
         latest value, and persist them. Returns the row count written (0 if the
-        symbol has no bars — a null/skip, never a fabricated row)."""
+        symbol has no bars — a null/skip, never a fabricated row).
+
+        `resolution="intraday"` sources the frame from the PRD-16c intraday
+        bars (FMP ~15-min-delayed) instead of the daily `price_bars`, so the
+        SAME providers compute *intraday* indicator values."""
         symbol = symbol.upper()
+        if resolution != "daily":
+            return await self._warm_symbol_intraday(db, symbol, resolution=resolution)
         end = as_of or date.today()
         frame = await self.price_svc.get_price_frame(
             db, symbol, end, end, lookback_days=SNAPSHOT_LOOKBACK_DAYS
@@ -229,6 +235,35 @@ class SignalSnapshotService:
         return self.write_symbol(
             db, symbol, values, frame_as_of, resolution=resolution
         )
+
+    async def _warm_symbol_intraday(
+        self,
+        db: Session,
+        symbol: str,
+        *,
+        resolution: str = "intraday",
+        interval: str = "15min",
+        lookback_days: int = 14,
+    ) -> int:
+        """Warm one symbol's intraday snapshot from IntradayBarService bars.
+        Intraday bars carry no within-day split/div adjustment, so
+        `adjusted_close = close` for `_engine_frame`. ~14 calendar days of
+        15-min bars (~360 bars) covers the providers' longest look-backs."""
+        from datetime import timedelta
+
+        from app.services.intraday_bar_service import IntradayBarService, et_now_naive
+
+        end = et_now_naive()
+        start = end - timedelta(days=lookback_days)
+        raw = await IntradayBarService().get_bars(db, symbol, interval, start, end)
+        if raw is None or raw.empty:
+            return 0
+        frame = raw.copy()
+        frame["adjusted_close"] = frame["close"]
+        values, frame_as_of = compute_values_from_frame(frame)
+        if frame_as_of is None:
+            return 0
+        return self.write_symbol(db, symbol, values, frame_as_of, resolution=resolution)
 
     async def warm_universe(
         self,
