@@ -17,6 +17,7 @@ import { MarketSnapshot } from "@/components/home/market-snapshot";
 import { SavedStrategiesTile } from "@/components/home/saved-strategies-tile";
 import { CapabilityGlossary } from "@/components/home/capability-glossary";
 import { HomeHeroSearch } from "@/components/home/home-hero-search";
+import { HomeMarketStrip } from "@/components/home/home-market-strip";
 import { HomeThemesFiringToday } from "@/components/home/home-themes-firing-today";
 import { researchTemplates, type ResearchTemplate } from "@/lib/contracts";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
@@ -196,6 +197,9 @@ export default function HomePage() {
                 </span>
               ))}
             </div>
+
+            {/* PRD-24a §0.3 — compact Market Pulse (major indices) for the hero */}
+            <HomeMarketStrip />
           </div>
         </div>
       </section>
