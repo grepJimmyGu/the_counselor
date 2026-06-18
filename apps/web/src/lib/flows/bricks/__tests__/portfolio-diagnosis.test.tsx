@@ -1,10 +1,11 @@
 /** @vitest-environment jsdom */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@/lib/api", () => ({
   diagnosePortfolio: vi.fn(),
+  getFundamentalOverview: vi.fn(),
   UpgradeRequiredError: class UpgradeRequiredError extends Error {
     readonly status = 402;
     entitlement: { detail: string };
@@ -23,7 +24,7 @@ vi.mock("next-auth/react", () => ({
   useSession: () => useSessionMock(),
 }));
 
-import { diagnosePortfolio } from "@/lib/api";
+import { diagnosePortfolio, getFundamentalOverview } from "@/lib/api";
 import { PortfolioDiagnosis } from "../portfolio-diagnosis";
 
 beforeEach(() => {
@@ -95,6 +96,50 @@ describe("PortfolioDiagnosis", () => {
     expect(screen.getByTestId("portfolio-diagnosis-skeleton")).toBeTruthy();
     await waitFor(() => screen.getByTestId("portfolio-diagnosis"));
     expect(screen.getByTestId("portfolio-diagnosis-continue")).toBeTruthy();
+  });
+
+  it("expands a holding to an in-place preview and links to the full profile", async () => {
+    (diagnosePortfolio as any).mockResolvedValueOnce({
+      diagnosis: _diagnosis(),
+      recommended_overlays: [],
+      cache_hit: false,
+    });
+    (getFundamentalOverview as any).mockResolvedValueOnce({
+      profile: {
+        symbol: "AAPL",
+        name: "Apple Inc",
+        sector: "Technology",
+        industry: "Consumer Electronics",
+        description: "Apple designs consumer electronics.",
+        is_etf: false,
+        is_actively_trading: true,
+        peers: [],
+        data_source: "fmp",
+      },
+      metrics: {
+        symbol: "AAPL",
+        pe_ratio: 30,
+        pb_ratio: 45,
+        roe: 1.5,
+        debt_to_equity: 1.2,
+        dividend_yield: 0.005,
+        free_cash_flow_yield: 0.03,
+        data_source: "fmp",
+      },
+      disclaimer: "x",
+    });
+    renderDiag([{ ticker: "AAPL", weight: 1.0 }]);
+    await waitFor(() => screen.getByTestId("portfolio-diagnosis"));
+
+    fireEvent.click(screen.getByTestId("holding-row-AAPL"));
+    await waitFor(() =>
+      screen.getByText("Apple designs consumer electronics."),
+    );
+    expect(getFundamentalOverview).toHaveBeenCalledWith("AAPL");
+
+    const link = screen.getByTestId("holding-profile-link-AAPL") as HTMLAnchorElement;
+    expect(link.getAttribute("href")).toBe("/stocks/AAPL");
+    expect(link.getAttribute("target")).toBe("_blank");
   });
 
   it("renders the diagnose title from useFlowCopy", async () => {
