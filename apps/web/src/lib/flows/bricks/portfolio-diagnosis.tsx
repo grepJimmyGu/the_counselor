@@ -24,12 +24,17 @@ import { ChevronDown, ExternalLink } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
-import { diagnosePortfolio, getFundamentalOverview, UpgradeRequiredError } from "@/lib/api";
+import { diagnosePortfolio, getCompanyOverview, UpgradeRequiredError } from "@/lib/api";
 import type {
-  FundamentalSummary,
+  CompanyOverviewResponse,
   Holding,
   PortfolioDiagnosis as PortfolioDiagnosisPayload,
 } from "@/lib/contracts";
+// Reuse the stock-profile sections verbatim so the in-place preview matches
+// /stocks/<ticker>. (Editorial follow-up: these are route-private `_`
+// components; relocating them to @/components/stocks is a clean-up for later.)
+import { EvaluationDashboard } from "@/app/stocks/[ticker]/_evaluation-dashboard";
+import { BusinessModelSection } from "@/app/stocks/[ticker]/_business-model-section";
 import type { FlowStepProps } from "../types";
 import { registerModeCopy, useFlowCopy } from "../copy";
 import type { PortfolioModeContext } from "../portfolio-mode-context";
@@ -172,56 +177,33 @@ function BehaviorView({ diag }: { diag: PortfolioDiagnosisPayload }) {
 
 // ── Per-holding explorer (in-place preview + link to the full profile) ───────
 
-function fmtRatio(x?: number | null, d = 1): string {
-  if (x === null || x === undefined || Number.isNaN(x)) return "—";
-  return x.toFixed(d);
-}
-
-function fmtYield(x?: number | null, d = 1): string {
-  // KeyMetrics yields/returns are decimal ratios (0.015 = 1.5%).
-  if (x === null || x === undefined || Number.isNaN(x)) return "—";
-  return `${(x * 100).toFixed(d)}%`;
-}
-
-function HoldingPreview({ ticker, data }: { ticker: string; data: FundamentalSummary }) {
-  const p = data.profile;
-  const m = data.metrics;
-  const metrics: Array<[string, string]> = [
-    ["P/E", fmtRatio(m.pe_ratio)],
-    ["P/B", fmtRatio(m.pb_ratio)],
-    ["ROE", fmtYield(m.roe)],
-    ["Debt/Eq", fmtRatio(m.debt_to_equity, 2)],
-    ["Div yield", fmtYield(m.dividend_yield)],
-    ["FCF yield", fmtYield(m.free_cash_flow_yield)],
-  ];
+function HoldingPreview({
+  ticker,
+  data,
+}: {
+  ticker: string;
+  data: CompanyOverviewResponse;
+}) {
   return (
-    <div className="space-y-3">
-      <div>
-        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Business model
-        </h4>
-        {p.sector || p.industry ? (
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            {[p.sector, p.industry].filter(Boolean).join(" · ")}
-          </p>
-        ) : null}
-        <p className="mt-1 line-clamp-4 text-sm leading-relaxed text-foreground/85">
-          {p.description || "No description available."}
-        </p>
-      </div>
-      <div>
-        <h4 className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <div className="space-y-5">
+      {/* Fundamental Analysis — the scored Health / Valuation / Trend cards
+          from the stock profile, reused verbatim. */}
+      <section>
+        <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
           Fundamental analysis
         </h4>
-        <dl className="mt-1 grid grid-cols-3 gap-2">
-          {metrics.map(([label, value]) => (
-            <div key={label} className="rounded-lg bg-muted/30 p-2">
-              <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</dt>
-              <dd className="mt-0.5 font-mono text-sm font-semibold tabular-nums">{value}</dd>
-            </div>
-          ))}
-        </dl>
-      </div>
+        <EvaluationDashboard data={data} />
+      </section>
+
+      {/* Business Model — revenue-by-segment + geographic mix + the
+          model / customers / pricing rows, reused from the stock profile. */}
+      <section>
+        <h4 className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Business model
+        </h4>
+        <BusinessModelSection seg={data.revenue_segments} bm={data.business_map} />
+      </section>
+
       <Link
         href={`/stocks/${ticker}` as Route}
         target="_blank"
@@ -238,7 +220,7 @@ function HoldingPreview({ ticker, data }: { ticker: string; data: FundamentalSum
 function HoldingsExplorer({ holdings, label }: { holdings: Holding[]; label: string }) {
   const [open, setOpen] = React.useState<string | null>(null);
   const [cache, setCache] = React.useState<
-    Record<string, FundamentalSummary | "loading" | "error">
+    Record<string, CompanyOverviewResponse | "loading" | "error">
   >({});
 
   if (holdings.length === 0) return null;
@@ -249,7 +231,7 @@ function HoldingsExplorer({ holdings, label }: { holdings: Holding[]; label: str
     // Lazy fetch on first expand only — one ticker at a time keeps it cheap.
     if (next && cache[next] === undefined) {
       setCache((c) => ({ ...c, [next]: "loading" }));
-      getFundamentalOverview(next)
+      getCompanyOverview(next)
         .then((d) => setCache((c) => ({ ...c, [next]: d })))
         .catch(() => setCache((c) => ({ ...c, [next]: "error" })));
     }
@@ -288,9 +270,10 @@ function HoldingsExplorer({ holdings, label }: { holdings: Holding[]; label: str
               {isOpen ? (
                 <div className="border-t border-border bg-muted/10 px-3 py-3">
                   {entry === undefined || entry === "loading" ? (
-                    <div className="space-y-2" data-testid={`holding-loading-${h.ticker}`}>
-                      <Skeleton className="h-3 w-1/3" />
-                      <Skeleton className="h-12" />
+                    <div className="space-y-3" data-testid={`holding-loading-${h.ticker}`}>
+                      <Skeleton className="h-4 w-1/3" />
+                      <Skeleton className="h-28" />
+                      <Skeleton className="h-28" />
                     </div>
                   ) : entry === "error" ? (
                     <div className="space-y-2">

@@ -5,7 +5,7 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@/lib/api", () => ({
   diagnosePortfolio: vi.fn(),
-  getFundamentalOverview: vi.fn(),
+  getCompanyOverview: vi.fn(),
   UpgradeRequiredError: class UpgradeRequiredError extends Error {
     readonly status = 402;
     entitlement: { detail: string };
@@ -16,6 +16,15 @@ vi.mock("@/lib/api", () => ({
   },
 }));
 
+// Stub the heavy stock-profile sections the preview reuses — they pull in
+// recharts + self-fetch a trend series, which we don't need to exercise here.
+vi.mock("@/app/stocks/[ticker]/_evaluation-dashboard", () => ({
+  EvaluationDashboard: () => <div data-testid="eval-dashboard" />,
+}));
+vi.mock("@/app/stocks/[ticker]/_business-model-section", () => ({
+  BusinessModelSection: () => <div data-testid="biz-model" />,
+}));
+
 // `useSession` mock — defaults to unauthenticated so the brick fires its
 // anonymous diagnose path. Individual tests can override via
 // `useSessionMock.mockReturnValue(...)` before render.
@@ -24,7 +33,7 @@ vi.mock("next-auth/react", () => ({
   useSession: () => useSessionMock(),
 }));
 
-import { diagnosePortfolio, getFundamentalOverview } from "@/lib/api";
+import { diagnosePortfolio, getCompanyOverview } from "@/lib/api";
 import { PortfolioDiagnosis } from "../portfolio-diagnosis";
 
 beforeEach(() => {
@@ -104,38 +113,18 @@ describe("PortfolioDiagnosis", () => {
       recommended_overlays: [],
       cache_hit: false,
     });
-    (getFundamentalOverview as any).mockResolvedValueOnce({
-      profile: {
-        symbol: "AAPL",
-        name: "Apple Inc",
-        sector: "Technology",
-        industry: "Consumer Electronics",
-        description: "Apple designs consumer electronics.",
-        is_etf: false,
-        is_actively_trading: true,
-        peers: [],
-        data_source: "fmp",
-      },
-      metrics: {
-        symbol: "AAPL",
-        pe_ratio: 30,
-        pb_ratio: 45,
-        roe: 1.5,
-        debt_to_equity: 1.2,
-        dividend_yield: 0.005,
-        free_cash_flow_yield: 0.03,
-        data_source: "fmp",
-      },
-      disclaimer: "x",
+    (getCompanyOverview as any).mockResolvedValueOnce({
+      symbol: "AAPL",
+      name: "Apple Inc",
     });
     renderDiag([{ ticker: "AAPL", weight: 1.0 }]);
     await waitFor(() => screen.getByTestId("portfolio-diagnosis"));
 
     fireEvent.click(screen.getByTestId("holding-row-AAPL"));
-    await waitFor(() =>
-      screen.getByText("Apple designs consumer electronics."),
-    );
-    expect(getFundamentalOverview).toHaveBeenCalledWith("AAPL");
+    // The reused stock-profile sections render once the overview resolves.
+    await waitFor(() => screen.getByTestId("eval-dashboard"));
+    expect(screen.getByTestId("biz-model")).toBeTruthy();
+    expect(getCompanyOverview).toHaveBeenCalledWith("AAPL");
 
     const link = screen.getByTestId("holding-profile-link-AAPL") as HTMLAnchorElement;
     expect(link.getAttribute("href")).toBe("/stocks/AAPL");
