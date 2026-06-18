@@ -46,6 +46,22 @@ logger = logging.getLogger("livermore.screener.snapshot")
 SNAPSHOT_LOOKBACK_DAYS = 500
 
 
+# Primitives that are STRUCTURALLY degenerate in the per-symbol snapshot — they
+# are locally-computable in principle but evaluate to all-null/all-zero across
+# the whole universe, so any scan rule referencing one silently matches 0 with
+# no error (the rank_composite_score trap, PRD-24a §6 / PR #234, which shipped
+# matching 0/525 until a live curl caught it). Excluding them here drops them
+# from the warmed + scannable vocabulary, so such a rule reports as
+# `unsupported` (explicit) instead of silently empty. Grow this set as the
+# warm-time coverage audit (see `compute_snapshot_coverage` + the warning
+# `warm_universe` logs) surfaces more.
+#
+# - rank_composite_score: a cross-sectional composite rank; the snapshot warms
+#   each symbol in isolation, so the per-symbol computation has no peer set and
+#   the provider returns 0 for every symbol → an always-0 column.
+DEGENERATE_SNAPSHOT_PRIMITIVE_IDS: frozenset = frozenset({"rank_composite_score"})
+
+
 # Provider/primitive pairing for the snapshot-able set. A pair is one
 # (catalog primitive, its stateless provider at default params). Providers are
 # pure over `_compute(frame)`, so a single instance is reused across all
@@ -66,6 +82,10 @@ def local_price_providers() -> Tuple[ProviderPair, ...]:
 
     pairs: List[ProviderPair] = []
     for primitive in SIGNAL_PRIMITIVES:
+        if primitive.id in DEGENERATE_SNAPSHOT_PRIMITIVE_IDS:
+            # Known all-null/all-zero in the per-symbol snapshot — never warm
+            # or advertise it as scannable (would silently match 0 in a preset).
+            continue
         provider = get_signal_provider(primitive.provider_impl)
         if isinstance(provider, TechnicalSignalProvider) and not isinstance(
             provider, AVTechnicalSignalProvider
@@ -156,6 +176,68 @@ def compute_values_from_frame(
         if value is not None:
             values[primitive.id] = value
     return values, as_of
+
+
+@dataclass
+class PrimitiveCoverage:
+    """Per-primitive coverage across a warmed universe (the PRD-24a §6 preset
+    gate). A `degenerate` column — all-null, or all-zero across every symbol
+    that has a value — can't safely back a scan rule: a threshold over it
+    matches 0 (or all) with no error. `constant` (one distinct non-null value)
+    is surfaced for review but NOT auto-degenerate, because a legitimately
+    one-sided boolean (e.g. every name above its 200-DMA in a strong tape) is
+    constant yet real."""
+
+    primitive_id: str
+    universe_size: int
+    present: int            # symbols with a non-null value
+    distinct: int           # distinct non-null values
+    zero_fraction: float    # fraction of present values that are exactly 0
+    all_null: bool
+    all_zero: bool
+    constant: bool
+    degenerate: bool        # all_null or all_zero — unsafe for a preset rule
+
+
+def compute_snapshot_coverage(
+    frame: Optional[pd.DataFrame], primitive_ids: Sequence[str]
+) -> List[PrimitiveCoverage]:
+    """Per-primitive coverage over a snapshot frame (index=symbol,
+    columns=primitive_id) — pass `get_snapshot(...).frame`. Pure / no DB. A
+    primitive with no column or no non-null cell is `all_null`; one whose
+    present values are all exactly 0 is `all_zero`; either is `degenerate`."""
+    universe = int(frame.shape[0]) if frame is not None and not frame.empty else 0
+    out: List[PrimitiveCoverage] = []
+    for pid in primitive_ids:
+        if frame is None or universe == 0 or pid not in frame.columns:
+            out.append(
+                PrimitiveCoverage(pid, universe, 0, 0, 0.0, True, False, False, True)
+            )
+            continue
+        col = frame[pid].dropna()
+        present = int(col.shape[0])
+        if present == 0:
+            out.append(
+                PrimitiveCoverage(pid, universe, 0, 0, 0.0, True, False, False, True)
+            )
+            continue
+        zeros = int((col == 0).sum())
+        distinct = int(col.nunique())
+        all_zero = zeros == present
+        out.append(
+            PrimitiveCoverage(
+                primitive_id=pid,
+                universe_size=universe,
+                present=present,
+                distinct=distinct,
+                zero_fraction=zeros / present,
+                all_null=False,
+                all_zero=all_zero,
+                constant=distinct <= 1,
+                degenerate=all_zero,
+            )
+        )
+    return out
 
 
 class SignalSnapshotService:
@@ -300,6 +382,28 @@ class SignalSnapshotService:
             total_rows,
             resolution,
         )
+        # PRD-24a §6 gate — flag any primitive that warmed all-null/all-zero
+        # across the universe, so a degenerate column can't silently back a scan
+        # preset (the rank_composite_score trap). Logged, never raised: the warm
+        # must still complete; findings feed DEGENERATE_SNAPSHOT_PRIMITIVE_IDS.
+        try:
+            degenerate = [
+                c.primitive_id
+                for c in self.audit_coverage(
+                    db, list(symbols), resolution=resolution
+                )
+                if c.degenerate
+            ]
+            if degenerate:
+                logger.warning(
+                    "signal_snapshot coverage: %d primitive(s) degenerate "
+                    "(all-null/all-zero across the warmed universe) — exclude "
+                    "from presets or add to DEGENERATE_SNAPSHOT_PRIMITIVE_IDS: %s",
+                    len(degenerate),
+                    degenerate,
+                )
+        except Exception:
+            logger.exception("signal_snapshot coverage audit failed")
         return {"symbols_ok": ok, "symbols_empty": empty, "rows": total_rows}
 
     # ── read path ─────────────────────────────────────────────────────────────
@@ -339,3 +443,16 @@ class SignalSnapshotService:
 
         frame = pd.DataFrame.from_dict(data, orient="index").reindex(syms)
         return SnapshotFrame(frame=frame, as_of_date=as_of)
+
+    # ── coverage audit (PRD-24a §6 preset gate) ─────────────────────────────────
+
+    def audit_coverage(
+        self, db: Session, symbols: Sequence[str], *, resolution: str = "daily"
+    ) -> List[PrimitiveCoverage]:
+        """Coverage of every advertised snapshot primitive across `symbols` —
+        the §6 preset gate. Reads the warmed snapshot and returns per-primitive
+        stats; callers flag `.degenerate` columns (all-null/all-zero), which
+        can't safely back a scan rule. Run over a standing universe (e.g.
+        `SP500_TICKERS`) for the one-time sweep."""
+        frame = self.get_snapshot(db, symbols, resolution=resolution).frame
+        return compute_snapshot_coverage(frame, snapshot_primitive_ids())
