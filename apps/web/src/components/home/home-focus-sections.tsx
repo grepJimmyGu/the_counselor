@@ -82,6 +82,9 @@ export function HomeFocusSections() {
       initialContext: {
         ...INITIAL_CUSTOM_BUILD_CONTEXT,
         universe_id: "sp500",
+        // PRD-24a §5 — only this entry opens on the recommended-templates
+        // gallery; every other custom_build entry skips straight to the canvas.
+        show_template_gallery: true,
         fromTrigger: "home/screen_market",
       },
     });

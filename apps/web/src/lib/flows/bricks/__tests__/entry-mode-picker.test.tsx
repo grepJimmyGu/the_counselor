@@ -105,7 +105,10 @@ describe("EntryModePicker", () => {
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw!);
     expect(parsed.flowId).toBe("custom_build_mode");
-    expect(parsed.currentStepId).toBe("compose_signals");
+    // PRD-24a §5 — every custom_build entry now starts at the gallery step,
+    // which auto-skips to the composer at runtime unless show_template_gallery
+    // is set (Build-from-scratch does not set it).
+    expect(parsed.currentStepId).toBe("pick_template");
     expect(parsed.context.fromTrigger).toBe("home/custom_build");
   });
 

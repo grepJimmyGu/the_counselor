@@ -66,6 +66,12 @@ export interface ExitTier {
 export type BarResolution = "daily" | "5min" | "15min" | "30min" | "60min";
 
 export interface CustomBuildModeContext extends FlowContextBase {
+  /** PRD-24a §5 — show the recommended-templates gallery as the FIRST step
+   *  before the composer. Set ONLY by the Home "Screen the market" launcher;
+   *  every other entry (Build-from-scratch, the /screens · /account · signal-
+   *  library links, a `?template=` deep link) leaves it undefined so the
+   *  gallery step auto-advances straight to the blank composer. */
+  show_template_gallery?: boolean;
   /** PRD-23b — the universe tier this reading runs over (the unified mode:
    *  a single symbol is a universe of size 1). One of
    *  "symbols"|"watchlist"|"portfolio"|"sp500"|"sector_<key>". Default

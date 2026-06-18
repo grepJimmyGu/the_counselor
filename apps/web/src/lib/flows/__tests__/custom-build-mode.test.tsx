@@ -126,16 +126,21 @@ describe("custom_build_mode flow registration", () => {
     );
   });
 
-  it("chains compose_signals → backtest → review → save (+ screen_results)", () => {
-    expect(CustomBuildModeFlow.initialStepId).toBe("compose_signals");
+  it("chains pick_template → compose_signals → backtest → review → save (+ screen_results)", () => {
+    // PRD-24a §5 — the gallery is the first step (auto-skips unless the Home
+    // "Screen the market" launch sets show_template_gallery).
+    expect(CustomBuildModeFlow.initialStepId).toBe("pick_template");
     const ids = CustomBuildModeFlow.steps.map((s) => s.id);
     expect(ids).toEqual([
+      "pick_template",
       "compose_signals",
       "screen_results",
       "backtest",
       "review",
       "save",
     ]);
+    const pick = CustomBuildModeFlow.steps.find((s) => s.id === "pick_template");
+    expect(pick?.next?.({} as CustomBuildModeContext)).toBe("compose_signals");
     const compose = CustomBuildModeFlow.steps.find(
       (s) => s.id === "compose_signals",
     );
@@ -151,7 +156,7 @@ describe("custom_build_mode flow registration", () => {
   });
 
   it("validate gates compose_signals on rules + symbol + strategyJson", () => {
-    const step = CustomBuildModeFlow.steps[0];
+    const step = CustomBuildModeFlow.steps.find((s) => s.id === "compose_signals")!;
     const ctxEmpty = {
       fromTrigger: "test",
       universe_id: "symbols",
