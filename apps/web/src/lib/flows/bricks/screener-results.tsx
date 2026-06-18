@@ -13,6 +13,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 
@@ -320,6 +322,13 @@ export function ScreenResults({
                 Now watching {savedScreen.basket.length} names. We’ll alert you
                 when a new name enters this screen.
               </p>
+              <Link
+                href={`/screens/${savedScreen.saved_strategy_id}` as Route}
+                data-testid="screen-results-view-link"
+                className="mt-2 inline-flex items-center gap-1 text-[13px] font-semibold text-emerald-900 underline underline-offset-2 hover:text-emerald-700"
+              >
+                View screen →
+              </Link>
             </div>
           ) : rankGated ? (
             <p

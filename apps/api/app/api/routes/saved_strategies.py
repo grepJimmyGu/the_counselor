@@ -20,6 +20,7 @@ from app.db.session import get_db
 from app.models.user import User
 from app.services import saved_strategy_service
 from app.services.saved_strategy_service import SaveStrategyRequest
+from app.services.screener.saved_screen_service import is_screen
 
 # NOTE: mounted at /api/saved-strategies (not /api/strategies) to avoid colliding
 # with the legacy PRD-02 strategy_storage.py routes which still serve the slug-based
@@ -57,7 +58,10 @@ def list_saved_strategies(
     db: Session = Depends(get_db),
 ) -> list[SavedStrategyResponse]:
     rows = saved_strategy_service.list_user_strategies(db, current_user.id)
-    return [SavedStrategyResponse.model_validate(r) for r in rows]
+    # Exclude saved *screens* (PRD-23c) — they're SavedStrategy rows with
+    # kind=="screen" but have no backtest, so they'd render broken on the
+    # strategy-detail page. They have their own surface at /screens.
+    return [SavedStrategyResponse.model_validate(r) for r in rows if not is_screen(r)]
 
 
 @router.get("/{strategy_id}", response_model=SavedStrategyResponse)
