@@ -8,6 +8,35 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-06-18 — PRD-24a: Home discovery + the 10-template gallery, end-to-end (#235 → #245)
+
+One long session: built the entire PRD-24a v1 packet — a 3-layer disclosure that turns Home into a discovery funnel, a browsable gallery of vetted templates, and theme-aware result pages — plus the §6 guard that stops a dead primitive silently matching nothing.
+
+| PR | Scope |
+|---|---|
+| #235 | 3-focus Home reorg (Discover · Build · Your Livermore); replaced the EntryModePicker + marketing pillars |
+| #236 | `?template=` composer pre-load — a registry preset hydrates `StrategyRule[]` → editable `BuildRule[]` into the canvas |
+| #237 | hero market strip (S&P/Nasdaq/Dow/Russell index board) |
+| #238 | discovery fixes — Try-a-template → the 5-step wizard; Screen-the-market elevated; headline → "Discover. Build. Track." |
+| #239 | `/sentiment` deep-link wiring — theme cards now auto-run their toolkit + honor `?display=` |
+| #240 | **the §6 gate** — dead-primitive audit. Denylist `rank_composite_score` (always-0); `warm_universe` logs a coverage WARNING for any all-null/all-zero column |
+| #241 | registry **2 → 10** — 4 composer presets (each live-verified vs prod `/api/screen/scan`) + 4 sentiment |
+| #242 | the gallery as the FIRST step of "Screen the market" (auto-skips every other custom_build entry) |
+| #243 | theme-landing chrome — banner + "what this finds" + "try other themes", on /sentiment + scan results |
+| #244 | WORK_LOG v1 closeout |
+| #245 | widen the hero-search preview so the reused 3-card dashboard isn't cramped |
+
+### Reuse, not replication
+Every layer is a shared brick: the `?template=` preload (#236) is reused by the gallery (#242); the `/sentiment` deep-link (#239) is reused by the gallery's sentiment cards + the "try other themes" footer (#243); the registry (#241) drives the gallery, the banner, and the footer. The gallery is gated by one context flag (`show_template_gallery`), so the /screens · /account · /signal-library entries and Build-from-scratch are byte-for-byte unchanged.
+
+### The §6 trap, made loud
+`best_momentum` once shipped matching 0/525 because `rank_composite_score` is in the snapshot vocab but evaluates to 0 for every symbol (a cross-sectional rank computed per-symbol has no peers). #240 denylists it (a rule over it now reports `unsupported`, not a silent 0) and adds a warm-time coverage WARNING that auto-sweeps all ~93 columns. The 4 new composer presets were each verified live against prod before shipping (breakout 9 · oversold 9 · squeeze 45 · trend 14 matched sp500 names).
+
+### A deploy scare that wasn't ours
+Mid-session a deploy failed; the diagnosis (see KNOWN_ISSUES, 2026-06-18) was a **pre-existing** Postgres deadlock in the Market-Pulse startup warmup that self-healed on retry — prod never went down, and #240 was absent from the trace. Logged + backlogged.
+
+---
+
 ## 2026-06-11 — active-execution-v2 (track real holdings) + Custom Mode reachability + the live intraday chart (#187 → #197)
 
 A single long session. Started by answering "if I toggle execution on, what actually happens?" and ended with a usable live dashboard — including a price chart — plus a full data-source diagnosis that reframed the remaining work.
