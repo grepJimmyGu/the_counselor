@@ -4,6 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { DEFAULT_SENTIMENT_SYMBOLS } from "@/lib/sentiment-defaults";
+import { readSentimentDeepLink } from "@/lib/sentiment-deeplink";
 import {
   AlertTriangle,
   ArrowRight,
@@ -162,7 +163,11 @@ export default function SentimentHubPage() {
   const [results, setResults] = useState<SentimentAnalyzeResponse | null>(null);
   const [runningId, setRunningId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [displayLabel, setDisplayLabel] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const resultsRef = useRef<HTMLDivElement>(null);
+  const deepLinkApplied = useRef(false);
+  const deepLinkToolkit = useRef<string | null>(null);
 
   useEffect(() => {
     getProvidersStatus().then(setProviders).catch(() => {});
@@ -183,6 +188,31 @@ export default function SentimentHubPage() {
     }
   };
 
+  // PRD-24a §3.10 (B1) — apply a `?toolkit=&autorun=&display=` deep link from
+  // the Home theme cards once the toolkit list has loaded: focus the toolkit
+  // and (when autorun) run it immediately + scroll its results into view.
+  useEffect(() => {
+    if (deepLinkApplied.current || toolkits.length === 0) return;
+    const { toolkitId, autorun, displayLabel: dl } = readSentimentDeepLink();
+    if (!toolkitId || !toolkits.some((t) => t.id === toolkitId)) {
+      deepLinkApplied.current = true;
+      return;
+    }
+    deepLinkApplied.current = true;
+    deepLinkToolkit.current = toolkitId;
+    if (dl) setDisplayLabel(dl);
+    setActiveToolkit(toolkitId);
+    if (autorun) {
+      handleRunToolkit(toolkitId);
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() =>
+          resultsRef.current?.scrollIntoView({ behavior: "smooth", block: "start" }),
+        ),
+      );
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toolkits]);
+
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     const sym = searchQuery.trim().toUpperCase();
@@ -190,6 +220,12 @@ export default function SentimentHubPage() {
   };
 
   const activeToolkitName = toolkits.find((t) => t.id === activeToolkit)?.name;
+  // §8.1 — a `?display=` override only labels the toolkit it arrived with;
+  // a later manual run of a different toolkit shows that toolkit's real name.
+  const headerLabel =
+    displayLabel && activeToolkit === deepLinkToolkit.current
+      ? displayLabel
+      : activeToolkitName;
 
   return (
     <main className="min-h-screen bg-background">
@@ -279,10 +315,10 @@ export default function SentimentHubPage() {
 
         {/* Results */}
         {(results || runningId) && (
-          <div>
+          <div ref={resultsRef}>
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-base font-semibold">
-                {activeToolkitName || "Results"}
+                {headerLabel || "Results"}
                 {results && (
                   <Badge variant="outline" className="ml-2 text-[10px] font-mono">{results.candidates.length} matches</Badge>
                 )}
