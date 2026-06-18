@@ -348,3 +348,80 @@ def test_list_saved_screens_returns_the_users_screens(authed):
     screens = r.json()["screens"]
     assert len(screens) == 1
     assert screens[0]["title"] == "Screen A" and screens[0]["basket_size"] == 2
+
+
+# ── PR3: intraday ────────────────────────────────────────────────────────────
+
+
+def test_rescan_uses_the_screens_bar_resolution(db, monkeypatch):
+    screen = SavedStrategy(
+        id=str(uuid4()), user_id="u1", title="Intraday screen",
+        strategy_json=screen_strategy_json("sp500", [], bar_resolution="intraday"),
+        is_public=False,
+    )
+    db.add(screen)
+    db.commit()
+    captured: dict = {}
+
+    def fake_scan(db_, uid, rules, **kw):
+        captured["resolution"] = kw.get("resolution")
+        return _scan_result(["AAPL"])
+
+    monkeypatch.setattr(saved_screen_service, "scan", fake_scan)
+    rescan_and_diff(db, screen)
+    assert captured["resolution"] == "intraday"
+
+
+def test_daily_screen_scans_daily(db, monkeypatch):
+    screen = _make_screen(db)  # default bar_resolution = "daily"
+    captured: dict = {}
+
+    def fake_scan(db_, uid, rules, **kw):
+        captured["resolution"] = kw.get("resolution")
+        return _scan_result([])
+
+    monkeypatch.setattr(saved_screen_service, "scan", fake_scan)
+    rescan_and_diff(db, screen)
+    assert captured["resolution"] == "daily"
+
+
+def test_intraday_warm_writes_rows_from_intraday_bars(db, monkeypatch):
+    import asyncio
+
+    import pandas as pd
+
+    from app.models.signal_snapshot import SignalSnapshot
+    from app.services.screener.signal_snapshot_service import SignalSnapshotService
+
+    idx = pd.date_range("2026-06-17 09:30", periods=250, freq="15min")
+    closes = [100.0 + i * 0.1 for i in range(250)]
+    frame = pd.DataFrame(
+        {"open": closes, "high": closes, "low": closes, "close": closes, "volume": 1_000_000.0},
+        index=idx,
+    )
+
+    async def fake_get_bars(self, db_, symbol, interval, start, end):
+        return frame
+
+    monkeypatch.setattr(
+        "app.services.intraday_bar_service.IntradayBarService.get_bars", fake_get_bars
+    )
+    n = asyncio.run(SignalSnapshotService().warm_symbol(db, "AAPL", resolution="intraday"))
+    assert n > 0
+    rows = (
+        db.execute(select(SignalSnapshot).where(SignalSnapshot.resolution == "intraday"))
+        .scalars()
+        .all()
+    )
+    assert rows and all(r.symbol == "AAPL" for r in rows)
+
+
+def test_intraday_screen_requires_quant(authed):
+    client, set_user, _ = authed
+    set_user(tier="strategist")
+    r = client.post("/api/screen/save", json={**_save_body(), "bar_resolution": "intraday"})
+    assert r.status_code == 402, r.text
+    assert r.json()["detail"]["entitlement"]["code"] == "screen_tracking_locked"
+    set_user(tier="quant", email="q@x.com")
+    r2 = client.post("/api/screen/save", json={**_save_body(), "bar_resolution": "intraday"})
+    assert r2.status_code == 200, r2.text
