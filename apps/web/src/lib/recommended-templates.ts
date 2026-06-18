@@ -59,44 +59,58 @@ export const RECOMMENDED_TEMPLATES: RecommendedTemplate[] = [
     name: "Best Momentum Pick",
     category: "momentum",
     tagline:
-      "Top-decile momentum in a leading sector — the curated handful of strongest names.",
+      "Top-quintile 6-month momentum in a leading sector, confirmed by a strong, above-trend price.",
     universe_id: "sp500",
-    // §6.1, verified against the live snapshot. Dropped vs the PRD spec:
-    // `f_score` (Piotroski — fundamental, not in the technical snapshot) and
-    // `supertrend_above_price` (the PRD's is_true/threshold=False encoding is
-    // wrong-direction; trend is already gated by ADX + the MA filters).
+    // §6.1 — CORRECTED against the live snapshot scan (the PRD spec was wrong
+    // on three counts, all caught by curling /api/screen/scan):
+    //   1. `rank_composite_score` is unpopulated (always 0) → it poisoned the
+    //      whole AND → 0 matches. Dropped.
+    //   2. `rank_return_6m` is a 0–1 percentile, NOT 0–100 → threshold 85 never
+    //      matched; 0.80 ≈ top-quintile.
+    //   3. rules 2+ MUST carry logic_with_prior ("AND"/"OR") or the scan 500s.
+    // `adx_rising` + `rvol` each over-tighten the basket to ~2 names (and rvol
+    // is today's-volume-dependent), so they're deferred as optional tighteners.
+    // This set returns ~10–15 SP500 names (verified live 2026-06-17).
     rules: [
-      { primitive_id: "rank_composite_score", operator: "gte", threshold: 90 },
-      { primitive_id: "rank_return_6m", operator: "gte", threshold: 85 },
-      { primitive_id: "time_series_momentum", operator: "gt", threshold: 0.15 },
-      { primitive_id: "adx", operator: "gte", threshold: 25 },
-      { primitive_id: "adx_rising", operator: "is_true" },
+      { primitive_id: "rank_return_6m", operator: "gte", threshold: 0.8 },
+      {
+        primitive_id: "time_series_momentum",
+        operator: "gt",
+        threshold: 0.15,
+        logic_with_prior: "AND",
+      },
+      { primitive_id: "adx", operator: "gte", threshold: 25, logic_with_prior: "AND" },
       {
         primitive_id: "price_above_ma",
         operator: "is_true",
         primitive_params: { period: 200 },
+        logic_with_prior: "AND",
       },
       {
         primitive_id: "price_above_ma",
         operator: "is_true",
         primitive_params: { period: 50 },
+        logic_with_prior: "AND",
       },
-      { primitive_id: "sector_rotation_rank", operator: "lte", threshold: 3 },
-      { primitive_id: "rvol", operator: "gte", threshold: 1.3 },
+      {
+        primitive_id: "sector_rotation_rank",
+        operator: "lte",
+        threshold: 3,
+        logic_with_prior: "AND",
+      },
     ],
     primitives: [
-      "rank_composite_score",
       "rank_return_6m",
       "time_series_momentum",
       "adx",
-      "adx_rising",
       "price_above_ma",
       "sector_rotation_rank",
-      "rvol",
     ],
     deferred: [
+      "rank_composite_score (not populated in the daily snapshot — always 0)",
+      "adx_rising + rvol (optional tighteners — they cut the basket to ~2 names; rvol is today's-volume-dependent)",
       "f_score (Piotroski — fundamental; arrives with the fundamentals slice)",
-      "supertrend (trend already covered by ADX + moving-average gates)",
+      "supertrend (encoding follow-up; trend already gated by ADX + the MA filters)",
     ],
   },
   {
