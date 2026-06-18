@@ -17,8 +17,10 @@ from sqlalchemy import func, select
 from app.models.signal_snapshot import SignalSnapshot
 from app.services.backtester.signal_provider import get_signal_provider
 from app.services.screener.signal_snapshot_service import (
+    DEGENERATE_SNAPSHOT_PRIMITIVE_IDS,
     SignalSnapshotService,
     _last_bar_value,
+    compute_snapshot_coverage,
     compute_values_from_frame,
     local_price_providers,
     snapshot_primitive_ids,
@@ -70,6 +72,66 @@ def test_snapshot_covers_local_price_primitives_only():
     # Grows with each PRD-22b backfill slice; upper bound leaves headroom for
     # the remaining momentum/Heikin-Ashi + divergence slices.
     assert 45 <= len(ids) <= 110
+
+
+# ── coverage audit (PRD-24a §6 preset gate) ──────────────────────────────────
+
+
+def test_degenerate_primitive_excluded_from_vocab():
+    # rank_composite_score is all-zero per-symbol (no peer set in the snapshot),
+    # so it must not be advertised as scannable — else a preset rule over it
+    # silently matches 0 (the PR #234 trap). It stays in the catalog, just not
+    # in the snapshot vocabulary.
+    ids = set(snapshot_primitive_ids())
+    assert "rank_composite_score" not in ids
+    assert "rank_composite_score" in DEGENERATE_SNAPSHOT_PRIMITIVE_IDS
+    # And it's gone from the warmed provider pairs too (not just the id list).
+    assert all(p.id != "rank_composite_score" for p, _ in local_price_providers())
+
+
+def test_compute_snapshot_coverage_flags_all_null_all_zero_constant():
+    frame = pd.DataFrame(
+        {
+            "healthy": [1.0, 2.0, 3.0],
+            "all_zero": [0.0, 0.0, 0.0],
+            "all_null": [np.nan, np.nan, np.nan],
+            "constant": [5.0, 5.0, 5.0],
+        },
+        index=["AAA", "BBB", "CCC"],
+    )
+    cov = {
+        c.primitive_id: c
+        for c in compute_snapshot_coverage(
+            frame, ["healthy", "all_zero", "all_null", "constant", "missing"]
+        )
+    }
+    # Healthy varying column — never flagged.
+    assert not cov["healthy"].degenerate
+    assert cov["healthy"].present == 3 and cov["healthy"].distinct == 3
+    # All-zero and all-null are degenerate (unsafe for a preset rule).
+    assert cov["all_zero"].all_zero and cov["all_zero"].degenerate
+    assert cov["all_null"].all_null and cov["all_null"].degenerate
+    # A primitive with no column at all == no data == all_null/degenerate.
+    assert cov["missing"].all_null and cov["missing"].degenerate
+    # Constant-but-nonzero is surfaced (constant=True) but NOT auto-degenerate:
+    # it could be a real one-sided boolean, so the preset author reviews it.
+    assert cov["constant"].constant and not cov["constant"].degenerate
+
+
+def test_audit_coverage_flags_all_zero_primitive(db):
+    # End-to-end: write a snapshot where an event primitive is 0 for every
+    # symbol, then assert the audit flags it degenerate while a varying one isn't.
+    svc = SignalSnapshotService(price_svc=_StubPriceSvc(_ohlcv()))
+    svc.write_symbol(
+        db, "AAA", {"sma": 10.0, "donchian_breakout": 0.0}, date(2026, 6, 15)
+    )
+    svc.write_symbol(
+        db, "BBB", {"sma": 20.0, "donchian_breakout": 0.0}, date(2026, 6, 15)
+    )
+    db.commit()
+    cov = {c.primitive_id: c for c in svc.audit_coverage(db, ["AAA", "BBB"])}
+    assert cov["donchian_breakout"].all_zero and cov["donchian_breakout"].degenerate
+    assert not cov["sma"].degenerate and cov["sma"].present == 2
 
 
 # ── pure value-encoding core ─────────────────────────────────────────────────
