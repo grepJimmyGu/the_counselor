@@ -14,50 +14,12 @@ import {
 import type { Route } from "next";
 import { Button } from "@/components/ui/button";
 import { MarketSnapshot } from "@/components/home/market-snapshot";
-import { SavedStrategiesTile } from "@/components/home/saved-strategies-tile";
-import { CapabilityGlossary } from "@/components/home/capability-glossary";
 import { HomeHeroSearch } from "@/components/home/home-hero-search";
-import { HomeThemesFiringToday } from "@/components/home/home-themes-firing-today";
+import { HomeFocusSections } from "@/components/home/home-focus-sections";
 import { researchTemplates, type ResearchTemplate } from "@/lib/contracts";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
 import { ChatWidget } from "@/components/ChatWidget";
-import { EntryModePicker } from "@/lib/flows/bricks/entry-mode-picker";
 import { NotificationBanner } from "@/components/notifications/notification-banner";
-
-// ── Three main pillars (simplified — no feature bullet lists) ──────────────────
-
-const PILLARS = [
-  {
-    icon: BarChart2,
-    label: "Market Pulse",
-    color: "text-blue-500",
-    bg: "bg-blue-50 border-blue-200",
-    description:
-      "Track sector capital flow, monitor index performance, and drill into any stock, ETF, or commodity with Health · Valuation · Trend scores.",
-    cta: "Open Market Pulse",
-    href: "/stocks",
-  },
-  {
-    icon: Users,
-    label: "Community",
-    color: "text-purple-500",
-    bg: "bg-purple-50 border-purple-200",
-    description:
-      "Discover strategies from other researchers, fork what fits your thesis, and share your backtests. Community leaderboards rank by risk-adjusted returns.",
-    cta: "View Community",
-    href: "/community",
-  },
-  {
-    icon: Bot,
-    label: "Strategy Builder",
-    color: "text-primary",
-    bg: "bg-primary/5 border-primary/20",
-    description:
-      "Choose from 11 pre-built quant templates or describe a trading idea in plain language. The AI parser converts it to a validated backtest — no coding required.",
-    cta: "Open Strategy Builder",
-    href: null, // triggers onClick
-  },
-];
 
 // ── How it works — timeline steps ──────────────────────────────────────────────
 
@@ -206,53 +168,12 @@ export default function HomePage() {
         {/* ── Market Snapshot ────────────────────────────────────────────── */}
         <MarketSnapshot />
 
-        {/* ── PRD-24a §4 — Themes firing today (Focus 1 discovery cards) ──── */}
-        <HomeThemesFiringToday />
-
-        {/* ── Three Research Pillars ─────────────────────────────────────── */}
-        <section className="space-y-8">
-          <div className="text-center">
-            <h2 className="font-heading text-2xl font-bold">Three Ways to Research</h2>
-            <p className="mt-2 text-muted-foreground">Each pillar answers a different question before you invest</p>
-          </div>
-          <div className="grid gap-5 lg:grid-cols-3">
-            {PILLARS.map(({ icon: Icon, label, color, bg, description, cta, href }) => (
-              <div
-                key={label}
-                className="group flex flex-col rounded-2xl border border-border/60 bg-white/80 backdrop-blur-sm p-6 shadow-sm transition-all duration-200 hover:border-primary/30 hover:shadow-lg"
-              >
-                <div className={`mb-5 inline-flex h-12 w-12 items-center justify-center rounded-xl border ${bg}`}>
-                  <Icon className={`h-6 w-6 ${color}`} />
-                </div>
-                <h3 className="font-heading text-lg font-semibold">{label}</h3>
-                <p className="mt-2 flex-1 text-sm leading-relaxed text-muted-foreground">{description}</p>
-                {href ? (
-                  <Button asChild variant="outline" size="sm" className="mt-6 w-fit">
-                    <Link href={href as Route}>
-                      {cta} <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-                    </Link>
-                  </Button>
-                ) : (
-                  <Button variant="outline" size="sm" className="mt-6 w-fit" onClick={() => openBuilder()}>
-                    {cta} <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-                  </Button>
-                )}
-              </div>
-            ))}
-          </div>
-        </section>
-
         {/* ── PRD-19 Step 5: in-app notification banner (signed-in users only) ── */}
         <NotificationBanner />
 
-        {/* ── PRD-11: Saved-strategies tile (or sign-in prompt) + entry-mode picker ── */}
-        <section className="space-y-5">
-          <SavedStrategiesTile />
-          <EntryModePicker from="home" />
-        </section>
-
-        {/* ── Capability Glossary (collapsed by default) ─────────────────── */}
-        <CapabilityGlossary compact collapsed />
+        {/* ── PRD-24a §3.5–3.7 — the 3-focus reorganization (Discover · Build ·
+            Your Livermore). Replaces the EntryModePicker + research pillars. ── */}
+        <HomeFocusSections />
 
         {/* ── How It Works — visual timeline ─────────────────────────────── */}
         <section className="space-y-8">
