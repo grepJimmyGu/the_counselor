@@ -18,10 +18,10 @@ vi.mock("@/lib/api", () => ({
 
 // Stub the heavy stock-profile sections the preview reuses — they pull in
 // recharts + self-fetch a trend series, which we don't need to exercise here.
-vi.mock("@/app/stocks/[ticker]/_evaluation-dashboard", () => ({
+vi.mock("@/components/stocks/evaluation-dashboard", () => ({
   EvaluationDashboard: () => <div data-testid="eval-dashboard" />,
 }));
-vi.mock("@/app/stocks/[ticker]/_business-model-section", () => ({
+vi.mock("@/components/stocks/business-model-section", () => ({
   BusinessModelSection: () => <div data-testid="biz-model" />,
 }));
 
