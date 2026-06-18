@@ -369,6 +369,31 @@ def test_list_saved_screens_returns_the_users_screens(authed):
     assert screens[0]["title"] == "Screen A" and screens[0]["basket_size"] == 2
 
 
+def test_saved_screens_excluded_from_my_strategies(authed):
+    """A tracked screen (kind=='screen') must NOT leak into GET
+    /api/saved-strategies — it has no backtest and would render broken on the
+    strategy-detail page. It lives at /screens instead (PR2c). A plain
+    strategy in the same account still shows up."""
+    client, set_user, seed = authed
+    user = set_user(tier="strategist")
+    client.post("/api/screen/save", json=_save_body("My screen"))
+    plain = SavedStrategy(
+        id=str(uuid4()),
+        user_id=user.id,
+        title="My plain strategy",
+        strategy_json={"strategy_type": "custom_build"},
+        is_public=False,
+    )
+    seed.add(plain)
+    seed.commit()
+
+    r = client.get("/api/saved-strategies")
+    assert r.status_code == 200, r.text
+    titles = [s["title"] for s in r.json()]
+    assert "My plain strategy" in titles
+    assert "My screen" not in titles
+
+
 # ── PR3: intraday ────────────────────────────────────────────────────────────
 
 
