@@ -206,6 +206,22 @@ deferred follow-up.
 
 ## Diagnostic methodology
 
+### Same commit, one deploy fails and the next succeeds = a transient race, not your bug
+**TL;DR:** if a deploy "fails" but prod is still up and the *next* deploy of the **same commit** succeeds, the failure is a race (deadlock, cold-cache timeout, wedged connection) — not a defect in the code you just merged. Don't revert on "a deploy failed after my PR."
+
+Diagnosis order:
+1. **Is prod actually down?** `curl /health`. A 200 means the prior container is still serving (trap #11 family) — you have time; this is not an outage.
+2. **Read the deployment list, and know the statuses.** In `railway deployment list`, `REMOVED` = *superseded* (normal — rapid merges each trigger a deploy and the last wins), NOT failed. Only a real failure shows a stopped container + a traceback in `railway logs -d <id> --lines N`.
+3. **Compare the failed vs. succeeding commit.** Identical → transient. Different → read the diff.
+4. **Find the FIRST error, not the cascade.** An `InFailedSqlTransaction` is downstream noise; scroll up for what *poisoned* the transaction. On 2026-06-18 it was a `DeadlockDetected` in a startup warmup — and the suspected PR was absent from the trace entirely.
+
+The cost of getting this wrong is high: the 2026-05-26 saga burned three hours of needless reverts chasing a Railway *deployment* ID someone assumed was a git SHA. Confirm the failure is real and yours before touching code. Full post-mortem: `KNOWN_ISSUES.md` (2026-06-18 deadlock entry).
+
+### Verify a screener preset against the live snapshot, never the PRD spec
+**TL;DR:** a composer/screen preset is only as good as its live match count. The spec's thresholds and the catalog's "available" flags are not ground truth — the warmed snapshot is. Curl production `/api/screen/scan` and read the actual basket before you ship the rule.
+
+`best_momentum` shipped matching **0/525** because the PRD was wrong on three counts at once: a primitive that's in the vocab but evaluates to 0 for every symbol (`rank_composite_score` — a cross-sectional rank with no peers in a per-symbol snapshot), a 0–1 percentile read as 0–100, and a required `logic_with_prior` omitted (→ 500). None were visible in code review or unit tests; one `curl` to the live scan endpoint surfaced all three. For the four PRD-24a presets the method was: **probe each candidate primitive alone** (single-rule scan → its distribution), then **compose** and re-scan, tuning until the basket is non-empty and non-everything (breakout 9 · oversold 9 · squeeze 45 · trend 14 of sp500). A preset that matches 0 or all is a dead preset, and only the live snapshot tells you which. Backstop: `compute_snapshot_coverage()` + the warm-time WARNING now flag all-null/all-zero columns automatically (`KNOWN_ISSUES`/backlog §5).
+
 ### Two providers, two entitlements — one being healthy says nothing about the other
 **TL;DR:** when a "live data" surface lags but another looks fine, find out which provider each uses before theorizing. Different providers have independent plans, entitlements, and freshness.
 

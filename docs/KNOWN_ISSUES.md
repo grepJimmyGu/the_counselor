@@ -29,6 +29,16 @@ A running log of bugs encountered, root causes, and confirmed fixes. Add new ent
 
 ## Entries
 
+### Deploy fails on a Postgres `DeadlockDetected` in a startup warmup — self-heals on retry (prod never down). 2026-06-18.
+
+**Symptom:** A Railway deploy is marked FAILED, but `/health` keeps returning 200 (the prior container is still serving). `railway deployment list` shows the failed deploy as `REMOVED` and a near-simultaneous one as `SUCCESS`.
+
+**Root cause:** The concurrent lifespan warmups contend on Postgres. Deploy `c570b80e` hit `sqlalchemy.exc.OperationalError: (psycopg.errors.DeadlockDetected) deadlock detected` in `_warmup_market_pulse_loop` (`main.py:543`) — a lock-ordering race against the snapshot / GSPC warmups, all reading `price_bars`. The deadlock poisoned the shared transaction → `InFailedSqlTransaction` cascade on the next query → healthcheck timeout → container stopped. **The retry (`00660056`, identical commit) started clean** and took over; production stayed up on the prior container the whole time. Same family as the trap #11 wedge, but transient (a race), not sticky.
+
+**How to confirm it's this — and NOT your PR:** the failed and succeeding deploys are the *same commit*. A deterministic code bug would fail on the retry too. `REMOVED` in `railway deployment list` means *superseded* (normal when rapid merges each trigger a deploy), NOT failed — only a real failure shows a stopped container + a traceback in `railway logs -d <id> --lines N`. Read the FIRST error in that log, not the cascade: the `InFailedSqlTransaction` is downstream; the `DeadlockDetected` above it is the cause. On 2026-06-18 the suspected PR (#240, the snapshot-audit) was **absent from the trace** — the deadlock was entirely in the market-pulse warmup.
+
+**Status:** Not fixed — intermittent and self-healing, so prod stability is unaffected; a deploy just lands one retry late. Real fix (backlogged, `docs/PROJECT_BACKLOG.md` §5): serialize/stagger the lifespan warmups so they don't contend, or add a bounded deadlock-retry on the market-pulse tick. Sensitive `main.py` lifespan area — traps #21/#22 apply (don't share asyncio primitives across loops / don't block the event loop). Abstracted lesson in `docs/LEARNINGS.md` ("Same commit, one deploy fails and the next succeeds = a transient race").
+
 ### custom_build backtest fabricated volume + high/low → volume/range rules silently always-false (zeroed the backtest)
 **Date:** 2026-06-12
 **Area:** backend (backtester)

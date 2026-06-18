@@ -2257,3 +2257,21 @@ loose end was real. 'Optional' has to mean the product stands without it — not
 that I simply hadn't gotten to it."*
 
 *Last updated: 2026-06-17 (Episode 43 added — PRD-23c PR1 + PR2; the rough edge flagged for PR2c).*
+
+---
+
+### Episode 44 — The discovery layer: a gallery, ten vetted templates, and a deploy scare that wasn't ours (June 18)
+
+PRD-24a was the Home page growing up. The old Home was a flat picker — "here are the modes." The new one is a funnel: **discover** (three intent-grouped focuses + a "themes firing today" strip + a hero index board) → **a gallery of ten vetted starting points** → the composer pre-loaded, or the sentiment hub auto-running → results wrapped in **theme context** (a banner that names what you're looking at, a "what this finds" line, and a "try other themes" footer).
+
+Nine PRs, one session. The discipline that made it tractable was **reuse.** The `?template=` composer pre-load built early (#236) became the engine the gallery (#242) clicks into; the `/sentiment` deep-link (#239) became both the gallery's sentiment route and the footer's; the ten-template registry (#241) is the single source the gallery, the banner, and the footer all read. The gallery is gated by one context flag so it only appears for "Screen the market" — every other way into the composer (Build-from-scratch, the /screens · /account · /signal-library links, a `?template=` deep link) is byte-for-byte unchanged. New surface, almost no new plumbing.
+
+**The trap we'd already been bitten by, made loud.** Adding screener presets meant re-confronting the `rank_composite_score` ghost: it's in the snapshot vocabulary but it's a *cross-sectional* rank, and the snapshot computes each symbol in isolation — no peers, so it returns 0 for everything, and a preset rule over it silently matches nothing. #240 is the gate: denylist it (now a rule reports `unsupported`, not a silent 0), and have `warm_universe` log a coverage WARNING for any all-null/all-zero column so the *next* dead primitive announces itself instead of hiding. Then every one of the four new composer presets was verified the only way that's trustworthy — curling production `/api/screen/scan` and reading the actual basket (breakout 9, oversold 9, squeeze 45, trend 14). The PRD's spec was, again, not the ground truth; the live snapshot was.
+
+**The scare.** Partway through, Mr Gu said a deploy failed and named the backend PR. It hadn't, really — `/health` was 200, the *current* container already had the new code (the denylist was live in production), and `railway deployment list` showed the latest deploy SUCCESS. The "failed" one was a `REMOVED` sibling five seconds earlier — one of three rapid deploys from three rapid merges. Pulling its log told the real story: a Postgres `DeadlockDetected` in the **Market-Pulse startup warmup**, which poisoned the transaction and timed out the healthcheck — and then the retry, same commit, started clean. A pre-existing race, self-healing, with our suspected PR nowhere in the trace. The lesson is an old one in new clothes: *same commit fails then succeeds = transient; confirm the failure is real and yours before you revert.*
+
+#### Content hook
+
+*"We shipped a Home page that walks you from 'what's interesting today' to a runnable strategy in three clicks — reusing the machinery we'd already built so the new surface barely added plumbing. Then a deploy 'failed.' Except production never blinked, the new code was already live, and the same commit succeeded on the retry five seconds later. The failure was a database deadlock in a warmup that's been there for weeks. The fix wasn't code — it was reading the deployment list correctly."*
+
+*Last updated: 2026-06-18 (Episode 44 added — PRD-24a Home discovery + the 10-template gallery, and the self-healing deploy deadlock).*
