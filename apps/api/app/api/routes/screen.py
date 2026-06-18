@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps_entitlement import require_entitlement
 from app.api.entitlement_errors import upgrade_error
+from app.core.config import get_settings
 from app.data.sp500_tickers import SP500_TICKERS
 from app.db.session import get_db
 from app.models.saved_strategy import SavedStrategy
@@ -223,7 +224,11 @@ async def screen_save(
     user_id: str = user.id
     tier: str = ent.tier
 
-    if tier not in ("strategist", "quant"):
+    # Honor GATING_ENABLED (shadow mode): when gating is off, the tier checks
+    # below are observe-only — mirrors how `_violation` gates elsewhere, so the
+    # feature is testable on any tier with GATING_ENABLED=false.
+    gating_on = get_settings().gating_enabled
+    if gating_on and tier not in ("strategist", "quant"):
         raise upgrade_error(
             "screen_tracking_locked",
             current_tier=tier,
@@ -232,7 +237,7 @@ async def screen_save(
         )
     # Intraday screening is Quant-only — the universe-wide intraday warm is the
     # top-tier perk (PRD-23c PR3).
-    if payload.bar_resolution == "intraday" and tier != "quant":
+    if gating_on and payload.bar_resolution == "intraday" and tier != "quant":
         raise upgrade_error(
             "screen_tracking_locked",
             current_tier=tier,

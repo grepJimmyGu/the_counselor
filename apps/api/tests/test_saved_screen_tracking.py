@@ -8,6 +8,7 @@ endpoint tier-gate e2e is deferred to PR2 (UI) — see PROJECT_BACKLOG.
 from __future__ import annotations
 
 from datetime import date
+from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
@@ -310,12 +311,30 @@ def test_save_endpoint_seeds_basket_for_strategist(authed):
     assert data["saved_strategy_id"]
 
 
-def test_save_endpoint_blocks_scout_with_402(authed):
+def _gating_on(monkeypatch):
+    monkeypatch.setattr(
+        "app.api.routes.screen.get_settings", lambda: SimpleNamespace(gating_enabled=True)
+    )
+
+
+def test_save_endpoint_blocks_scout_with_402(authed, monkeypatch):
+    _gating_on(monkeypatch)
     client, set_user, _ = authed
     set_user(tier="scout")
     r = client.post("/api/screen/save", json=_save_body())
     assert r.status_code == 402, r.text
     assert r.json()["detail"]["entitlement"]["code"] == "screen_tracking_locked"
+
+
+def test_gating_off_lifts_the_tier_gate(authed, monkeypatch):
+    # GATING_ENABLED=false (shadow mode) → any signed-in tier can save + track.
+    monkeypatch.setattr(
+        "app.api.routes.screen.get_settings", lambda: SimpleNamespace(gating_enabled=False)
+    )
+    client, set_user, _ = authed
+    set_user(tier="scout")
+    r = client.post("/api/screen/save", json={**_save_body(), "bar_resolution": "intraday"})
+    assert r.status_code == 200, r.text  # Scout + intraday, both gates lifted
 
 
 def test_get_saved_screen_returns_basket_and_history(authed):
@@ -416,7 +435,8 @@ def test_intraday_warm_writes_rows_from_intraday_bars(db, monkeypatch):
     assert rows and all(r.symbol == "AAPL" for r in rows)
 
 
-def test_intraday_screen_requires_quant(authed):
+def test_intraday_screen_requires_quant(authed, monkeypatch):
+    _gating_on(monkeypatch)
     client, set_user, _ = authed
     set_user(tier="strategist")
     r = client.post("/api/screen/save", json={**_save_body(), "bar_resolution": "intraday"})
