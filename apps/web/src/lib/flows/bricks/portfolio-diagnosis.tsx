@@ -31,10 +31,9 @@ import type {
   PortfolioDiagnosis as PortfolioDiagnosisPayload,
 } from "@/lib/contracts";
 // Reuse the stock-profile sections verbatim so the in-place preview matches
-// /stocks/<ticker>. (Editorial follow-up: these are route-private `_`
-// components; relocating them to @/components/stocks is a clean-up for later.)
-import { EvaluationDashboard } from "@/app/stocks/[ticker]/_evaluation-dashboard";
-import { BusinessModelSection } from "@/app/stocks/[ticker]/_business-model-section";
+// /stocks/<ticker> (shared bricks under @/components/stocks, PRD-24a §0.1 lift).
+import { EvaluationDashboard } from "@/components/stocks/evaluation-dashboard";
+import { BusinessModelSection } from "@/components/stocks/business-model-section";
 import type { FlowStepProps } from "../types";
 import { registerModeCopy, useFlowCopy } from "../copy";
 import type { PortfolioModeContext } from "../portfolio-mode-context";
