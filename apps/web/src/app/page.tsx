@@ -15,6 +15,7 @@ import type { Route } from "next";
 import { Button } from "@/components/ui/button";
 import { MarketSnapshot } from "@/components/home/market-snapshot";
 import { HomeHeroSearch } from "@/components/home/home-hero-search";
+import { HomeMarketStrip } from "@/components/home/home-market-strip";
 import { HomeFocusSections } from "@/components/home/home-focus-sections";
 import { researchTemplates, type ResearchTemplate } from "@/lib/contracts";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
@@ -158,6 +159,9 @@ export default function HomePage() {
                 </span>
               ))}
             </div>
+
+            {/* PRD-24a §0.3 — compact Market Pulse (major indices) for the hero */}
+            <HomeMarketStrip />
           </div>
         </div>
       </section>
