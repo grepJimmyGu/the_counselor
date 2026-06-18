@@ -111,15 +111,16 @@ export default function HomePage() {
             </div>
 
             <h1 className="font-heading text-5xl font-bold leading-[1.1] tracking-tight lg:text-6xl">
-              Market Pulse.{" "}
-              <span className="text-primary">Community.</span>
+              Discover.{" "}
+              <span className="text-primary">Build.</span>
               <br />
-              Strategy Builder.
+              Track.
             </h1>
 
             <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-muted-foreground">
-              One platform for market research, collaborative strategy discovery, and rules-based
-              backtesting. No live trading, no AI recommendations — just data-driven tools.
+              Discover what&rsquo;s moving today, build and backtest a rules-based
+              strategy, then track it over time. No live trading, no AI
+              recommendations — just data-driven tools.
             </p>
 
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">

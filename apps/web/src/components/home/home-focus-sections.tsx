@@ -21,6 +21,7 @@ import { ArrowRight, Filter, Library, Settings, Upload, Users, Wand2 } from "luc
 import { startFlow } from "@/lib/flows/runtime";
 import { INITIAL_CUSTOM_BUILD_CONTEXT } from "@/lib/flows/custom-build-mode-context";
 // Side-effect imports — register the flows so startFlow can find them.
+import "@/lib/flows/one-asset-mode";
 import "@/lib/flows/portfolio-mode";
 import "@/lib/flows/custom-build-mode";
 import { HomeThemesFiringToday } from "@/components/home/home-themes-firing-today";
@@ -95,6 +96,12 @@ export function HomeFocusSections() {
         fromTrigger: "home/custom_build",
       },
     });
+  // "Try a template" → the guided 5-step single-asset wizard (one_asset_mode,
+  // a.k.a. "Try out strategy template"), NOT the static /templates gallery.
+  const launchTryTemplate = () =>
+    startFlow("one_asset_mode", {
+      initialContext: { fromTrigger: "home/pick_asset" },
+    });
 
   return (
     <div className="space-y-14" data-testid="home-focus-sections">
@@ -102,17 +109,32 @@ export function HomeFocusSections() {
       <section data-testid="focus-discover">
         <FocusHeader title="Discover stocks" subtitle="Find what's worth your attention today." />
         <HomeThemesFiringToday />
-        <div className="mt-4">
-          <button
-            type="button"
-            onClick={launchScreenMarket}
-            data-testid="focus-screen-market"
-            className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
-          >
-            <Filter className="h-4 w-4" /> Want more setups? Screen the market
-            <ArrowRight className="h-3.5 w-3.5" />
-          </button>
-        </div>
+        {/* Screen the market — the custom-screening power option. Elevated
+            from a text link to a highlighted callout: it's not "more of the
+            same themes", it's user-defined screening logic over the S&P 500. */}
+        <button
+          type="button"
+          onClick={launchScreenMarket}
+          data-testid="focus-screen-market"
+          className="group mt-4 flex w-full items-center gap-4 rounded-2xl border border-primary/30 bg-primary/5 p-5 text-left transition-all hover:border-primary/50 hover:shadow-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        >
+          <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-primary/20 bg-primary/10">
+            <Filter className="h-5 w-5 text-primary" />
+          </span>
+          <span className="flex-1">
+            <span className="block font-heading text-base font-semibold">
+              Screen the market
+            </span>
+            <span className="mt-0.5 block text-sm text-muted-foreground">
+              Go beyond the curated themes — compose your own screening logic
+              across the S&amp;P 500 with any signal primitives.
+            </span>
+          </span>
+          <span className="inline-flex shrink-0 items-center gap-1 text-sm font-medium text-primary">
+            Screen
+            <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+          </span>
+        </button>
       </section>
 
       {/* ── Focus 2 — Build a Strategy ─────────────────────────────────── */}
@@ -125,9 +147,9 @@ export function HomeFocusSections() {
           <FocusCard
             icon={Library}
             title="Try a template"
-            desc="Start from a ready-made quant strategy and backtest it on any asset."
+            desc="Pick a ready-made quant strategy and backtest it on a single ticker — a guided 5-step walk-through."
             meta="19 quant templates"
-            href={"/templates" as Route}
+            onClick={launchTryTemplate}
             testId="focus-try-template"
           />
           <FocusCard
