@@ -38,6 +38,7 @@ import type {
 } from "@/lib/flows/custom-build-mode-context";
 import type { FlowStepProps } from "@/lib/flows/types";
 import { useFlowCopy } from "@/lib/flows/copy";
+import { useTemplatePreload } from "@/lib/flows/template-preload";
 import { cn } from "@/lib/utils";
 import { validateExitLadder } from "./exit-ladder-editor";
 
@@ -75,6 +76,11 @@ export function CustomBuildCanvas({
     "custom_build_mode",
     "compose_run_backtest",
   );
+
+  // PRD-24a §5 — when reached via `?template=<id>` (the Home momentum card
+  // or the template gallery), hydrate the registry preset onto the canvas.
+  // No-ops for the normal blank-composer entry.
+  const templatePreload = useTemplatePreload(updateContext);
 
   const selectedIds = useMemo(
     () => new Set(context.rules.map((r) => r.primitive_id)),
@@ -150,6 +156,29 @@ export function CustomBuildCanvas({
 
   return (
     <div className="flex flex-col gap-4">
+      {/* PRD-24a §5 — preset-loaded confirmation. Only shows when the canvas
+          was reached via a `?template=` deep link. */}
+      {templatePreload.templateName &&
+      (templatePreload.status === "loading" ||
+        templatePreload.status === "done") ? (
+        <div
+          data-testid="custom-build-template-loaded"
+          className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-2.5 text-[13px] text-slate-700"
+        >
+          {templatePreload.status === "loading" ? (
+            <>
+              Loading the <strong>{templatePreload.templateName}</strong>{" "}
+              template…
+            </>
+          ) : (
+            <>
+              Loaded the <strong>{templatePreload.templateName}</strong>{" "}
+              template — review the rules below, then run it.
+            </>
+          )}
+        </div>
+      ) : null}
+
       {/* PRD-23b — universe selector (replaces the bare symbol input). A single
           symbol is a universe of size 1; standing universes (sp500/sector)
           screen the market via scan→rank, with a live match-count funnel. */}
