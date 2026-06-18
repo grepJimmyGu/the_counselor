@@ -132,7 +132,10 @@ export function OneAssetSummary({
   }
 
   const template = context.template;
-  const initialTickers = context.ticker ?? template.defaultTickers.join(", ");
+  // Single-asset mode: prefill exactly one ticker — the page's ticker (when
+  // entered from a stock page), or the template's first default — never the
+  // multi-name default list.
+  const initialTickers = context.ticker ?? template.defaultTickers[0] ?? "";
   const initialRiskPreset = context.riskPreset ?? "medium";
   const [dateRange, setDateRange] = React.useState<DateRange>("5Y");
 
@@ -184,6 +187,7 @@ export function OneAssetSummary({
         template={template}
         initialRiskPreset={initialRiskPreset}
         initialTickers={initialTickers}
+        singleTicker
         onContinue={handleContinue}
       />
     </section>

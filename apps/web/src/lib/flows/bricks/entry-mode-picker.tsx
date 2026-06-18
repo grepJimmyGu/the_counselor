@@ -7,9 +7,11 @@
  * the Home page (and, later, the re-engagement modal that will reuse this
  * brick from the shelf):
  *
- *   1. Pick an asset    → startFlow('one_asset_mode', { fromTrigger })
+ *   1. Try out strategy template → startFlow('one_asset_mode', { fromTrigger })
  *                          (Sprint 2 / Mode 1 refactor — was a <Link> to
- *                          /stocks during Sprint 1.)
+ *                          /stocks during Sprint 1. The dedicated ticker
+ *                          step was later dropped; the template is picked
+ *                          first and the single ticker is set in the summary.)
  *   2. Upload portfolio → startFlow('portfolio_mode', { fromTrigger })
  *   3. Build from scratch → startFlow('custom_build_mode', { fromTrigger })
  *                          (PRD-16 — Custom Mode composer. Was previously
@@ -30,7 +32,7 @@
  */
 
 import { useRouter } from "next/navigation";
-import { ArrowRight, Filter, Search, Upload, Wand2 } from "lucide-react";
+import { ArrowRight, Filter, FlaskConical, Upload, Wand2 } from "lucide-react";
 import { startFlow } from "../runtime";
 import { registerModeCopy, useFlowCopy } from "../copy";
 import "../portfolio-mode";
@@ -43,10 +45,10 @@ registerModeCopy("home_picker", {
   section_title: "How do you want to start?",
   section_subtitle:
     "Pick the entry point that fits where you are — a single asset, your portfolio, or a custom strategy from scratch.",
-  pick_asset_label: "Pick an asset",
+  pick_asset_label: "Try out strategy template",
   pick_asset_desc:
-    "Look up a stock, ETF, or commodity to see price history and apply a backtested strategy.",
-  pick_asset_cta: "Apply a strategy",
+    "Pick a ready-made strategy template and backtest it on a single ticker of your choice.",
+  pick_asset_cta: "Try a template",
   upload_portfolio_label: "Upload portfolio",
   upload_portfolio_desc:
     "Bring your holdings — we diagnose style, factor exposure, and recommend an overlay.",
@@ -166,7 +168,7 @@ export function EntryModePicker({
       </div>
 
       <div className="mt-8 grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
-        {/* 1. Pick an asset — startFlow('one_asset_mode') per Sprint 2 */}
+        {/* 1. Try out strategy template — startFlow('one_asset_mode') per Sprint 2 */}
         <button
           type="button"
           data-testid="entry-mode-pick-asset"
@@ -177,7 +179,7 @@ export function EntryModePicker({
           className="group flex flex-col rounded-2xl border border-border/60 bg-white/80 p-6 text-left shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring cursor-pointer"
         >
           <div className="mb-5 inline-flex h-12 w-12 items-center justify-center rounded-xl border border-blue-200 bg-blue-50">
-            <Search className="h-6 w-6 text-blue-500" />
+            <FlaskConical className="h-6 w-6 text-blue-500" />
           </div>
           <h3 className="font-heading text-lg font-semibold">{pickAssetLabel}</h3>
           <p className="mt-2 flex-1 text-sm leading-relaxed text-muted-foreground">

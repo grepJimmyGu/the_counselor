@@ -11,8 +11,8 @@
  *   - Registry side-effect on import
  *   - Both documented triggers advertised
  *   - Initial step renders
- *   - Full happy-path walk (ticker → template-pick → summary → backtest
- *     → review → save) when each step's advance fires
+ *   - Full happy-path walk (template-pick → summary → backtest → review
+ *     → save) when each step's advance fires
  *   - Context patches survive transitions (the persistence guarantee)
  *   - startFlow seeds sessionStorage with the right initialContext for
  *     both trigger shapes (stock-page with ticker, home picker without)
@@ -23,33 +23,9 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import * as React from "react";
 
 // Mock the bricks BEFORE importing one-asset-mode so the import-time
-// side effect picks up the mocked components.
-vi.mock("../bricks/one-asset-ticker", () => ({
-  OneAssetTicker: (props: {
-    context: { ticker?: string };
-    updateContext: (patch: unknown) => void;
-    advance: () => void;
-  }) => (
-    <div data-testid="step-ticker">
-      {/* Render the seeded ticker so tests can assert auto-advance
-          behaviour at the brick level (the real brick would auto-fire
-          advance() in useEffect when context.ticker is set). */}
-      <span data-testid="ticker-context">{props.context.ticker ?? "(none)"}</span>
-      <button
-        data-testid="ticker-advance"
-        onClick={() => {
-          if (!props.context.ticker) {
-            props.updateContext({ ticker: "AAPL" });
-          }
-          props.advance();
-        }}
-      >
-        ticker-advance
-      </button>
-    </div>
-  ),
-}));
-
+// side effect picks up the mocked components. There is no ticker step —
+// the flow opens on the template picker (the single ticker is set in the
+// summary step).
 vi.mock("../bricks/one-asset-template-pick", () => ({
   OneAssetTemplatePick: (props: {
     updateContext: (patch: unknown) => void;
@@ -166,7 +142,6 @@ describe("one-asset-mode FlowDefinition", () => {
   it("is registered in the flow registry on import", () => {
     expect(getFlow("one_asset_mode")).toBeDefined();
     expect(getFlow("one_asset_mode")?.steps.map((s) => s.id)).toEqual([
-      "ticker",
       "template-pick",
       "summary",
       "backtest",
@@ -181,14 +156,13 @@ describe("one-asset-mode FlowDefinition", () => {
     expect(triggers).toContain("home/pick_asset");
   });
 
-  it("renders the ticker step first", () => {
+  it("renders the template-pick step first", () => {
     renderShell();
-    expect(screen.getByTestId("step-ticker")).toBeTruthy();
+    expect(screen.getByTestId("step-template-pick")).toBeTruthy();
   });
 
   it("walks through every step in order when advance fires", () => {
     renderShell();
-    fireEvent.click(screen.getByTestId("ticker-advance"));
     expect(screen.getByTestId("step-template-pick")).toBeTruthy();
     fireEvent.click(screen.getByTestId("template-pick-advance"));
     expect(screen.getByTestId("step-summary")).toBeTruthy();
@@ -204,7 +178,7 @@ describe("one-asset-mode FlowDefinition", () => {
     vi.useFakeTimers();
     renderShell();
     act(() => {
-      fireEvent.click(screen.getByTestId("ticker-advance"));
+      fireEvent.click(screen.getByTestId("template-pick-advance"));
     });
     // Runtime debounces persistence by 250ms — advance the timer
     // to flush the write to sessionStorage.
@@ -214,8 +188,8 @@ describe("one-asset-mode FlowDefinition", () => {
     const raw = window.sessionStorage.getItem("livermore_flow_one_asset_mode");
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw!);
-    expect(parsed.context.ticker).toBe("AAPL");
-    expect(parsed.currentStepId).toBe("template-pick");
+    expect(parsed.context.template?.id).toBe("time-series-momentum");
+    expect(parsed.currentStepId).toBe("summary");
     vi.useRealTimers();
   });
 
@@ -230,7 +204,7 @@ describe("one-asset-mode FlowDefinition", () => {
     expect(raw).not.toBeNull();
     const parsed = JSON.parse(raw!);
     expect(parsed.flowId).toBe("one_asset_mode");
-    expect(parsed.currentStepId).toBe("ticker");
+    expect(parsed.currentStepId).toBe("template-pick");
     expect(parsed.context.fromTrigger).toBe("stock_page/apply_strategy");
     expect(parsed.context.ticker).toBe("NVDA");
   });
@@ -242,12 +216,12 @@ describe("one-asset-mode FlowDefinition", () => {
     const raw = window.sessionStorage.getItem("livermore_flow_one_asset_mode");
     const parsed = JSON.parse(raw!);
     expect(parsed.flowId).toBe("one_asset_mode");
-    expect(parsed.currentStepId).toBe("ticker");
+    expect(parsed.currentStepId).toBe("template-pick");
     expect(parsed.context.fromTrigger).toBe("home/pick_asset");
     expect(parsed.context.ticker).toBeUndefined();
   });
 
-  it("propagates the seeded ticker into the first brick's props", () => {
+  it("carries a stock-page seeded ticker through to context (no ticker step)", () => {
     startFlow("one_asset_mode", {
       initialContext: {
         fromTrigger: "stock_page/apply_strategy",
@@ -255,6 +229,13 @@ describe("one-asset-mode FlowDefinition", () => {
       },
     });
     renderShell();
-    expect(screen.getByTestId("ticker-context").textContent).toBe("TSLA");
+    // The flow opens on template-pick (the dedicated ticker step was
+    // dropped), but the seeded ticker stays in context so the summary
+    // step can prefill its single-ticker field.
+    expect(screen.getByTestId("step-template-pick")).toBeTruthy();
+    const parsed = JSON.parse(
+      window.sessionStorage.getItem("livermore_flow_one_asset_mode")!,
+    );
+    expect(parsed.context.ticker).toBe("TSLA");
   });
 });
