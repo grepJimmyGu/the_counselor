@@ -6,6 +6,14 @@ import { useRouter } from "next/navigation";
 import { DEFAULT_SENTIMENT_SYMBOLS } from "@/lib/sentiment-defaults";
 import { readSentimentDeepLink } from "@/lib/sentiment-deeplink";
 import {
+  RECOMMENDED_TEMPLATES,
+  type RecommendedTemplate,
+} from "@/lib/recommended-templates";
+import {
+  ThemeBanner,
+  TryOtherThemes,
+} from "@/components/templates/theme-landing-chrome";
+import {
   AlertTriangle,
   ArrowRight,
   ArrowUpRight,
@@ -164,6 +172,8 @@ export default function SentimentHubPage() {
   const [runningId, setRunningId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [displayLabel, setDisplayLabel] = useState<string | null>(null);
+  const [landedTemplate, setLandedTemplate] =
+    useState<RecommendedTemplate | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const deepLinkApplied = useRef(false);
@@ -200,6 +210,12 @@ export default function SentimentHubPage() {
     }
     deepLinkApplied.current = true;
     deepLinkToolkit.current = toolkitId;
+    // §3.10 — if this toolkit is a recommended template, show the landing chrome.
+    setLandedTemplate(
+      RECOMMENDED_TEMPLATES.find(
+        (t) => t.kind === "sentiment" && t.toolkit_id === toolkitId,
+      ) ?? null,
+    );
     if (dl) setDisplayLabel(dl);
     setActiveToolkit(toolkitId);
     if (autorun) {
@@ -243,6 +259,10 @@ export default function SentimentHubPage() {
             Identify stocks with meaningful news catalysts and gauge community sentiment signals.
           </p>
         </div>
+
+        {/* PRD-24a §3.10 — theme landing banner when arriving from a theme card
+            / the gallery (a deep-linked toolkit that maps to a recommended template). */}
+        {landedTemplate ? <ThemeBanner template={landedTemplate} /> : null}
 
         {/* Search */}
         <form onSubmit={handleSearch} className="flex gap-2">
@@ -365,6 +385,9 @@ export default function SentimentHubPage() {
             )}
           </div>
         )}
+
+        {/* PRD-24a §3.10 — lateral nav to the sibling recommended themes. */}
+        {landedTemplate ? <TryOtherThemes currentId={landedTemplate.id} /> : null}
 
         {/* Disclaimer */}
         <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
