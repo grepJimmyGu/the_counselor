@@ -3,6 +3,7 @@
 import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { DEFAULT_SENTIMENT_SYMBOLS } from "@/lib/sentiment-defaults";
 import {
   AlertTriangle,
   ArrowRight,
@@ -31,10 +32,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 
 // ── Default watchlist for toolkit demos ──────────────────────────────────────
 
-const DEFAULT_SYMBOLS = [
-  "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "JPM", "V", "UNH",
-  "JNJ", "PG", "HD", "MA", "BAC", "XOM", "ABBV", "PFE", "LLY", "COST",
-];
+const DEFAULT_SYMBOLS = DEFAULT_SENTIMENT_SYMBOLS;
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

@@ -17,6 +17,7 @@ import { MarketSnapshot } from "@/components/home/market-snapshot";
 import { SavedStrategiesTile } from "@/components/home/saved-strategies-tile";
 import { CapabilityGlossary } from "@/components/home/capability-glossary";
 import { HomeHeroSearch } from "@/components/home/home-hero-search";
+import { HomeThemesFiringToday } from "@/components/home/home-themes-firing-today";
 import { researchTemplates, type ResearchTemplate } from "@/lib/contracts";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
 import { ChatWidget } from "@/components/ChatWidget";
@@ -204,6 +205,9 @@ export default function HomePage() {
 
         {/* ── Market Snapshot ────────────────────────────────────────────── */}
         <MarketSnapshot />
+
+        {/* ── PRD-24a §4 — Themes firing today (Focus 1 discovery cards) ──── */}
+        <HomeThemesFiringToday />
 
         {/* ── Three Research Pillars ─────────────────────────────────────── */}
         <section className="space-y-8">
