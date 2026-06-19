@@ -42,6 +42,7 @@ import logging
 import os
 import sys
 from datetime import date, datetime, timedelta
+from typing import List, Optional
 
 _API_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
 if _API_ROOT not in sys.path:
@@ -85,20 +86,31 @@ async def _ensure_symbol_row(db, symbol: str, now: datetime) -> None:
     db.commit()
 
 
-async def backfill(dry_run: bool, log_every: int = 25) -> int:
-    """Backfill the full SP500 universe. Returns the number of symbols
-    that ended the run with fresh bars."""
-    universe = sorted(SP500_TICKERS)
-    log.info("Loaded %d SP500 tickers", len(universe))
+async def backfill(
+    dry_run: bool,
+    log_every: int = 25,
+    universe: Optional[List[str]] = None,
+    label: str = "SP500",
+    lookback_years: int = 3,
+) -> int:
+    """Backfill a universe into `price_bars`. Returns the number of symbols
+    that ended the run with fresh bars.
+
+    `universe` defaults to `SP500_TICKERS` (the original behavior). Pass any
+    ticker list to prewarm a broader set (e.g. Russell 1000) so the daily
+    snapshot warm + the screener scan cover it — see `--tickers-file`."""
+    if universe is None:
+        universe = sorted(SP500_TICKERS)
+    log.info("Loaded %d %s tickers", len(universe), label)
 
     if dry_run:
-        log.info("--dry-run: would backfill %d symbols", len(universe))
+        log.info("--dry-run: would backfill %d %s symbols", len(universe), label)
         return len(universe)
 
     client = AlphaVantageClient()
     svc = PriceCacheService(client)
     db = SessionLocal()
-    required_from = date.today() - timedelta(days=365 * 3)
+    required_from = date.today() - timedelta(days=365 * lookback_years)
     now = datetime.utcnow()
 
     loaded = 0
@@ -147,12 +159,38 @@ async def backfill(dry_run: bool, log_every: int = 25) -> int:
 
 
 def main():
-    parser = argparse.ArgumentParser(description="Backfill SP500 universe into price_bars")
+    parser = argparse.ArgumentParser(
+        description="Backfill a universe into price_bars (SP500 by default)"
+    )
     parser.add_argument("--dry-run", action="store_true", help="Count only, no fetches")
     parser.add_argument("--log-every", type=int, default=25, help="Log progress every N symbols")
+    parser.add_argument(
+        "--tickers-file",
+        help="Path to a newline-delimited symbol file to backfill INSTEAD of "
+        "SP500 (e.g. a Russell 1000 list). Symbols are upper-cased + de-duped. "
+        "Use this to prewarm a broader screener universe.",
+    )
+    parser.add_argument(
+        "--lookback-years",
+        type=int,
+        default=3,
+        help="Years of daily history to ensure (default 3 — covers the daily "
+        "snapshot's 500-day lookback with buffer).",
+    )
     args = parser.parse_args()
 
-    loaded = asyncio.run(backfill(args.dry_run, args.log_every))
+    universe: Optional[List[str]] = None
+    label = "SP500"
+    if args.tickers_file:
+        with open(args.tickers_file) as fh:
+            universe = sorted({ln.strip().upper() for ln in fh if ln.strip()})
+        label = os.path.basename(args.tickers_file).rsplit(".", 1)[0] or "custom"
+        if not universe:
+            sys.exit(f"--tickers-file {args.tickers_file!r} contained no symbols")
+
+    loaded = asyncio.run(
+        backfill(args.dry_run, args.log_every, universe, label, args.lookback_years)
+    )
     sys.exit(0 if loaded > 0 else 1)
 
 
