@@ -219,3 +219,28 @@ def backfill_russell3000_sectors(
         "unchanged": unchanged,
         "missing_symbol_row": len(symbols) - len(rows),
     }
+
+
+@router.post("/snapshot/warm")
+def trigger_snapshot_warm(_: None = Depends(_require_internal_key)) -> dict:
+    """Warm the standing-universe signal_snapshot NOW — the same work the daily
+    23:00-UTC cron does (warm_universe over sp500 + russell3000 from cached
+    price_bars), runnable on demand so a freshly-registered universe is
+    scannable immediately. Runs on a worker thread (trap #21) and returns at
+    once. Poll GET /api/admin/snapshot/warm/status."""
+    from app.services import snapshot_warm_trigger as sw
+
+    if not sw.start_warm():
+        raise HTTPException(
+            status_code=409,
+            detail="a warm is already running — see GET /api/admin/snapshot/warm/status",
+        )
+    return {"status": "started"}
+
+
+@router.get("/snapshot/warm/status")
+def snapshot_warm_status(_: None = Depends(_require_internal_key)) -> dict:
+    """Status of the most recent on-demand snapshot warm (in-memory)."""
+    from app.services import snapshot_warm_trigger as sw
+
+    return sw.get_status()
