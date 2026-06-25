@@ -122,3 +122,54 @@ async def warmup_commodity_etfs(
             results[commodity] = {"etf": etf, "status": "error", "error": str(exc)[:100]}
 
     return {"results": results}
+
+
+# ── Universe price-bars backfill (server-side, throttled, monitorable) ────────
+
+@router.post("/backfill/universe")
+async def trigger_universe_backfill(
+    universe_id: str = "russell3000",
+    rate_per_min: int = 50,      # AV paid tier is 75/min; default leaves headroom
+    lookback_years: int = 3,
+    _: None = Depends(_require_internal_key),
+) -> dict:
+    """Kick off a one-shot price-bars backfill for a standing universe on a
+    background worker thread, then return immediately.
+
+    Idempotent (skips symbols that already have fresh bars) and throttled to
+    `rate_per_min` so it can't starve the live app's shared Alpha Vantage
+    budget. Runs on its own thread (trap #21) so it never blocks /health.
+
+    Poll `GET /api/admin/backfill/status` for live progress.
+    """
+    from app.services import universe_backfill as ub
+
+    try:
+        universe = ub.resolve_universe(universe_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    rate = max(1, min(int(rate_per_min), ub.MAX_RATE_PER_MIN))
+    started = ub.start_backfill_thread(
+        universe, universe_id, rate, max(1, int(lookback_years))
+    )
+    if not started:
+        raise HTTPException(
+            status_code=409,
+            detail="a backfill is already running — see GET /api/admin/backfill/status",
+        )
+    return {
+        "status": "started",
+        "universe": universe_id,
+        "symbols": len(universe),
+        "rate_per_min": rate,
+        "lookback_years": lookback_years,
+    }
+
+
+@router.get("/backfill/status")
+def universe_backfill_status(_: None = Depends(_require_internal_key)) -> dict:
+    """Live progress of the most recent universe backfill (in-memory)."""
+    from app.services import universe_backfill as ub
+
+    return ub.get_status()
