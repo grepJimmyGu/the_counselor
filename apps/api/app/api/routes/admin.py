@@ -222,7 +222,7 @@ def backfill_russell3000_sectors(
 
 
 @router.post("/snapshot/warm")
-def trigger_snapshot_warm(_: None = Depends(_require_internal_key)) -> dict:
+async def trigger_snapshot_warm(_: None = Depends(_require_internal_key)) -> dict:
     """Warm the standing-universe signal_snapshot NOW — the same work the daily
     23:00-UTC cron does (warm_universe over sp500 + russell3000 from cached
     price_bars), runnable on demand so a freshly-registered universe is
