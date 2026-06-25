@@ -1,9 +1,9 @@
 """Daily signal_snapshot warm cron (PRD-23a §3.4).
 
 Once post-close, recompute the screener's pre-warmed primitive cache for the
-S&P 500 universe from cached `price_bars`. Any composed reading is then a
-cheap boolean filter over the snapshot (the scan), so rank-by-backtest only
-ever touches the matched subset.
+UNION of all standing universes (sp500 + russell3000) from cached `price_bars`.
+Any composed reading is then a cheap boolean filter over the snapshot (the
+scan), so rank-by-backtest only ever touches the matched subset.
 
 Event-loop safety (the two outage traps this file's CLAUDE.md warns about):
 - Trap #21: APScheduler runs this in a worker thread; `asyncio.run` gives that
@@ -40,17 +40,20 @@ def _enabled() -> bool:
     )
 
 
-async def _warm_sp500() -> Dict[str, int]:
-    """Warm the daily snapshot for the full S&P 500 universe. Each symbol is a
-    cache-hit price-frame read (bars are already warm by post-close) + local
-    pandas compute, committed per symbol."""
-    from app.data.sp500_tickers import SP500_TICKERS
+async def _warm_standing_universes() -> Dict[str, int]:
+    """Warm the daily snapshot for the UNION of all standing universes
+    (sp500 + russell3000 + …). The snapshot is keyed by symbol, so warming the
+    union once serves a scan of any standing tier (the universes overlap, so
+    the union is far smaller than the sum). Each symbol is a cache-hit
+    price-frame read (bars are already warm by post-close) + local pandas
+    compute, committed per symbol."""
+    from app.data.standing_universes import all_standing_symbols
     from app.db.session import SessionLocal
     from app.services.screener.signal_snapshot_service import SignalSnapshotService
 
     svc = SignalSnapshotService()
     with SessionLocal() as db:
-        return await svc.warm_universe(db, sorted(SP500_TICKERS))
+        return await svc.warm_universe(db, all_standing_symbols())
 
 
 def warm_signal_snapshot_job() -> None:
@@ -61,7 +64,7 @@ def warm_signal_snapshot_job() -> None:
         )
         return
     try:
-        summary = asyncio.run(_warm_sp500())
+        summary = asyncio.run(_warm_standing_universes())
         logger.info("signal_snapshot_job complete: %s", summary)
     except Exception:
         logger.exception("signal_snapshot_job failed")  # trap #20

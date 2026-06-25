@@ -26,11 +26,12 @@ import { cn } from "@/lib/utils";
 export function isStandingUniverse(universeId: string | null | undefined): boolean {
   return (
     universeId === "sp500" ||
+    universeId === "russell3000" ||
     (typeof universeId === "string" && universeId.startsWith("sector_"))
   );
 }
 
-type TierKey = "symbols" | "sp500" | "sector" | "watchlist" | "portfolio";
+type TierKey = "symbols" | "sp500" | "russell3000" | "sector" | "watchlist" | "portfolio";
 
 interface TierDef {
   key: TierKey;
@@ -43,6 +44,7 @@ interface TierDef {
 const TIERS: TierDef[] = [
   { key: "symbols", label: "Enter your own symbol(s)", hint: "Backtest one name or a handful", kind: "entry" },
   { key: "sp500", label: "S&P 500", hint: "Screen the whole index", kind: "standing" },
+  { key: "russell3000", label: "Russell 3000", hint: "Screen the broad market", kind: "standing" },
   { key: "sector", label: "Sector", hint: "Screen one S&P sector", kind: "sector" },
   { key: "watchlist", label: "My watchlist", hint: "Screen your saved names", kind: "entry" },
   { key: "portfolio", label: "My portfolio", hint: "Screen your holdings", kind: "entry" },
@@ -68,6 +70,7 @@ function activeTier(universeId: string | null | undefined): TierKey {
   // Null-safe: a context resumed from a pre-PRD-23b sessionStorage entry has
   // no universe_id — fall back to the entered-symbols tier rather than crash.
   if (universeId === "sp500") return "sp500";
+  if (universeId === "russell3000") return "russell3000";
   if (typeof universeId === "string" && universeId.startsWith("sector_")) return "sector";
   if (universeId === "watchlist") return "watchlist";
   if (universeId === "portfolio") return "portfolio";
@@ -107,7 +110,8 @@ export function UniverseSelector({
       return;
     }
     if (t.kind === "standing") {
-      onChange({ universe_id: "sp500", entered_symbols: [] });
+      // sp500 / russell3000 — the tier key IS the standing universe_id.
+      onChange({ universe_id: t.key, entered_symbols: [] });
     } else if (t.kind === "sector") {
       onChange({ universe_id: `sector_${SECTORS[0]}`, entered_symbols: [] });
     } else {
@@ -203,6 +207,13 @@ export function UniverseSelector({
         <p className="rounded-md bg-slate-50 px-3 py-2 text-[12px] text-slate-500">
           Screening the full S&amp;P 500 — compose a reading and watch it narrow the
           index to a matched basket.
+        </p>
+      )}
+
+      {tier === "russell3000" && (
+        <p className="rounded-md bg-slate-50 px-3 py-2 text-[12px] text-slate-500">
+          Screening the full Russell 3000 — the broad US market (~2,500 names).
+          Compose a reading and watch it narrow to a matched basket.
         </p>
       )}
     </div>

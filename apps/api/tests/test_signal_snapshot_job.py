@@ -24,9 +24,9 @@ def test_job_noops_when_disabled(monkeypatch):
     monkeypatch.delenv("SCREENER_SNAPSHOT_ENABLED", raising=False)
 
     def _boom():
-        raise AssertionError("_warm_sp500 must not run when disabled")
+        raise AssertionError("_warm_standing_universes must not run when disabled")
 
-    monkeypatch.setattr(job, "_warm_sp500", _boom)
+    monkeypatch.setattr(job, "_warm_standing_universes", _boom)
     # Should return cleanly without touching the warm path.
     job.warm_signal_snapshot_job()
 
@@ -39,7 +39,7 @@ def test_job_runs_warm_when_enabled(monkeypatch):
         calls["n"] += 1
         return {"symbols_ok": 3, "symbols_empty": 0, "rows": 99}
 
-    monkeypatch.setattr(job, "_warm_sp500", _fake_warm)
+    monkeypatch.setattr(job, "_warm_standing_universes", _fake_warm)
     job.warm_signal_snapshot_job()
     assert calls["n"] == 1
 
@@ -52,5 +52,5 @@ def test_job_swallows_and_logs_warm_failure(monkeypatch):
     async def _fail():
         raise RuntimeError("boom")
 
-    monkeypatch.setattr(job, "_warm_sp500", _fail)
+    monkeypatch.setattr(job, "_warm_standing_universes", _fail)
     job.warm_signal_snapshot_job()  # no exception escapes
