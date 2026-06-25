@@ -11,10 +11,14 @@ from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
+from app.data.standing_universes import standing_universe_ids
 from app.schemas.strategy import StrategyJSON, StrategyRule
 
-# The fixed universe tiers. `sector_<key>` is validated by prefix below.
-_FIXED_UNIVERSE_IDS = frozenset({"symbols", "watchlist", "portfolio", "sp500"})
+# Client-supplied tiers + the registered standing index universes (sp500,
+# russell3000, …). Any new universe added to `STANDING_UNIVERSES` is accepted
+# here automatically. `sector_<key>` is validated by prefix below.
+_CLIENT_TIERS = frozenset({"symbols", "watchlist", "portfolio"})
+_FIXED_UNIVERSE_IDS = _CLIENT_TIERS | standing_universe_ids()
 _SECTOR_PREFIX = "sector_"
 
 
@@ -40,7 +44,8 @@ class ScreenScanRequest(BaseModel):
             return v
         raise ValueError(
             "universe_id must be one of "
-            "symbols|watchlist|portfolio|sp500|sector_<key>"
+            + "|".join(sorted(_FIXED_UNIVERSE_IDS))
+            + "|sector_<key>"
         )
 
 
@@ -98,9 +103,9 @@ class ScreenRankResponse(BaseModel):
 
 class ScreenSaveRequest(BaseModel):
     """Persist + track a standing screen (PRD-23c). Only standing universes
-    (sp500 / sector_<key>) are trackable — a single entered symbol is the
-    build-from-scratch / active-execution path, not a basket that gains and
-    loses members."""
+    (a registered index like sp500 / russell3000, or sector_<key>) are
+    trackable — a single entered symbol is the build-from-scratch /
+    active-execution path, not a basket that gains and loses members."""
 
     title: str = Field(..., min_length=3, max_length=120)
     universe_id: str = Field(...)
@@ -111,12 +116,14 @@ class ScreenSaveRequest(BaseModel):
     @field_validator("universe_id")
     @classmethod
     def _standing_only(cls, v: str) -> str:
-        if v == "sp500" or (
+        if v in standing_universe_ids() or (
             v.startswith(_SECTOR_PREFIX) and len(v) > len(_SECTOR_PREFIX)
         ):
             return v
         raise ValueError(
-            "Only standing universes (sp500 | sector_<key>) can be tracked"
+            "Only standing universes ("
+            + " | ".join(sorted(standing_universe_ids()))
+            + " | sector_<key>) can be tracked"
         )
 
     @field_validator("bar_resolution")

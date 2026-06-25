@@ -8,8 +8,9 @@ import {
 } from "@/lib/flows/bricks/universe-selector";
 
 describe("isStandingUniverse", () => {
-  it("is true for sp500 and sector_*, false for client tiers", () => {
+  it("is true for sp500 / russell3000 / sector_*, false for client tiers", () => {
     expect(isStandingUniverse("sp500")).toBe(true);
+    expect(isStandingUniverse("russell3000")).toBe(true);
     expect(isStandingUniverse("sector_Technology")).toBe(true);
     expect(isStandingUniverse("symbols")).toBe(false);
     expect(isStandingUniverse("watchlist")).toBe(false);
@@ -41,6 +42,12 @@ describe("UniverseSelector", () => {
     const { onChange } = setup({ universeId: "symbols", enteredSymbols: ["AAPL"] });
     fireEvent.click(screen.getByTestId("universe-tier-sp500"));
     expect(onChange).toHaveBeenCalledWith({ universe_id: "sp500", entered_symbols: [] });
+  });
+
+  it("selecting Russell 3000 emits its own standing universe id", () => {
+    const { onChange } = setup({ universeId: "symbols", enteredSymbols: ["AAPL"] });
+    fireEvent.click(screen.getByTestId("universe-tier-russell3000"));
+    expect(onChange).toHaveBeenCalledWith({ universe_id: "russell3000", entered_symbols: [] });
   });
 
   it("sector tier emits sector_<label> and the sub-picker switches it", () => {

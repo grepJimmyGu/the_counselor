@@ -13,7 +13,8 @@ Tiers
 - "symbols"      -> the caller's entered symbol(s)   (client-supplied)
 - "watchlist"    -> the user's watchlist symbols     (client-supplied¹)
 - "portfolio"    -> the user's uploaded holdings     (client-supplied¹)
-- "sp500"        -> SP500_TICKERS (the expand-only standard)
+- standing index -> a registered `STANDING_UNIVERSES` basket: "sp500" (the
+                    expand-only standard) or "russell3000" (the broad market)
 - "sector_<key>" -> the sector basket               (via `sector_membership`)
 
 ¹ watchlist/portfolio have no persistent backend universe yet (the
@@ -37,7 +38,10 @@ from __future__ import annotations
 
 from typing import Callable, List, Optional, Sequence
 
-from app.data.sp500_tickers import SP500_TICKERS
+from app.data.standing_universes import (
+    is_standing_id,
+    standing_universe_symbols,
+)
 
 # The S&P 500 tier must never quietly shrink (CLAUDE.md "expand only" +
 # PRD-23a §6 / risk table). The live set is ~525; this floor catches a
@@ -78,7 +82,7 @@ def is_standing_universe(universe_id: str) -> bool:
     standing snapshot, so they backtest directly; `sp500` / `sector_*` ride
     the daily snapshot so a scan is a sub-300ms in-memory filter.
     """
-    return universe_id == "sp500" or universe_id.startswith(SECTOR_PREFIX)
+    return is_standing_id(universe_id) or universe_id.startswith(SECTOR_PREFIX)
 
 
 def resolve_universe(
@@ -90,8 +94,9 @@ def resolve_universe(
     """Resolve a `universe_id` to its concrete, normalized symbol list.
 
     Args:
-        universe_id: one of "symbols" | "watchlist" | "portfolio" | "sp500"
-            | "sector_<key>".
+        universe_id: a client tier ("symbols" | "watchlist" | "portfolio"),
+            a registered standing index ("sp500" | "russell3000"), or
+            "sector_<key>".
         symbols: the caller-supplied list, used by the client-supplied tiers.
         sector_membership: `sector_key -> symbols` lookup, required by the
             `sector_<key>` tier. The route binds this to a DB query; tests
@@ -100,8 +105,8 @@ def resolve_universe(
     Raises:
         ValueError: unknown `universe_id`, or a `sector_` id with no key.
     """
-    if universe_id == "sp500":
-        return sorted(SP500_TICKERS)
+    if is_standing_id(universe_id):
+        return standing_universe_symbols(universe_id)
 
     if universe_id in _CLIENT_SUPPLIED:
         return normalize_symbols(symbols)
