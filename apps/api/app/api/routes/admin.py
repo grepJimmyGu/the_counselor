@@ -173,3 +173,49 @@ def universe_backfill_status(_: None = Depends(_require_internal_key)) -> dict:
     from app.services import universe_backfill as ub
 
     return ub.get_status()
+
+
+@router.post("/backfill/sectors")
+def backfill_russell3000_sectors(
+    dry_run: bool = False,
+    _: None = Depends(_require_internal_key),
+    db: Session = Depends(get_db),
+) -> dict:
+    """One-time (idempotent): overwrite SymbolCache.sector for every Russell
+    3000 name with its canonical GICS label (app/data/russell3000_sectors).
+
+    Fixes the mixed-taxonomy + null sector data that silently broke ~6/11
+    sectors in the Sector screen (the picker sent FMP labels like "Technology"
+    while the DB held GICS "Information Technology"). Fast — one SELECT + one
+    commit, no external calls. Re-running just re-asserts the labels."""
+    from sqlalchemy import select
+
+    from app.data.russell3000_sectors import RUSSELL3000_SECTORS
+    from app.models.symbol import SymbolCache
+
+    if dry_run:
+        return {"status": "dry-run", "would_set": len(RUSSELL3000_SECTORS)}
+
+    symbols = list(RUSSELL3000_SECTORS)
+    rows = (
+        db.execute(select(SymbolCache).where(SymbolCache.symbol.in_(symbols)))
+        .scalars()
+        .all()
+    )
+    updated = 0
+    unchanged = 0
+    for row in rows:
+        target = RUSSELL3000_SECTORS[row.symbol]
+        if row.sector != target:
+            row.sector = target
+            updated += 1
+        else:
+            unchanged += 1
+    db.commit()
+    return {
+        "status": "ok",
+        "total": len(symbols),
+        "updated": updated,
+        "unchanged": unchanged,
+        "missing_symbol_row": len(symbols) - len(rows),
+    }

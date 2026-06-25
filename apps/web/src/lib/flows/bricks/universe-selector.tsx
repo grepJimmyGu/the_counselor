@@ -50,18 +50,20 @@ const TIERS: TierDef[] = [
   { key: "portfolio", label: "My portfolio", hint: "Screen your holdings", kind: "entry" },
 ];
 
-// US sector labels for the sub-picker. `sector_<label>` matches
-// SymbolCache.sector on the backend (label normalization is a v1 follow-up).
+// Canonical GICS sector labels for the sub-picker. `sector_<label>` matches
+// SymbolCache.sector verbatim (case-insensitive); the R3000 names are
+// normalised to these exact labels by POST /api/admin/backfill/sectors
+// (app/data/russell3000_sectors), so every sector returns its full membership.
 const SECTORS = [
-  "Technology",
-  "Financial Services",
-  "Healthcare",
-  "Consumer Cyclical",
+  "Information Technology",
+  "Financials",
+  "Health Care",
+  "Consumer Discretionary",
   "Communication Services",
   "Industrials",
-  "Consumer Defensive",
+  "Consumer Staples",
   "Energy",
-  "Basic Materials",
+  "Materials",
   "Real Estate",
   "Utilities",
 ];
