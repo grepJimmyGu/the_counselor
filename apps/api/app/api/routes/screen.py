@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session
 from app.api.deps_entitlement import require_entitlement
 from app.api.entitlement_errors import upgrade_error
 from app.core.config import get_settings
-from app.data.sp500_tickers import SP500_TICKERS
+from app.data.standing_universes import all_standing_symbols
 from app.db.session import get_db
 from app.models.saved_strategy import SavedStrategy
 from app.models.signal_alert_subscription import SignalAlertSubscription
@@ -83,8 +83,13 @@ def _momentum_proxy(db: Session, symbols: List[str]):
 
 def _db_sector_membership(db: Session):
     """sector_<key> membership from SymbolCache.sector, intersected with the
-    S&P 500 standard (expand-only + snapshot coverage). v1 matches the sector
-    string the client sends; sector-label normalization is a follow-up."""
+    standing-universe union (sp500 + russell3000) so a sector screen covers the
+    broad market, not just the S&P 500. The R3000 names' sector labels are
+    normalised to GICS (app/data/russell3000_sectors + POST
+    /api/admin/backfill/sectors), and the frontend picker offers exactly those
+    labels, so the verbatim (case-insensitive) match lines up."""
+
+    standing = set(all_standing_symbols())
 
     def lookup(key: str) -> List[str]:
         rows = (
@@ -96,7 +101,7 @@ def _db_sector_membership(db: Session):
             .scalars()
             .all()
         )
-        return [s for s in rows if s in SP500_TICKERS]
+        return [s for s in rows if s in standing]
 
     return lookup
 

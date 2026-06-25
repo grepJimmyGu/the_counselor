@@ -54,7 +54,7 @@ describe("UniverseSelector", () => {
     const { onChange } = setup({ universeId: "symbols" });
     fireEvent.click(screen.getByTestId("universe-tier-sector"));
     expect(onChange).toHaveBeenCalledWith({
-      universe_id: "sector_Technology",
+      universe_id: "sector_Information Technology",
       entered_symbols: [],
     });
   });
