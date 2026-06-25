@@ -17,3 +17,15 @@ def test_start_guard_blocks_double_run(monkeypatch):
     # before asyncio.create_task, so this is safe outside an event loop).
     monkeypatch.setitem(sw._STATUS, "state", "running")
     assert sw.start_warm() is False
+
+
+def test_trigger_endpoint_is_async():
+    # The trigger endpoint MUST be `async def`. A sync (`def`) endpoint runs in
+    # FastAPI's threadpool with no running event loop, so start_warm()'s
+    # asyncio.create_task raises RuntimeError -> 500 (and leaves status wedged
+    # at "running"). This was the 2026-06-25 bug; guard the regression.
+    import asyncio
+
+    from app.api.routes.admin import trigger_snapshot_warm
+
+    assert asyncio.iscoroutinefunction(trigger_snapshot_warm)
