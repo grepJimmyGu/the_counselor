@@ -8,6 +8,33 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-06-25 — Russell 3000: the broad market becomes screenable, and the Sector tab gets un-broken (#247 → #252)
+
+Added the **Russell 3000** (~2,550 names — essentially the whole US market) as a second standing screener universe alongside the S&P 500, then fixed a silently-broken Sector filter that the expansion exposed.
+
+| PR | Scope |
+|---|---|
+| #247 | `backfill_sp500_universe.py` parametrized (`--tickers-file`, `--lookback-years`) so any universe can be backfilled |
+| #248 | server-side one-shot price-bars backfill job — `POST /api/admin/backfill/universe` + `/status`; worker thread (trap #21), throttled, in-memory progress |
+| #249 | universe wiring — `app/data/standing_universes.py::STANDING_UNIVERSES` registry as the single source of truth; resolver, scan/save validators, the daily warm (now warms the UNION), and the frontend `russell3000` tile all read it |
+| #250 | **sector normalization** — `POST /api/admin/backfill/sectors` overwrites `SymbolCache.sector` to canonical GICS; the picker offers GICS labels; the sector tier intersects the standing union |
+| #251 | on-demand snapshot warm — `POST /api/admin/snapshot/warm` (+ `/status`), so a freshly-added universe is scannable without waiting for the 23:00 cron |
+| #252 | hotfix — the #251 warm trigger 500'd (sync `def` endpoint → no event loop → `asyncio.create_task` raised) → made it `async def` + regression test |
+
+### The registry, so the next index is one line
+Before this, "the standing universe" was hardcoded to `SP500_TICKERS` in ~4 places (resolver, scan validator, warm job, frontend tiles). #249 collapses them to one `{id → frozenset}` registry that everything reads; the daily warm warms the **union** (the snapshot is symbol-keyed, so one warm serves every tier). Adding Nasdaq-100 later is now one registry entry + keeping its bars warm.
+
+### The data path, run server-side
+The ~2,050 net-new R3000 names' price history was backfilled **in the container** via the #248 job — the earlier lesson that a laptop run over the public DB URL was ~6× slower + tethered to the lid staying open. Final: 2,546/2,552 have bars (6 failed on Alpha Vantage's class-share hyphen convention — AKE, BF.A, BF.B, GEFB, HEIA, LENB — accepted as known-missing). The union snapshot warm then wrote **233,243 rows across 2,569 symbols**; a live check confirmed `russell3000` resolves to 2,552 with 2,545 warmed + scannable.
+
+### The Sector bug the expansion surfaced
+The Sector tier matches `SymbolCache.sector` **verbatim**, but the picker was sending FMP-style labels ("Technology", "Financial Services", "Healthcare", …) while the DB stored GICS ("Information Technology", "Financials", "Health Care", …) — so **6 of 11 sectors returned almost nothing**, and had since the tier shipped. #250 makes GICS the one taxonomy end-to-end, sourced from the iShares holdings file (the same file the tickers came from). The prod sector backfill corrected **661** labels; "Information Technology" went from ~21 matches to **316**.
+
+### The trap, codified
+The #251→#252 bug: a FastAPI admin endpoint that fires `asyncio.create_task` **must** be `async def`. A sync `def` endpoint runs in a threadpool with no running loop, so `create_task` raises and 500s (and any status set before it wedges). See KNOWN_ISSUES 2026-06-25.
+
+---
+
 ## 2026-06-18 — PRD-24a: Home discovery + the 10-template gallery, end-to-end (#235 → #245)
 
 One long session: built the entire PRD-24a v1 packet — a 3-layer disclosure that turns Home into a discovery funnel, a browsable gallery of vetted templates, and theme-aware result pages — plus the §6 guard that stops a dead primitive silently matching nothing.

@@ -2274,4 +2274,20 @@ Nine PRs, one session. The discipline that made it tractable was **reuse.** The 
 
 *"We shipped a Home page that walks you from 'what's interesting today' to a runnable strategy in three clicks — reusing the machinery we'd already built so the new surface barely added plumbing. Then a deploy 'failed.' Except production never blinked, the new code was already live, and the same commit succeeded on the retry five seconds later. The failure was a database deadlock in a warmup that's been there for weeks. The fix wasn't code — it was reading the deployment list correctly."*
 
-*Last updated: 2026-06-18 (Episode 44 added — PRD-24a Home discovery + the 10-template gallery, and the self-healing deploy deadlock).*
+### Episode 45 — The broad market, and the sector filter that was quietly broken the whole time (June 25)
+
+The ask was simple: let people screen the **Russell 3000**, not just the S&P 500 — the whole US market instead of the 500 biggest names. The work underneath was a study in doing the boring parts right, and in what you find when you widen the aperture.
+
+**One source of truth, so the next universe is free.** "The standing universe" had been hardcoded to `SP500_TICKERS` in four places — the resolver, the scan validator, the warm job, the frontend tiles. Rather than add `russell3000` to all four (and re-do it for the next index), we collapsed them into a `STANDING_UNIVERSES` registry that all four read. Adding Nasdaq-100 later is now one line plus a warm.
+
+**Server-side, because we'd learned the lesson.** The ~2,050 new tickers' price history got backfilled *in the container* via an admin-triggered worker-thread job — not from a laptop streaming over the public DB URL, which an earlier session had measured at ~6× slower and tethered to the lid staying open. 2,546 of 2,552 loaded; six were Alpha Vantage's class-share hyphen quirk (BF.A wants `BF-A`), logged and left. Then the snapshot warm wrote a quarter-million rows and the broad market was live.
+
+**The bug the expansion exposed.** Widening the universe put a spotlight on the Sector tab — and it had been broken the whole time. The picker sent one vocabulary of sector names ("Technology", "Healthcare", "Financial Services"); the database stored another ("Information Technology", "Health Care", "Financials"); the match is verbatim; so six of eleven sectors returned almost nothing, and always had. The iShares holdings file — which we already had, because that's where the tickers came from — carries the authoritative GICS label for every name. So the fix was to make GICS the single taxonomy end to end: normalize the database from the file, teach the picker the same labels. The prod backfill corrected 661 labels; "Information Technology" went from 21 matches to 316.
+
+**The self-inflicted 500.** The on-demand "warm now" endpoint added to activate all this returned a 500 on its first call — and wedged its own status flag at "running" so retries 409'd. The cause is a classic: a sync FastAPI endpoint runs in a threadpool with no event loop, and `asyncio.create_task` needs one. The universe-backfill trigger next to it worked only because it happened to be `async def`. One word, `async`, plus a regression test that asserts the endpoint is a coroutine function. Shipped as a hotfix; the wedged status cleared itself on the restart.
+
+#### Content hook
+
+*"We added the whole US market to a stock screener — and in doing so discovered the sector filter had been quietly broken since the day it shipped, because the dropdown spoke one dialect of sector names and the database spoke another. The fix was making everything speak GICS, using a file we already had. Then the endpoint I built to switch it all on returned a 500 on its first call — a one-word bug (a missing `async`) that's a rite of passage in async web frameworks."*
+
+*Last updated: 2026-06-25 (Episode 45 added — Russell 3000 goes live + the verbatim-sector-label bug + the sync-endpoint 500).*
