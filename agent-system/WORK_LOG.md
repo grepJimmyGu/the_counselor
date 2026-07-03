@@ -9,6 +9,29 @@
 
 ## Current Session
 
+**Status:** 2026-06-25 — **Russell 3000 standing universe SHIPPED + verified live (6 PRs #247–#252, all merged + deployed).** The broad US market (~2,550 names) is now a screenable universe alongside the S&P 500, and the Sector tab — silently broken by a picker-vs-DB label mismatch — is fixed. All deployed to prod and confirmed against the live DB.
+
+**Shipped this session (6 PRs, all merged):**
+
+| PR | Scope |
+|---|---|
+| #247 | `backfill_sp500_universe.py` parametrized (`--tickers-file` / `--lookback-years`) |
+| #248 | server-side price-bars backfill job — `POST /api/admin/backfill/universe` + `/status` (worker thread, throttled 50/min) |
+| #249 | `app/data/standing_universes.py::STANDING_UNIVERSES` registry — single source of truth: resolver + scan/save validators + daily warm-UNION + frontend `russell3000` tile |
+| #250 | sector normalization — `POST /api/admin/backfill/sectors` (SymbolCache.sector → canonical GICS) + picker GICS labels + `_db_sector_membership` → standing union |
+| #251 | on-demand snapshot warm — `POST /api/admin/snapshot/warm` + `/status` |
+| #252 | hotfix — warm trigger `def` → `async def` (was 500ing; see KNOWN_ISSUES 2026-06-25) |
+
+**Verified live (prod, 2026-06-25):** price_bars 2,546/2,552 R3000 backfilled (6 AV class-share failures accepted — AKE/BF.A/BF.B/GEFB/HEIA/LENB); sector backfill corrected 661 labels ("Information Technology" 21→316); snapshot warm wrote 233,243 rows across 2,569 symbols; `russell3000` resolves to 2,552 with 2,545 warmed + scannable.
+
+**Deferred fast-follows (agreed, NOT blockers):** (1) a **liquidity floor** on R3000 presets — the broad market's microcaps surface junk in `best_momentum`-type screens; shipped raw deliberately, tune the floor against real results. (2) reconcile the 6 AV-drift class shares (hyphen convention). (3) `pct_below_high` primitive (backlog). (4) **Stripe** is fully built but unconfigured — paywalls live with no pay path (PostHog is now configured + flowing; audit + turn-on checklist in the 2026-06-25 chat).
+
+**Next session:** any deferred fast-follow, or the Stripe turn-on (4 price IDs + secret/webhook keys on Railway, test-mode first).
+
+---
+
+## Previous Session
+
 **Status:** 2026-06-18 — **PRD-24a (Home Discovery + Template Gallery) v1 COMPLETE — shipped end-to-end in 9 PRs (#235–#243), all merged.** The 3-layer disclosure is live: Home discovery (3 focuses + "Themes firing today" + hero index strip) → a browsable gallery of **10 vetted templates** (5 live-verified composer presets + 5 sentiment) as the FIRST step of "Screen the market" → composer pre-loaded (`?template=`) **or** the sentiment hub auto-run (`?toolkit=`) → results wrapped in theme-landing chrome (banner + "what this finds" + "try other themes"). The §6 silent-0 trap is now guarded (dead-primitive denylist + warm-time coverage WARNING).
 
 **Shipped this session (9 PRs, all merged):**

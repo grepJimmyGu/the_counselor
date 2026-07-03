@@ -29,6 +29,16 @@ A running log of bugs encountered, root causes, and confirmed fixes. Add new ent
 
 ## Entries
 
+### FastAPI admin trigger 500'd — a sync `def` endpoint calling `asyncio.create_task` has no event loop. 2026-06-25.
+
+**Symptom:** `POST /api/admin/snapshot/warm` (the on-demand snapshot warm, #251) returned `500 Internal Server Error`. Worse, `start_warm()` sets the in-memory status to `"running"` *before* spawning the task, so the status wedged at `"running"` with no warm actually running — retries then 409'd ("already running") until the container restarted.
+
+**Root cause:** the endpoint was `def trigger_snapshot_warm(...)` (sync). FastAPI runs **sync** endpoints in a threadpool worker, which has **no running asyncio event loop**. `start_warm()` calls `asyncio.create_task(asyncio.to_thread(_run))`, and `create_task` requires a running loop → `RuntimeError: no running event loop` → 500. The sibling `trigger_universe_backfill` (#248) worked precisely because it's `async def` (runs on the loop).
+
+**Fix (#252):** make the endpoint `async def` so `create_task` finds the loop. Regression test asserts `asyncio.iscoroutinefunction(trigger_snapshot_warm)`.
+
+**Rule:** any FastAPI endpoint that schedules background work via `asyncio.create_task` / `get_running_loop` MUST be `async def`. If it must stay sync, spawn a plain `threading.Thread` instead (loop-independent). Second-order tell: don't set a status flag *before* a successful spawn — set it after, or reset it in the `except`, or a failed spawn wedges the state.
+
 ### Deploy fails on a Postgres `DeadlockDetected` in a startup warmup — self-heals on retry (prod never down). 2026-06-18.
 
 **Symptom:** A Railway deploy is marked FAILED, but `/health` keeps returning 200 (the prior container is still serving). `railway deployment list` shows the failed deploy as `REMOVED` and a near-simultaneous one as `SUCCESS`.
