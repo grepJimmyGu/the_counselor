@@ -1803,6 +1803,117 @@ def run_startup_migrations(engine: Engine) -> None:
                 "ON notification_banner_entries (user_id, acknowledged_at)"
             ))
 
+    # ── Supply-chain lens tables (PRD-25/26) ────────────────────────────────
+    # Evidence-graded supply-chain graph + per-symbol summary + claim ledger.
+    # Symbol-keyed (no user_id → no FK-type landmine, trap #1). All statements
+    # are CREATE TABLE / INDEX IF NOT EXISTS — safe in a shared engine.begin()
+    # block (trap #3). Own block so it's isolated from the columns migration.
+    with engine.begin() as conn:
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS supply_chain_edges (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                source_symbol VARCHAR,
+                source_name VARCHAR NOT NULL,
+                target_symbol VARCHAR,
+                target_name VARCHAR NOT NULL,
+                relationship VARCHAR NOT NULL,
+                evidence_tier CHAR(1) NOT NULL,
+                source_url TEXT NOT NULL,
+                source_doc_type VARCHAR NOT NULL,
+                quote TEXT NOT NULL,
+                as_of_date DATE NOT NULL,
+                is_named BOOLEAN NOT NULL DEFAULT 0,
+                stale BOOLEAN NOT NULL DEFAULT 0,
+                extracted_at TIMESTAMP NOT NULL
+            )
+        """) if is_sqlite else text("""
+            CREATE TABLE IF NOT EXISTS supply_chain_edges (
+                id SERIAL PRIMARY KEY,
+                source_symbol VARCHAR,
+                source_name VARCHAR NOT NULL,
+                target_symbol VARCHAR,
+                target_name VARCHAR NOT NULL,
+                relationship VARCHAR NOT NULL,
+                evidence_tier CHAR(1) NOT NULL,
+                source_url TEXT NOT NULL,
+                source_doc_type VARCHAR NOT NULL,
+                quote TEXT NOT NULL,
+                as_of_date DATE NOT NULL,
+                is_named BOOLEAN NOT NULL DEFAULT FALSE,
+                stale BOOLEAN NOT NULL DEFAULT FALSE,
+                extracted_at TIMESTAMPTZ NOT NULL
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_sce_source ON supply_chain_edges(source_symbol)"
+        ))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_sce_target ON supply_chain_edges(target_symbol)"
+        ))
+
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS supply_chain_summaries (
+                symbol VARCHAR PRIMARY KEY,
+                vertical VARCHAR,
+                layer VARCHAR,
+                layer_ambiguous BOOLEAN DEFAULT 0,
+                chokepoint_verdict VARCHAR,
+                confidence VARCHAR,
+                break_statement TEXT,
+                tests_json TEXT NOT NULL,
+                stage VARCHAR,
+                trailing_metrics_meaningful BOOLEAN DEFAULT 1,
+                dropped_edge_count INTEGER DEFAULT 0,
+                computed_at TIMESTAMP NOT NULL
+            )
+        """) if is_sqlite else text("""
+            CREATE TABLE IF NOT EXISTS supply_chain_summaries (
+                symbol VARCHAR PRIMARY KEY,
+                vertical VARCHAR,
+                layer VARCHAR,
+                layer_ambiguous BOOLEAN DEFAULT FALSE,
+                chokepoint_verdict VARCHAR,
+                confidence VARCHAR,
+                break_statement TEXT,
+                tests_json JSONB NOT NULL,
+                stage VARCHAR,
+                trailing_metrics_meaningful BOOLEAN DEFAULT TRUE,
+                dropped_edge_count INTEGER DEFAULT 0,
+                computed_at TIMESTAMPTZ NOT NULL
+            )
+        """))
+
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS evidence_ledger (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol VARCHAR NOT NULL,
+                claim TEXT NOT NULL,
+                evidence_tier CHAR(1) NOT NULL,
+                source_url TEXT,
+                source_doc_type VARCHAR,
+                quote TEXT,
+                as_of_date DATE,
+                falsifier TEXT,
+                created_at TIMESTAMP NOT NULL
+            )
+        """) if is_sqlite else text("""
+            CREATE TABLE IF NOT EXISTS evidence_ledger (
+                id SERIAL PRIMARY KEY,
+                symbol VARCHAR NOT NULL,
+                claim TEXT NOT NULL,
+                evidence_tier CHAR(1) NOT NULL,
+                source_url TEXT,
+                source_doc_type VARCHAR,
+                quote TEXT,
+                as_of_date DATE,
+                falsifier TEXT,
+                created_at TIMESTAMPTZ NOT NULL
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_el_symbol ON evidence_ledger(symbol)"
+        ))
+
     # ── Post-create cleanup (isolated; runs AFTER all CREATE TABLE statements) ──
     # Purge bad revenue_segments rows from PRD-08d parser bug. Isolated so a
     # missing table on fresh DB can't poison the shared transaction above.

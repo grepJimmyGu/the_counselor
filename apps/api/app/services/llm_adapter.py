@@ -356,14 +356,23 @@ class LLMGateway:
         system_prompt: str,
         user_prompt: str,
         temperature: float = 0.1,
+        model: str | None = None,
     ) -> dict:
-        """Call the configured LLM and return parsed JSON as a plain dict."""
-        if not self.settings.llm_model:
+        """Call the configured LLM and return parsed JSON as a plain dict.
+
+        `model` overrides `settings.llm_model` for this call, so one caller can
+        route bulk work and judgment to different models (the supply-chain lens
+        uses a cheap model for filing extraction and a stronger one for the
+        chokepoint assessment). Falls back to the configured default when None,
+        mirroring `generate_structured` / `chat_completion_with_tools`.
+        """
+        effective_model = model or self.settings.llm_model
+        if not effective_model:
             raise LLMAdapterError("No model is configured for this LLM task.")
 
         provider = self._require_provider()
         raw_text = await provider.generate(
-            model=self.settings.llm_model,
+            model=effective_model,
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             temperature=temperature,

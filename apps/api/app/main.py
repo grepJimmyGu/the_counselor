@@ -49,6 +49,7 @@ from app.api.routes.notifications import router as notifications_router
 from app.api.routes.signal_primitives import router as signal_primitives_router
 from app.api.routes.triage import router as triage_router  # PR-D — ops triage bundle
 from app.api.routes.portfolio import router as portfolio_router  # PRD-13b — Portfolio Mode
+from app.api.routes.supply_chain import router as supply_chain_router  # PRD-25/26 — supply-chain lens
 from app.core.config import get_settings
 from app.db.migrations import run_startup_migrations
 from app.db.session import Base, engine
@@ -739,6 +740,7 @@ app.include_router(signal_primitives_router)
 # unconditionally keeps the URL stable across redeploys so the link in
 # the PR-C alert email always resolves.
 app.include_router(triage_router)
+app.include_router(supply_chain_router)  # PRD-25/26 — supply-chain lens
 
 
 # Thresholds for /health to flip "healthy" → "degraded" on the pulse warmup.
