@@ -9,13 +9,13 @@
 
 ## Current Session
 
-**Status:** 2026-06-25 — **Russell 3000 standing universe SHIPPED + verified live (6 PRs #247–#252, all merged + deployed).** The broad US market (~2,550 names) is now a screenable universe alongside the S&P 500, and the Sector tab — silently broken by a picker-vs-DB label mismatch — is fixed. All deployed to prod and confirmed against the live DB.
+**Status:** 2026-06-25 — **Russell 3000 standing universe SHIPPED + verified live (PRs #248–#252 merged + deployed; #247 closed as superseded by #248/#249).** The broad US market (~2,550 names) is now a screenable universe alongside the S&P 500, and the Sector tab — silently broken by a picker-vs-DB label mismatch — is fixed. All deployed to prod and confirmed against the live DB.
 
-**Shipped this session (6 PRs, all merged):**
+**Shipped this session (5 PRs merged; #247 closed as superseded by #248/#249):**
 
 | PR | Scope |
 |---|---|
-| #247 | `backfill_sp500_universe.py` parametrized (`--tickers-file` / `--lookback-years`) |
+| #247 | ~~`backfill_sp500_universe.py` parametrized~~ — **closed, superseded by the server-side job in #248/#249** |
 | #248 | server-side price-bars backfill job — `POST /api/admin/backfill/universe` + `/status` (worker thread, throttled 50/min) |
 | #249 | `app/data/standing_universes.py::STANDING_UNIVERSES` registry — single source of truth: resolver + scan/save validators + daily warm-UNION + frontend `russell3000` tile |
 | #250 | sector normalization — `POST /api/admin/backfill/sectors` (SymbolCache.sector → canonical GICS) + picker GICS labels + `_db_sector_membership` → standing union |
