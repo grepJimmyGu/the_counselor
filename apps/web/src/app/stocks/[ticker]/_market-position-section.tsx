@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { Badge } from "@/components/ui/badge";
+import { ProvenanceFooter } from "@/components/stocks/provenance-footer";
 import type { MarketPositionSection, CompetitorSegment } from "@/lib/contracts";
 // CompetitorSegment is used by RankingTable and CompetitorTabs below
 import { cn } from "@/lib/utils";
@@ -322,11 +323,9 @@ export function MarketPositionSectionUI({ mp, symbol, competitorSegments }: Prop
         </div>
       )}
 
-      {mp.confidence === "partial" && (
-        <div className="rounded-md border border-dashed border-border bg-muted/20 px-4 py-2.5 text-xs text-muted-foreground">
-          Market intelligence sourced from 10-K filing when available · Supply chain and competitor data auto-extracted
-        </div>
-      )}
+      {/* PRD-26 P1: replace the generic footnote with graded provenance —
+          the section's confidence + each source note tiered by the ladder. */}
+      <ProvenanceFooter confidence={mp.confidence} sourceNotes={mp.source_notes} />
     </div>
   );
 }
