@@ -2915,3 +2915,28 @@ export interface TemplateMatch {
 export interface MatchTemplatesResponse {
   matches: TemplateMatch[];
 }
+
+// ── Supply-chain lens · evidence provenance (PRD-25 / PRD-26) ────────────────
+// Every claim the product surfaces carries an evidence tier + a source. The
+// six-tier ladder lives in
+// agent-system/skills/bottleneck-research/references/evidence-ladder.md — keep
+// `lib/evidence-tiers.ts` in sync with it. Slice 1 surfaces the per-record
+// provenance we already store (confidence + source_notes); per-claim tiers,
+// dates and quote spans arrive with the extraction backend (Slice 2/3).
+export type EvidenceTier = "A" | "B" | "C" | "D" | "E" | "F";
+
+export interface EvidenceRow {
+  /** The claim, or the sourced fact, this row backs. */
+  claim: string;
+  tier: EvidenceTier;
+  /** Human-readable source label, e.g. "10-K · Item 1" or "Partner page". */
+  source: string;
+  /** Deep link to the underlying document, when available. */
+  source_url?: string | null;
+  /** ISO date the evidence is as-of. Evidence decays — dating every claim is a
+   *  ladder rule. */
+  as_of_date?: string | null;
+  /** What observation would prove this claim wrong. An empty falsifier is a
+   *  valid, displayed finding — never hidden. */
+  falsifier?: string | null;
+}

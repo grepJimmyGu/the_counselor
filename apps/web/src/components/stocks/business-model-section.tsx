@@ -5,6 +5,7 @@ import {
   PieChart, Pie, Cell,
 } from "recharts";
 import type { RevenueSegmentSection, BusinessMapSection } from "@/lib/contracts";
+import { ProvenanceFooter } from "@/components/stocks/provenance-footer";
 
 function fmtMoney(v: number): string {
   if (Math.abs(v) >= 1e12) return `$${(v / 1e12).toFixed(1)}T`;
@@ -161,6 +162,9 @@ export function BusinessModelSection({ seg, bm }: Props) {
       {bm.one_line_summary && (
         <p className="text-sm leading-relaxed text-foreground/75">{bm.one_line_summary}</p>
       )}
+
+      {/* PRD-26 P1: surface the provenance we already store. */}
+      <ProvenanceFooter confidence={bm.confidence} sourceNotes={bm.source_notes} />
     </div>
   );
 }
