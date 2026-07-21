@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import threading
 from contextlib import asynccontextmanager
 from typing import Optional
 
@@ -446,17 +447,32 @@ def _start_scheduler() -> None:
         logger.warning("APScheduler failed to start: %s", exc)
 
 
+# ── Startup sequencing (boot-deadlock fix, 2026-07) ─────────────────────────
+# Every warmup waits on `_db_ready` before touching the DB, so `_db_init`'s
+# create_all + migrations (DDL → ACCESS EXCLUSIVE table locks) can't deadlock
+# against concurrent warmup DML at boot. The one-shot warmups then run
+# one-at-a-time (see `_run_startup_warmups`). These are `threading` primitives,
+# NOT asyncio — they're waited on from worker-thread event loops (trap #22).
+_db_ready = threading.Event()
+_startup_warmups_done = threading.Event()
+
+
 def _db_init(engine):
     """Run create_all + startup migrations in a background thread.
     Decoupled from the lifespan so Postgres autovacuum/recovery doesn't
     block the Railway deploy healthcheck. Tables from prior deploys are
-    already present — this is a best-effort idempotent safety net."""
+    already present — this is a best-effort idempotent safety net.
+
+    Signals `_db_ready` on completion (even on failure — best-effort) so the
+    gated warmups proceed rather than block forever."""
     try:
         Base.metadata.create_all(bind=engine, checkfirst=True)
         run_startup_migrations(engine)
         logger.info("_db_init: create_all + migrations complete")
     except Exception as exc:
         logger.warning("_db_init: %s — tables may not be current", exc)
+    finally:
+        _db_ready.set()
 
 
 # Module-level health state for the recurring pulse warmup. Updated by
@@ -535,6 +551,13 @@ async def _warmup_market_pulse_loop() -> None:
     # so this warmup populates the same cache the route reads from.
     svc = MarketPulseService()
 
+    # Gate the first tick on DB init + the one-shot warmups (boot-deadlock
+    # fix): this read (get_pulse → N+1 price_bars SELECTs) must not race the
+    # boot-time DDL / seed writes. `threading.Event` → safe on this
+    # worker-thread loop (trap #22).
+    _db_ready.wait(timeout=300)
+    _startup_warmups_done.wait(timeout=300)
+
     while True:
         try:
             with SessionLocal() as db:
@@ -581,6 +604,38 @@ def _run_async_in_thread(coro) -> None:
         logger.exception("background warmup failed")
 
 
+async def _run_startup_warmups() -> None:
+    """Run the one-shot startup warmups SEQUENTIALLY, after DB init completes.
+
+    Boot-deadlock fix (2026-07): previously all 5 one-shot warmups + the pulse
+    loop + `_db_init` fired concurrently on separate threads, so
+    create_all/migrations (DDL) collided with the warmups' DML → Postgres
+    `DeadlockDetected` → `InFailedSqlTransaction` → container stop (self-healed
+    on retry). Now: (1) wait for `_db_init` to finish (no DDL-vs-DML), then
+    (2) run the warmups one at a time (no warmup-vs-warmup contention).
+
+    Runs on its own worker thread via `_run_async_in_thread` (trap #21); gates
+    on a `threading.Event`, never an asyncio primitive (trap #22). One warmup
+    raising does not stop the rest.
+    """
+    if not _db_ready.wait(timeout=300):
+        logger.warning("startup warmups: _db_ready wait timed out — proceeding")
+    warmups = (
+        ("market_etfs", _warmup_market_etfs),
+        ("gspc", _warmup_gspc),
+        ("commodity_spots", _warmup_commodity_spots),
+        ("stock_universe", _seed_and_warmup_stock_universe),
+        ("stale_bi_caches", _invalidate_stale_bi_caches),
+    )
+    for name, warmup in warmups:
+        try:
+            await warmup()
+        except Exception:
+            logger.exception("startup warmup failed: %s", name)  # trap #20
+    _startup_warmups_done.set()
+    logger.info("startup warmups complete (sequential)")
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     # Fire DB init in background. Postgres autovacuum can hold table locks
@@ -598,17 +653,18 @@ async def lifespan(_: FastAPI):
     _start_scheduler()
     # Warmups run on dedicated threads (see `_run_async_in_thread` above) so
     # their internal SYNCHRONOUS DB calls can't block the main event loop —
-    # the failure mode of the 2026-06-04 outage. Each warmup gets its own
-    # fresh asyncio event loop inside its thread; the main loop stays free
-    # for `/health` and user requests.
-    asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _warmup_market_etfs()))
-    asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _warmup_gspc()))
-    asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _warmup_commodity_spots()))
-    asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _seed_and_warmup_stock_universe()))
-    asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _invalidate_stale_bi_caches()))
-    # Recurring pulse pre-warm — keeps `_LIVE_CACHE` populated so users
-    # never pay the 80-second cold-cache cost. Runs every 4 min on its
-    # own thread + event loop (trap #21 — sync DB inside the service).
+    # the failure mode of the 2026-06-04 outage. Each gets its own fresh
+    # asyncio event loop inside its thread; the main loop stays free for
+    # `/health` and user requests.
+    #
+    # Boot-deadlock fix (2026-07): the 5 one-shot warmups now run SEQUENTIALLY
+    # on a single thread, gated on `_db_init` (see `_run_startup_warmups`), so
+    # concurrent DDL-vs-DML (and warmup-vs-warmup) lock contention can't
+    # deadlock the boot. Was: all 5 + the pulse loop firing at the same instant.
+    asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _run_startup_warmups()))
+    # Recurring pulse pre-warm — keeps `_CACHE` populated so users never pay the
+    # 80-second cold-cache cost. Its own thread + event loop (trap #21); gates
+    # its first tick on `_db_ready` + the one-shots so it can't race boot writes.
     asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _warmup_market_pulse_loop()))
     yield
 
