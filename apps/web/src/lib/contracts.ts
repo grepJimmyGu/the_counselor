@@ -2940,3 +2940,79 @@ export interface EvidenceRow {
    *  valid, displayed finding — never hidden. */
   falsifier?: string | null;
 }
+
+// ── Supply-chain lens · tab (PRD-25/26) ─────────────────────────────────────
+// Mirrors apps/api/app/schemas/supply_chain.py. Consumed by the Supply Chain
+// tab on the company page.
+export type SupplyChainVerdict =
+  | "chokepoint"
+  | "adjacent_supplier"
+  | "theme_exposure"
+  | "no_chain_structure"
+  | "insufficient_evidence";
+
+export interface ChokepointTestResult {
+  test: string;
+  verdict: string; // yes | partial | no | unknown
+  evidence_tier: EvidenceTier;
+  rationale: string;
+  source_urls: string[];
+}
+
+export interface SupplyChainSummary {
+  symbol: string;
+  verdict: SupplyChainVerdict;
+  layer?: string | null;
+  layer_ambiguous: boolean;
+  vertical?: string | null;
+  stage?: string | null; // pre_ramp | ramping | mature | declining | unknown
+  trailing_metrics_meaningful: boolean;
+  confidence: string; // high | moderate | low | insufficient_evidence
+  break_statement?: string | null;
+  tests: ChokepointTestResult[];
+  dropped_edge_count: number;
+  fallback_role?: string | null;
+  message?: string | null;
+  stage_figures: Record<string, number | string | null>;
+  computed_at?: string | null;
+}
+
+export interface ChainNode {
+  symbol?: string | null;
+  name: string;
+  layer?: string | null;
+  is_listed: boolean;
+}
+
+export interface ChainEdge {
+  source_symbol?: string | null;
+  source_name: string;
+  target_symbol?: string | null;
+  target_name: string;
+  relationship: string;
+  evidence_tier: EvidenceTier;
+  source_url: string;
+  source_doc_type: string;
+  quote: string;
+  as_of_date: string;
+  is_named: boolean;
+  stale: boolean;
+}
+
+export interface ChainGraph {
+  symbol: string;
+  nodes: ChainNode[];
+  edges: ChainEdge[];
+  dropped_edge_count: number;
+}
+
+export interface EvidenceLedgerRow {
+  symbol: string;
+  claim: string;
+  evidence_tier: EvidenceTier;
+  source_url?: string | null;
+  source_doc_type?: string | null;
+  quote?: string | null;
+  as_of_date?: string | null;
+  falsifier?: string | null;
+}
