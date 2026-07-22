@@ -12,7 +12,9 @@ call never pins a pooled connection (trap #13).
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+import time
+
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal, get_db
@@ -24,6 +26,7 @@ from app.schemas.supply_chain import (
 from app.services import supply_chain_service as scs
 from app.services.chain_stage_service import ChainStageService
 from app.services.fmp_client import FMPClient
+from app.services.supply_chain_pipeline import extract_and_persist, extraction_enabled
 
 router = APIRouter(prefix="/api/supply-chain", tags=["supply-chain"])
 
@@ -70,3 +73,24 @@ def get_evidence(
     symbol: str, db: Session = Depends(get_db)
 ) -> list[EvidenceLedgerRow]:
     return scs.read_evidence(db, symbol)
+
+
+# On-demand extraction refresh. Gated (503 when extraction is disabled) and
+# rate-limited to 1/hour/symbol so it can't be used to burn LLM cost.
+_last_refresh: dict[str, float] = {}
+_REFRESH_COOLDOWN_S = 3600.0
+
+
+@router.post("/{symbol}/refresh")
+async def refresh_supply_chain(symbol: str) -> dict:
+    symbol = symbol.upper()
+    if not extraction_enabled():
+        raise HTTPException(status_code=503, detail="Supply-chain extraction is not enabled.")
+    now = time.time()
+    if now - _last_refresh.get(symbol, 0.0) < _REFRESH_COOLDOWN_S:
+        raise HTTPException(
+            status_code=429, detail="Refresh is rate-limited to once per hour per symbol."
+        )
+    _last_refresh[symbol] = now
+    result = await extract_and_persist(symbol)
+    return result or {"symbol": symbol, "ok": False, "detail": "extraction disabled"}
