@@ -29,6 +29,9 @@ import type {
   StrategyJson,
   SymbolSearchItem,
   WarmupResponse,
+  SupplyChainSummary,
+  ChainGraph,
+  EvidenceLedgerRow,
 } from "@/lib/contracts";
 import { dispatchUpgrade } from "@/lib/upgrade-modal-event-bus";
 
@@ -1275,6 +1278,25 @@ export async function getEmailPreferences(
 /** Partial-update the user's notification preferences. Omit fields to
  *  leave unchanged. PATCHing a re-enable on ANY flag clears the global
  *  `unsubscribed_at`; disabling a single flag does NOT. */
+// ── Supply-chain lens (PRD-25/26) — public reads, no auth gate ──────────────
+export async function getSupplyChainSummary(symbol: string): Promise<SupplyChainSummary> {
+  return fetchApi<SupplyChainSummary>(
+    `/api/supply-chain/${encodeURIComponent(symbol)}/summary`
+  );
+}
+
+export async function getSupplyChainGraph(symbol: string): Promise<ChainGraph> {
+  return fetchApi<ChainGraph>(
+    `/api/supply-chain/${encodeURIComponent(symbol)}/graph`
+  );
+}
+
+export async function getSupplyChainEvidence(symbol: string): Promise<EvidenceLedgerRow[]> {
+  return fetchApi<EvidenceLedgerRow[]>(
+    `/api/supply-chain/${encodeURIComponent(symbol)}/evidence`
+  );
+}
+
 export async function updateEmailPreferences(
   payload: EmailPreferencesUpdate,
   backendToken: string,

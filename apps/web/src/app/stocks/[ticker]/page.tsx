@@ -15,6 +15,7 @@ import { BusinessModelSection } from "@/components/stocks/business-model-section
 import { MarketPositionSectionUI } from "./_market-position-section";
 import type { Route } from "next";
 import { SentimentTab } from "./_sentiment-tab";
+import { SupplyChainTab } from "./_supply-chain/_supply-chain-tab";
 import { ChatWidget } from "@/components/ChatWidget";
 import { EvaluationDashboard } from "@/components/stocks/evaluation-dashboard";
 import { WatchlistButton } from "@/components/community/watchlist-button";
@@ -42,7 +43,7 @@ function fmtMoney(v: number | null | undefined): string {
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
-type Tab = "overview" | "sentiment";
+type Tab = "overview" | "sentiment" | "supply_chain";
 
 function CompanyPageInner() {
   const { ticker } = useParams<{ ticker: string }>();
@@ -231,7 +232,7 @@ function CompanyPageInner() {
 
         {/* Tab nav */}
         <div className="flex gap-1 rounded-lg border border-border bg-muted/30 p-1">
-          {(["overview", "sentiment"] as const).map((tab) => (
+          {(["overview", "sentiment", "supply_chain"] as const).map((tab) => (
             <button
               key={tab}
               onClick={() => setTab(tab)}
@@ -242,13 +243,16 @@ function CompanyPageInner() {
                   : "text-muted-foreground hover:text-foreground"
               )}
             >
-              {tab === "overview" ? "Overview" : "News & Sentiment"}
+              {tab === "overview" ? "Overview" : tab === "sentiment" ? "News & Sentiment" : "Supply Chain"}
             </button>
           ))}
         </div>
 
         {/* Sentiment tab */}
         {activeTab === "sentiment" && <SentimentTab symbol={ticker.toUpperCase()} />}
+
+        {/* Supply Chain tab (PRD-25/26) */}
+        {activeTab === "supply_chain" && <SupplyChainTab symbol={ticker.toUpperCase()} />}
 
         {/* Overview tab content */}
         {activeTab === "overview" && <>
