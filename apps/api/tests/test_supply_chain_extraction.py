@@ -154,6 +154,56 @@ def test_persist_round_trip(db):
     assert scs.read_evidence(db, "AXTI")  # ledger populated
 
 
+# ── extract() end-to-end glue (regression for the has_content property bug) ──
+def test_extract_reaches_admit_via_has_content_property(monkeypatch):
+    """`FilingSections.has_content` is a @property; the extract() glue called it
+    as `has_content()` → `TypeError: 'bool' object is not callable`, crashing
+    BEFORE the LLM ran so every live /refresh returned ok:false. This drives the
+    real extract() with mocked boundaries — it raised pre-fix, passes post-fix.
+    """
+    import asyncio
+
+    from app.services import supply_chain_extraction_service as mod
+    from app.services.filing_section_parser import FilingSections
+
+    sentence = (
+        "We source InP substrates from Sumitomo, a named supplier, under a "
+        "multi-year agreement disclosed in this report."
+    )
+
+    class _FMP:
+        async def get_sec_filings(self, symbol, form_type, limit):
+            return [{"finalLink": "https://sec.gov/x", "fillingDate": "2026-03-14"}]
+
+    class _GW:
+        async def generate_json(self, **kwargs):
+            return {
+                "edges": [
+                    {
+                        "counterparty_name": "Sumitomo", "counterparty_symbol": None,
+                        "relationship": "supplies",
+                        "quote": "We source InP substrates from Sumitomo", "is_named": True,
+                    }
+                ]
+            }
+
+    async def _fake_fetch(url):
+        return f"<html><body>{sentence}</body></html>"
+
+    monkeypatch.setattr(mod, "fetch_filing_html", _fake_fetch)
+    monkeypatch.setattr(mod, "parse_10k_sections", lambda h: FilingSections(item1_business=sentence))
+    monkeypatch.setattr(mod, "_html_to_text", lambda h: sentence)
+
+    svc = mod.SupplyChainExtractionService(fmp_client=_FMP(), gateway=_GW())
+    res = asyncio.run(svc.extract("AXTI"))
+
+    assert res.source_url == "https://sec.gov/x"
+    assert len(res.edges) == 1  # got past has_content, through the LLM, into admit()
+    e = res.edges[0]
+    assert e.source_name == "Sumitomo" and e.target_symbol == "AXTI"
+    assert e.evidence_tier == "A"  # named + 10-K, assigned in code
+
+
 # ── dedicated supply-chain LLM gateway ──────────────────────────────────────
 def test_gateway_falls_back_to_app_default_without_dedicated_config(monkeypatch):
     from app.services import supply_chain_llm
