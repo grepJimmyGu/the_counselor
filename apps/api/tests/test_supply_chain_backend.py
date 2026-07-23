@@ -126,6 +126,69 @@ def test_read_graph_assembles_nodes_and_edges(db):
     assert g.edges[0].evidence_tier == "A"
 
 
+# ── Phase 1: seed the inferred map (Tier D) from cached business intelligence ──
+def _cache_bi(db, symbol, suppliers, customers, url="https://sec.gov/x", date="2026-03-14"):
+    from app.services.business_intelligence_service import BusinessIntelligence, _save_cache
+
+    _save_cache(
+        BusinessIntelligence(
+            symbol=symbol, filing_type="10-K", filing_date=date, filing_url=url,
+            upstream_suppliers=suppliers, downstream_customers=customers, confidence="high",
+        ),
+        db,
+    )
+    db.commit()
+
+
+def test_read_graph_seeds_tier_d_edges_from_bi(db):
+    _cache_bi(db, "AXTI", suppliers=["Sumitomo", "Freiberger"], customers=["Coherent"])
+    g = scs.read_graph(db, "AXTI")
+
+    assert {e.evidence_tier for e in g.edges} == {"D"}
+    assert len(g.edges) == 3  # 2 suppliers + 1 customer
+    # suppliers point INTO the company; customers point OUT of it
+    assert {e.source_name for e in g.edges if e.relationship == "supplies"} == {
+        "Sumitomo", "Freiberger",
+    }
+    assert {e.target_name for e in g.edges if e.relationship == "customer_of"} == {"Coherent"}
+    assert {n.name for n in g.nodes} >= {"AXTI", "Sumitomo", "Freiberger", "Coherent"}
+    # no verbatim quote — that is exactly what keeps a seeded edge Tier D, not A
+    assert all(e.quote == "" for e in g.edges)
+
+
+def test_extracted_tier_a_edge_wins_over_bi_seed(db):
+    # An extracted (Tier A) edge for Sumitomo already exists...
+    db.execute(
+        text(
+            "INSERT INTO supply_chain_edges (source_symbol, source_name, target_symbol,"
+            " target_name, relationship, evidence_tier, source_url, source_doc_type,"
+            " quote, as_of_date, is_named, stale, extracted_at) VALUES"
+            " (:ss,:sn,:ts,:tn,:rel,:tier,:url,:dt,:q,:d,:named,:stale,:ext)"
+        ),
+        {
+            "ss": None, "sn": "Sumitomo", "ts": "AXTI", "tn": "AXTI",
+            "rel": "supplies", "tier": "A", "url": "https://sec.gov/x", "dt": "10-K",
+            "q": "We source InP substrates from Sumitomo.", "d": "2026-03-14",
+            "named": 1, "stale": 0, "ext": datetime.utcnow().isoformat(),
+        },
+    )
+    db.commit()
+    # ...and the BI cache lists Sumitomo (dup) plus a NEW name.
+    _cache_bi(db, "AXTI", suppliers=["Sumitomo", "Freiberger"], customers=[])
+    g = scs.read_graph(db, "AXTI")
+
+    sumitomo = [e for e in g.edges if e.source_name == "Sumitomo"]
+    assert len(sumitomo) == 1  # NOT duplicated by the seed
+    assert sumitomo[0].evidence_tier == "A"  # the verbatim-quoted edge wins
+    freiberger = [e for e in g.edges if e.source_name == "Freiberger"]
+    assert len(freiberger) == 1 and freiberger[0].evidence_tier == "D"  # seeded name survives
+
+
+def test_read_graph_without_bi_cache_is_unchanged(db):
+    g = scs.read_graph(db, "NOBODY")
+    assert g.edges == [] and g.nodes == []
+
+
 def test_read_sector_industry(db):
     from app.models.symbol import SymbolCache
 

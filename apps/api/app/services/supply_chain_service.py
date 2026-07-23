@@ -30,6 +30,7 @@ from app.schemas.supply_chain import (
     EvidenceLedgerRow,
     SupplyChainSummaryResponse,
 )
+from app.services.business_intelligence_service import load_cached_bi
 from app.services.value_chain_classifier import get_value_chain_role
 
 logger = logging.getLogger("livermore.supply_chain")
@@ -175,6 +176,66 @@ def read_summary_row(db: Session, symbol: str) -> Optional[dict]:
     return dict(row._mapping) if row else None
 
 
+def _seed_edges_from_bi(
+    db: Session, symbol: str, existing_names: set
+) -> list[ChainEdgeOut]:
+    """Seed the inferred 'map' (Tier D) from the cached business-intelligence
+    supplier/customer names.
+
+    Those names are an LLM read of the 10-K — grounded in a primary document but
+    NOT verbatim-verified — so they enter as Tier D with an empty quote, distinct
+    from the Tier A edges the strict extraction produces. Cache-only: never
+    triggers the BI analysis path (no LLM, no network). A counterparty already
+    carried by an extracted edge (in ``existing_names``) is skipped, so the
+    verbatim-quoted Tier A edge always wins the dedup.
+    """
+    try:
+        bi = load_cached_bi(symbol, db)
+    except Exception:
+        logger.exception("supply-chain seed: BI cache read failed for %s", symbol)
+        return []
+    if not bi:
+        return []
+
+    url = bi.filing_url or ""
+    as_of = bi.filing_date or ""
+    sym_l = symbol.lower()
+    seeded: list[ChainEdgeOut] = []
+
+    def _emit(name, relationship: str, upstream: bool) -> None:
+        n = name.strip() if isinstance(name, str) else ""
+        nl = n.lower()
+        if not n or nl == sym_l or nl in existing_names:
+            return
+        existing_names.add(nl)
+        if upstream:  # supplier -> company
+            src_sym, src_name, tgt_sym, tgt_name = None, n, symbol, symbol
+        else:  # company -> customer
+            src_sym, src_name, tgt_sym, tgt_name = symbol, symbol, None, n
+        seeded.append(
+            ChainEdgeOut(
+                source_symbol=src_sym,
+                source_name=src_name,
+                target_symbol=tgt_sym,
+                target_name=tgt_name,
+                relationship=relationship,
+                evidence_tier="D",
+                source_url=url,
+                source_doc_type="10-K",
+                quote="",
+                as_of_date=as_of,
+                is_named=True,
+                stale=False,
+            )
+        )
+
+    for s in bi.upstream_suppliers or []:
+        _emit(s, "supplies", upstream=True)
+    for c in bi.downstream_customers or []:
+        _emit(c, "customer_of", upstream=False)
+    return seeded
+
+
 def read_graph(db: Session, symbol: str) -> ChainGraphResponse:
     symbol = symbol.upper()
     rows = db.execute(
@@ -189,6 +250,13 @@ def read_graph(db: Session, symbol: str) -> ChainGraphResponse:
 
     edges: list[ChainEdgeOut] = []
     nodes: dict[str, ChainNode] = {}
+    existing_names: set = set()
+
+    def _add_node(sym, name) -> None:
+        key = sym or name
+        if key and key not in nodes:
+            nodes[key] = ChainNode(symbol=sym, name=name, is_listed=bool(sym))
+
     for r in rows:
         m = r._mapping
         edges.append(
@@ -211,9 +279,17 @@ def read_graph(db: Session, symbol: str) -> ChainGraphResponse:
             (m["source_symbol"], m["source_name"]),
             (m["target_symbol"], m["target_name"]),
         ):
-            key = sym or name
-            if key and key not in nodes:
-                nodes[key] = ChainNode(symbol=sym, name=name, is_listed=bool(sym))
+            _add_node(sym, name)
+            if name:
+                existing_names.add(name.strip().lower())
+
+    # Phase 1: seed the inferred map (Tier D) from cached business intelligence,
+    # skipping any counterparty already carried by an extracted (Tier A) edge.
+    for edge in _seed_edges_from_bi(db, symbol, existing_names):
+        edges.append(edge)
+        _add_node(edge.source_symbol, edge.source_name)
+        _add_node(edge.target_symbol, edge.target_name)
+
     return ChainGraphResponse(symbol=symbol, nodes=list(nodes.values()), edges=edges)
 
 

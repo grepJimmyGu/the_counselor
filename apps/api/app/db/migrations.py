@@ -1052,15 +1052,24 @@ def run_startup_migrations(engine: Engine) -> None:
             )
         """))
 
-        # PRD-08e: supply chain columns on company_business_intelligence
+        # PRD-08e: supply chain columns on company_business_intelligence.
+        # Trap #6: ADD COLUMN IF NOT EXISTS is Postgres-only. On SQLite it is a
+        # syntax error that the except swallows, so the column never existed in the
+        # test DB — which starved the supply-chain BI seed. Branch on is_sqlite; the
+        # except still absorbs the "duplicate column" case on SQLite re-runs.
         for col_name, col_type in [
             ("upstream_suppliers", "TEXT"),
             ("downstream_customers", "TEXT"),
         ]:
             try:
-                conn.execute(
-                    text(f"ALTER TABLE company_business_intelligence ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT '[]'")
-                )
+                if is_sqlite:
+                    conn.execute(
+                        text(f"ALTER TABLE company_business_intelligence ADD COLUMN {col_name} {col_type} DEFAULT '[]'")
+                    )
+                else:
+                    conn.execute(
+                        text(f"ALTER TABLE company_business_intelligence ADD COLUMN IF NOT EXISTS {col_name} {col_type} DEFAULT '[]'")
+                    )
             except Exception:
                 pass
 
