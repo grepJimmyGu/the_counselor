@@ -81,17 +81,24 @@ _ITEM_8_START = re.compile(
 
 
 def _extract_between(text: str, start_pat: re.Pattern, end_pats: list[re.Pattern]) -> str:
-    m_start = start_pat.search(text)
-    if not m_start:
-        return ""
-    content_start = m_start.end()
-    end_pos = len(text)
-    for pat in end_pats:
-        m_end = pat.search(text, content_start + 200)  # skip 200 chars to avoid false hits
-        if m_end and m_end.start() < end_pos:
-            end_pos = m_end.start()
-    section = text[content_start:end_pos].strip()
-    return section[:_MAX_SECTION_CHARS]
+    # A 10-K names each item TWICE: once in the table of contents (a short
+    # page-number entry) and once as the real section header. `.search()` returns
+    # the FIRST hit — the TOC entry — yielding a few hundred chars of page listing
+    # instead of the section body, which then starves the LLM (0 edges extracted).
+    # Scan ALL start matches and keep the one with the LONGEST body: the TOC entry
+    # is tiny, the real section runs to thousands of chars.
+    best = ""
+    for m_start in start_pat.finditer(text):
+        content_start = m_start.end()
+        end_pos = len(text)
+        for pat in end_pats:
+            m_end = pat.search(text, content_start + 200)  # skip 200 chars to avoid false hits
+            if m_end and m_end.start() < end_pos:
+                end_pos = m_end.start()
+        section = text[content_start:end_pos].strip()
+        if len(section) > len(best):
+            best = section
+    return best[:_MAX_SECTION_CHARS]
 
 
 def _extract_sections(text: str) -> FilingSections:
