@@ -189,51 +189,56 @@ def _seed_edges_from_bi(
     carried by an extracted edge (in ``existing_names``) is skipped, so the
     verbatim-quoted Tier A edge always wins the dedup.
     """
+    # The seed is enrichment, never load-bearing: ANY failure degrades to [] so the
+    # graph read still returns the extracted edges rather than 500ing.
     try:
         bi = load_cached_bi(symbol, db)
-    except Exception:
-        logger.exception("supply-chain seed: BI cache read failed for %s", symbol)
-        return []
-    if not bi:
-        return []
+        if not bi:
+            return []
 
-    url = bi.filing_url or ""
-    as_of = bi.filing_date or ""
-    sym_l = symbol.lower()
-    seeded: list[ChainEdgeOut] = []
+        # The DB hands filing_date back as a date object, not a str; ChainEdgeOut
+        # requires str fields, so coerce (a bare date here 500'd /graph for every
+        # company with a populated BI cache).
+        url = str(bi.filing_url or "")
+        as_of = str(bi.filing_date or "")
+        sym_l = symbol.lower()
+        seeded: list[ChainEdgeOut] = []
 
-    def _emit(name, relationship: str, upstream: bool) -> None:
-        n = name.strip() if isinstance(name, str) else ""
-        nl = n.lower()
-        if not n or nl == sym_l or nl in existing_names:
-            return
-        existing_names.add(nl)
-        if upstream:  # supplier -> company
-            src_sym, src_name, tgt_sym, tgt_name = None, n, symbol, symbol
-        else:  # company -> customer
-            src_sym, src_name, tgt_sym, tgt_name = symbol, symbol, None, n
-        seeded.append(
-            ChainEdgeOut(
-                source_symbol=src_sym,
-                source_name=src_name,
-                target_symbol=tgt_sym,
-                target_name=tgt_name,
-                relationship=relationship,
-                evidence_tier="D",
-                source_url=url,
-                source_doc_type="10-K",
-                quote="",
-                as_of_date=as_of,
-                is_named=True,
-                stale=False,
+        def _emit(name, relationship: str, upstream: bool) -> None:
+            n = name.strip() if isinstance(name, str) else ""
+            nl = n.lower()
+            if not n or nl == sym_l or nl in existing_names:
+                return
+            existing_names.add(nl)
+            if upstream:  # supplier -> company
+                src_sym, src_name, tgt_sym, tgt_name = None, n, symbol, symbol
+            else:  # company -> customer
+                src_sym, src_name, tgt_sym, tgt_name = symbol, symbol, None, n
+            seeded.append(
+                ChainEdgeOut(
+                    source_symbol=src_sym,
+                    source_name=src_name,
+                    target_symbol=tgt_sym,
+                    target_name=tgt_name,
+                    relationship=relationship,
+                    evidence_tier="D",
+                    source_url=url,
+                    source_doc_type="10-K",
+                    quote="",
+                    as_of_date=as_of,
+                    is_named=True,
+                    stale=False,
+                )
             )
-        )
 
-    for s in bi.upstream_suppliers or []:
-        _emit(s, "supplies", upstream=True)
-    for c in bi.downstream_customers or []:
-        _emit(c, "customer_of", upstream=False)
-    return seeded
+        for s in bi.upstream_suppliers or []:
+            _emit(s, "supplies", upstream=True)
+        for c in bi.downstream_customers or []:
+            _emit(c, "customer_of", upstream=False)
+        return seeded
+    except Exception:
+        logger.exception("supply-chain seed: failed for %s (non-fatal)", symbol)
+        return []
 
 
 def read_graph(db: Session, symbol: str) -> ChainGraphResponse:
