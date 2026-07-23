@@ -129,7 +129,7 @@ class SupplyChainExtractionService:
             return ExtractionResult(source_url=url, as_of_date=as_of)
 
         sections = parse_10k_sections(html)
-        if not sections.has_content():
+        if not sections.has_content:  # @property — not a method (calling it raised TypeError)
             return ExtractionResult(source_url=url, as_of_date=as_of)
 
         # Prompt from the (truncated) sections; verify quotes against the FULL text
