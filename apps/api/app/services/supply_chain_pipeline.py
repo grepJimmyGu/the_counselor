@@ -128,6 +128,32 @@ def _persist(
         db.commit()
 
 
+def _merge_extractions(*results: ExtractionResult) -> ExtractionResult:
+    """Combine extraction passes (10-K + 8-K), deduping edges by
+    (source_name, target_name, relationship). First occurrence wins — the 10-K pass
+    is passed first, so its edge survives when the same relationship also shows up in
+    an 8-K. Dropped counts sum; source_url / as_of come from the first pass to have one.
+    """
+    seen: set = set()
+    edges: list = []
+    dropped = 0
+    source_url = None
+    as_of = None
+    for r in results:
+        dropped += r.dropped_edge_count
+        source_url = source_url or r.source_url
+        as_of = as_of or r.as_of_date
+        for e in r.edges:
+            key = ((e.source_name or "").lower(), (e.target_name or "").lower(), e.relationship)
+            if key in seen:
+                continue
+            seen.add(key)
+            edges.append(e)
+    return ExtractionResult(
+        edges=edges, dropped_edge_count=dropped, source_url=source_url, as_of_date=as_of
+    )
+
+
 async def extract_and_persist(
     symbol: str,
     *,
@@ -145,7 +171,14 @@ async def extract_and_persist(
 
     symbol = symbol.upper()
     try:
-        extraction = await SupplyChainExtractionService(fmp_client=fmp, gateway=gateway).extract(symbol)
+        svc = SupplyChainExtractionService(fmp_client=fmp, gateway=gateway)
+        extraction_10k = await svc.extract(symbol)
+        extraction_8k = await svc.extract_8k(symbol)
+        extraction = _merge_extractions(extraction_10k, extraction_8k)
+        logger.info(
+            "supply-chain %s: edges 10-K=%d 8-K=%d merged=%d",
+            symbol, len(extraction_10k.edges), len(extraction_8k.edges), len(extraction.edges),
+        )
         assessment = await ChokepointAssessmentService(gateway=gateway).assess(symbol, extraction.edges)
         stage_result = await ChainStageService(fmp or _default_fmp()).get_stage(symbol)
     except Exception:

@@ -204,6 +204,98 @@ def test_extract_reaches_admit_via_has_content_property(monkeypatch):
     assert e.evidence_tier == "A"  # named + 10-K, assigned in code
 
 
+# ── 8-K ingestion (Phase 2a): material-agreement edges are Tier A filings ────
+def test_admit_tiers_an_8k_relationship_as_tier_a():
+    svc = SupplyChainExtractionService(fmp_client=object(), gateway=object())
+    full = _norm_ws("We entered a multi-year supply agreement with Sumitomo, a named supplier.")
+    raw = [{
+        "counterparty_name": "Sumitomo", "counterparty_symbol": None,
+        "relationship": "supplies",
+        "quote": "We entered a multi-year supply agreement with Sumitomo", "is_named": True,
+    }]
+    res = svc.admit("AXTI", raw, full, "https://sec.gov/8k", "2026-07-01", doc_type="8-K")
+    assert len(res.edges) == 1
+    e = res.edges[0]
+    assert e.evidence_tier == "A"  # 8-K is a filing -> A, computed in code
+    assert e.source_doc_type == "8-K"
+    assert e.source_name == "Sumitomo" and e.target_symbol == "AXTI"
+
+
+def test_extract_8k_admits_agreement_and_skips_non_agreements_before_llm(monkeypatch):
+    import asyncio
+
+    from app.services import supply_chain_extraction_service as mod
+
+    agreement = (
+        "On June 30, 2026, the Company entered into, under Item 1.01, a material "
+        "definitive agreement: a multi-year supply agreement with Sumitomo."
+    )
+    earnings = "The Company announced quarterly results under Item 2.02 Results of Operations."
+    htmls = {
+        "https://sec.gov/8k-agreement": f"<html><body>{agreement}</body></html>",
+        "https://sec.gov/8k-earnings": f"<html><body>{earnings}</body></html>",
+    }
+
+    class _FMP:
+        async def get_sec_filings(self, symbol, form_type, limit):
+            assert form_type == "8-K"
+            return [
+                {"finalLink": "https://sec.gov/8k-agreement", "dateFiled": "2026-06-30"},
+                {"finalLink": "https://sec.gov/8k-earnings", "dateFiled": "2026-05-01"},
+            ]
+
+    class _GW:
+        def __init__(self):
+            self.calls = 0
+
+        async def generate_json(self, **kwargs):
+            self.calls += 1
+            return {"edges": [{
+                "counterparty_name": "Sumitomo", "counterparty_symbol": None,
+                "relationship": "supplies",
+                "quote": "a multi-year supply agreement with Sumitomo", "is_named": True,
+            }]}
+
+    async def _fake_fetch(url):
+        return htmls[url]
+
+    monkeypatch.setattr(mod, "fetch_filing_html", _fake_fetch)
+    gw = _GW()
+    svc = mod.SupplyChainExtractionService(fmp_client=_FMP(), gateway=gw)
+    res = asyncio.run(svc.extract_8k("AXTI"))
+
+    assert len(res.edges) == 1  # only the Item 1.01 8-K yields an edge
+    assert res.edges[0].source_doc_type == "8-K" and res.edges[0].evidence_tier == "A"
+    assert res.edges[0].source_name == "Sumitomo"
+    assert gw.calls == 1  # the earnings 8-K was skipped BEFORE spending an LLM call
+
+
+def test_merge_extractions_dedups_keeping_the_first_pass():
+    from app.services.supply_chain_pipeline import _merge_extractions
+
+    def _edge(src_name, tgt_name, rel, doc):
+        return ExtractedEdge(
+            source_symbol=None, source_name=src_name, target_symbol=None, target_name=tgt_name,
+            relationship=rel, evidence_tier="A", source_url=f"u-{doc}", source_doc_type=doc,
+            quote="q", as_of_date="2026-03-14", is_named=True,
+        )
+
+    ten_k = ExtractionResult(edges=[_edge("Sumitomo", "AXTI", "supplies", "10-K")], dropped_edge_count=1)
+    eight_k = ExtractionResult(
+        edges=[
+            _edge("Sumitomo", "AXTI", "supplies", "8-K"),   # dup of the 10-K edge
+            _edge("AXTI", "Coherent", "customer_of", "8-K"),  # new
+        ],
+        dropped_edge_count=2,
+    )
+    merged = _merge_extractions(ten_k, eight_k)
+
+    assert len(merged.edges) == 2  # Sumitomo deduped, Coherent added
+    sumitomo = [e for e in merged.edges if e.source_name == "Sumitomo"]
+    assert len(sumitomo) == 1 and sumitomo[0].source_doc_type == "10-K"  # first pass wins
+    assert merged.dropped_edge_count == 3
+
+
 # ── dedicated supply-chain LLM gateway ──────────────────────────────────────
 def test_gateway_falls_back_to_app_default_without_dedicated_config(monkeypatch):
     from app.services import supply_chain_llm
