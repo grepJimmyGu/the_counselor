@@ -152,3 +152,26 @@ def test_persist_round_trip(db):
     graph = scs.read_graph(db, "AXTI")
     assert len(graph.edges) == 1 and graph.edges[0].evidence_tier == "A"
     assert scs.read_evidence(db, "AXTI")  # ledger populated
+
+
+# ── dedicated supply-chain LLM gateway ──────────────────────────────────────
+def test_gateway_falls_back_to_app_default_without_dedicated_config(monkeypatch):
+    from app.services import supply_chain_llm
+    from app.services.llm_adapter import get_llm_gateway
+
+    monkeypatch.delenv("SUPPLY_CHAIN_LLM_BASE_URL", raising=False)
+    monkeypatch.delenv("SUPPLY_CHAIN_LLM_API_KEY", raising=False)
+    # No dedicated provider set → reuse the app's default gateway (same object).
+    assert supply_chain_llm.get_supply_chain_gateway() is get_llm_gateway()
+
+
+def test_gateway_routes_to_dedicated_provider_when_both_vars_set(monkeypatch):
+    from app.services import supply_chain_llm
+
+    monkeypatch.setenv("SUPPLY_CHAIN_LLM_BASE_URL", "https://api.deepseek.com/v1")
+    monkeypatch.setenv("SUPPLY_CHAIN_LLM_API_KEY", "sk-test-deepseek-key")
+    gw = supply_chain_llm.get_supply_chain_gateway()
+    assert gw.settings.llm_base_url == "https://api.deepseek.com/v1"
+    assert gw.settings.llm_api_key == "sk-test-deepseek-key"
+    assert gw.settings.llm_provider == "openai_compatible"
+    assert gw.is_enabled  # a provider was built against the dedicated endpoint
