@@ -151,19 +151,28 @@ class SupplyChainExtractionService:
         raw = payload.get("edges") if isinstance(payload, dict) else None
         return self.admit(symbol, raw or [], full_text, url, as_of)
 
-    async def extract_8k(self, symbol: str, limit: int = 6) -> ExtractionResult:
-        """Scan recent 8-K filings for material definitive agreements (Item 1.01)
-        and admit any quote-verified named relationships as Tier A (an 8-K is a
-        filing). This catches signed deals filed between annual reports.
+    async def extract_filings(
+        self,
+        symbol: str,
+        filing_type: str,
+        limit: int,
+        markers: Optional[list] = None,
+        char_budget: int = 12000,
+    ) -> ExtractionResult:
+        """Generic pass over recent filings of one type: fetch each, (optionally)
+        skip any lacking a required marker BEFORE an LLM call, extract, and admit
+        at the filing's tier (any SEC filing -> Tier A, computed in ``admit``).
 
-        Most 8-Ks are earnings / officer changes, not agreements, so we cheaply
-        skip any whose text lacks the Item 1.01 marker BEFORE spending an LLM call.
+        Used for 8-K / 10-Q / S-1 / 20-F. The 10-K keeps its own section-parse path
+        in ``extract()`` because it is far larger and its supplier/customer content
+        lives in specific items.
         """
         symbol = symbol.upper()
+        markers = [m.lower() for m in (markers or [])]
         try:
-            filings = await self._fmp.get_sec_filings(symbol, "8-K", limit)
+            filings = await self._fmp.get_sec_filings(symbol, filing_type, limit)
         except Exception:
-            logger.exception("extraction: 8-K get_sec_filings failed for %s", symbol)
+            logger.exception("extraction: %s get_sec_filings failed for %s", filing_type, symbol)
             return ExtractionResult()
 
         all_edges: list[ExtractedEdge] = []
@@ -180,23 +189,23 @@ class SupplyChainExtractionService:
             try:
                 html = await fetch_filing_html(url)
             except Exception:
-                logger.exception("extraction: 8-K fetch_filing_html failed for %s", symbol)
+                logger.exception("extraction: %s fetch_filing_html failed for %s", filing_type, symbol)
                 continue
             full_text = _norm_ws(_html_to_text(html))  # normalized + lowercased
-            if "item 1.01" not in full_text and "material definitive agreement" not in full_text:
-                continue  # not a material-agreement 8-K — skip before an LLM call
+            if markers and not any(m in full_text for m in markers):
+                continue  # required marker absent — skip before spending an LLM call
             try:
                 payload = await self._gateway.generate_json(
                     system_prompt=_EXTRACTION_SYSTEM,
-                    user_prompt=f"Filing company: {symbol}\n\n8-K filing text:\n{full_text[:12000]}",
+                    user_prompt=f"Filing company: {symbol}\n\n{filing_type} filing text:\n{full_text[:char_budget]}",
                     temperature=0.1,
                     model=self._model(),
                 )
             except LLMAdapterError:
-                logger.exception("extraction: 8-K LLM failed for %s", symbol)
+                logger.exception("extraction: %s LLM failed for %s", filing_type, symbol)
                 continue
             raw = payload.get("edges") if isinstance(payload, dict) else None
-            res = self.admit(symbol, raw or [], full_text, url, as_of, doc_type="8-K")
+            res = self.admit(symbol, raw or [], full_text, url, as_of, doc_type=filing_type)
             all_edges.extend(res.edges)
             dropped += res.dropped_edge_count
             last_url, last_as_of = url, as_of
@@ -206,6 +215,15 @@ class SupplyChainExtractionService:
             dropped_edge_count=dropped,
             source_url=last_url,
             as_of_date=last_as_of,
+        )
+
+    async def extract_8k(self, symbol: str, limit: int = 6) -> ExtractionResult:
+        """Recent 8-K material definitive agreements (Item 1.01) — signed deals
+        filed between annual reports. Most 8-Ks are earnings / officer changes, so
+        the marker gate skips them before any LLM call."""
+        return await self.extract_filings(
+            symbol, "8-K", limit,
+            markers=["item 1.01", "material definitive agreement"],
         )
 
     def admit(

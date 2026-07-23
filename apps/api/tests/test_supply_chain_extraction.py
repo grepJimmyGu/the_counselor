@@ -296,6 +296,40 @@ def test_merge_extractions_dedups_keeping_the_first_pass():
     assert merged.dropped_edge_count == 3
 
 
+def test_extract_filings_generic_10q_is_tier_a(monkeypatch):
+    """The generalized pass (no marker) admits a 10-Q relationship as Tier A —
+    the same doc_type-driven tiering, covering 10-Q / S-1 / 20-F."""
+    import asyncio
+
+    from app.services import supply_chain_extraction_service as mod
+
+    body = "We continue to purchase InP substrates from Sumitomo under our supply agreement."
+
+    class _FMP:
+        async def get_sec_filings(self, symbol, form_type, limit):
+            assert form_type == "10-Q"
+            return [{"finalLink": "https://sec.gov/10q", "dateFiled": "2026-05-10"}]
+
+    class _GW:
+        async def generate_json(self, **kwargs):
+            return {"edges": [{
+                "counterparty_name": "Sumitomo", "counterparty_symbol": None,
+                "relationship": "supplies",
+                "quote": "purchase InP substrates from Sumitomo", "is_named": True,
+            }]}
+
+    async def _fake_fetch(url):
+        return f"<html><body>{body}</body></html>"
+
+    monkeypatch.setattr(mod, "fetch_filing_html", _fake_fetch)
+    svc = mod.SupplyChainExtractionService(fmp_client=_FMP(), gateway=_GW())
+    res = asyncio.run(svc.extract_filings("AXTI", "10-Q", 2))
+
+    assert len(res.edges) == 1
+    assert res.edges[0].source_doc_type == "10-Q" and res.edges[0].evidence_tier == "A"
+    assert res.edges[0].source_name == "Sumitomo"
+
+
 # ── dedicated supply-chain LLM gateway ──────────────────────────────────────
 def test_gateway_falls_back_to_app_default_without_dedicated_config(monkeypatch):
     from app.services import supply_chain_llm
