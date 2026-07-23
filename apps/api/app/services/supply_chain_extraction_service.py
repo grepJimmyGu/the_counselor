@@ -151,6 +151,63 @@ class SupplyChainExtractionService:
         raw = payload.get("edges") if isinstance(payload, dict) else None
         return self.admit(symbol, raw or [], full_text, url, as_of)
 
+    async def extract_8k(self, symbol: str, limit: int = 6) -> ExtractionResult:
+        """Scan recent 8-K filings for material definitive agreements (Item 1.01)
+        and admit any quote-verified named relationships as Tier A (an 8-K is a
+        filing). This catches signed deals filed between annual reports.
+
+        Most 8-Ks are earnings / officer changes, not agreements, so we cheaply
+        skip any whose text lacks the Item 1.01 marker BEFORE spending an LLM call.
+        """
+        symbol = symbol.upper()
+        try:
+            filings = await self._fmp.get_sec_filings(symbol, "8-K", limit)
+        except Exception:
+            logger.exception("extraction: 8-K get_sec_filings failed for %s", symbol)
+            return ExtractionResult()
+
+        all_edges: list[ExtractedEdge] = []
+        dropped = 0
+        last_url: Optional[str] = None
+        last_as_of: Optional[str] = None
+        for f in filings or []:
+            url = f.get("finalLink") or f.get("link")
+            if not url:
+                continue
+            as_of = str(
+                f.get("dateFiled") or f.get("acceptedDate") or f.get("date") or date.today().isoformat()
+            )[:10]
+            try:
+                html = await fetch_filing_html(url)
+            except Exception:
+                logger.exception("extraction: 8-K fetch_filing_html failed for %s", symbol)
+                continue
+            full_text = _norm_ws(_html_to_text(html))  # normalized + lowercased
+            if "item 1.01" not in full_text and "material definitive agreement" not in full_text:
+                continue  # not a material-agreement 8-K — skip before an LLM call
+            try:
+                payload = await self._gateway.generate_json(
+                    system_prompt=_EXTRACTION_SYSTEM,
+                    user_prompt=f"Filing company: {symbol}\n\n8-K filing text:\n{full_text[:12000]}",
+                    temperature=0.1,
+                    model=self._model(),
+                )
+            except LLMAdapterError:
+                logger.exception("extraction: 8-K LLM failed for %s", symbol)
+                continue
+            raw = payload.get("edges") if isinstance(payload, dict) else None
+            res = self.admit(symbol, raw or [], full_text, url, as_of, doc_type="8-K")
+            all_edges.extend(res.edges)
+            dropped += res.dropped_edge_count
+            last_url, last_as_of = url, as_of
+
+        return ExtractionResult(
+            edges=all_edges,
+            dropped_edge_count=dropped,
+            source_url=last_url,
+            as_of_date=last_as_of,
+        )
+
     def admit(
         self,
         symbol: str,
@@ -158,8 +215,14 @@ class SupplyChainExtractionService:
         full_text_normalized: str,
         source_url: str,
         as_of: str,
+        doc_type: str = "10-K",
     ) -> ExtractionResult:
-        """The evidence gate. Pure — unit-tested directly with fake LLM output."""
+        """The evidence gate. Pure — unit-tested directly with fake LLM output.
+
+        ``doc_type`` sets the source document (10-K, 8-K, …); the tier is computed
+        from it in code via ``assign_tier`` — an 8-K is a filing, so a verbatim
+        named relationship from one is Tier A, same as a 10-K.
+        """
         result = ExtractionResult(source_url=source_url, as_of_date=as_of)
         for e in raw_edges:
             if not isinstance(e, dict):
@@ -180,7 +243,7 @@ class SupplyChainExtractionService:
                 result.dropped_edge_count += 1
                 continue
 
-            tier = assign_tier(is_named, "10-K")
+            tier = assign_tier(is_named, doc_type)
             cp_sym = e.get("counterparty_symbol")
             cp_sym = cp_sym.upper() if isinstance(cp_sym, str) and cp_sym.strip() else None
 
@@ -200,7 +263,7 @@ class SupplyChainExtractionService:
                     relationship=rel,
                     evidence_tier=tier,
                     source_url=source_url,
-                    source_doc_type="10-K",
+                    source_doc_type=doc_type,
                     quote=quote[:400],
                     as_of_date=as_of,
                     is_named=is_named,
