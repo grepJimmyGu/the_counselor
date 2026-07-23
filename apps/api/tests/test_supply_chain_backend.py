@@ -189,6 +189,31 @@ def test_read_graph_without_bi_cache_is_unchanged(db):
     assert g.edges == [] and g.nodes == []
 
 
+def test_seed_survives_non_string_filing_date(db, monkeypatch):
+    """Regression: Postgres hands filing_date back as a date object, not a str.
+    ChainEdgeOut requires str fields, so read_graph 500'd for every company with a
+    populated BI cache (AAPL/TSLA). The seed must coerce and never break the read.
+    """
+    import datetime as _dt
+
+    from app.services import supply_chain_service as scs_mod
+    from app.services.business_intelligence_service import BusinessIntelligence
+
+    bi = BusinessIntelligence(
+        symbol="AAPL", filing_type="10-K",
+        filing_date=_dt.date(2026, 3, 14),  # a DATE object, not a string
+        filing_url="https://sec.gov/x",
+        upstream_suppliers=["TSMC"], downstream_customers=["Enterprise"],
+    )
+    monkeypatch.setattr(scs_mod, "load_cached_bi", lambda symbol, session: bi)
+
+    g = scs_mod.read_graph(db, "AAPL")  # must NOT raise
+
+    assert len(g.edges) == 2
+    assert all(isinstance(e.as_of_date, str) for e in g.edges)  # coerced to str
+    assert {e.as_of_date for e in g.edges} == {"2026-03-14"}
+
+
 def test_read_sector_industry(db):
     from app.models.symbol import SymbolCache
 
