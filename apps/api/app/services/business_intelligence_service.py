@@ -247,6 +247,15 @@ def _load_cache(symbol: str, db: Session) -> BusinessIntelligence | None:
     )
 
 
+def load_cached_bi(symbol: str, db: Session) -> Optional[BusinessIntelligence]:
+    """Cache-only read (no LLM fetch, no network) of the business-intelligence row.
+
+    Lets the supply-chain lens seed its inferred 'map' from the already-computed
+    supplier/customer names without ever triggering the expensive analysis path.
+    Returns None when nothing is cached (or the cache has expired)."""
+    return _load_cache(symbol.upper(), db)
+
+
 def _save_cache(bi: BusinessIntelligence, db: Session) -> None:
     expires_at = datetime.utcnow() + timedelta(days=_CACHE_TTL_DAYS)
     try:
