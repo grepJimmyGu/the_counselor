@@ -172,12 +172,21 @@ async def extract_and_persist(
     symbol = symbol.upper()
     try:
         svc = SupplyChainExtractionService(fmp_client=fmp, gateway=gateway)
-        extraction_10k = await svc.extract(symbol)
-        extraction_8k = await svc.extract_8k(symbol)
-        extraction = _merge_extractions(extraction_10k, extraction_8k)
+        extraction_10k = await svc.extract(symbol)                          # 10-K (section-parse)
+        extraction_8k = await svc.extract_8k(symbol)                        # 8-K material agreements
+        extraction_10q = await svc.extract_filings(symbol, "10-Q", 2)       # quarterly refresh
+        # S-1 (IPO prospectus — named customers) + 20-F (foreign issuers' annual);
+        # best-effort over the front matter (bigger budget), often absent -> no-op.
+        extraction_s1 = await svc.extract_filings(symbol, "S-1", 1, char_budget=16000)
+        extraction_20f = await svc.extract_filings(symbol, "20-F", 1, char_budget=16000)
+        extraction = _merge_extractions(
+            extraction_10k, extraction_8k, extraction_10q, extraction_s1, extraction_20f
+        )
         logger.info(
-            "supply-chain %s: edges 10-K=%d 8-K=%d merged=%d",
-            symbol, len(extraction_10k.edges), len(extraction_8k.edges), len(extraction.edges),
+            "supply-chain %s: edges 10-K=%d 8-K=%d 10-Q=%d S-1=%d 20-F=%d merged=%d",
+            symbol, len(extraction_10k.edges), len(extraction_8k.edges),
+            len(extraction_10q.edges), len(extraction_s1.edges), len(extraction_20f.edges),
+            len(extraction.edges),
         )
         assessment = await ChokepointAssessmentService(gateway=gateway).assess(symbol, extraction.edges)
         stage_result = await ChainStageService(fmp or _default_fmp()).get_stage(symbol)
