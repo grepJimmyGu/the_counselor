@@ -14,7 +14,8 @@ import os
 from dataclasses import dataclass, field
 from typing import Optional
 
-from app.services.llm_adapter import LLMAdapterError, get_llm_gateway
+from app.services.llm_adapter import LLMAdapterError
+from app.services.supply_chain_llm import get_supply_chain_gateway
 
 logger = logging.getLogger("livermore.supply_chain")
 
@@ -71,7 +72,7 @@ def _tier_of(edge) -> Optional[str]:
 
 class ChokepointAssessmentService:
     def __init__(self, gateway=None) -> None:
-        self._gateway = gateway or get_llm_gateway()
+        self._gateway = gateway or get_supply_chain_gateway()
 
     @staticmethod
     def _model() -> Optional[str]:
