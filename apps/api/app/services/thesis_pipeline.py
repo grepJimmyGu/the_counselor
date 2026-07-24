@@ -64,6 +64,7 @@ async def _fetch_financials(fmp, symbol: str) -> tuple[dict, dict]:
     income = await _safe(fmp.get_income_statement(symbol, limit=2))
     metrics = _first(await _safe(fmp.get_key_metrics(symbol, limit=1)))
     cash = _first(await _safe(fmp.get_cash_flow(symbol, limit=1)))
+    balance = _first(await _safe(fmp.get_balance_sheet(symbol, limit=1)))
 
     income_list = income if isinstance(income, list) else []
     latest = income_list[0] if income_list else {}
@@ -74,6 +75,19 @@ async def _fetch_financials(fmp, symbol: str) -> tuple[dict, dict]:
         r0, r1 = income_list[0].get("revenue"), income_list[1].get("revenue")
         if _num(r0) and _num(r1) and r1:
             revenue_yoy = round((r0 - r1) / r1, 4)
+
+    # Financing-quality signals for gate 7 (the veto): dilution, cash runway, debt.
+    ocf = cash.get("operatingCashFlow") or cash.get("netCashProvidedByOperatingActivities")
+    shares_dilution_yoy = None
+    if len(income_list) >= 2:
+        s0, s1 = income_list[0].get("weightedAverageShsOut"), income_list[1].get("weightedAverageShsOut")
+        if _num(s0) and _num(s1) and s1:
+            shares_dilution_yoy = round((s0 - s1) / s1, 4)
+    cash_on_hand = balance.get("cashAndShortTermInvestments") or balance.get("cashAndCashEquivalents")
+    total_debt = balance.get("totalDebt")
+    cash_runway_years = (
+        round(cash_on_hand / abs(ocf), 2) if _num(cash_on_hand) and _num(ocf) and ocf < 0 else None
+    )
 
     fmp_business = {
         "description": (profile.get("description") or "")[:1000],
@@ -89,9 +103,13 @@ async def _fetch_financials(fmp, symbol: str) -> tuple[dict, dict]:
         "market_cap": fmp_business["market_cap"],
         "gaap_gross_margin": gaap_gross_margin,
         "revenue_yoy": revenue_yoy,
-        "operating_cash_flow": (
-            cash.get("operatingCashFlow") or cash.get("netCashProvidedByOperatingActivities")
-        ),
+        "operating_cash_flow": ocf,
+        "financing_signals": {
+            "shares_dilution_yoy": shares_dilution_yoy,
+            "cash_on_hand": cash_on_hand,
+            "total_debt": total_debt,
+            "cash_runway_years": cash_runway_years,
+        },
         "key_metrics": metrics,
     }
     return fmp_business, financials
