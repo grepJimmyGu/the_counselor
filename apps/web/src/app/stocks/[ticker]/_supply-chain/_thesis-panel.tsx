@@ -76,6 +76,11 @@ export function ThesisPanel({ thesis }: { thesis: BottleneckThesis }) {
             <div className="mt-0.5 text-lg font-semibold capitalize">
               {t.verdict.replace(/_/g, " ")}
             </div>
+            {t.computed_at && (
+              <div className="mt-0.5 text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                As of {t.computed_at.slice(0, 10)}
+              </div>
+            )}
           </div>
           <div className="flex items-center gap-3">
             <span className={cn("rounded-full border px-3 py-0.5 text-xs font-medium", band.cls)}>
