@@ -57,6 +57,31 @@ class RiskProfile(BaseModel):
     factor_overlap: str = "unknown"
 
 
+class FinancialDriver(BaseModel):
+    driver: str
+    low: str = ""
+    base: str = ""
+    high: str = ""
+    source: str = ""
+
+
+class ForwardFinancials(BaseModel):
+    """Section 5 — a FORWARD unit-economics sensitivity, never a point estimate or
+    a price target. Trailing revenue is flagged as (not) meaningful for pre-ramp
+    names. The drivers vary by company; the LLM reasons low/base/high grounded in
+    the supplied market cap, trailing revenue, and GAAP margin."""
+
+    trailing_meaningful: bool = True
+    trailing_note: str = ""
+    drivers: list[FinancialDriver] = Field(default_factory=list)
+    market_cap: str = ""
+    trailing_revenue: str = ""
+    gaap_gross_margin: str = ""
+    contracted_forward_revenue: str = ""
+    capital_required: str = ""
+    funded_by: str = ""
+
+
 class BottleneckThesisResponse(BaseModel):
     symbol: str
     # chokepoint | adjacent_supplier | theme_exposure | insufficient_evidence
@@ -69,6 +94,7 @@ class BottleneckThesisResponse(BaseModel):
     chain_map: list[ChainHop] = Field(default_factory=list)
     chokepoint_argument: ChokepointArgument = Field(default_factory=ChokepointArgument)
     evidence_table: list[ThesisEvidenceRow] = Field(default_factory=list)
+    forward_financials: Optional[ForwardFinancials] = None
     gates: list[ThesisGate] = Field(default_factory=list)
     invalidation_tests: list[str] = Field(default_factory=list)
     risk_profile: RiskProfile = Field(default_factory=RiskProfile)

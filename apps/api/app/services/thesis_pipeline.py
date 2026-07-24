@@ -46,6 +46,10 @@ def _first(x):
     return x if isinstance(x, dict) else {}
 
 
+def _num(x) -> bool:
+    return isinstance(x, (int, float)) and not isinstance(x, bool)
+
+
 async def _fetch_financials(fmp, symbol: str) -> tuple[dict, dict]:
     """Returns (fmp_business, financials). Each FMP call is guarded so one failure
     doesn't sink the thesis — the reasoner tolerates missing fields."""
@@ -59,6 +63,17 @@ async def _fetch_financials(fmp, symbol: str) -> tuple[dict, dict]:
     profile = _first(await _safe(fmp.get_profile(symbol)))
     income = await _safe(fmp.get_income_statement(symbol, limit=2))
     metrics = _first(await _safe(fmp.get_key_metrics(symbol, limit=1)))
+    cash = _first(await _safe(fmp.get_cash_flow(symbol, limit=1)))
+
+    income_list = income if isinstance(income, list) else []
+    latest = income_list[0] if income_list else {}
+    rev, gp = latest.get("revenue"), latest.get("grossProfit")
+    gaap_gross_margin = round(gp / rev, 4) if _num(rev) and _num(gp) and rev else None
+    revenue_yoy = None
+    if len(income_list) >= 2:
+        r0, r1 = income_list[0].get("revenue"), income_list[1].get("revenue")
+        if _num(r0) and _num(r1) and r1:
+            revenue_yoy = round((r0 - r1) / r1, 4)
 
     fmp_business = {
         "description": (profile.get("description") or "")[:1000],
@@ -69,9 +84,14 @@ async def _fetch_financials(fmp, symbol: str) -> tuple[dict, dict]:
             {"date": s.get("date"), "revenue": s.get("revenue"),
              "grossProfit": s.get("grossProfit"),
              "rnd": s.get("researchAndDevelopmentExpenses")}
-            for s in (income if isinstance(income, list) else [])[:2]
+            for s in income_list[:2]
         ],
         "market_cap": fmp_business["market_cap"],
+        "gaap_gross_margin": gaap_gross_margin,
+        "revenue_yoy": revenue_yoy,
+        "operating_cash_flow": (
+            cash.get("operatingCashFlow") or cash.get("netCashProvidedByOperatingActivities")
+        ),
         "key_metrics": metrics,
     }
     return fmp_business, financials

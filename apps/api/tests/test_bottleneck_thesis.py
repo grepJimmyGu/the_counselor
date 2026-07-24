@@ -84,6 +84,33 @@ def test_derive_maps_map_and_evidence_sections():
     assert t.fit_score == 0 and t.band == "watch_item"  # no gates -> honest 0
 
 
+def test_derive_maps_forward_financials():
+    svc = BottleneckThesisService(gateway=object())
+    payload = {
+        "forward_financials": {
+            "trailing_meaningful": False,
+            "trailing_note": "pre-ramp; trailing revenue near-meaningless",
+            "drivers": [
+                {"driver": "Capacity allocation %", "low": "10%", "base": "25%", "high": "40%", "source": "assumption"},
+                {"driver": "Revenue", "low": "$50M", "base": "$120M", "high": "$200M", "source": "derived"},
+            ],
+            "market_cap": "$2.45B", "trailing_revenue": "$100M", "gaap_gross_margin": "12%",
+            "contracted_forward_revenue": "unknown", "capital_required": "$150M", "funded_by": "cash + ATM",
+        },
+        "gates": [],
+    }
+    ff = svc.derive("AXTI", payload).forward_financials
+    assert ff is not None and ff.trailing_meaningful is False
+    assert len(ff.drivers) == 2
+    assert ff.drivers[0].driver == "Capacity allocation %" and ff.drivers[0].base == "25%"
+    assert ff.market_cap == "$2.45B" and ff.gaap_gross_margin == "12%" and ff.funded_by == "cash + ATM"
+
+
+def test_derive_without_forward_financials_is_none():
+    t = BottleneckThesisService(gateway=object()).derive("AXTI", {"gates": []})
+    assert t.forward_financials is None
+
+
 def test_assemble_context_is_pure_and_uppercases():
     ctx = BottleneckThesisService.assemble_context(
         "axti", business={"sector": "Tech"}, edges=[{"source": "AXT"}],
