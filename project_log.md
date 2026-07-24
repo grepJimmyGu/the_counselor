@@ -1638,3 +1638,46 @@ standalone `/screens/[id]` dashboard + "My Screens" list. This is the next task
 - **PR3** — intraday snapshot (`resolution='intraday'`), genuinely optional (the
   spec's "the option"); daily screening already works.
 
+---
+
+## The supply-chain bottleneck thesis engine — Phase 3 + the warm (July 24)
+
+The Supply Chain company-page tab went from empty to a full graded-thesis product,
+faithful to the `bottleneck-research` method (structure + evidence, never a
+recommendation).
+
+**The unblock — three stacked bugs, found by end-to-end verification, not unit
+tests.** With extraction enabled, `POST /refresh` returned `ok:false`, then
+`ok:true / edges:0`. Pulling the Railway traceback (after first mis-diagnosing from
+`railway variables`) revealed the layers in turn: a `has_content()` crash — a
+`@property` called as a method (#260); a 10-K parser matching the **table of
+contents** instead of the section bodies, because `.search()` returns the first
+`Item 1` hit (#261); and the DeepSeek routing, fixed by a dedicated per-feature
+gateway so the supply-chain LLM calls run on DeepSeek while the app stays on
+`gpt-4o-mini` (#259). Then the Phase-1 seed 500'd `/graph` on a **non-string
+`filing_date`** — the empty-BI AXTI check had hidden it; AAPL (populated BI) exposed
+it (#264 hotfix).
+
+**Ingestion (Phase 0–2).** Parser TOC fix (#261); seed the inferred *map* as Tier-D
+edges from the business-intelligence supplier/customer names, deduped so extracted
+Tier-A wins (#262); **8-K Item 1.01** material-agreement extraction as Tier A (#263)
+— which surfaced AXTI's real Nanjing Casela customer the 10-K never named;
+generalized 10-Q/S-1/20-F ingestion (#265, with the honest finding that mature
+filers yield ~0 — 10-K + 8-K are the workhorses).
+
+**The reasoning engine (Phase 3) — the actual product.** Turns the ingested evidence
+into the graded thesis: architecture transition, multi-hop chain map, chokepoint
+argument, tiered evidence, forward-financial sensitivity, the 14-gate scorecard with
+its two vetoes, catalysts, and ≥5 invalidation tests. The LLM reasons the *map* +
+scores each gate with a tier; the **fit-score total + vetoes are computed in code**
+(mirroring the chokepoint verdict). 3a engine (#266), 3b forward financials (#267),
+3c financing signals + catalysts (#268), 3d UI (#269). Enabled on `deepseek-reasoner`.
+
+**The warm (#270).** Extraction + thesis are per-symbol gated `/refresh`, so results
+only existed where fired (AXTI). A curated **42-name chokepoint set**
+(`app/data/bottleneck_candidates.py`, centered on the AI-infra / electrical→optical /
+semicap chain) + `scripts/warm_bottleneck_lens.py` fire the live endpoints to
+populate the cluster server-side; results persist indefinitely in Postgres (no TTL —
+re-warm ~quarterly). A freshness byline (`computed_at`) on the panel per the
+"date stamps must be visible" invariant.
+
