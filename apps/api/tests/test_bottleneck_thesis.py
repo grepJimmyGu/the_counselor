@@ -111,6 +111,21 @@ def test_derive_without_forward_financials_is_none():
     assert t.forward_financials is None
 
 
+def test_derive_maps_catalyst_calendar():
+    svc = BottleneckThesisService(gateway=object())
+    payload = {
+        "catalyst_calendar": [
+            {"date": "2027", "event": "Casela InP purchase commitment", "confirms_or_breaks": "confirms demand ramp"},
+            {"date": "Q4 2026", "event": "gross-margin inflection", "confirms_or_breaks": "breaks distress narrative"},
+        ],
+        "gates": [],
+    }
+    t = svc.derive("AXTI", payload)
+    assert len(t.catalyst_calendar) == 2
+    assert t.catalyst_calendar[0].date == "2027" and "Casela" in t.catalyst_calendar[0].event
+    assert t.catalyst_calendar[1].confirms_or_breaks == "breaks distress narrative"
+
+
 def test_assemble_context_is_pure_and_uppercases():
     ctx = BottleneckThesisService.assemble_context(
         "axti", business={"sector": "Tech"}, edges=[{"source": "AXT"}],

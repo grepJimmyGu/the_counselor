@@ -82,6 +82,14 @@ class ForwardFinancials(BaseModel):
     funded_by: str = ""
 
 
+class CatalystEvent(BaseModel):
+    """Section 7 — a dated event that would confirm or break the thesis."""
+
+    date: str = ""
+    event: str = ""
+    confirms_or_breaks: str = ""
+
+
 class BottleneckThesisResponse(BaseModel):
     symbol: str
     # chokepoint | adjacent_supplier | theme_exposure | insufficient_evidence
@@ -96,6 +104,7 @@ class BottleneckThesisResponse(BaseModel):
     evidence_table: list[ThesisEvidenceRow] = Field(default_factory=list)
     forward_financials: Optional[ForwardFinancials] = None
     gates: list[ThesisGate] = Field(default_factory=list)
+    catalyst_calendar: list[CatalystEvent] = Field(default_factory=list)
     invalidation_tests: list[str] = Field(default_factory=list)
     risk_profile: RiskProfile = Field(default_factory=RiskProfile)
     could_not_verify: list[str] = Field(default_factory=list)

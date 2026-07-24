@@ -25,6 +25,7 @@ from typing import Optional
 from app.schemas.bottleneck_thesis import (
     ArchitectureTransition,
     BottleneckThesisResponse,
+    CatalystEvent,
     ChainHop,
     ChokepointArgument,
     FinancialDriver,
@@ -75,6 +76,15 @@ _REASONING_SYSTEM = (
     "ASP, addressable share), then the derived revenue + gross-profit bands as driver "
     "rows. Anchor market_cap, trailing_revenue, and gaap_gross_margin to the SUPPLIED "
     "financials; state each assumption's basis in its source field.\n\n"
+    "Gate 7 (financing quality — VETO): judge from the supplied financing_signals "
+    "(share dilution YoY, cash runway, debt). Heavy open-market dilution into weak cash "
+    "with negative operating cash flow is toxic -> VETO; a one-time strategic / funded "
+    "raise is constructive -> PASS. Gate 13 (factor overlap — VETO) is assessed "
+    "PER-PORTFOLIO (whether the READER holds other names sharing this driver); at the "
+    "company level note the shared driver but mark PASS unless the evidence itself shows "
+    "crowding. Section 7 (catalyst calendar): list DATED events already implied by the "
+    "evidence (contract/commitment dates, ramp milestones, qualification decisions) that "
+    "would confirm or break the thesis.\n\n"
     "Return ONLY JSON:\n"
     "{\n"
     '  "verdict": "chokepoint|adjacent_supplier|theme_exposure|insufficient_evidence",\n'
@@ -84,6 +94,7 @@ _REASONING_SYSTEM = (
     '  "evidence_table": [{"claim": str, "tier": str, "source": str, "date": str, "falsifier": str}],\n'
     '  "forward_financials": {"trailing_meaningful": bool, "trailing_note": str, "drivers": [{"driver": str, "low": str, "base": str, "high": str, "source": str}], "market_cap": str, "trailing_revenue": str, "gaap_gross_margin": str, "contracted_forward_revenue": str, "capital_required": str, "funded_by": str},\n'
     '  "gates": [{"n": int, "name": str, "score": "0|1|2|VETO|PASS", "tier": str, "note": str}],\n'
+    '  "catalyst_calendar": [{"date": str, "event": str, "confirms_or_breaks": str}],\n'
     '  "invalidation_tests": [str],\n'
     '  "risk_profile": {"binariness": str, "liquidity": str, "crowding": str, "factor_overlap": str},\n'
     '  "could_not_verify": [str]\n'
@@ -248,6 +259,15 @@ class BottleneckThesisService:
                 funded_by=str(ff.get("funded_by") or ""),
             )
 
+        catalysts = [
+            CatalystEvent(
+                date=str(c.get("date") or ""),
+                event=str(c.get("event") or ""),
+                confirms_or_breaks=str(c.get("confirms_or_breaks") or ""),
+            )
+            for c in (payload.get("catalyst_calendar") or []) if isinstance(c, dict)
+        ]
+
         return BottleneckThesisResponse(
             symbol=symbol.upper(),
             verdict=str(payload.get("verdict") or "insufficient_evidence"),
@@ -260,6 +280,7 @@ class BottleneckThesisService:
             evidence_table=evidence,
             forward_financials=forward,
             gates=gates,
+            catalyst_calendar=catalysts,
             invalidation_tests=[str(x) for x in (payload.get("invalidation_tests") or []) if x],
             risk_profile=risk,
             could_not_verify=[str(x) for x in (payload.get("could_not_verify") or []) if x],
