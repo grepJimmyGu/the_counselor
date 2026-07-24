@@ -30,6 +30,7 @@ import type {
   SymbolSearchItem,
   WarmupResponse,
   SupplyChainSummary,
+  BottleneckThesis,
   ChainGraph,
   EvidenceLedgerRow,
 } from "@/lib/contracts";
@@ -1294,6 +1295,12 @@ export async function getSupplyChainGraph(symbol: string): Promise<ChainGraph> {
 export async function getSupplyChainEvidence(symbol: string): Promise<EvidenceLedgerRow[]> {
   return fetchApi<EvidenceLedgerRow[]>(
     `/api/supply-chain/${encodeURIComponent(symbol)}/evidence`
+  );
+}
+
+export async function getBottleneckThesis(symbol: string): Promise<BottleneckThesis> {
+  return fetchApi<BottleneckThesis>(
+    `/api/supply-chain/${encodeURIComponent(symbol)}/thesis`
   );
 }
 

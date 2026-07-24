@@ -3016,3 +3016,96 @@ export interface EvidenceLedgerRow {
   as_of_date?: string | null;
   falsifier?: string | null;
 }
+
+// ── Phase 3: bottleneck thesis (reasoning engine) ──────────────────────────
+export interface ArchitectureTransition {
+  from_state: string;
+  to_state: string;
+  what_becomes_scarce: string;
+  transition_exists: boolean;
+}
+
+export interface ChainHop {
+  hop: number;
+  layer: string;
+  named_players: string[];
+  status: string; // abundant | constrained | unknown
+}
+
+export interface ThesisChokepointArgument {
+  if_stops: string;
+  downstream_breaks: string;
+  mechanism: string;
+  nearest_substitute: string;
+  substitute_status: string;
+}
+
+export interface ThesisEvidenceRow {
+  claim: string;
+  tier: string;
+  source: string;
+  date: string;
+  falsifier: string;
+}
+
+export interface ThesisGate {
+  n: number;
+  name: string;
+  score: string; // "0" | "1" | "2" | "PASS" | "VETO"
+  tier: string;
+  note: string;
+}
+
+export interface FinancialDriver {
+  driver: string;
+  low: string;
+  base: string;
+  high: string;
+  source: string;
+}
+
+export interface ForwardFinancials {
+  trailing_meaningful: boolean;
+  trailing_note: string;
+  drivers: FinancialDriver[];
+  market_cap: string;
+  trailing_revenue: string;
+  gaap_gross_margin: string;
+  contracted_forward_revenue: string;
+  capital_required: string;
+  funded_by: string;
+}
+
+export interface CatalystEvent {
+  date: string;
+  event: string;
+  confirms_or_breaks: string;
+}
+
+export interface ThesisRiskProfile {
+  binariness: string;
+  liquidity: string;
+  crowding: string;
+  factor_overlap: string;
+}
+
+export interface BottleneckThesis {
+  symbol: string;
+  verdict: string; // chokepoint | adjacent_supplier | theme_exposure | insufficient_evidence
+  fit_score: number;
+  max_score: number;
+  veto: boolean;
+  band: string; // strong | partial | watch_item
+  architecture_transition: ArchitectureTransition;
+  chain_map: ChainHop[];
+  chokepoint_argument: ThesisChokepointArgument;
+  evidence_table: ThesisEvidenceRow[];
+  forward_financials?: ForwardFinancials | null;
+  gates: ThesisGate[];
+  catalyst_calendar: CatalystEvent[];
+  invalidation_tests: string[];
+  risk_profile: ThesisRiskProfile;
+  could_not_verify: string[];
+  computed_at?: string | null;
+  message?: string | null;
+}
