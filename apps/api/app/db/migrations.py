@@ -1923,6 +1923,29 @@ def run_startup_migrations(engine: Engine) -> None:
             "CREATE INDEX IF NOT EXISTS ix_el_symbol ON evidence_ledger(symbol)"
         ))
 
+        # Phase 3 (PRD-27): the graded bottleneck thesis, one row per symbol.
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS bottleneck_theses (
+                symbol VARCHAR PRIMARY KEY,
+                verdict VARCHAR,
+                fit_score INTEGER DEFAULT 0,
+                veto BOOLEAN DEFAULT 0,
+                band VARCHAR,
+                thesis_json TEXT NOT NULL,
+                computed_at TIMESTAMP NOT NULL
+            )
+        """) if is_sqlite else text("""
+            CREATE TABLE IF NOT EXISTS bottleneck_theses (
+                symbol VARCHAR PRIMARY KEY,
+                verdict VARCHAR,
+                fit_score INTEGER DEFAULT 0,
+                veto BOOLEAN DEFAULT FALSE,
+                band VARCHAR,
+                thesis_json JSONB NOT NULL,
+                computed_at TIMESTAMPTZ NOT NULL
+            )
+        """))
+
     # ── Post-create cleanup (isolated; runs AFTER all CREATE TABLE statements) ──
     # Purge bad revenue_segments rows from PRD-08d parser bug. Isolated so a
     # missing table on fresh DB can't poison the shared transaction above.

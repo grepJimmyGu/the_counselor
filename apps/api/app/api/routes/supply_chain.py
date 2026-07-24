@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.session import SessionLocal, get_db
+from app.schemas.bottleneck_thesis import BottleneckThesisResponse
 from app.schemas.supply_chain import (
     ChainGraphResponse,
     EvidenceLedgerRow,
@@ -27,6 +28,11 @@ from app.services import supply_chain_service as scs
 from app.services.chain_stage_service import ChainStageService
 from app.services.fmp_client import FMPClient
 from app.services.supply_chain_pipeline import extract_and_persist, extraction_enabled
+from app.services.thesis_pipeline import (
+    generate_and_persist_thesis,
+    read_thesis,
+    thesis_enabled,
+)
 
 router = APIRouter(prefix="/api/supply-chain", tags=["supply-chain"])
 
@@ -94,3 +100,31 @@ async def refresh_supply_chain(symbol: str) -> dict:
     _last_refresh[symbol] = now
     result = await extract_and_persist(symbol)
     return result or {"symbol": symbol, "ok": False, "detail": "extraction disabled"}
+
+
+# ── Phase 3: bottleneck thesis (reasoning engine) ────────────────────────────
+@router.get("/{symbol}/thesis", response_model=BottleneckThesisResponse)
+def get_thesis(symbol: str, db: Session = Depends(get_db)) -> BottleneckThesisResponse:
+    """Un-gated read of the persisted graded thesis (or an honest 'not generated
+    yet' message). The thesis is authored by the gated refresh below."""
+    return read_thesis(db, symbol)
+
+
+# On-demand thesis generation. Gated (503 when the thesis engine is off) and
+# rate-limited to 1/hour/symbol — reasoning is the most expensive LLM call.
+_last_thesis: dict[str, float] = {}
+
+
+@router.post("/{symbol}/thesis/refresh")
+async def refresh_thesis(symbol: str) -> dict:
+    symbol = symbol.upper()
+    if not thesis_enabled():
+        raise HTTPException(status_code=503, detail="Bottleneck thesis engine is not enabled.")
+    now = time.time()
+    if now - _last_thesis.get(symbol, 0.0) < _REFRESH_COOLDOWN_S:
+        raise HTTPException(
+            status_code=429, detail="Thesis refresh is rate-limited to once per hour per symbol."
+        )
+    _last_thesis[symbol] = now
+    result = await generate_and_persist_thesis(symbol)
+    return result or {"symbol": symbol, "ok": False, "detail": "thesis engine disabled"}
