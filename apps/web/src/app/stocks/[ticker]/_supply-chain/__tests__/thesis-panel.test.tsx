@@ -50,6 +50,7 @@ function thesis(overrides: Partial<BottleneckThesis> = {}): BottleneckThesis {
     invalidation_tests: ["Casela fails to purchase the committed InP quantity"],
     risk_profile: { binariness: "low", liquidity: "low", crowding: "unknown", factor_overlap: "low" },
     could_not_verify: ["market share"],
+    computed_at: "2026-07-24T12:00:00",
     ...overrides,
   };
 }
@@ -64,6 +65,7 @@ describe("ThesisPanel", () => {
     expect(screen.getByText(/Casela fails to purchase/)).toBeTruthy(); // invalidation
     expect(screen.getByText(/never a recommendation/i)).toBeTruthy(); // disclaimer
     expect(screen.getByText(/how this is built/i)).toBeTruthy(); // reader's guide
+    expect(screen.getByText(/As of 2026-07-24/)).toBeTruthy(); // freshness byline
   });
 
   it("flags a veto in the band", () => {
