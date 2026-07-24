@@ -39,6 +39,7 @@ from real Livermore work. Different from the other in-repo docs:
 - [Signal primitives + indicators](#signal-primitives--indicators)
 - [Database](#database)
 - [Frontend](#frontend)
+- [Building with LLMs](#building-with-llms)
 - [Operations](#operations)
 - [Documentation + process](#documentation--process)
 
@@ -205,6 +206,41 @@ deferred follow-up.
 ---
 
 ## Diagnostic methodology
+
+### Read the traceback before theorizing from config
+**TL;DR:** a plausible misconfiguration is not a diagnosis — pull the actual error first.
+
+A gated feature returned `{"ok": false}`; the obvious culprit was a DeepSeek API key
+pasted into a model-name env var, and I burned a diagnosis cycle on it. The Railway
+*traceback* showed an unrelated cause — `TypeError: 'bool' object is not callable`, a
+`@property` called as a method. Config evidence (`railway variables`) can be a *real*
+problem AND not the cause of the failure in front of you. The traceback is ground
+truth; the config is a hypothesis.
+
+**When to apply:** any prod failure where you have a plausible config explanation.
+Before acting on it, `railway logs` and read the stack. Two minutes of traceback
+beats an hour of theory.
+
+**See also:** #260 (has_content crash), #259 (the dedicated DeepSeek gateway); trap #14.
+
+### Verify a data-populated case, not just the empty one
+**TL;DR:** the empty case is the one most likely to hide a data-dependent bug — test a row with real data, and time your "successes."
+
+A new enrichment step (seeding graph edges from a cache) 500'd for every company
+whose cache had data — a Postgres `date` object handed to a field that required a
+string. The first post-merge check ran AXTI, whose cache happened to be *empty*, so
+the code returned early and looked clean. AAPL, with a populated cache, was where the
+bug lived. Empty inputs skip the very code paths that break on real inputs.
+
+The sibling lesson: `edges:0` returned in 4.5 seconds isn't a real "nothing found" —
+it's too fast for the LLM to have run. **Time the call**; a suspiciously fast
+"success" is a swallowed failure (trap #14, "don't trust silent successes").
+
+**When to apply:** verifying any feature whose behavior depends on the shape of the
+data (caches, LLM extraction, optional fields). Pick a *populated* example, and
+sanity-check the timing/size of "empty" results.
+
+**See also:** #264 (seed 500 on a non-string `filing_date`); #263/#261 (`edges:0` timing → TOC parser).
 
 ### Same commit, one deploy fails and the next succeeds = a transient race, not your bug
 **TL;DR:** if a deploy "fails" but prod is still up and the *next* deploy of the **same commit** succeeds, the failure is a race (deadlock, cold-cache timeout, wedged connection) — not a defect in the code you just merged. Don't revert on "a deploy failed after my PR."
@@ -687,7 +723,66 @@ For Next.js 16 specifics that diverge from training data, see
 
 ---
 
+## Building with LLMs
+
+### Separate the map (inference) from the evidence (gated) in a reasoning prompt
+**TL;DR:** let the model reason boldly about what's *plausible* (the structure/hypothesis) while forcing it to be strict about what's *proven* (the tiered evidence) — in the SAME prompt, as two explicitly different jobs.
+
+The bottleneck-thesis engine under-reasoned at first: asked to name a company's
+architecture transition, it answered "unknown," because the prompt treated every
+section as needing hard evidence. The method's own principle fixed it: *inference
+generates the hypothesis; documents confirm it.* Splitting the prompt into a **map**
+(transition + chain — reason from the business, inference expected) and **evidence**
+(tiers + gates — supplied hard facts only, `unknown` scores 0) produced a rich,
+coherent chain map while the fit score stayed honestly low on thin proof. Same
+model, same evidence; the split is the whole difference between a useful thesis and
+a pile of "unknown."
+
+**When to apply:** any LLM feature that must both *structure a hypothesis* and
+*grade its support* — research theses, competitive maps, risk assessments. Name the
+two jobs in the prompt and give each its own rules; never let a mapped inference be
+scored as if it were proof.
+
+### Derive the score/verdict in code from the model's per-item judgments, never take its total
+**TL;DR:** have the LLM judge each item (with a tier/rationale); compute the aggregate — sum, thresholds, vetoes — in Python. Deterministic, auditable, and immune to the model fudging the number.
+
+Both the chokepoint verdict and the thesis fit score follow this: the model scores
+each of N tests/gates individually; code sums them, applies the veto caps, and
+picks the band. The model never emits "7/24" — it can't inflate or lowball the
+headline, and the aggregation is testable without an LLM in the loop (the fit-score
+math has synthetic unit tests). It also makes "unknown = 0" a code rule, not a
+model promise.
+
+**When to apply:** any LLM-scored artifact with a headline number or categorical
+verdict. Push the aggregation into code; keep the model on the per-item judgments
+where its reasoning actually helps.
+
+**See also:** `bottleneck_thesis_service.derive` + `chokepoint_assessment_service.derive`; Phase 3a (#266).
+
+---
+
 ## Operations
+
+### `railway run` executes the code in your CWD, not your branch
+**TL;DR:** `railway run python3 script.py` injects prod env into a LOCAL process — it runs whatever code is in that directory, which may not be the branch you're testing.
+
+Validating an uncommitted change with `railway run` from the canonical checkout (on
+`main`) silently exercised the OLD code — the new attribute didn't exist, the new
+computation returned null. The fix was to run from the *worktree* holding the branch.
+`railway run` gives you prod's environment variables (API keys, DB URL) but the local
+filesystem's code; make sure the two match what you intend.
+
+Corollary: `railway run` can't reach the *internal* prod DB host
+(`postgres.railway.internal` resolves only inside Railway's network) — a local
+process gets the injected `DATABASE_URL` but can't connect. To exercise a real
+prod-DB path, hit the deployed endpoint or run in-container; to test service logic,
+inject a fake session.
+
+**When to apply:** any `railway run` used to validate branch changes against prod
+env. Run it from the checkout that has the code, and remember it can't reach
+internal-only network hosts.
+
+**See also:** Phase 3b/3c live validation (2026-07-24); the BI re-warm that couldn't reach the internal DB.
 
 ### Logs you don't watch aren't observability — surface to `/health`
 **TL;DR:** `logger.exception(...)` is necessary but not sufficient. If nobody scrapes the log, the failure is invisible.
