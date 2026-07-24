@@ -27,6 +27,8 @@ from app.schemas.bottleneck_thesis import (
     BottleneckThesisResponse,
     ChainHop,
     ChokepointArgument,
+    FinancialDriver,
+    ForwardFinancials,
     RiskProfile,
     ThesisEvidenceRow,
     ThesisGate,
@@ -66,6 +68,13 @@ _REASONING_SYSTEM = (
     "- Sections 3-6, the evidence table, and the gates use ONLY the supplied hard "
     "evidence with strict tiers; unknown scores 0. Never promote a mapped inference to a "
     "gate score.\n\n"
+    "Section 5 (forward financials): a FORWARD unit-economics sensitivity, NOT a "
+    "point estimate and NEVER a price target. For a pre-ramp company trailing revenue "
+    "is near-meaningless — say so in trailing_note. Give low/base/high for the drivers "
+    "that actually move THIS company's revenue (e.g. capacity allocation %, yield %, "
+    "ASP, addressable share), then the derived revenue + gross-profit bands as driver "
+    "rows. Anchor market_cap, trailing_revenue, and gaap_gross_margin to the SUPPLIED "
+    "financials; state each assumption's basis in its source field.\n\n"
     "Return ONLY JSON:\n"
     "{\n"
     '  "verdict": "chokepoint|adjacent_supplier|theme_exposure|insufficient_evidence",\n'
@@ -73,6 +82,7 @@ _REASONING_SYSTEM = (
     '  "chain_map": [{"hop": int, "layer": str, "named_players": [str], "status": "abundant|constrained|unknown"}],\n'
     '  "chokepoint_argument": {"if_stops": str, "downstream_breaks": str, "mechanism": str, "nearest_substitute": str, "substitute_status": str},\n'
     '  "evidence_table": [{"claim": str, "tier": str, "source": str, "date": str, "falsifier": str}],\n'
+    '  "forward_financials": {"trailing_meaningful": bool, "trailing_note": str, "drivers": [{"driver": str, "low": str, "base": str, "high": str, "source": str}], "market_cap": str, "trailing_revenue": str, "gaap_gross_margin": str, "contracted_forward_revenue": str, "capital_required": str, "funded_by": str},\n'
     '  "gates": [{"n": int, "name": str, "score": "0|1|2|VETO|PASS", "tier": str, "note": str}],\n'
     '  "invalidation_tests": [str],\n'
     '  "risk_profile": {"binariness": str, "liquidity": str, "crowding": str, "factor_overlap": str},\n'
@@ -216,6 +226,28 @@ class BottleneckThesisService:
             factor_overlap=str(rp.get("factor_overlap") or "unknown"),
         )
 
+        ff = payload.get("forward_financials")
+        forward = None
+        if isinstance(ff, dict) and ff:
+            forward = ForwardFinancials(
+                trailing_meaningful=bool(ff.get("trailing_meaningful", True)),
+                trailing_note=str(ff.get("trailing_note") or ""),
+                drivers=[
+                    FinancialDriver(
+                        driver=str(d.get("driver") or ""), low=str(d.get("low") or ""),
+                        base=str(d.get("base") or ""), high=str(d.get("high") or ""),
+                        source=str(d.get("source") or ""),
+                    )
+                    for d in (ff.get("drivers") or []) if isinstance(d, dict)
+                ],
+                market_cap=str(ff.get("market_cap") or ""),
+                trailing_revenue=str(ff.get("trailing_revenue") or ""),
+                gaap_gross_margin=str(ff.get("gaap_gross_margin") or ""),
+                contracted_forward_revenue=str(ff.get("contracted_forward_revenue") or ""),
+                capital_required=str(ff.get("capital_required") or ""),
+                funded_by=str(ff.get("funded_by") or ""),
+            )
+
         return BottleneckThesisResponse(
             symbol=symbol.upper(),
             verdict=str(payload.get("verdict") or "insufficient_evidence"),
@@ -226,6 +258,7 @@ class BottleneckThesisService:
             chain_map=chain,
             chokepoint_argument=choke,
             evidence_table=evidence,
+            forward_financials=forward,
             gates=gates,
             invalidation_tests=[str(x) for x in (payload.get("invalidation_tests") or []) if x],
             risk_profile=risk,
