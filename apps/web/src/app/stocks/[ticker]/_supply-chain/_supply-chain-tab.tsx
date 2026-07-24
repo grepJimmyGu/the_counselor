@@ -5,11 +5,13 @@ import { useEffect, useState } from "react";
 import { EvidenceTable } from "@/components/stocks/evidence-table";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
+  getBottleneckThesis,
   getSupplyChainEvidence,
   getSupplyChainGraph,
   getSupplyChainSummary,
 } from "@/lib/api";
 import type {
+  BottleneckThesis,
   ChainGraph,
   EvidenceLedgerRow,
   EvidenceRow,
@@ -18,6 +20,7 @@ import type {
 
 import { ChainDiagram } from "./_chain-diagram";
 import { ChainPositionCard } from "./_chain-position-card";
+import { ThesisPanel } from "./_thesis-panel";
 
 function toEvidenceRows(rows: EvidenceLedgerRow[]): EvidenceRow[] {
   return rows.map((r) => ({
@@ -41,6 +44,7 @@ export function SupplyChainTab({ symbol }: { symbol: string }) {
   const [summary, setSummary] = useState<SupplyChainSummary | null>(null);
   const [graph, setGraph] = useState<ChainGraph | null>(null);
   const [evidence, setEvidence] = useState<EvidenceLedgerRow[]>([]);
+  const [thesis, setThesis] = useState<BottleneckThesis | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -55,12 +59,15 @@ export function SupplyChainTab({ symbol }: { symbol: string }) {
         getSupplyChainSummary(symbol),
         getSupplyChainGraph(symbol),
         getSupplyChainEvidence(symbol),
+        // The thesis is enrichment — a failure must not sink the whole tab.
+        getBottleneckThesis(symbol).catch(() => null),
       ])
-        .then(([s, g, e]) => {
+        .then(([s, g, e, th]) => {
           if (cancelled) return;
           setSummary(s);
           setGraph(g);
           setEvidence(e);
+          setThesis(th);
         })
         .catch((err) => {
           if (!cancelled) setError(err?.message || "Failed to load supply-chain data");
@@ -114,6 +121,8 @@ export function SupplyChainTab({ symbol }: { symbol: string }) {
           )}
         </section>
       )}
+
+      {!isNoChain && thesis && !thesis.message && <ThesisPanel thesis={thesis} />}
 
       <p className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-xs text-muted-foreground">
         Structure and evidence only — never a recommendation. Every claim shown carries a source and
