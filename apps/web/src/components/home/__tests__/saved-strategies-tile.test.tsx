@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/api", () => ({
   listSavedStrategies: vi.fn(),
-  getSavedStrategySignal: vi.fn(),
+  getSignalCardsBatch: vi.fn(),
 }));
 
 const useSessionMock = vi.fn(() => ({
@@ -23,7 +23,7 @@ vi.mock("next-auth/react", () => ({
   signIn: vi.fn(),
 }));
 
-import { getSavedStrategySignal, listSavedStrategies } from "@/lib/api";
+import { getSignalCardsBatch, listSavedStrategies } from "@/lib/api";
 import { SavedStrategiesTile } from "../saved-strategies-tile";
 
 type Row = {
@@ -57,9 +57,7 @@ beforeEach(() => {
     data: { backendToken: "tok_abc", user: { email: "a@b.com" } },
     status: "authenticated",
   });
-  (getSavedStrategySignal as unknown as ReturnType<typeof vi.fn>).mockResolvedValue(
-    { display: null, as_of_date: null },
-  );
+  (getSignalCardsBatch as unknown as ReturnType<typeof vi.fn>).mockResolvedValue([]);
 });
 
 afterEach(() => {

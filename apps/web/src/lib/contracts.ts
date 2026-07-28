@@ -2512,6 +2512,24 @@ export interface LivePerformance {
   computed_at?: string | null;
 }
 
+// PRD-25 — unified signal card. The reduced, market-fill-free state set: the
+// six-state overlay (entry_zone / in_position / target / stop) is deferred to
+// a later position-driven pass. See apps/api/app/schemas/signal_card.py.
+export type SignalCardState = "in_signal" | "basket" | "flat" | "pending";
+
+export interface SignalCard {
+  saved_strategy_id: string;
+  strategy_title: string | null;
+  strategy_type: string | null;
+  symbol: string | null;
+  state: SignalCardState;
+  display: string;
+  reason: string;
+  fired_primitives: string[];
+  backtest_id: string | null;
+  as_of: string | null;
+}
+
 export interface PublicStrategyItem {
   slug: string;
   name: string;

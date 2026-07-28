@@ -36,6 +36,7 @@ import {
   ThemeBanner,
   TryOtherThemes,
 } from "@/components/templates/theme-landing-chrome";
+import { SignalGlanceChip } from "@/components/signals/signal-glance-chip";
 import { cn } from "@/lib/utils";
 
 function pct(v: number | null | undefined): string {
@@ -272,7 +273,12 @@ export function ScreenResults({
                   className="flex w-full items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3 text-left transition hover:border-slate-300 hover:bg-slate-50"
                 >
                   <div className="flex min-w-0 flex-col gap-1">
-                    <span className="font-semibold text-slate-900">{symbol}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="font-semibold text-slate-900">{symbol}</span>
+                      {/* Every matched name currently passes the reading → it's
+                          "in signal" for this screen. Uniform PRD-25 glance. */}
+                      <SignalGlanceChip state="in_signal" />
+                    </div>
                     <div className="flex flex-wrap gap-1">
                       {(scan?.readings[symbol] ?? []).map((reading, i) => (
                         <span
