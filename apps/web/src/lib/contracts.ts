@@ -276,6 +276,33 @@ export interface ResearchTemplate {
   whenOutCopy?: string;
 }
 
+// PRD-27 — unified smart-search dispatch. One box → company / screen / ask.
+// See apps/api/app/schemas/search.py.
+export type SearchIntent = "company" | "screen" | "strategy" | "ambiguous";
+
+export interface SearchScreen {
+  universe_id: string;
+  rules: StrategyRule[];
+}
+
+export interface SearchOption {
+  intent: SearchIntent;
+  label: string;
+  symbol?: string | null;
+}
+
+export interface ParseResult {
+  intent: SearchIntent;
+  query: string;
+  symbol?: string | null;
+  company_name?: string | null;
+  screen?: SearchScreen | null;
+  strategy_json?: Record<string, unknown> | null;
+  options: SearchOption[];
+  note?: string | null;
+  confidence: number;
+}
+
 export interface StrategyRule {
   indicator?: string;
   lookback_days?: number;

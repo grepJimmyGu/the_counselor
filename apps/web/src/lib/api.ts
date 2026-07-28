@@ -34,6 +34,7 @@ import type {
   ChainGraph,
   EvidenceLedgerRow,
   SignalCard,
+  ParseResult,
 } from "@/lib/contracts";
 import { dispatchUpgrade } from "@/lib/upgrade-modal-event-bus";
 
@@ -966,6 +967,15 @@ export async function getSignalCard(
     `/api/signals/card?saved_strategy_id=${encodeURIComponent(savedStrategyId)}`,
     { headers: _bearer(backendToken ?? undefined) },
   );
+}
+
+// PRD-27 — unified smart-search dispatcher. Public (entry-mode); returns the
+// resolved intent so the box can route company / screen / ask.
+export async function parseSearch(query: string): Promise<ParseResult> {
+  return fetchApi<ParseResult>(`/api/search/parse`, {
+    method: "POST",
+    body: JSON.stringify({ query }),
+  });
 }
 
 /** Batch: one cached call for a whole list surface (tile, results grid). */
