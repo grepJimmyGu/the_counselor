@@ -33,6 +33,7 @@ import type {
   BottleneckThesis,
   ChainGraph,
   EvidenceLedgerRow,
+  SignalCard,
 } from "@/lib/contracts";
 import { dispatchUpgrade } from "@/lib/upgrade-modal-event-bus";
 
@@ -952,6 +953,32 @@ export async function getSavedStrategySignal(
     if (err instanceof Error && /\b404\b/.test(err.message)) return null;
     throw err;
   }
+}
+
+// PRD-25 — unified signal card. Read-only re-presentation of the existing
+// per-strategy signal state; always mounted, so no 404-on-disabled dance.
+
+export async function getSignalCard(
+  savedStrategyId: string,
+  backendToken?: string | null,
+): Promise<SignalCard> {
+  return fetchApi<SignalCard>(
+    `/api/signals/card?saved_strategy_id=${encodeURIComponent(savedStrategyId)}`,
+    { headers: _bearer(backendToken ?? undefined) },
+  );
+}
+
+/** Batch: one cached call for a whole list surface (tile, results grid). */
+export async function getSignalCardsBatch(
+  savedStrategyIds: string[],
+  backendToken?: string | null,
+): Promise<SignalCard[]> {
+  if (savedStrategyIds.length === 0) return [];
+  return fetchApi<SignalCard[]>(`/api/signals/card/batch`, {
+    method: "POST",
+    headers: _bearer(backendToken ?? undefined),
+    body: JSON.stringify({ saved_strategy_ids: savedStrategyIds }),
+  });
 }
 
 /** Opt the current user into email alerts for a saved strategy.
