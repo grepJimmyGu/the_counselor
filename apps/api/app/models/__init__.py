@@ -17,6 +17,9 @@ from app.models.saved_strategy_signal_state import SavedStrategySignalState  # n
 from app.models.signal_alert_subscription import SignalAlertSubscription  # noqa: F401
 from app.models.signal_event import SignalEvent  # noqa: F401
 from app.models.signal_snapshot import SignalSnapshot  # noqa: F401
+from app.models.ticker_signal_subscription import (  # noqa: F401
+    TickerSignalSubscription,
+)
 from app.models.stripe_event import StripeEvent  # noqa: F401
 from app.models.stripe_invoice import StripeInvoice  # noqa: F401
 from app.models.symbol import SymbolCache
@@ -47,6 +50,7 @@ __all__ = [
     "SignalAlertSubscription",
     "SignalEvent",
     "SignalSnapshot",
+    "TickerSignalSubscription",
     "StripeEvent",
     "StripeInvoice",
     "SymbolCache",

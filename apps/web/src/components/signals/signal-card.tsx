@@ -35,6 +35,10 @@ interface SignalCardProps {
   backtestHref?: Route | null;
   defaultOpen?: boolean;
   className?: string;
+  /** PRD-28 — optional "alert me" slot (a <SignalCardAlertToggle>). Passed in
+   *  rather than rendered here so the card stays presentational and doesn't
+   *  need to know how to fetch the user's saved screens. Omitted → unchanged. */
+  alertSlot?: React.ReactNode;
 }
 
 export function SignalCard({
@@ -44,6 +48,7 @@ export function SignalCard({
   backtestHref,
   defaultOpen = false,
   className,
+  alertSlot,
 }: SignalCardProps) {
   const [open, setOpen] = useState(defaultOpen);
 
@@ -84,6 +89,7 @@ export function SignalCard({
             <span className="truncate text-xs text-muted-foreground">{card.display}</span>
           </div>
           <p className="mt-1 text-xs text-muted-foreground">{card.reason}</p>
+          {alertSlot ? <div className="mt-2">{alertSlot}</div> : null}
         </div>
         {hasDetail && (
           <button

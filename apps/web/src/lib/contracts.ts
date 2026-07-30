@@ -2557,6 +2557,22 @@ export interface SignalCard {
   as_of: string | null;
 }
 
+// PRD-28 — per-ticker alert subscription. Scoped to a saved screen: the
+// symbol's state is judged against that screen's reading, and transitions fire
+// in BOTH directions (the basket monitor notifies entrants only).
+// See apps/api/app/models/ticker_signal_subscription.py.
+export type TickerAlertState = "in_basket" | "out_of_basket";
+
+export interface TickerSubscription {
+  symbol: string;
+  saved_screen_id: string;
+  screen_title: string | null;
+  email_enabled: boolean;
+  /** null until the monitor's first pass — which is deliberately silent. */
+  last_state: TickerAlertState | null;
+  last_as_of: string | null;
+}
+
 export interface PublicStrategyItem {
   slug: string;
   name: string;
