@@ -214,3 +214,144 @@ def test_endpoint_shared_categories_serialized_as_strings() -> None:
 def test_endpoint_requires_primitive_ids_field() -> None:
     r = client.post("/api/signal-combos/match-templates", json={})
     assert r.status_code == 422
+
+
+# ── Coverage invariants (2026-07-30) ────────────────────────────────────────
+#
+# Context: the matcher scores Jaccard over CATEGORIES, so a category no
+# template declares makes every primitive in it unmatchable — the user gets
+# "no match" and zero seeded parameters, silently. `trend` (30 primitives) and
+# `volume` (12) were in that dead zone: 38% of the catalog, including
+# `price_above_ma`, the most-used primitive in the recommended-template
+# registry. These tests keep the dead zone closed.
+
+
+def test_every_category_is_declared_by_some_template() -> None:
+    """No catalog category may be orphaned — see module note above."""
+    declared = set()
+    for meta in TEMPLATE_SIGNAL_METADATA.values():
+        declared |= set(meta["categories"])
+
+    catalog_categories = {p.category for p in SIGNAL_PRIMITIVES}
+    orphaned = catalog_categories - declared
+    assert not orphaned, (
+        "Categories declared by NO template are unmatchable — every primitive "
+        f"in them silently returns no match: {sorted(c.value for c in orphaned)}. "
+        "Give each a home in TEMPLATE_SIGNAL_METADATA."
+    )
+
+
+@pytest.mark.parametrize(
+    "primitive_id",
+    [
+        # The primitives our own recommended templates put into user screens
+        # (apps/web/src/lib/recommended-templates.ts). If a user can be handed
+        # a screen containing it, promote must be able to seed it.
+        "price_above_ma",
+        "adx",
+        "ma_slope_positive",
+        "distance_to_52w_high",
+        "ttm_squeeze",
+        "rvol",
+        "rsi",
+        "time_series_momentum",
+        "rank_return_6m",
+        "sector_rotation_rank",
+    ],
+)
+def test_recommended_template_primitives_are_seedable(primitive_id: str) -> None:
+    """Each must (a) match a template at all, and (b) come back with
+    parameters — matching with an empty threshold map is the failure mode that
+    made promote look like it worked while seeding nothing."""
+    matches = match_templates([primitive_id], top_n=3)
+    assert matches, f"'{primitive_id}' matches no template — category orphaned?"
+    seeded = [m for m in matches if m["thresholds_for_user_primitives"]]
+    assert seeded, (
+        f"'{primitive_id}' matched {matches[0]['template_id']} but no template "
+        "carries thresholds for it — the seeding would be empty."
+    )
+
+
+def test_entry_only_primitives_are_reported_scoped_to_user_picks() -> None:
+    from app.data.template_signal_metadata import ENTRY_ONLY_PRIMITIVES
+
+    match = match_templates(["rvol", "adx"], top_n=1)[0]
+    assert match["entry_only_primitives"] == ["rvol"]  # adx has an exit
+    # Never leak entry-only primitives the user didn't pick.
+    assert set(match["entry_only_primitives"]) <= ENTRY_ONLY_PRIMITIVES
+
+    two_sided = match_templates(["adx"], top_n=1)[0]
+    assert two_sided["entry_only_primitives"] == []
+
+
+def test_oscillator_thresholds_are_two_sided_and_directionally_sane() -> None:
+    """rsi/adx must carry BOTH an entry and an exit, and the exit must sit on
+    the far side of the entry — a reversed pair would seed a rule that exits
+    the moment it enters."""
+    rsi = get_template_thresholds("bollinger-mean-reversion")["rsi"]
+    assert rsi["enter_lt"] < rsi["exit_gte"], "RSI exit must be above its entry"
+
+    adx = get_template_thresholds("trend-following")["adx"]
+    assert adx["exit_lt"] < adx["enter_gte"], "ADX exit must be below its entry"
+
+
+def test_default_exit_ladder_is_internally_consistent() -> None:
+    from app.data.template_signal_metadata import DEFAULT_EXIT_LADDER as L
+
+    assert len(L["target_atr_multiples"]) == len(L["target_fractions"])
+    # Targets must be further out than the stop, or the ladder is nonsense.
+    assert min(L["target_atr_multiples"]) > L["stop_atr_multiple"]
+    # Fractions are cumulative and must close the position exactly.
+    assert L["target_fractions"] == sorted(L["target_fractions"])
+    assert L["target_fractions"][-1] == 1.0
+    lo, hi = L["stop_pct_clamp"]
+    assert lo < hi < 0, "stop clamp must be an ordered, negative band"
+    tlo, thi = L["target_pct_clamp"]
+    assert 0 < tlo < thi, "target clamp must be an ordered, positive band"
+
+
+def test_threshold_keys_match_the_composer_contract() -> None:
+    """Only these key shapes reach the composer as thresholds; anything else is
+    forwarded as a primitive_params override. A typo like `entry_lt` would
+    silently become a bogus provider parameter instead of a threshold."""
+    import re
+
+    threshold_shaped = re.compile(
+        r"^(enter|exit|threshold|min|max|upper|lower|strong_buy|positive|breakout|trending)",
+        re.I,
+    )
+    mapped_operators = {
+        "enter_lt", "enter_lte", "enter_gt", "enter_gte",
+        "exit_lt", "exit_lte", "exit_gt", "exit_gte",
+        "upper", "lower", "positive",
+    }
+    # Pre-existing keys that ARE threshold-shaped but map to no operator, so
+    # the composer sets a bare threshold with no comparison direction. Not
+    # introduced here and not in this PR's scope to rename (each rename changes
+    # a shipped template's seeded rule) — pinned so the list can only shrink
+    # and any NEW unmapped key fails this test.
+    known_unmapped = {
+        ("value-momentum", "book_to_market", "min_bm"),
+        ("value-composite-cs", "book_to_market", "min_bm"),
+        ("value-composite-cs", "ebitda_ev", "min_yield"),
+        ("value-composite-cs", "fcf_yield", "min_yield"),
+        ("quality-piotroski-cs", "f_score", "min_score"),
+        ("pairs-trading-long-only", "pair_spread_zscore", "exit_z"),
+        ("insider-buying", "insider_net_buy", "strong_buy"),
+    }
+    offenders = []
+    for template_id in all_template_ids():
+        for pid, thresholds in get_template_thresholds(template_id).items():
+            for key in thresholds:
+                if not threshold_shaped.match(key):
+                    continue  # forwarded as a primitive_params override — fine
+                if key.lower() in mapped_operators:
+                    continue
+                if (template_id, pid, key) in known_unmapped:
+                    continue
+                offenders.append(f"{template_id}.{pid}.{key}")
+    assert not offenders, (
+        "Threshold-shaped keys that map to no operator — the composer would set "
+        f"a threshold with no comparison direction: {offenders}. Use an "
+        "enter_*/exit_* name."
+    )

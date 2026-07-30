@@ -26,6 +26,8 @@ from typing import Any, Dict, List, Set
 
 from app.data.signal_primitives import SIGNAL_PRIMITIVES
 from app.data.template_signal_metadata import (
+    DEFAULT_EXIT_LADDER,
+    ENTRY_ONLY_PRIMITIVES,
     TEMPLATE_SIGNAL_METADATA,
     get_template_categories,
     get_template_thresholds,
@@ -109,9 +111,34 @@ def match_templates(
                 key=lambda c: c.value,
             ),
             "thresholds_for_user_primitives": scoped_thresholds,
+            # Which of the user's picks the KB has no exit for. The consumer
+            # must surface this ("no calculated exit — set your own") rather
+            # than fabricate an exit. Scoped to the user's picks so the caller
+            # doesn't have to intersect it again.
+            "entry_only_primitives": sorted(
+                pid for pid in user_primitive_set if pid in ENTRY_ONLY_PRIMITIVES
+            ),
+            # Volatility-scaled fallback exit, identical on every match — the
+            # answer for the (common) case where no primitive can express one.
+            "exit_ladder_defaults": DEFAULT_EXIT_LADDER,
         })
 
-    # Stable sort by similarity desc + template_id asc for tie-break
-    # (consumer expects deterministic order across calls).
-    scored.sort(key=lambda row: (-row["similarity"], row["template_id"]))
+    # Sort: similarity desc → CAN-SEED desc → template_id asc.
+    #
+    # The can-seed tier (2026-07-30) fixes a real mis-ranking: categories are
+    # coarse, so many templates tie on similarity. With a purely alphabetical
+    # tie-break, the one template that actually carries thresholds for the
+    # user's primitives could be pushed out of the top-N entirely — e.g.
+    # `sector_rotation_rank` tied at 0.5 with six cross-sectional templates and
+    # `sector-rotation-spdr`, the only one able to seed it, ranked 7th. The
+    # caller then showed a confident match that pre-filled nothing.
+    #
+    # template_id stays the final key so ordering is deterministic across calls.
+    scored.sort(
+        key=lambda row: (
+            -row["similarity"],
+            0 if row["thresholds_for_user_primitives"] else 1,
+            row["template_id"],
+        )
+    )
     return scored[:top_n]
