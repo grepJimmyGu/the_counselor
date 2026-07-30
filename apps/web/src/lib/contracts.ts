@@ -2955,6 +2955,24 @@ export interface TemplateMatch {
   /** Map from primitive_id → suggested thresholds. Filtered to only the
    *  primitives the user actually selected. */
   thresholds_for_user_primitives: Record<string, Record<string, number | string>>;
+  /** Which of the user's picks the KB has NO exit for. Render this — never
+   *  invent an exit for them. Scoped to the user's selection. */
+  entry_only_primitives?: string[];
+  /** Volatility-scaled fallback exit, identical across matches. */
+  exit_ladder_defaults?: ExitLadderDefaults;
+}
+
+/** KB defaults for deriving a stop/target ladder from ATR (PRD-26).
+ *  See apps/api/app/data/template_signal_metadata.py::DEFAULT_EXIT_LADDER. */
+export interface ExitLadderDefaults {
+  atr_period: number;
+  stop_atr_multiple: number;
+  target_atr_multiples: number[];
+  target_fractions: number[];
+  /** [min, max], both negative. */
+  stop_pct_clamp: [number, number];
+  /** [min, max], both positive. */
+  target_pct_clamp: [number, number];
 }
 
 export interface MatchTemplatesResponse {
