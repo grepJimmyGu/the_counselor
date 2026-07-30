@@ -48,6 +48,7 @@ from app.api.routes.signals import router as signals_router
 from app.api.routes.notifications import router as notifications_router
 from app.api.routes.signal_primitives import router as signal_primitives_router
 from app.api.routes.signals_card import router as signals_card_router  # PRD-25 — unified signal card
+from app.api.routes.search import router as search_router  # PRD-27 — unified smart search
 from app.api.routes.triage import router as triage_router  # PR-D — ops triage bundle
 from app.api.routes.portfolio import router as portfolio_router  # PRD-13b — Portfolio Mode
 from app.api.routes.supply_chain import router as supply_chain_router  # PRD-25/26 — supply-chain lens
@@ -741,6 +742,10 @@ app.include_router(signal_primitives_router)
 # every ticker surface, so it must exist regardless of signal_alerts_enabled.
 # Returns `pending` cards until the daily signal cron populates state.
 app.include_router(signals_card_router)
+
+# PRD-27 — unified smart-search dispatcher. Always mounted (public entry-mode
+# surface): resolves a query to COMPANY / SCREEN / AMBIGUOUS.
+app.include_router(search_router)
 
 # PR-D — triage context bundle. Always mounted (the route gates on the
 # token at request time + 403's if no token is configured). Mounting

@@ -307,3 +307,78 @@ def test_original_types_still_detected():
         assert r.strategy_json.strategy_type == expected, (
             f"'{msg}' → expected {expected}, got {r.strategy_json.strategy_type}"
         )
+
+
+# ── ReDoS hardening (CodeQL py/polynomial-redos) ──────────────────────────
+#
+# Symptom: CodeQL flagged 4 HIGH `py/polynomial-redos` alerts on this module
+#   (sinks at _find_first_number's re.search + three re.findall sites). They
+#   predate PRD-27 but PRD-27's public POST /api/search/parse added a fresh
+#   user-input → regex data flow, re-surfacing them on the PR.
+# Root cause: the numeric captures were unbounded (`(\d+)`). On a long run of
+#   digits the engine retries `\d+` from every start offset — O(n²).
+# Fix: bound every small-integer capture (windows / months / top-N / RSI
+#   levels) to `\d{1,4}`, making each match O(1) per offset → linear overall.
+#   Behaviour-preserving: no real lookback, month count, top-N or RSI level
+#   exceeds 9999.
+
+
+def test_numeric_capture_patterns_are_bounded():
+    """Static guard: no unbounded numeric capture may return to this module.
+
+    Mirrors tests/test_sqlalchemy_bind_cast_safety.py — a cheap, deterministic
+    check so the ReDoS class can't silently regress.
+    """
+    import re as _re
+    from pathlib import Path
+
+    source = Path(__file__).resolve().parents[1].joinpath(
+        "app", "services", "strategy_parser.py"
+    ).read_text()
+
+    # Small-integer captures we bounded. `(\d+` immediately followed by `)` is
+    # the unbounded shape; the percentage/capital patterns use a different
+    # ("(\d+(?:" / "[\d,]+") shape and are out of scope here.
+    offenders = [
+        line
+        for line in source.splitlines()
+        if _re.search(r"r\"[^\"]*\(\\d\+\)[^\"]*\"", line)
+    ]
+    assert offenders == [], (
+        "Unbounded numeric capture `(\\d+)` reintroduced — use `(\\d{1,4})` "
+        f"to keep the regex linear-time:\n" + "\n".join(offenders)
+    )
+
+
+def test_bounded_windows_still_parse_the_real_values():
+    """Behaviour preservation: the bound must not change parsed output."""
+    response = parse_strategy_message_fallback(
+        "Buy AAPL when the 50-day moving average crosses above the 200-day."
+    )
+    assert response.strategy_json is not None
+    rule = response.strategy_json.rules[0]
+    assert rule.fast_window == 50
+    assert rule.slow_window == 200
+
+
+def test_bounded_rsi_levels_still_parse():
+    response = parse_strategy_message_fallback(
+        "Buy AAPL when RSI falls below 25 and sell when RSI rises above 70."
+    )
+    assert response.strategy_json is not None
+    assert response.strategy_json.strategy_type == "rsi_mean_reversion"
+
+
+def test_pathological_digit_input_parses_in_linear_time():
+    """The ReDoS proof: a long digit run must not blow up.
+
+    Pre-fix this took quadratic time in len(payload); post-fix it is linear.
+    The 5s budget is deliberately loose so the test asserts "not quadratic"
+    rather than a specific machine speed.
+    """
+    import time
+
+    payload = "AAPL " + ("9" * 40_000) + " day moving average crossover top 3"
+    start = time.monotonic()
+    parse_strategy_message_fallback(payload)
+    assert time.monotonic() - start < 5.0

@@ -14,7 +14,7 @@ import {
 import type { Route } from "next";
 import { Button } from "@/components/ui/button";
 import { MarketSnapshot } from "@/components/home/market-snapshot";
-import { HomeHeroSearch } from "@/components/home/home-hero-search";
+import { SmartSearchBox } from "@/components/search/smart-search-box";
 import { HomeMarketStrip } from "@/components/home/home-market-strip";
 import { HomeFocusSections } from "@/components/home/home-focus-sections";
 import { researchTemplates, type ResearchTemplate } from "@/lib/contracts";
@@ -143,7 +143,7 @@ export default function HomePage() {
 
             {/* PRD-24a §3.3 — hero lookup with in-place stock preview */}
             <div className="mt-8">
-              <HomeHeroSearch />
+              <SmartSearchBox />
             </div>
 
             {/* Trust chips — compact inline row */}

@@ -85,7 +85,7 @@ function stripParams(...names: string[]): void {
   }
 }
 
-function toBuildRule(
+export function toBuildRule(
   rule: StrategyRule,
   primitive: SignalPrimitive,
   index: number,

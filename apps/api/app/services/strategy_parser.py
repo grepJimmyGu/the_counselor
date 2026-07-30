@@ -397,7 +397,7 @@ def _extract_strategy_type(text: str) -> Optional[str]:  # noqa: C901 (intention
     ):
         return "momentum_rotation"
     if "crossover" in lowered or (
-        "moving average" in lowered and len(re.findall(r"(\d+)[-\s]?day", lowered)) >= 2
+        "moving average" in lowered and len(re.findall(r"(\d{1,4})[-\s]?day", lowered)) >= 2
     ):
         return "moving_average_crossover"
     if "moving average" in lowered or "ema" in lowered or "trend" in lowered:
@@ -484,7 +484,7 @@ def _infer_strategy_from_text(
 ) -> StrategyJSON:
     lowered = text.lower()
     if strategy_type == "moving_average_filter":
-        lookback = _find_first_number(r"(\d+)[-\s]?day", lowered) or 200
+        lookback = _find_first_number(r"(\d{1,4})[-\s]?day", lowered) or 200
         strategy = _base_strategy(
             strategy_name=f"{symbols[0]} {lookback}-Day Moving Average Filter",
             strategy_type="moving_average_filter",
@@ -501,7 +501,7 @@ def _infer_strategy_from_text(
             position_sizing=PositionSizing(method="equal_weight", max_positions=1),
         )
     elif strategy_type == "moving_average_crossover":
-        windows = [int(item) for item in re.findall(r"(\d+)[-\s]?day", lowered)]
+        windows = [int(item) for item in re.findall(r"(\d{1,4})[-\s]?day", lowered)]
         fast_window = windows[0] if windows else 50
         slow_window = windows[1] if len(windows) > 1 else 200
         strategy = _base_strategy(
@@ -519,8 +519,8 @@ def _infer_strategy_from_text(
             position_sizing=PositionSizing(method="equal_weight", max_positions=1),
         )
     elif strategy_type == "momentum_rotation":
-        top_n = _find_first_number(r"top\s+(\d+)", lowered) or min(3, len(symbols))
-        lookback_months = _find_first_number(r"(\d+)[-\s]?month", lowered) or 6
+        top_n = _find_first_number(r"top\s+(\d{1,4})", lowered) or min(3, len(symbols))
+        lookback_months = _find_first_number(r"(\d{1,4})[-\s]?month", lowered) or 6
         strategy = _base_strategy(
             strategy_name="Momentum Rotation",
             strategy_type="momentum_rotation",
@@ -537,8 +537,8 @@ def _infer_strategy_from_text(
         )
         strategy.cash_management.hold_cash_when_no_signal = False
     elif strategy_type == "rsi_mean_reversion":
-        below_matches = [int(item) for item in re.findall(r"below\s+(\d+)", lowered)]
-        above_matches = [int(item) for item in re.findall(r"above\s+(\d+)", lowered)]
+        below_matches = [int(item) for item in re.findall(r"below\s+(\d{1,4})", lowered)]
+        above_matches = [int(item) for item in re.findall(r"above\s+(\d{1,4})", lowered)]
         buy_level = below_matches[0] if below_matches else 30
         sell_level = above_matches[0] if above_matches else 60
         strategy = _base_strategy(
@@ -553,7 +553,7 @@ def _infer_strategy_from_text(
             position_sizing=PositionSizing(method="equal_weight", max_positions=1),
         )
     elif strategy_type == "breakout":
-        windows = [int(item) for item in re.findall(r"(\d+)[-\s]?day", lowered)]
+        windows = [int(item) for item in re.findall(r"(\d{1,4})[-\s]?day", lowered)]
         entry_window = windows[0] if windows else 60
         exit_window = windows[1] if len(windows) > 1 else 20
         strategy = _base_strategy(
@@ -565,8 +565,8 @@ def _infer_strategy_from_text(
             position_sizing=PositionSizing(method="equal_weight", max_positions=1),
         )
     elif strategy_type == "low_volatility":
-        lookback = _find_first_number(r"(\d+)[-\s]?day", lowered) or 63
-        top_n = _find_first_number(r"top\s+(\d+)", lowered) or min(3, len(symbols))
+        lookback = _find_first_number(r"(\d{1,4})[-\s]?day", lowered) or 63
+        top_n = _find_first_number(r"top\s+(\d{1,4})", lowered) or min(3, len(symbols))
         strategy = _base_strategy(
             strategy_name="Low Volatility",
             strategy_type="low_volatility",
@@ -576,8 +576,8 @@ def _infer_strategy_from_text(
             position_sizing=PositionSizing(method="equal_weight", max_positions=top_n),
         )
     elif strategy_type == "sector_rotation":
-        formation = _find_first_number(r"(\d+)[-\s]?day", lowered) or 126
-        top_n = _find_first_number(r"top\s+(\d+)", lowered) or 3
+        formation = _find_first_number(r"(\d{1,4})[-\s]?day", lowered) or 126
+        top_n = _find_first_number(r"top\s+(\d{1,4})", lowered) or 3
         strategy = _base_strategy(
             strategy_name="Sector Rotation",
             strategy_type="sector_rotation",
@@ -588,7 +588,7 @@ def _infer_strategy_from_text(
         )
         strategy.cash_management.hold_cash_when_no_signal = False
     elif strategy_type == "time_series_momentum":
-        lookback = _find_first_number(r"(\d+)[-\s]?(?:day|month)", lowered)
+        lookback = _find_first_number(r"(\d{1,4})[-\s]?(?:day|month)", lowered)
         if not lookback:
             lookback = 252
         elif lookback < 30:  # assume months if small number
@@ -602,12 +602,12 @@ def _infer_strategy_from_text(
             position_sizing=PositionSizing(method="equal_weight"),
         )
     elif strategy_type == "cross_sectional_momentum":
-        formation = _find_first_number(r"(\d+)[-\s]?(?:day|month)", lowered)
+        formation = _find_first_number(r"(\d{1,4})[-\s]?(?:day|month)", lowered)
         if not formation:
             formation = 252
         elif formation < 30:
             formation = formation * 21
-        top_n = _find_first_number(r"top\s+(\d+)", lowered)
+        top_n = _find_first_number(r"top\s+(\d{1,4})", lowered)
         strategy = _base_strategy(
             strategy_name="Cross-Sectional Momentum",
             strategy_type="cross_sectional_momentum",
@@ -623,8 +623,8 @@ def _infer_strategy_from_text(
         )
         strategy.cash_management.hold_cash_when_no_signal = False
     elif strategy_type == "short_term_reversal":
-        formation = _find_first_number(r"(\d+)[-\s]?day", lowered) or 5
-        top_n = _find_first_number(r"top\s+(\d+)", lowered)
+        formation = _find_first_number(r"(\d{1,4})[-\s]?day", lowered) or 5
+        top_n = _find_first_number(r"top\s+(\d{1,4})", lowered)
         strategy = _base_strategy(
             strategy_name="Short-Term Reversal",
             strategy_type="short_term_reversal",
@@ -639,7 +639,7 @@ def _infer_strategy_from_text(
             position_sizing=PositionSizing(method="equal_weight"),
         )
     elif strategy_type == "dual_momentum":
-        formation = _find_first_number(r"(\d+)[-\s]?(?:day|month)", lowered)
+        formation = _find_first_number(r"(\d{1,4})[-\s]?(?:day|month)", lowered)
         if not formation:
             formation = 252
         elif formation < 30:
@@ -653,7 +653,7 @@ def _infer_strategy_from_text(
             position_sizing=PositionSizing(method="equal_weight"),
         )
     elif strategy_type == "bollinger_mean_reversion":
-        lookback = _find_first_number(r"(\d+)[-\s]?day", lowered) or 20
+        lookback = _find_first_number(r"(\d{1,4})[-\s]?day", lowered) or 20
         strategy = _base_strategy(
             strategy_name=f"{symbols[0]} Bollinger Mean Reversion",
             strategy_type="bollinger_mean_reversion",
@@ -663,7 +663,7 @@ def _infer_strategy_from_text(
             position_sizing=PositionSizing(method="equal_weight", max_positions=1),
         )
     elif strategy_type == "pairs_trading":
-        lookback = _find_first_number(r"(\d+)[-\s]?day", lowered) or 60
+        lookback = _find_first_number(r"(\d{1,4})[-\s]?day", lowered) or 60
         pair_symbols = symbols[:2]
         strategy = _base_strategy(
             strategy_name="Pairs Trading",
@@ -680,7 +680,7 @@ def _infer_strategy_from_text(
             position_sizing=PositionSizing(method="equal_weight"),
         )
     elif strategy_type == "value_composite":
-        top_n = _find_first_number(r"top\s+(\d+)", lowered)
+        top_n = _find_first_number(r"top\s+(\d{1,4})", lowered)
         strategy = _base_strategy(
             strategy_name="Value Composite",
             strategy_type="value_composite",
@@ -690,7 +690,7 @@ def _infer_strategy_from_text(
             position_sizing=PositionSizing(method="equal_weight"),
         )
     elif strategy_type == "quality_piotroski":
-        top_n = _find_first_number(r"top\s+(\d+)", lowered)
+        top_n = _find_first_number(r"top\s+(\d{1,4})", lowered)
         strategy = _base_strategy(
             strategy_name="Quality Piotroski F-Score",
             strategy_type="quality_piotroski",
@@ -700,7 +700,7 @@ def _infer_strategy_from_text(
             position_sizing=PositionSizing(method="equal_weight"),
         )
     elif strategy_type == "buyback_yield":
-        top_n = _find_first_number(r"top\s+(\d+)", lowered)
+        top_n = _find_first_number(r"top\s+(\d{1,4})", lowered)
         strategy = _base_strategy(
             strategy_name="Buyback Yield",
             strategy_type="buyback_yield",
@@ -710,7 +710,7 @@ def _infer_strategy_from_text(
             position_sizing=PositionSizing(method="equal_weight"),
         )
     elif strategy_type == "pead_drift":
-        holding = _find_first_number(r"(\d+)[-\s]?day", lowered) or 60
+        holding = _find_first_number(r"(\d{1,4})[-\s]?day", lowered) or 60
         strategy = _base_strategy(
             strategy_name="Post-Earnings Announcement Drift (PEAD)",
             strategy_type="pead_drift",
@@ -720,7 +720,7 @@ def _infer_strategy_from_text(
             position_sizing=PositionSizing(method="equal_weight"),
         )
     elif strategy_type == "earnings_revision":
-        top_n = _find_first_number(r"top\s+(\d+)", lowered)
+        top_n = _find_first_number(r"top\s+(\d{1,4})", lowered)
         strategy = _base_strategy(
             strategy_name="Earnings Revision Momentum",
             strategy_type="earnings_revision",
@@ -730,7 +730,7 @@ def _infer_strategy_from_text(
             position_sizing=PositionSizing(method="equal_weight"),
         )
     elif strategy_type == "news_sentiment_momentum":
-        top_n = _find_first_number(r"top\s+(\d+)", lowered)
+        top_n = _find_first_number(r"top\s+(\d{1,4})", lowered)
         strategy = _base_strategy(
             strategy_name="News Sentiment Momentum",
             strategy_type="news_sentiment_momentum",
@@ -740,7 +740,7 @@ def _infer_strategy_from_text(
             position_sizing=PositionSizing(method="equal_weight"),
         )
     elif strategy_type == "insider_buying":
-        top_n = _find_first_number(r"top\s+(\d+)", lowered) or 20
+        top_n = _find_first_number(r"top\s+(\d{1,4})", lowered) or 20
         strategy = _base_strategy(
             strategy_name="Insider Buying Cluster",
             strategy_type="insider_buying",
@@ -750,7 +750,7 @@ def _infer_strategy_from_text(
             position_sizing=PositionSizing(method="equal_weight", max_positions=top_n),
         )
     elif strategy_type == "multi_factor_composite":
-        top_n = _find_first_number(r"top\s+(\d+)", lowered)
+        top_n = _find_first_number(r"top\s+(\d{1,4})", lowered)
         strategy = _base_strategy(
             strategy_name="Multi-Factor Composite",
             strategy_type="multi_factor_composite",
@@ -1072,8 +1072,8 @@ def _fix_momentum_rules(response: StrategyChatResponse, user_message: str) -> St
     if not s or s.strategy_type != "momentum_rotation" or s.rules:
         return response
     lowered = user_message.lower()
-    top_n = _find_first_number(r"top\s+(\d+)", lowered) or min(3, len(s.universe))
-    lookback_months = _find_first_number(r"(\d+)[-\s]?month", lowered) or 6
+    top_n = _find_first_number(r"top\s+(\d{1,4})", lowered) or min(3, len(s.universe))
+    lookback_months = _find_first_number(r"(\d{1,4})[-\s]?month", lowered) or 6
     s.rules = [
         StrategyRule(
             top_n=top_n,
