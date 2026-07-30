@@ -121,9 +121,16 @@ export const CustomBuildModeFlow: FlowDefinition<CustomBuildModeContext> = {
     },
     {
       // PRD-23b — the screener results surface (standing universes only).
+      // PRD-26: no longer terminal. Promoting a screen sets `strategyJson`
+      // (seeded thresholds + a calculated exit ladder) and advances into the
+      // SAME backtest → review → save chain every other mode uses. Without a
+      // promote the step still ends the flow, exactly as before.
       id: "screen_results",
       brick: ScreenResults,
-      next: () => null,
+      next: (ctx) =>
+        (ctx as CustomBuildModeContext & { strategyJson?: unknown }).strategyJson
+          ? "backtest"
+          : null,
     },
     {
       id: "backtest",

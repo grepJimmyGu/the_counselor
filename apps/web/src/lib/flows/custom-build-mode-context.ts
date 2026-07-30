@@ -125,6 +125,15 @@ export interface CustomBuildModeContext extends FlowContextBase {
   /** Slug returned by the save endpoint. The flow's `onComplete` reads
    *  this to navigate to /strategies/{slug}. */
   savedSlug?: string;
+  /** PRD-26 — provenance when this strategy came from promoting a screen
+   *  rather than being composed by hand. Set by ScreenResults' promote
+   *  action; `screen_results.next` also keys off `strategyJson` being set. */
+  promoted_from_screen?: {
+    universe_id: string;
+    matched_count: number;
+    seeded_from_template: string | null;
+    as_of_date: string | null;
+  };
 }
 
 export const INITIAL_CUSTOM_BUILD_CONTEXT: Omit<

@@ -37,6 +37,8 @@ import {
   TryOtherThemes,
 } from "@/components/templates/theme-landing-chrome";
 import { SignalGlanceChip } from "@/components/signals/signal-glance-chip";
+import { PromoteToStrategyButton } from "@/components/bridge/promote-to-strategy-button";
+import type { PromoteDraft } from "@/lib/flows/promote-to-strategy";
 import { cn } from "@/lib/utils";
 
 function pct(v: number | null | undefined): string {
@@ -56,6 +58,7 @@ export function ScreenResults({
   context,
   updateContext,
   back,
+  advance,
 }: FlowStepProps<CustomBuildModeContext>) {
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
@@ -169,6 +172,27 @@ export function ScreenResults({
       (a, b) => (ranked[b]?.total_return ?? -Infinity) - (ranked[a]?.total_return ?? -Infinity),
     );
   }, [scan, ranked]);
+
+  // PRD-26 — promote the screen into a strategy. Seeds thresholds + a
+  // calculated exit ladder onto `strategyJson`, then advances into the existing
+  // backtest → review → save chain (screen_results.next reads strategyJson).
+  const handlePromote = useCallback(
+    (draft: PromoteDraft) => {
+      updateContext({
+        rules: draft.rules,
+        symbol: draft.symbol,
+        strategyJson: draft.strategyJson,
+        promoted_from_screen: {
+          universe_id: context.universe_id,
+          matched_count: scan?.matched_count ?? 0,
+          seeded_from_template: draft.seededFromTemplate,
+          as_of_date: scan?.as_of_date ?? null,
+        },
+      } as Partial<CustomBuildModeContext>);
+      advance();
+    },
+    [updateContext, advance, context.universe_id, scan],
+  );
 
   const drillIn = useCallback(
     (symbol: string) => {
@@ -374,6 +398,16 @@ export function ScreenResults({
               {saveError}
             </p>
           )}
+
+          {/* PRD-26 — the screen's second exit: turn it into a strategy with
+              seeded entry/exit and a calculated stop/target ladder. Saving the
+              screen (above) watches for NEW entrants; promoting produces a
+              backtested, alertable strategy. */}
+          <PromoteToStrategyButton
+            context={context}
+            matched={ordered}
+            onConfirm={handlePromote}
+          />
         </div>
       )}
 
