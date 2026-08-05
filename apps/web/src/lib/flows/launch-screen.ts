@@ -29,6 +29,12 @@ import "./custom-build-mode";
 export async function launchScreenFromParsedRules(
   rules: StrategyRule[],
   universeId: string,
+  /** PRD-29 — the pre-narrowed universe for a mixed query. When present,
+   *  `universeId` is the "symbols" tier and these are the names that passed
+   *  the fundamental half; the composer scans exactly this list. */
+  symbols?: string[],
+  /** How the query was read; surfaced on the results page. */
+  note?: string,
 ): Promise<boolean> {
   const catalog = await getSignalPrimitives();
   const byId = new Map(catalog.primitives.map((p) => [p.id, p]));
@@ -51,6 +57,12 @@ export async function launchScreenFromParsedRules(
       fromTrigger: "home/smart_search",
       rules: buildRules,
       universe_id: universeId,
+      // The context field is `entered_symbols` — the membership for the
+      // client-supplied tiers. Only set for a mixed query, where these are the
+      // names that passed the fundamental half; ScreenResults forwards them to
+      // the scan as `symbols`.
+      ...(symbols && symbols.length > 0 ? { entered_symbols: symbols } : {}),
+      ...(note ? { search_note: note } : {}),
     },
   });
   return true;

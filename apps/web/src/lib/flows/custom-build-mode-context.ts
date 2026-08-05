@@ -125,6 +125,11 @@ export interface CustomBuildModeContext extends FlowContextBase {
   /** Slug returned by the save endpoint. The flow's `onComplete` reads
    *  this to navigate to /strategies/{slug}. */
   savedSlug?: string;
+  /** PRD-29 — how the smart search read the query ("Matched 47 names on
+   *  small-cap, then screened them on your technical rules"). Rendered on the
+   *  results surface, because that is where a mixed query lands — the box
+   *  navigates away, so a note shown there would never be seen. */
+  search_note?: string;
   /** PRD-26 — provenance when this strategy came from promoting a screen
    *  rather than being composed by hand. Set by ScreenResults' promote
    *  action; `screen_results.next` also keys off `strategyJson` being set. */

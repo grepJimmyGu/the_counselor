@@ -19,10 +19,30 @@
 import * as React from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { ArrowRight, ExternalLink, Loader2, Search, X } from "lucide-react";
+import { useSession } from "next-auth/react";
+import {
+  ArrowRight,
+  ExternalLink,
+  Globe,
+  Loader2,
+  Search,
+  SlidersHorizontal,
+  Star,
+  X,
+} from "lucide-react";
 
-import { getCompanyOverview, parseSearch, searchSymbols } from "@/lib/api";
-import type { CompanyOverviewResponse, SymbolSearchItem } from "@/lib/contracts";
+import {
+  getCompanyOverview,
+  listSavedScreens,
+  parseSearch,
+  searchSymbols,
+} from "@/lib/api";
+import type {
+  CompanyOverviewResponse,
+  SavedScreenSummary,
+  SymbolSearchItem,
+} from "@/lib/contracts";
+import { SignalCatalogBrowser } from "@/components/signal-library/signal-catalog-browser";
 import { useLiveQuotes } from "@/lib/useLiveQuotes";
 import { cn } from "@/lib/utils";
 import { EvaluationDashboard } from "@/components/stocks/evaluation-dashboard";
@@ -77,6 +97,34 @@ export function SmartSearchBox() {
   const [overview, setOverview] = React.useState<
     CompanyOverviewResponse | "loading" | "error" | null
   >(null);
+
+  // Which control-row panel is open (only one at a time).
+  const [panel, setPanel] = React.useState<"conditions" | "saved" | null>(null);
+  const [savedScreens, setSavedScreens] = React.useState<SavedScreenSummary[] | null>(
+    null,
+  );
+
+  const { data: session, status: sessionStatus } = useSession();
+  const backendToken = (session as { backendToken?: string } | null)?.backendToken;
+
+  // Load saved screens lazily — only when the panel is actually opened, and
+  // only once. Waits for NextAuth to resolve, otherwise a signed-in user fires
+  // an anonymous request during the loading window (backend trap #19).
+  React.useEffect(() => {
+    if (panel !== "saved" || sessionStatus === "loading") return;
+    if (!backendToken || savedScreens !== null) return;
+    let cancelled = false;
+    listSavedScreens({ backendToken })
+      .then((resp) => {
+        if (!cancelled) setSavedScreens(resp.screens);
+      })
+      .catch(() => {
+        if (!cancelled) setSavedScreens([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [panel, sessionStatus, backendToken, savedScreens]);
 
   // Autocomplete (company lookup) — unchanged from the hero.
   React.useEffect(() => {
@@ -138,6 +186,8 @@ export function SmartSearchBox() {
         const launched = await launchScreenFromParsedRules(
           result.screen.rules,
           result.screen.universe_id,
+          result.screen.symbols,
+          result.note ?? undefined,
         );
         if (!launched) {
           setNote(
@@ -161,7 +211,10 @@ export function SmartSearchBox() {
   return (
     <div className="mx-auto max-w-2xl text-left">
       <div className="relative">
-        <div className="flex items-center gap-3 rounded-xl border border-border bg-white px-4 py-3 shadow-sm transition-all focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20">
+        {/* One bordered container holding the input AND its controls — the
+            box is a single object, not an input with chrome floating near it. */}
+        <div className="rounded-xl border border-border bg-white shadow-sm transition-all focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20">
+          <div className="flex items-center gap-3 px-4 py-3">
           <Search className="h-5 w-5 shrink-0 text-muted-foreground" />
           <input
             type="text"
@@ -193,7 +246,110 @@ export function SmartSearchBox() {
               <ArrowRight className="h-4 w-4" />
             </button>
           )}
+          </div>
+
+          {/* Control row — inside the box, 問財-style: scope · conditions ·
+              saved. The box is the product, so its controls live with it
+              rather than as chrome scattered around the page. */}
+          <div className="flex flex-wrap items-center gap-2 border-t border-border px-3 py-2">
+            <span
+              data-testid="smart-search-scope"
+              title="US equities only for now"
+              className="inline-flex items-center gap-1.5 rounded-full bg-primary/8 px-2.5 py-1 text-[11px] font-medium text-primary"
+            >
+              <Globe className="h-3 w-3" />
+              US equities
+            </span>
+
+            <button
+              type="button"
+              onClick={() => setPanel((p) => (p === "conditions" ? null : "conditions"))}
+              aria-expanded={panel === "conditions"}
+              data-testid="smart-search-conditions"
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
+                panel === "conditions"
+                  ? "bg-muted text-foreground"
+                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+              )}
+            >
+              <SlidersHorizontal className="h-3 w-3" />
+              Conditions
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setPanel((p) => (p === "saved" ? null : "saved"))}
+              aria-expanded={panel === "saved"}
+              data-testid="smart-search-saved"
+              className={cn(
+                "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
+                panel === "saved"
+                  ? "bg-muted text-foreground"
+                  : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+              )}
+            >
+              <Star className="h-3 w-3" />
+              Saved
+            </button>
+          </div>
         </div>
+
+        {/* Conditions — the shipped PRD-16a catalog browser, reused whole.
+            Picking a primitive appends its name to the query so the user can
+            see and edit what they're asking for, rather than composing an
+            invisible rule set. */}
+        {panel === "conditions" ? (
+          <div
+            data-testid="smart-search-conditions-panel"
+            className="mt-2 max-h-[420px] overflow-y-auto rounded-xl border border-border bg-white p-3 shadow-lg"
+          >
+            <SignalCatalogBrowser
+              onPick={(primitive) => {
+                setQuery((q) => (q.trim() ? `${q.trim()}; ${primitive.name}` : primitive.name));
+                setPanel(null);
+              }}
+            />
+          </div>
+        ) : null}
+
+        {/* Saved — the user's saved screens. Sign-in gated by data, not by a
+            teaser: with no token there is nothing to list. */}
+        {panel === "saved" ? (
+          <div
+            data-testid="smart-search-saved-panel"
+            className="mt-2 overflow-hidden rounded-xl border border-border bg-white shadow-lg"
+          >
+            {!backendToken ? (
+              <p className="px-4 py-3 text-[13px] text-muted-foreground">
+                Sign in to see your saved screens.
+              </p>
+            ) : savedScreens === null ? (
+              <p className="px-4 py-3 text-[13px] text-muted-foreground">Loading…</p>
+            ) : savedScreens.length === 0 ? (
+              <p className="px-4 py-3 text-[13px] text-muted-foreground">
+                No saved screens yet — run one and save it.
+              </p>
+            ) : (
+              <ul>
+                {savedScreens.map((s) => (
+                  <li key={s.saved_strategy_id}>
+                    <Link
+                      href={`/screens/${s.saved_strategy_id}` as Route}
+                      data-testid={`smart-search-saved-${s.saved_strategy_id}`}
+                      className="flex items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors hover:bg-muted/50"
+                    >
+                      <span className="truncate text-sm text-foreground">{s.title}</span>
+                      <span className="shrink-0 text-[11px] text-muted-foreground">
+                        {s.basket_size} {s.basket_size === 1 ? "name" : "names"}
+                      </span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
+        ) : null}
 
         {results.length > 0 ? (
           <ul

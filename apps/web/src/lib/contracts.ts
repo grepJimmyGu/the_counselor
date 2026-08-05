@@ -283,6 +283,17 @@ export type SearchIntent = "company" | "screen" | "strategy" | "ambiguous";
 export interface SearchScreen {
   universe_id: string;
   rules: StrategyRule[];
+  /** PRD-29 mixed query: when the sentence also carried fundamental
+   *  constraints, the universe is pre-narrowed by SQL and `universe_id` is the
+   *  client tier "symbols" with the survivors here. Empty for a purely
+   *  technical query, which keeps a standing universe id. */
+  symbols?: string[];
+  /** Plain-English echo of the fundamental constraints understood, so the UI
+   *  can show WHICH part of the sentence became a filter. */
+  fundamental_filters?: string[];
+  /** Set when the fundamental match exceeded the universe cap — must be
+   *  disclosed, never silently truncated. */
+  universe_truncated_from?: number | null;
 }
 
 export interface SearchOption {
