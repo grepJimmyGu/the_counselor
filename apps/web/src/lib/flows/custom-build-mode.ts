@@ -27,7 +27,7 @@ import { FlowBacktest } from "./bricks/flow-backtest";
 import { FlowReview } from "./bricks/flow-review";
 import { FlowSave } from "./bricks/flow-save";
 import { ScreenResults } from "./bricks/screener-results";
-import { isStandingUniverse } from "./bricks/universe-selector";
+import { isScreenUniverse } from "./bricks/universe-selector";
 import {
   INITIAL_CUSTOM_BUILD_CONTEXT,
   type CustomBuildModeContext,
@@ -100,13 +100,19 @@ export const CustomBuildModeFlow: FlowDefinition<CustomBuildModeContext> = {
       brick: CustomBuildCanvas,
       // PRD-23b — size-branch: standing universes (sp500/sector) take the
       // screener path (scan→rank); entered symbols take the direct backtest.
+      // PRD-29 — `isScreenUniverse`, not `isStandingUniverse`: a mixed query
+      // arrives as the "symbols" tier carrying dozens of pre-narrowed names,
+      // which is a screen. Routing it on standing-ness alone would send the
+      // whole basket to the single-symbol backtest.
       next: (ctx) =>
-        isStandingUniverse(ctx.universe_id) ? "screen_results" : "backtest",
+        isScreenUniverse(ctx.universe_id, ctx.entered_symbols)
+          ? "screen_results"
+          : "backtest",
       validate: (ctx) => {
         if (ctx.rules.length === 0) return "Add at least one rule.";
         // Standing universe → the screener path produces a scan result, not a
         // single-symbol StrategyJson, so it skips the symbol/strategyJson guards.
-        if (isStandingUniverse(ctx.universe_id)) return true;
+        if (isScreenUniverse(ctx.universe_id, ctx.entered_symbols)) return true;
         if (!ctx.symbol) return "Pick a backtest symbol.";
         // The canvas populates `strategyJson` when the user clicks
         // "Run backtest →". Block advance until it's set — guards

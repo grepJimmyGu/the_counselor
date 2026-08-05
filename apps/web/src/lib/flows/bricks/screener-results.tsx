@@ -110,7 +110,13 @@ export function ScreenResults({
     let cancelled = false;
     setLoadingScan(true);
     setError(null); // clear any stale scan error before a re-scan
-    screenScan({ universe_id: context.universe_id, rules }, { backendToken })
+    // PRD-29 — a mixed query arrives as the "symbols" tier; `symbols` supplies
+    // the membership for the client-supplied tiers. Omitting it would scan an
+    // empty universe and silently return nothing.
+    screenScan(
+      { universe_id: context.universe_id, rules, symbols: context.entered_symbols },
+      { backendToken },
+    )
       .then((resp) => {
         if (!cancelled) {
           setScan(resp);
@@ -142,7 +148,13 @@ export function ScreenResults({
       symbol: scan.matched[0] ?? "SPY",
     }) as StrategyJson;
     screenRank(
-      { universe_id: context.universe_id, rules, strategy, top_k: 50 },
+      {
+        universe_id: context.universe_id,
+        rules,
+        symbols: context.entered_symbols,
+        strategy,
+        top_k: 50,
+      },
       { backendToken: backendToken as string },
     )
       .then((resp) => {
@@ -254,6 +266,19 @@ export function ScreenResults({
           {matchedCount} {matchedCount === 1 ? "name" : "names"} match
           <span className="text-slate-400"> of {scan?.universe_size ?? 0}</span>
         </h2>
+        {/* PRD-29 — how the smart search read the query. A mixed query
+            navigates here, so this is the only place the user can see WHICH
+            part of their sentence became a fundamental filter, and whether the
+            universe was capped. The API has always returned this; nothing
+            rendered it until now. */}
+        {context.search_note ? (
+          <p
+            data-testid="screen-results-search-note"
+            className="mt-1 rounded-md bg-slate-50 px-3 py-1.5 text-[12px] text-slate-600"
+          >
+            {context.search_note}
+          </p>
+        ) : null}
         {loadingRank && (
           <p className="text-[12px] text-slate-500">Backtesting the matched basket…</p>
         )}

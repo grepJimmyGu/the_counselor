@@ -104,55 +104,31 @@ export default function HomePage() {
 
         <div className="relative mx-auto max-w-[1200px] px-6 pb-20 pt-24 lg:pb-28 lg:pt-32">
           <div className="mx-auto max-w-3xl text-center">
-            {/* Pill badge */}
-            <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-primary/20 bg-primary/8 px-4 py-1.5 text-xs font-semibold uppercase tracking-widest text-primary">
-              <TrendingUp className="h-3.5 w-3.5" />
-              Investment Research Platform
-            </div>
-
-            <h1 className="font-heading text-5xl font-bold leading-[1.1] tracking-tight lg:text-6xl">
-              Discover.{" "}
-              <span className="text-primary">Build.</span>
-              <br />
-              Track.
+            {/* PRD-29 — the box IS the product (問財 pattern), so it leads.
+                Removed from above it: the "Investment Research Platform" badge,
+                the "Discover. Build. Track." headline, the marketing paragraph,
+                and three CTA buttons — all three of which (Market Pulse,
+                Community, Strategy Builder) are already in the top nav, so
+                nothing became unreachable. Home now offers a query, it doesn't
+                advertise features. */}
+            <h1 className="font-heading text-3xl font-bold tracking-tight lg:text-4xl">
+              Screen the US market
             </h1>
-
-            <p className="mx-auto mt-6 max-w-xl text-lg leading-relaxed text-muted-foreground">
-              Discover what&rsquo;s moving today, build and backtest a rules-based
-              strategy, then track it over time. No live trading, no AI
-              recommendations — just data-driven tools.
+            <p className="mx-auto mt-3 max-w-xl text-base text-muted-foreground">
+              A ticker, a company, or a screen — type it.
             </p>
 
-            <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-              <Button asChild size="lg" className="rounded-xl px-6 shadow-lg shadow-primary/10">
-                <Link href={"/stocks" as Route}>
-                  Market Pulse <ArrowRight className="ml-2 h-4 w-4" />
-                </Link>
-              </Button>
-              <Button asChild variant="outline" size="lg" className="rounded-xl px-6">
-                <Link href={"/community" as Route}>
-                  <Users className="mr-2 h-4 w-4" />
-                  Community
-                </Link>
-              </Button>
-              <Button variant="outline" size="lg" className="rounded-xl px-6" onClick={() => openBuilder()}>
-                <Zap className="mr-2 h-4 w-4" />
-                Strategy Builder
-              </Button>
-            </div>
-
-            {/* PRD-24a §3.3 — hero lookup with in-place stock preview */}
-            <div className="mt-8">
+            <div className="mt-6">
               <SmartSearchBox />
             </div>
 
-            {/* Trust chips — compact inline row */}
-            <div className="mt-8 flex flex-wrap justify-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
+            {/* Positioning, not marketing: the research/tool framing is a
+                stated product requirement, kept to one compact line. */}
+            <div className="mt-6 flex flex-wrap justify-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
               {[
                 "No live trading",
                 "End-of-day prices",
-                "Deterministic backtester",
-                "AI research tools",
+                "Research tool, not advice",
               ].map((label) => (
                 <span key={label} className="flex items-center gap-1.5">
                   <span className="h-1 w-1 rounded-full bg-primary/60" aria-hidden="true" />

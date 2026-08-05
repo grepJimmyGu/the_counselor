@@ -31,6 +31,22 @@ export function isStandingUniverse(universeId: string | null | undefined): boole
   );
 }
 
+/** Should this reading be SCREENED (many names → a ranked basket) rather than
+ *  backtested as a single position?
+ *
+ *  PRD-29: a mixed query ("small caps that are oversold") pre-narrows the
+ *  universe with SQL and arrives as the `"symbols"` tier carrying dozens of
+ *  names. That is a screen by every meaningful definition, but
+ *  `isStandingUniverse` alone says false — which would route it to the
+ *  single-symbol backtest and quietly lose the whole basket. Screening is
+ *  about MANY names; backtesting is about one. */
+export function isScreenUniverse(
+  universeId: string | null | undefined,
+  enteredSymbols?: string[] | null,
+): boolean {
+  return isStandingUniverse(universeId) || (enteredSymbols?.length ?? 0) > 1;
+}
+
 type TierKey = "symbols" | "sp500" | "russell3000" | "sector" | "watchlist" | "portfolio";
 
 interface TierDef {
