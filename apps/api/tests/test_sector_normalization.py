@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import pytest
 
-from app.data.sectors import CANONICAL_SECTORS, normalize_sector
+from app.data.sectors import CANONICAL_SECTORS, is_placeholder, normalize_sector
 from app.schemas.fundamental import CompanyProfile
 from app.schemas.screener import ScreenerFilters
 from app.services.fundamental_service import FundamentalService
@@ -188,6 +188,22 @@ def test_search_vocab_covers_every_canonical_sector():
 
 
 # ── the seed-script NaN bug ───────────────────────────────────────────────────
+
+@pytest.mark.parametrize("junk", ["nan", "NaN", "none", "null", "N/A", "", "   ", None])
+def test_is_placeholder_detects_junk(junk):
+    """Used by the backfill to clear the same 'nan' from `industry`/`exchange`,
+    which the seed bug hit on lines adjacent to `sector`."""
+    assert is_placeholder(junk) is True
+
+
+@pytest.mark.parametrize("real", ["Semiconductors", "NASDAQ", "Health Care", "Banks—Diversified"])
+def test_is_placeholder_passes_real_values(real):
+    assert is_placeholder(real) is False
+
+
+def test_is_placeholder_detects_pandas_nan():
+    assert is_placeholder(float("nan")) is True
+
 
 def test_seed_clean_helper_rejects_pandas_nan():
     from app.scripts.seed_symbols import _clean

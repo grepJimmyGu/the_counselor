@@ -71,6 +71,19 @@ _ALIASES.update({
 })
 
 
+def is_placeholder(raw: Optional[object]) -> bool:
+    """True when a metadata cell holds a NaN-ish placeholder rather than a value.
+
+    Lives here rather than in the sector logic alone because the same
+    `seed_symbols.py` truthiness bug that produced the "nan" sector labels also
+    hit `industry`, `exchange`, and `currency` on adjacent lines.
+    """
+    if raw is None:
+        return True
+    text = str(raw).strip()
+    return not text or text.lower() in _JUNK_VALUES
+
+
 def normalize_sector(raw: Optional[object]) -> Optional[str]:
     """Map any upstream sector spelling to its canonical GICS label.
 
@@ -80,11 +93,9 @@ def normalize_sector(raw: Optional[object]) -> Optional[str]:
     Unrecognised labels pass through stripped-but-unchanged: a genuinely new
     sector should surface for triage, not be silently discarded.
     """
-    if raw is None:
+    # is_placeholder() absorbs the float('nan') pandas hands us for an empty
+    # cell — the exact value that produced the "nan" sector rows in production.
+    if is_placeholder(raw):
         return None
-    # str() also absorbs the float('nan') pandas hands us for an empty cell —
-    # the exact value that produced the "nan" sector rows in production.
     text = str(raw).strip()
-    if not text or text.lower() in _JUNK_VALUES:
-        return None
     return _ALIASES.get(text.lower(), text)

@@ -45,9 +45,17 @@ if _API_ROOT not in sys.path:
 from sqlalchemy import func, select, update  # noqa: E402
 from sqlalchemy.orm import Session  # noqa: E402
 
-from app.data.sectors import normalize_sector  # noqa: E402
+from app.data.sectors import is_placeholder, normalize_sector  # noqa: E402
 from app.db.session import SessionLocal  # noqa: E402
 from app.models.symbol import SymbolCache  # noqa: E402
+
+# The seed bug that produced the "nan" sector labels hit these columns on
+# adjacent lines too — `GET /api/screener/filters` currently offers "nan" as a
+# selectable *industry*. They only need the placeholder cleared, not aliasing.
+_SIBLING_COLUMNS = (
+    ("industry", SymbolCache.industry),
+    ("exchange", SymbolCache.exchange),
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -72,6 +80,36 @@ def _label(value: Optional[str]) -> str:
     return repr(value) if value is not None else "NULL"
 
 
+def _clear_placeholders(db: Session, name: str, column, dry_run: bool) -> int:
+    """NULL out NaN-ish placeholder labels in a sibling metadata column."""
+    rows = db.execute(
+        select(column, func.count()).where(column.isnot(None)).group_by(column)
+    ).all()
+    junk = [(value, count) for value, count in rows if is_placeholder(value)]
+    if not junk:
+        log.info("%s: clean, nothing to clear.", name)
+        return 0
+
+    for value, count in junk:
+        log.info("  %s %-20s -> NULL (%d rows)", name, _label(value), count)
+    if dry_run:
+        return sum(count for _, count in junk)
+
+    cleared = 0
+    for value, _count in junk:
+        try:
+            result = db.execute(
+                update(SymbolCache).where(column == value).values(**{name: None})
+            )
+            db.commit()
+            cleared += result.rowcount or 0
+        except Exception as exc:  # noqa: BLE001
+            log.warning("Failed clearing %s %s: %r", name, _label(value), exc)
+            db.rollback()
+            continue
+    return cleared
+
+
 def normalize_sectors(dry_run: bool) -> int:
     db = SessionLocal()
     try:
@@ -90,39 +128,42 @@ def normalize_sectors(dry_run: bool) -> int:
             if normalize_sector(label) != label
         ]
 
-        if not plan:
-            log.info("Nothing to do — every label is already canonical.")
-            return 0
-
-        for label, target, count in plan:
-            log.info("  %-26s -> %-26s (%d rows)", _label(label), _label(target), count)
-
-        affected = sum(count for _, _, count in plan)
-        if dry_run:
-            log.info(
-                "--dry-run: would rewrite %d rows across %d labels (no changes made)",
-                affected, len(plan),
-            )
-            return affected
-
         updated = 0
-        for label, target, _count in plan:
-            try:
-                result = db.execute(
-                    update(SymbolCache)
-                    .where(SymbolCache.sector == label)
-                    .values(sector=target)
-                )
-                db.commit()
-                updated += result.rowcount or 0
-            except Exception as exc:  # noqa: BLE001
-                log.warning("Failed rewriting %s: %r", _label(label), exc)
-                db.rollback()
-                continue
+        if not plan:
+            log.info("sector: already canonical, nothing to rewrite.")
+        else:
+            for label, target, count in plan:
+                log.info("  %-26s -> %-26s (%d rows)", _label(label), _label(target), count)
+
+            if dry_run:
+                updated += sum(count for _, _, count in plan)
+            else:
+                for label, target, _count in plan:
+                    try:
+                        result = db.execute(
+                            update(SymbolCache)
+                            .where(SymbolCache.sector == label)
+                            .values(sector=target)
+                        )
+                        db.commit()
+                        updated += result.rowcount or 0
+                    except Exception as exc:  # noqa: BLE001
+                        log.warning("Failed rewriting %s: %r", _label(label), exc)
+                        db.rollback()
+                        continue
+
+        # The same seed bug polluted these columns; 'nan' is currently offered
+        # as a selectable *industry* by GET /api/screener/filters.
+        for name, column in _SIBLING_COLUMNS:
+            updated += _clear_placeholders(db, name, column, dry_run)
+
+        if dry_run:
+            log.info("--dry-run: would rewrite %d rows (no changes made)", updated)
+            return updated
 
         after = _distinct_sectors(db)
         log.info("Done — rewrote %d rows.", updated)
-        log.info("After: %d distinct labels", len(after))
+        log.info("After: %d distinct sector labels", len(after))
         for label, count in sorted(after):
             log.info("  %-26s %d", _label(label), count)
         return updated
