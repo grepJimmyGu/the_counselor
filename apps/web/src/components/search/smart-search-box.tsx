@@ -42,7 +42,7 @@ import type {
   SavedScreenSummary,
   SymbolSearchItem,
 } from "@/lib/contracts";
-import { SignalCatalogBrowser } from "@/components/signal-library/signal-catalog-browser";
+import { ConditionBuilder } from "@/components/search/condition-builder";
 import { useLiveQuotes } from "@/lib/useLiveQuotes";
 import { cn } from "@/lib/utils";
 import { EvaluationDashboard } from "@/components/stocks/evaluation-dashboard";
@@ -302,13 +302,12 @@ export function SmartSearchBox() {
         {panel === "conditions" ? (
           <div
             data-testid="smart-search-conditions-panel"
-            className="mt-2 max-h-[420px] overflow-y-auto rounded-xl border border-border bg-white p-3 shadow-lg"
+            className="mt-2 max-h-[460px] overflow-y-auto rounded-xl border border-border bg-white p-4 shadow-lg"
           >
-            <SignalCatalogBrowser
-              onPick={(primitive) => {
-                setQuery((q) => (q.trim() ? `${q.trim()}; ${primitive.name}` : primitive.name));
-                setPanel(null);
-              }}
+            <ConditionBuilder
+              onAppend={(phrase) =>
+                setQuery((q) => (q.trim() ? `${q.trim()}; ${phrase}` : phrase))
+              }
             />
           </div>
         ) : null}
