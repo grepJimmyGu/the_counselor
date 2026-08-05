@@ -17,7 +17,9 @@ ask for. Never guess a sector.
 from __future__ import annotations
 
 import re
-from typing import List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
+
+from app.data.sectors import normalize_sector
 
 from app.data.screen_filter_vocab import (
     CAP_SYNONYMS,
@@ -147,3 +149,29 @@ def extract_filters(query: str) -> Tuple[Optional[ScreenerFilters], List[str]]:
         applied.append(f"dividend yield over {min_div * 100:g}%")
 
     return filters, applied
+
+
+def screener_query_params(filters: ScreenerFilters) -> Dict[str, str]:
+    """The `/stocks` query string that reproduces `filters`.
+
+    A fundamental-only query ("p/e under 15") has no technical rule, so there is
+    nothing for the signal scan to evaluate — its natural home is the stock
+    screener page, which already renders P/E and dividend-yield columns and
+    reads exactly these params from the URL. This is the inverse of
+    `extract_filters`; keep the two in step.
+    """
+    out: Dict[str, str] = {}
+    if filters.sector:
+        # `filters.sector` is our internal key ("healthcare"); the screener
+        # endpoint matches the stored GICS label ("Health Care") exactly, so
+        # canonicalise or the URL silently returns nothing.
+        out["sector"] = normalize_sector(filters.sector) or filters.sector
+    if filters.market_cap_category:
+        out["market_cap_category"] = filters.market_cap_category
+    if filters.max_pe is not None:
+        out["max_pe"] = f"{filters.max_pe:g}"
+    if filters.min_pe is not None:
+        out["min_pe"] = f"{filters.min_pe:g}"
+    if filters.min_dividend_yield is not None:
+        out["min_dividend_yield"] = f"{filters.min_dividend_yield:g}"
+    return out

@@ -27,7 +27,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.schemas.search import ParseResult, SearchIntent, SearchParseRequest
 from app.services.alpha_vantage import AlphaVantageClient
-from app.services.screen_filter_parser import extract_filters
+from app.services.screen_filter_parser import extract_filters, screener_query_params
 from app.services.screener_service import ScreenerService
 from app.data.standing_universes import standing_universe_ids
 from app.services.screen_rule_parser import extract_rules
@@ -37,6 +37,7 @@ from app.services.search_dispatch_service import (
     best_company_match,
     build_company_result,
     build_screen_result,
+    build_screen_result_from_filters,
     build_screen_result_from_rules,
     classify,
 )
@@ -89,6 +90,7 @@ async def parse_search(
             applied=applied,
             total=total,
             truncated_from=total if total > len(symbols) else None,
+            screener_params=screener_query_params(filters),
         )
 
     # TECHNICAL half. Try the deterministic extractor FIRST: the LLM strategy
@@ -101,6 +103,13 @@ async def parse_search(
         return build_screen_result_from_rules(
             query, rules, readings, fundamental, universe_id=universe_id
         )
+
+    # Fundamental-only query ("p/e under 15", "dividend yield above 4%"): the
+    # filters ARE the whole screen. Without this the request fell through to
+    # the LLM below, which asked "Which strategy type should I use?" and
+    # discarded the symbols we just matched.
+    if fundamental is not None:
+        return build_screen_result_from_filters(query, fundamental)
 
     # Nothing recognised — fall back to the LLM parser, which still handles
     # phrasings the vocabulary doesn't cover. Release the pooled conn first

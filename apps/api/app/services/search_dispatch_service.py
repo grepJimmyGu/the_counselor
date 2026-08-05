@@ -7,7 +7,7 @@ lookup + the parser) and calls into these.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from app.schemas.market_data import SymbolSearchItem
 from app.schemas.search import ParseResult, SearchIntent, SearchScreen
@@ -38,6 +38,8 @@ class FundamentalNarrowing:
     applied: List[str] = field(default_factory=list)
     # Total matches before the cap — equals len(symbols) when nothing was cut.
     total: int = 0
+    # `/stocks` params reproducing the filters, for the fundamental-only route.
+    screener_params: Dict[str, str] = field(default_factory=dict)
     # Set only when the cap actually bit, so the caller can disclose it.
     truncated_from: Optional[int] = None
 
@@ -186,6 +188,55 @@ def build_screen_result(
         strategy_json=sj_dict,
         note=" ".join(notes),
         confidence=0.7,
+    )
+
+
+def build_screen_result_from_filters(
+    query: str,
+    fundamental: "FundamentalNarrowing",
+) -> ParseResult:
+    """Build a SCREEN for a query whose constraints are ALL fundamental.
+
+    "p/e under 15" carries no technical rule, so `extract_rules` returns
+    nothing — and the route used to fall through to the LLM strategy parser,
+    which answered with "Which strategy type should I use?" and threw away the
+    symbols SQL had already matched. The narrowing IS the screen here: the
+    scan runs over the caller-supplied list with an empty rule set (see
+    `scan_service` — that combination means "the filtering already happened").
+    """
+    if not fundamental.symbols:
+        return ParseResult(
+            intent=SearchIntent.AMBIGUOUS,
+            query=query,
+            note=f"No names match {' + '.join(fundamental.applied)}. "
+            "Try loosening that part.",
+            confidence=0.3,
+        )
+
+    plural = "name" if fundamental.total == 1 else "names"
+    notes = [
+        f"Matched {fundamental.total} {plural} on {' + '.join(fundamental.applied)}."
+    ]
+    if fundamental.truncated_from:
+        notes.append(
+            f"Showing the {len(fundamental.symbols)} largest of "
+            f"{fundamental.truncated_from} matches — narrow the query to cover "
+            "the rest."
+        )
+
+    return ParseResult(
+        intent=SearchIntent.SCREEN,
+        query=query,
+        screen=SearchScreen(
+            universe_id="symbols",
+            rules=[],
+            symbols=fundamental.symbols,
+            fundamental_filters=fundamental.applied,
+            universe_truncated_from=fundamental.truncated_from,
+            screener_params=fundamental.screener_params,
+        ),
+        note=" ".join(notes),
+        confidence=0.8,
     )
 
 

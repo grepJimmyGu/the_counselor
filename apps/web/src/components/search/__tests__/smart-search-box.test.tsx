@@ -37,6 +37,9 @@ const useSessionMock = vi.fn(() => ({
 }));
 vi.mock("next-auth/react", () => ({ useSession: () => useSessionMock() }));
 
+const pushMock = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: pushMock }) }));
+
 import { listSavedScreens, parseSearch } from "@/lib/api";
 import { launchScreenFromParsedRules } from "@/lib/flows/launch-screen";
 import { SmartSearchBox } from "../smart-search-box";
@@ -248,5 +251,66 @@ describe("universe picker", () => {
     expect(screen.getByTestId("stub-pick").getAttribute("data-universe")).toBe(
       "russell3000",
     );
+  });
+});
+
+describe("fundamental-only queries", () => {
+  it("navigates to the stock screener instead of a rule-less scan", async () => {
+    pushMock.mockClear();
+    parseMock.mockResolvedValue({
+      intent: "screen",
+      query: "p/e under 15",
+      note: "Matched 42 names on P/E under 15.",
+      confidence: 0.8,
+      screen: {
+        universe_id: "symbols",
+        rules: [],
+        symbols: ["JPM", "XOM"],
+        fundamental_filters: ["P/E under 15"],
+        screener_params: { max_pe: "15" },
+      },
+    });
+    render(<SmartSearchBox />);
+    submit("p/e under 15");
+    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/stocks?max_pe=15"));
+    // The signal-scan launcher rejects an empty rule set, so routing there
+    // would have shown "try naming an indicator".
+    expect(launchScreenFromParsedRules).not.toHaveBeenCalled();
+  });
+
+  it("encodes multi-filter params", async () => {
+    pushMock.mockClear();
+    parseMock.mockResolvedValue({
+      intent: "screen", query: "healthcare small caps", note: "n", confidence: 0.8,
+      screen: {
+        universe_id: "symbols", rules: [], symbols: ["X"],
+        fundamental_filters: ["healthcare sector", "small-cap"],
+        screener_params: { sector: "Health Care", market_cap_category: "small" },
+      },
+    });
+    render(<SmartSearchBox />);
+    submit("healthcare small caps");
+    await waitFor(() =>
+      expect(pushMock).toHaveBeenCalledWith(
+        "/stocks?sector=Health+Care&market_cap_category=small",
+      ),
+    );
+  });
+
+  it("still launches the scan when the query has technical rules", async () => {
+    pushMock.mockClear();
+    parseMock.mockResolvedValue({
+      intent: "screen", query: "oversold", note: "n", confidence: 0.8,
+      screen: {
+        universe_id: "sp500",
+        rules: [{ primitive_id: "rsi", operator: "lt", threshold: 30 }],
+        symbols: [], fundamental_filters: [], screener_params: {},
+      },
+    });
+    vi.mocked(launchScreenFromParsedRules).mockResolvedValue(true);
+    render(<SmartSearchBox />);
+    submit("oversold");
+    await waitFor(() => expect(launchScreenFromParsedRules).toHaveBeenCalled());
+    expect(pushMock).not.toHaveBeenCalled();
   });
 });

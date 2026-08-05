@@ -14,7 +14,7 @@ the technical rules the parser extracts and says so in `note`.
 from __future__ import annotations
 
 from enum import Enum
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from pydantic import BaseModel, Field
 
@@ -46,6 +46,11 @@ class SearchScreen(BaseModel):
     # Set when the fundamental match exceeded the universe cap — the caller
     # must disclose it rather than present a truncated screen as complete.
     universe_truncated_from: Optional[int] = None
+    # Set only when the query was PURELY fundamental, i.e. `rules` is empty.
+    # The `/stocks` screener params that reproduce it — that page already
+    # renders P/E and dividend columns, so it's the right destination; a scan
+    # with no rules would have nothing to evaluate.
+    screener_params: Dict[str, str] = Field(default_factory=dict)
 
 
 class SearchOption(BaseModel):
