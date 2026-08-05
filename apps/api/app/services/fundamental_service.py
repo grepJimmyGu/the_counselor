@@ -6,6 +6,7 @@ from typing import Optional
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.data.sectors import normalize_sector
 from app.models.symbol import SymbolCache
 from app.schemas.fundamental import CompanyProfile, FundamentalSummary, KeyMetrics
 from app.services.adapters.fmp_adapter import FMPAdapter
@@ -46,7 +47,10 @@ class FundamentalService:
             existing = SymbolCache(symbol=profile.symbol, name=profile.name, last_seen_at=now)
             db.add(existing)
         existing.name = profile.name or existing.name
-        existing.sector = profile.sector
+        # Canonicalise on write: this upsert fires on every company-page view and
+        # was rewriting GICS-seeded rows into FMP's vocabulary, silently dropping
+        # them out of the exact-match sector screen. See app/data/sectors.py.
+        existing.sector = normalize_sector(profile.sector)
         existing.industry = profile.industry
         existing.country = profile.country
         existing.description = profile.description
@@ -66,9 +70,13 @@ class FundamentalService:
 
     async def _fetch_profile(self, symbol: str) -> CompanyProfile:
         try:
-            return await self._fmp.get_profile(symbol)
+            profile = await self._fmp.get_profile(symbol)
         except (FMPNotConfiguredError, FMPRateLimitError):
-            return await self._yf.get_profile(symbol)
+            profile = await self._yf.get_profile(symbol)
+        # Canonicalise here too, not just at the DB write: this profile is what
+        # the caller renders and what the value-chain lookup keys on, so a fresh
+        # fetch must agree with what a later cache hit will return.
+        return profile.model_copy(update={"sector": normalize_sector(profile.sector)})
 
     async def _fetch_metrics(self, symbol: str) -> KeyMetrics:
         try:

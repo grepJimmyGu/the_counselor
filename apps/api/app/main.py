@@ -53,6 +53,7 @@ from app.api.routes.triage import router as triage_router  # PR-D — ops triage
 from app.api.routes.portfolio import router as portfolio_router  # PRD-13b — Portfolio Mode
 from app.api.routes.supply_chain import router as supply_chain_router  # PRD-25/26 — supply-chain lens
 from app.core.config import get_settings
+from app.data.sectors import normalize_sector
 from app.db.migrations import run_startup_migrations
 from app.db.session import Base, engine
 from app.models import BacktestRecord, DataFetchLog, PriceBar, SymbolCache, User, Plan, MonthlyUsage, StripeEvent  # noqa: F401
@@ -262,7 +263,9 @@ async def _seed_and_warmup_stock_universe() -> None:
                         db.add(SymbolCache(
                             symbol=sym,
                             name=name,
-                            sector=sector,
+                            # _TOP_US_STOCKS is hand-written in FMP's vocabulary;
+                            # canonicalise so the seed agrees with the screener.
+                            sector=normalize_sector(sector),
                             instrument_type="Equity",
                             is_active=True,
                             last_seen_at=now,

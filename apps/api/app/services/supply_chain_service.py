@@ -46,15 +46,6 @@ _NO_CHAIN_SECTORS = (
     "communication services",
 )
 
-# FMP returns "Financial Services"; value_chain_classifier keys on "Financials".
-# Normalize before the fallback-role lookup so it doesn't return None (the P4 bug
-# the PRD calls out).
-_SECTOR_ALIASES = {
-    "financial services": "Financials",
-    "banking": "Financials",
-    "insurance": "Financials",
-}
-
 
 def _norm(s: Optional[str]) -> str:
     return (s or "").strip().lower()
@@ -75,8 +66,9 @@ def is_no_chain_structure_sector(sector: Optional[str], industry: Optional[str])
 
 
 def _fallback_role(sector: Optional[str], industry: Optional[str]) -> Optional[str]:
-    alias = _SECTOR_ALIASES.get(_norm(sector))
-    return get_value_chain_role(alias or sector, industry)
+    # get_value_chain_role() canonicalises the label itself now, so the local
+    # "Financial Services" -> "Financials" alias table this used to carry is gone.
+    return get_value_chain_role(sector, industry)
 
 
 def build_summary(

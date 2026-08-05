@@ -13,6 +13,29 @@ Or add to Railway startup by setting SEED_SYMBOLS_ON_STARTUP=true.
 from __future__ import annotations
 
 import sys
+from typing import Optional
+
+from app.data.sectors import normalize_sector
+
+# Values pandas hands back for an empty cell. `float('nan')` is the important
+# one: `bool(float('nan')) is True`, so the obvious `str(cell or "")` idiom
+# never short-circuits and stringifies a missing cell into the literal "nan".
+# That is how 518 production rows ended up with the sector label "nan".
+_EMPTY_CELLS = frozenset({"nan", "nat", "none", "null", "n/a", "na", "<na>"})
+
+
+def _clean(value: object, limit: int, default: Optional[str] = None) -> Optional[str]:
+    """Coerce a pandas cell to a trimmed, truncated string.
+
+    Returns `default` when the cell is missing or a NaN-ish placeholder, rather
+    than letting `str()` turn the placeholder into a real-looking label.
+    """
+    if value is None:
+        return default
+    text = str(value).strip()
+    if not text or text.lower() in _EMPTY_CELLS:
+        return default
+    return text[:limit]
 
 
 def _market_cap_category(market_cap: float | None) -> str | None:
@@ -62,14 +85,15 @@ def seed_symbols(batch_size: int = 500, country: str = "United States") -> None:
     for symbol, row in df.iterrows():
         if not symbol or not isinstance(symbol, str):
             continue
+        sector = normalize_sector(row.get("sector"))
         rows.append({
             "symbol": str(symbol).upper()[:16],
-            "name": str(row.get("name") or symbol)[:255],
-            "sector": str(row.get("sector") or "")[:120] or None,
-            "industry": str(row.get("industry_group") or row.get("industry") or "")[:120] or None,
+            "name": _clean(row.get("name"), 255, default=str(symbol)),
+            "sector": sector[:120] if sector else None,
+            "industry": _clean(row.get("industry_group"), 120) or _clean(row.get("industry"), 120),
             "country": "US",
-            "exchange": str(row.get("exchange") or "")[:32] or None,
-            "currency": str(row.get("currency") or "USD")[:16],
+            "exchange": _clean(row.get("exchange"), 32),
+            "currency": _clean(row.get("currency"), 16, default="USD"),
             "market_cap_category": None,
             "is_active": True,
             "instrument_type": "Equity",
