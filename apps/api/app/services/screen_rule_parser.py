@@ -67,6 +67,37 @@ _PATTERNS: Tuple[Tuple[str, str, str, Optional[Any], Optional[Dict[str, Any]], s
     (r"\b(?:volume\s+surge|unusual\s+volume|high\s+volume|volume\s+spike)\b",
      "rvol_surge", "fires", None, None, "volume surge"),
 
+    # ── oscillators / crosses added for the condition builder ─────────────
+    (r"\bmacd\s+above\s+zero\b|\bmacd\s+zero[-\s]?line\b", "macd_zero_line_cross",
+     "crosses_up", None, None, "MACD above the zero line"),
+    (r"\bstochastic\s+cross(?:ing|es)?\s*(?:up|above)\b", "stoch_k_d_cross",
+     "crosses_up", None, None, "stochastic crossing up"),
+    (r"\bstochastic\s+cross(?:ing|es)?\s*(?:down|below)\b", "stoch_k_d_cross",
+     "crosses_down", None, None, "stochastic crossing down"),
+    (r"\babove\s+vwap\b", "vwap", "gt", 0, {"period": 20}, "above VWAP"),
+    (r"\broc\s*(?:above|over|>)\s*(-?\d{1,3})\b", "roc", "gt", "@1", {"period": 20},
+     "20-day change above {v}%"),
+    (r"\broc\s*(?:below|under|<)\s*(-?\d{1,3})\b", "roc", "lt", "@1", {"period": 20},
+     "20-day change below {v}%"),
+
+    # ── fundamentals expressed as primitives (not ScreenerFilters) ────────
+    (r"\bbook\s+to\s+market\s*(?:above|over|>)\s*([\d.]+)", "book_to_market", "gt",
+     "@1", None, "book-to-market above {v}"),
+    (r"\bfcf\s+yield\s*(?:above|over|>)\s*([\d.]+)", "fcf_yield", "gt", "@1", None,
+     "FCF yield above {v}"),
+    (r"\bf[-\s]?score\s*(?:above|over|>=?|at least)\s*([\d.]+)", "f_score", "gte",
+     "@1", None, "Piotroski F-score at or above {v}"),
+
+    # ── sentiment / events ────────────────────────────────────────────────
+    (r"\bsentiment\s*(?:above|over|>)\s*([\d.]+)", "sentiment_score", "gt", "@1",
+     {"window_days": 30}, "news sentiment above {v}"),
+    (r"\binsider\s+buying\b", "insider_net_buy", "gt", 0, {"window_days": 90},
+     "net insider buying"),
+    (r"\bpositive\s+earnings\s+surprise\b", "earnings_surprise", "gt", 0,
+     {"window_days": 60}, "positive earnings surprise"),
+    (r"\bestimates?\s+rising\b", "estimate_revision_3m", "gt", 0, None,
+     "analyst estimates rising"),
+
     # ── position within range ─────────────────────────────────────────────
     # signed percent, negative below the high — so "near the high" is >= -5.
     (r"\bnear(?:ing)?\s+(?:its\s+|the\s+)?52[-\s]?week\s+high\b|\bnear\s+(?:its\s+)?highs?\b",

@@ -20,11 +20,12 @@ vi.mock("@/components/stocks/evaluation-dashboard", () => ({
 vi.mock("@/components/stocks/business-model-section", () => ({
   BusinessModelSection: () => null,
 }));
-// The catalog browser fetches the 110-primitive catalog on mount; stub it and
-// expose a pick button so the Conditions wiring is still exercised.
-vi.mock("@/components/signal-library/signal-catalog-browser", () => ({
-  SignalCatalogBrowser: ({ onPick }: { onPick: (p: { name: string }) => void }) => (
-    <button data-testid="stub-pick" onClick={() => onPick({ name: "RSI" })}>
+// The builder calls the live-count endpoint on selection; stub it and expose a
+// pick button so the Conditions wiring is still exercised here. The builder's
+// own behaviour is covered in condition-builder.test.tsx.
+vi.mock("@/components/search/condition-builder", () => ({
+  ConditionBuilder: ({ onAppend }: { onAppend: (p: string) => void }) => (
+    <button data-testid="stub-pick" onClick={() => onAppend("oversold")}>
       pick
     </button>
   ),
@@ -175,16 +176,15 @@ describe("SmartSearchBox mixed queries + controls", () => {
     expect(screen.getByTestId("smart-search-saved")).toBeTruthy();
   });
 
-  it("Conditions opens the catalog and a pick lands in the query", () => {
+  it("Conditions opens the builder and a pick lands in the query", () => {
     render(<SmartSearchBox />);
     fireEvent.click(screen.getByTestId("smart-search-conditions"));
     expect(screen.getByTestId("smart-search-conditions-panel")).toBeTruthy();
 
     fireEvent.click(screen.getByTestId("stub-pick"));
     const input = screen.getByTestId("smart-search-input") as HTMLInputElement;
-    expect(input.value).toBe("RSI");
-    // Picking closes the panel — the user is back at the query.
-    expect(screen.queryByTestId("smart-search-conditions-panel")).toBeNull();
+    // A pick writes a COMPLETE readable condition, not a bare primitive name.
+    expect(input.value).toBe("oversold");
   });
 
   it("Saved lists the user's screens", async () => {
