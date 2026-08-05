@@ -19,6 +19,7 @@
 import * as React from "react";
 import Link from "next/link";
 import type { Route } from "next";
+import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 import {
   ArrowRight,
@@ -115,6 +116,7 @@ export function SmartSearchBox() {
   // The standing universe to screen. Both are snapshot-warmed daily, so either
   // is a live scan target — verified against production (525 / 2,552 names).
   const [universeId, setUniverseId] = React.useState<UniverseId>("sp500");
+  const router = useRouter();
   const [savedScreens, setSavedScreens] = React.useState<SavedScreenSummary[] | null>(
     null,
   );
@@ -198,6 +200,19 @@ export function SmartSearchBox() {
         return;
       }
       if (result.intent === "screen" && result.screen) {
+        // Purely fundamental ("p/e under 15", "healthcare small caps"): there
+        // is no technical rule for the signal scan to evaluate, so send it to
+        // the stock screener, which already filters on exactly these params
+        // and shows the P/E and dividend columns the query asked about.
+        const fundamentalOnly =
+          result.screen.rules.length === 0 &&
+          result.screen.screener_params &&
+          Object.keys(result.screen.screener_params).length > 0;
+        if (fundamentalOnly) {
+          const qs = new URLSearchParams(result.screen.screener_params).toString();
+          router.push(`/stocks?${qs}` as Route);
+          return;
+        }
         const launched = await launchScreenFromParsedRules(
           result.screen.rules,
           result.screen.universe_id,
@@ -221,7 +236,7 @@ export function SmartSearchBox() {
     } finally {
       setSubmitting(false);
     }
-  }, [query, submitting, openCompany, universeId]);
+  }, [query, submitting, openCompany, universeId, router]);
 
   return (
     <div className="mx-auto w-full max-w-[1080px] text-left">

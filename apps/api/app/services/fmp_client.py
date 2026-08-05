@@ -139,7 +139,12 @@ class FMPClient:
         Key financial metrics (TTM). Returns a normalised dict that maps
         stable-API field names to the legacy TTM names our downstream code expects.
         """
-        data = await self._get("/key-metrics-ttm", {"symbol": symbol.upper()})
+        # Class shares: our universes use dot notation (BRK.B), FMP wants the
+        # hyphen (BRK-B). `get_quote` already translates; this didn't, so every
+        # class share fell through as "No key metrics" (trap #15).
+        data = await self._get(
+            "/key-metrics-ttm", {"symbol": symbol.upper().replace(".", "-")}
+        )
         if not data or not isinstance(data, list):
             raise FMPError(f"No key metrics for {symbol}")
         raw = data[0]

@@ -55,7 +55,13 @@ class FundamentalService:
         existing.country = profile.country
         existing.description = profile.description
         existing.market_cap = profile.market_cap
-        existing.pe_ratio = profile.pe_ratio
+        # Never null out a P/E we already have. FMP's *profile* has no P/E at
+        # all (`fmp_adapter` hardcodes None — it comes from key-metrics), so an
+        # unguarded write here wiped the value `get_summary` had just merged
+        # in, on every cache refresh. That write-then-clobber loop is why
+        # `max_pe=60` matched 0 of 16,832 symbols.
+        if profile.pe_ratio is not None:
+            existing.pe_ratio = profile.pe_ratio
         existing.dividend_yield = profile.dividend_yield
         existing.beta = profile.beta
         existing.week_52_high = profile.week_52_high

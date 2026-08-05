@@ -291,6 +291,10 @@ export interface SearchScreen {
   /** Plain-English echo of the fundamental constraints understood, so the UI
    *  can show WHICH part of the sentence became a filter. */
   fundamental_filters?: string[];
+  /** PRD-29 — set when the query was PURELY fundamental (no technical rule).
+   *  These are `/stocks` query params; the box navigates there instead of
+   *  launching a rule-less signal scan. */
+  screener_params?: Record<string, string>;
   /** Set when the fundamental match exceeded the universe cap — must be
    *  disclosed, never silently truncated. */
   universe_truncated_from?: number | null;

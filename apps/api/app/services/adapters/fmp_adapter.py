@@ -1,9 +1,33 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Optional
 
 from app.schemas.fundamental import CompanyProfile, KeyMetrics
 from app.services.fmp_client import FMPClient
+
+
+def _dividend_yield(last_dividend, price) -> Optional[float]:
+    """Annual dividend per share ÷ price, as a **fraction** (0.0062 = 0.62%).
+
+    FMP's profile carries `lastDividend` — dollars per share per year, NOT a
+    yield — and `/key-metrics-ttm` dropped `dividendYieldPercentageTTM`
+    entirely (see `_normalise_key_metrics`), so this is the only source we
+    have. Storing `lastDividend` raw is what made MSFT read as a 3.56% yield
+    when 3.56 was its annual *dollar* payout.
+
+    Fraction, not percent, because that's what both consumers already assume:
+    `screen_filter_parser` turns "4%" into 0.04, and the stocks table renders
+    `dividend_yield * 100`. `tests/test_dividend_yield_units.py` pins it.
+    """
+    try:
+        div = float(last_dividend)
+        px = float(price)
+    except (TypeError, ValueError):
+        return None
+    if div <= 0 or px <= 0:
+        return None
+    return div / px
 
 
 class FMPAdapter:
@@ -31,6 +55,11 @@ class FMPAdapter:
         except (ValueError, TypeError):
             pass
 
+        price = raw.get("price") or raw.get("currentPrice") or raw.get("lastSalePrice")
+        dividend_yield = _dividend_yield(
+            raw.get("lastDividend") or raw.get("lastDiv"), price
+        )
+
         return CompanyProfile(
             symbol=symbol.upper(),
             name=raw.get("companyName", symbol),
@@ -44,12 +73,11 @@ class FMPAdapter:
             ceo=raw.get("ceo") or None,
             employees=employees,
             website=raw.get("website") or None,
-            price=raw.get("price") or raw.get("currentPrice") or raw.get("lastSalePrice"),
+            price=price,
             # stable API: mktCap → marketCap
             market_cap=raw.get("marketCap") or raw.get("mktCap"),
             pe_ratio=None,  # comes from key-metrics
-            # stable API: lastDiv → lastDividend
-            dividend_yield=raw.get("lastDividend") or raw.get("lastDiv"),
+            dividend_yield=dividend_yield,
             beta=raw.get("beta"),
             week_52_high=week_52_high,
             week_52_low=week_52_low,
