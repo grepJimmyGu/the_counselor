@@ -15,6 +15,7 @@ from app.services.search_dispatch_service import (
     DEFAULT_SCREEN_UNIVERSE,
     build_company_result,
     build_screen_result,
+    universe_label,
     classify,
 )
 
@@ -121,3 +122,25 @@ def test_build_screen_result_no_rules_is_ambiguous() -> None:
 def test_build_screen_result_no_strategy_json_is_ambiguous() -> None:
     r = build_screen_result("???", _parsed(rules=None))
     assert r.intent == SearchIntent.AMBIGUOUS
+
+
+def test_universe_label_is_human_readable() -> None:
+    assert universe_label("sp500") == "the S&P 500"
+    assert universe_label("russell3000") == "the Russell 3000"
+
+
+def test_universe_label_falls_back_to_the_raw_id() -> None:
+    # Unknown ids can't reach here (the route 422s first), but the note should
+    # degrade to something printable rather than raising.
+    assert universe_label("nasdaq100") == "nasdaq100"
+
+
+def test_screen_note_names_the_universe_it_scanned() -> None:
+    parsed = _parsed(rules=[{"primitive_id": "rsi_14", "operator": "lt"}])
+    assert "the S&P 500" in build_screen_result("oversold names", parsed).note
+    assert (
+        "the Russell 3000"
+        in build_screen_result(
+            "oversold names", parsed, universe_id="russell3000"
+        ).note
+    )

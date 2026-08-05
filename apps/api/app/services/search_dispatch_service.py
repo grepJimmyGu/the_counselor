@@ -13,8 +13,16 @@ from app.schemas.market_data import SymbolSearchItem
 from app.schemas.search import ParseResult, SearchIntent, SearchScreen
 from app.schemas.strategy import StrategyChatResponse
 
-# The universe when the query carries no fundamental constraint of its own.
+# The universe when the caller doesn't pick one.
 DEFAULT_SCREEN_UNIVERSE = "sp500"
+
+# Human labels for the standing universes the box offers, so the result note
+# names what was actually screened rather than hard-coding "the S&P 500".
+_UNIVERSE_LABELS = {"sp500": "the S&P 500", "russell3000": "the Russell 3000"}
+
+
+def universe_label(universe_id: str) -> str:
+    return _UNIVERSE_LABELS.get(universe_id, universe_id)
 
 
 @dataclass
@@ -107,6 +115,7 @@ def build_screen_result(
     query: str,
     parsed: StrategyChatResponse,
     fundamental: Optional[FundamentalNarrowing] = None,
+    universe_id: str = DEFAULT_SCREEN_UNIVERSE,
 ) -> ParseResult:
     """Turn the parser output into a runnable SCREEN, or AMBIGUOUS if it
     produced no usable conditions.
@@ -167,10 +176,8 @@ def build_screen_result(
             confidence=0.3,
         )
     else:
-        screen = SearchScreen(universe_id=DEFAULT_SCREEN_UNIVERSE, rules=rules)
-        notes.append(
-            "Screened the S&P 500 on your technical rules."
-        )
+        screen = SearchScreen(universe_id=universe_id, rules=rules)
+        notes.append(f"Screened {universe_label(universe_id)} on your technical rules.")
 
     return ParseResult(
         intent=SearchIntent.SCREEN,
@@ -187,6 +194,7 @@ def build_screen_result_from_rules(
     rules: List[dict],
     readings: List[str],
     fundamental: Optional[FundamentalNarrowing] = None,
+    universe_id: str = DEFAULT_SCREEN_UNIVERSE,
 ) -> ParseResult:
     """Build a SCREEN from rules extracted DIRECTLY from the query.
 
@@ -228,8 +236,10 @@ def build_screen_result_from_rules(
             confidence=0.3,
         )
     else:
-        screen_kwargs["universe_id"] = DEFAULT_SCREEN_UNIVERSE
-        notes.append(f"Screened the S&P 500 on {' + '.join(readings)}.")
+        screen_kwargs["universe_id"] = universe_id
+        notes.append(
+            f"Screened {universe_label(universe_id)} on {' + '.join(readings)}."
+        )
 
     return ParseResult(
         intent=SearchIntent.SCREEN,

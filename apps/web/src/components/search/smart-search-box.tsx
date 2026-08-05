@@ -52,6 +52,18 @@ import { launchScreenFromParsedRules } from "@/lib/flows/launch-screen";
 // Side-effect import — registers `one_asset_mode` so startFlow can find it.
 import "@/lib/flows/one-asset-mode";
 
+/** The standing universes the box can screen. Both are warmed into the daily
+ *  signal snapshot, so either is a live scan target; anything else would have
+ *  to be scanned cold. Kept in sync with `app/data/standing_universes.py` —
+ *  the route 422s on an id it doesn't recognise rather than silently
+ *  defaulting, so a drift here surfaces loudly. */
+const UNIVERSES = [
+  { id: "sp500", label: "S&P 500" },
+  { id: "russell3000", label: "Russell 3000" },
+] as const;
+
+type UniverseId = (typeof UNIVERSES)[number]["id"];
+
 /** Price + day-over-day % header (the §3.8 cardinal rule). */
 function QuoteHeader({ symbol, name }: { symbol: string; name: string | null }) {
   const { quotes } = useLiveQuotes([symbol]);
@@ -100,6 +112,9 @@ export function SmartSearchBox() {
 
   // Which control-row panel is open (only one at a time).
   const [panel, setPanel] = React.useState<"conditions" | "saved" | null>(null);
+  // The standing universe to screen. Both are snapshot-warmed daily, so either
+  // is a live scan target — verified against production (525 / 2,552 names).
+  const [universeId, setUniverseId] = React.useState<UniverseId>("sp500");
   const [savedScreens, setSavedScreens] = React.useState<SavedScreenSummary[] | null>(
     null,
   );
@@ -177,7 +192,7 @@ export function SmartSearchBox() {
     setNote(null);
     setResults([]);
     try {
-      const result = await parseSearch(q);
+      const result = await parseSearch(q, universeId);
       if (result.intent === "company" && result.symbol) {
         openCompany({ symbol: result.symbol, name: result.company_name ?? result.symbol });
         return;
@@ -206,15 +221,15 @@ export function SmartSearchBox() {
     } finally {
       setSubmitting(false);
     }
-  }, [query, submitting, openCompany]);
+  }, [query, submitting, openCompany, universeId]);
 
   return (
-    <div className="mx-auto max-w-2xl text-left">
+    <div className="mx-auto w-full max-w-[1080px] text-left">
       <div className="relative">
         {/* One bordered container holding the input AND its controls — the
             box is a single object, not an input with chrome floating near it. */}
         <div className="rounded-xl border border-border bg-white shadow-sm transition-all focus-within:border-primary focus-within:ring-2 focus-within:ring-primary/20">
-          <div className="flex items-center gap-3 px-4 py-3">
+          <div className="flex items-center gap-3 px-5 py-4">
           <Search className="h-5 w-5 shrink-0 text-muted-foreground" />
           <input
             type="text"
@@ -231,7 +246,7 @@ export function SmartSearchBox() {
             autoCorrect="off"
             spellCheck={false}
             data-testid="smart-search-input"
-            className="flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+            className="flex-1 bg-transparent text-base outline-none placeholder:text-muted-foreground"
           />
           {searching || submitting ? (
             <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
@@ -251,14 +266,22 @@ export function SmartSearchBox() {
           {/* Control row — inside the box, 問財-style: scope · conditions ·
               saved. The box is the product, so its controls live with it
               rather than as chrome scattered around the page. */}
-          <div className="flex flex-wrap items-center gap-2 border-t border-border px-3 py-2">
-            <span
-              data-testid="smart-search-scope"
-              title="US equities only for now"
-              className="inline-flex items-center gap-1.5 rounded-full bg-primary/8 px-2.5 py-1 text-[11px] font-medium text-primary"
-            >
-              <Globe className="h-3 w-3" />
-              US equities
+          <div className="flex flex-wrap items-center gap-2 border-t border-border px-4 py-2.5">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-primary/8 px-3 py-1.5 text-[13px] font-medium text-primary">
+              <Globe className="h-3.5 w-3.5" />
+              <select
+                value={universeId}
+                onChange={(e) => setUniverseId(e.target.value as UniverseId)}
+                aria-label="Universe to screen"
+                data-testid="smart-search-scope"
+                className="cursor-pointer bg-transparent pr-1 font-medium text-primary outline-none"
+              >
+                {UNIVERSES.map((u) => (
+                  <option key={u.id} value={u.id}>
+                    {u.label}
+                  </option>
+                ))}
+              </select>
             </span>
 
             <button
@@ -267,7 +290,7 @@ export function SmartSearchBox() {
               aria-expanded={panel === "conditions"}
               data-testid="smart-search-conditions"
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
+                "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors",
                 panel === "conditions"
                   ? "bg-muted text-foreground"
                   : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
@@ -283,7 +306,7 @@ export function SmartSearchBox() {
               aria-expanded={panel === "saved"}
               data-testid="smart-search-saved"
               className={cn(
-                "inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-medium transition-colors",
+                "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px] font-medium transition-colors",
                 panel === "saved"
                   ? "bg-muted text-foreground"
                   : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
@@ -305,6 +328,7 @@ export function SmartSearchBox() {
             className="mt-2 max-h-[460px] overflow-y-auto rounded-xl border border-border bg-white p-4 shadow-lg"
           >
             <ConditionBuilder
+              universeId={universeId}
               onAppend={(phrase) =>
                 setQuery((q) => (q.trim() ? `${q.trim()}; ${phrase}` : phrase))
               }
@@ -386,7 +410,7 @@ export function SmartSearchBox() {
       {selected ? (
         <div
           data-testid="smart-search-preview"
-          className="mt-3 overflow-hidden rounded-xl border border-border bg-white shadow-sm lg:relative lg:left-1/2 lg:w-[min(1080px,calc(100vw-3rem))] lg:max-w-none lg:-translate-x-1/2"
+          className="mt-3 overflow-hidden rounded-xl border border-border bg-white shadow-sm"
         >
           <div className="flex items-start justify-between gap-3 border-b border-border px-5 py-4">
             <QuoteHeader symbol={selected.symbol} name={selected.name} />
