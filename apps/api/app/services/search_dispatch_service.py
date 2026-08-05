@@ -180,3 +180,61 @@ def build_screen_result(
         note=" ".join(notes),
         confidence=0.7,
     )
+
+
+def build_screen_result_from_rules(
+    query: str,
+    rules: List[dict],
+    readings: List[str],
+    fundamental: Optional[FundamentalNarrowing] = None,
+) -> ParseResult:
+    """Build a SCREEN from rules extracted DIRECTLY from the query.
+
+    The LLM strategy parser interrogates the user for every field a
+    backtestable strategy needs (universe, lookback, thresholds) and returns
+    NO rules when any are missing — measured in production, it answered
+    "oversold above 200 day MA" with "What universe of tickers?" and zero
+    rules. A screen needs none of that: the scope pill sets the universe and
+    the primitive defaults supply the rest. So when the deterministic
+    extractor understands the query, we skip the parser entirely.
+    """
+    notes: List[str] = []
+    screen_kwargs = {"rules": rules}
+
+    if fundamental is not None and fundamental.symbols:
+        screen_kwargs.update(
+            universe_id="symbols",
+            symbols=fundamental.symbols,
+            fundamental_filters=fundamental.applied,
+            universe_truncated_from=fundamental.truncated_from,
+        )
+        notes.append(
+            f"Matched {fundamental.total} names on "
+            f"{' + '.join(fundamental.applied)}, then screened them on "
+            f"{' + '.join(readings)}."
+        )
+        if fundamental.truncated_from:
+            notes.append(
+                f"Only the {len(fundamental.symbols)} largest of "
+                f"{fundamental.truncated_from} matches were screened — narrow "
+                "the query to cover the rest."
+            )
+    elif fundamental is not None and not fundamental.symbols:
+        return ParseResult(
+            intent=SearchIntent.AMBIGUOUS,
+            query=query,
+            note=f"No names match {' + '.join(fundamental.applied)}. "
+            "Try loosening that part.",
+            confidence=0.3,
+        )
+    else:
+        screen_kwargs["universe_id"] = DEFAULT_SCREEN_UNIVERSE
+        notes.append(f"Screened the S&P 500 on {' + '.join(readings)}.")
+
+    return ParseResult(
+        intent=SearchIntent.SCREEN,
+        query=query,
+        screen=SearchScreen(**screen_kwargs),
+        note=" ".join(notes),
+        confidence=0.8,
+    )

@@ -29,11 +29,13 @@ from app.schemas.search import ParseResult, SearchIntent, SearchParseRequest
 from app.services.alpha_vantage import AlphaVantageClient
 from app.services.screen_filter_parser import extract_filters
 from app.services.screener_service import ScreenerService
+from app.services.screen_rule_parser import extract_rules
 from app.services.search_dispatch_service import (
     FundamentalNarrowing,
     best_company_match,
     build_company_result,
     build_screen_result,
+    build_screen_result_from_rules,
     classify,
 )
 from app.services.strategy_parser import parse_strategy_message
@@ -79,8 +81,18 @@ async def parse_search(
             truncated_from=total if total > len(symbols) else None,
         )
 
-    # Release the pooled conn before the (slow) LLM parse — trap #13. Every DB
-    # read above is already materialised into plain values.
+    # TECHNICAL half. Try the deterministic extractor FIRST: the LLM strategy
+    # parser is built to produce a complete backtestable strategy, so it asks
+    # for a universe / lookback / thresholds and returns NO rules instead of
+    # extracting the conditions it was given — measured in production on
+    # "oversold above 200 day MA". A screen needs none of those fields.
+    rules, readings = extract_rules(query)
+    if rules:
+        return build_screen_result_from_rules(query, rules, readings, fundamental)
+
+    # Nothing recognised — fall back to the LLM parser, which still handles
+    # phrasings the vocabulary doesn't cover. Release the pooled conn first
+    # (trap #13); every DB read above is already materialised.
     db.close()
     parsed = await parse_strategy_message(query)
     return build_screen_result(query, parsed, fundamental=fundamental)
