@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+from typing import List, Tuple
+
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from app.data.screen_filter_vocab import sector_spellings
 from app.models.symbol import SymbolCache
 from app.schemas.screener import (
     ScreenerFilters,
@@ -98,3 +101,63 @@ class ScreenerService:
             limit=filters.limit,
             filters_applied={k: v for k, v in filters.model_dump().items() if v is not None},
         )
+
+    # ── PRD-29: symbols-only lookup for the mixed search path ───────────────
+
+    def matching_symbols(
+        self,
+        db: Session,
+        filters: ScreenerFilters,
+        cap: int = 1500,
+    ) -> Tuple[List[str], int]:
+        """Every symbol matching the fundamental filters — no display paging.
+
+        Returns `(symbols, total_matched)`. When `total_matched > len(symbols)`
+        the caller MUST tell the user the universe was capped; silently
+        truncating a screen reads as "these are all the matches" when it isn't.
+
+        Why not reuse `screen()`: its `ScreenerFilters.limit` is a *display*
+        page size hard-capped at 200 (`schemas/screener.py`). Feeding that into
+        a technical scan would quietly screen 200 of, say, 800 small caps.
+
+        Sector matching uses IN over every stored spelling, not `==`. Production
+        holds 17 spellings for 11 sectors (two upstream taxonomies), so equality
+        on one spelling drops the companies stored under the other — see
+        `app/data/screen_filter_vocab.py`.
+        """
+        q = select(SymbolCache.symbol).where(SymbolCache.is_active.is_(True))
+
+        if filters.sector:
+            spellings = sector_spellings(filters.sector)
+            if spellings:
+                q = q.where(SymbolCache.sector.in_(spellings))
+            else:
+                # Not a canonical key (e.g. a raw value from the /stocks
+                # dropdown) — fall back to exact match rather than dropping
+                # the constraint entirely.
+                q = q.where(SymbolCache.sector == filters.sector)
+        if filters.industry:
+            q = q.where(SymbolCache.industry == filters.industry)
+        if filters.country:
+            q = q.where(SymbolCache.country == filters.country)
+        if filters.exchange:
+            q = q.where(SymbolCache.exchange == filters.exchange)
+        if filters.market_cap_category:
+            q = q.where(SymbolCache.market_cap_category == filters.market_cap_category)
+        if filters.min_market_cap is not None:
+            q = q.where(SymbolCache.market_cap >= filters.min_market_cap)
+        if filters.max_market_cap is not None:
+            q = q.where(SymbolCache.market_cap <= filters.max_market_cap)
+        if filters.min_pe is not None:
+            q = q.where(SymbolCache.pe_ratio >= filters.min_pe)
+        if filters.max_pe is not None:
+            q = q.where(SymbolCache.pe_ratio <= filters.max_pe)
+        if filters.min_dividend_yield is not None:
+            q = q.where(SymbolCache.dividend_yield >= filters.min_dividend_yield)
+
+        total = db.scalar(select(func.count()).select_from(q.subquery())) or 0
+        # Largest first, so a capped universe keeps the most liquid names
+        # rather than an arbitrary slice.
+        q = q.order_by(SymbolCache.market_cap.desc().nulls_last()).limit(cap)
+        symbols = [s for s in db.execute(q).scalars().all() if s]
+        return symbols, total

@@ -27,10 +27,25 @@ class SearchIntent(str, Enum):
 
 
 class SearchScreen(BaseModel):
-    """Feeds ScreenScanRequest: a standing universe + composer-shaped rules."""
+    """Feeds ScreenScanRequest: a universe + composer-shaped rules.
+
+    PRD-29 mixed query: when the sentence also carries FUNDAMENTAL constraints
+    ("small caps that are oversold"), the universe is pre-narrowed by SQL and
+    `universe_id` becomes the client tier `"symbols"` with the survivors in
+    `symbols` — the scan then runs the technical rules over exactly those.
+    Purely technical queries keep a standing universe id and empty `symbols`.
+    """
 
     universe_id: str
     rules: List[dict] = Field(default_factory=list)
+    # Present only for the pre-narrowed (mixed) case.
+    symbols: List[str] = Field(default_factory=list)
+    # Plain-English echo of the fundamental constraints understood, so the UI
+    # can show WHICH part of the sentence became a filter.
+    fundamental_filters: List[str] = Field(default_factory=list)
+    # Set when the fundamental match exceeded the universe cap — the caller
+    # must disclose it rather than present a truncated screen as complete.
+    universe_truncated_from: Optional[int] = None
 
 
 class SearchOption(BaseModel):

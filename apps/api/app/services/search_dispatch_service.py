@@ -6,15 +6,32 @@ lookup + the parser) and calls into these.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass, field
 from typing import List, Optional
 
 from app.schemas.market_data import SymbolSearchItem
 from app.schemas.search import ParseResult, SearchIntent, SearchScreen
 from app.schemas.strategy import StrategyChatResponse
 
-# Broad + responsive default. Fundamental universe selection ("small cap") is
-# the deferred fundamental-filter slice — v1 runs technical rules over sp500.
+# The universe when the query carries no fundamental constraint of its own.
 DEFAULT_SCREEN_UNIVERSE = "sp500"
+
+
+@dataclass
+class FundamentalNarrowing:
+    """Result of resolving the fundamental half of a mixed query to symbols.
+
+    Built by the route (it needs the DB); passed in here so the result-shaping
+    stays pure and testable.
+    """
+
+    symbols: List[str]
+    # Plain-English echo of what was understood, e.g. ["small-cap", "P/E under 15"].
+    applied: List[str] = field(default_factory=list)
+    # Total matches before the cap — equals len(symbols) when nothing was cut.
+    total: int = 0
+    # Set only when the cap actually bit, so the caller can disclose it.
+    truncated_from: Optional[int] = None
 
 _SCREEN_KEYWORDS = (
     "above", "below", "over ", "under", "cross", "oversold", "overbought",
@@ -86,9 +103,17 @@ def build_company_result(
     )
 
 
-def build_screen_result(query: str, parsed: StrategyChatResponse) -> ParseResult:
+def build_screen_result(
+    query: str,
+    parsed: StrategyChatResponse,
+    fundamental: Optional[FundamentalNarrowing] = None,
+) -> ParseResult:
     """Turn the parser output into a runnable SCREEN, or AMBIGUOUS if it
-    produced no usable conditions."""
+    produced no usable conditions.
+
+    `fundamental` carries the pre-resolved fundamental half of a mixed query
+    (PRD-29). None = purely technical, which keeps the previous behaviour.
+    """
     sj_dict = parsed.strategy_json.model_dump() if parsed.strategy_json else None
     rules = (sj_dict or {}).get("rules") or []
 
@@ -106,14 +131,51 @@ def build_screen_result(query: str, parsed: StrategyChatResponse) -> ParseResult
     notes: List[str] = []
     if parsed.approximation_note:
         notes.append(parsed.approximation_note)
-    notes.append(
-        "Screened the S&P 500 on your technical rules. Fundamental filters "
-        "(e.g. market cap, P/E) aren't applied yet."
-    )
+
+    # PRD-29 — mixed query. When the sentence also carried fundamental
+    # constraints, the caller has already resolved them to a symbol list; the
+    # technical rules then run over exactly those names instead of the whole
+    # standing universe.
+    if fundamental is not None and fundamental.symbols:
+        screen = SearchScreen(
+            universe_id="symbols",
+            rules=rules,
+            symbols=fundamental.symbols,
+            fundamental_filters=fundamental.applied,
+            universe_truncated_from=fundamental.truncated_from,
+        )
+        applied = " + ".join(fundamental.applied)
+        notes.append(
+            f"Matched {fundamental.total} names on {applied}, then screened "
+            "them on your technical rules."
+        )
+        if fundamental.truncated_from:
+            notes.append(
+                f"Only the {len(fundamental.symbols)} largest of "
+                f"{fundamental.truncated_from} matches were screened — narrow "
+                "the query to cover the rest."
+            )
+    elif fundamental is not None and not fundamental.symbols:
+        # The fundamental half was understood but matched nothing. Say so
+        # rather than silently widening back to the whole index, which would
+        # return names that contradict what the user asked for.
+        applied = " + ".join(fundamental.applied)
+        return ParseResult(
+            intent=SearchIntent.AMBIGUOUS,
+            query=query,
+            note=f"No names match {applied}. Try loosening that part.",
+            confidence=0.3,
+        )
+    else:
+        screen = SearchScreen(universe_id=DEFAULT_SCREEN_UNIVERSE, rules=rules)
+        notes.append(
+            "Screened the S&P 500 on your technical rules."
+        )
+
     return ParseResult(
         intent=SearchIntent.SCREEN,
         query=query,
-        screen=SearchScreen(universe_id=DEFAULT_SCREEN_UNIVERSE, rules=rules),
+        screen=screen,
         strategy_json=sj_dict,
         note=" ".join(notes),
         confidence=0.7,
