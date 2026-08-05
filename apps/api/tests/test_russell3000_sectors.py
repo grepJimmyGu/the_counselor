@@ -5,22 +5,13 @@ from __future__ import annotations
 
 from app.data.russell3000_sectors import RUSSELL3000_SECTORS
 from app.data.russell3000_tickers import RUSSELL3000_TICKERS
+from app.data.sectors import CANONICAL_SECTORS
 
 # The 11 canonical GICS sectors. MUST stay in sync with the frontend
 # universe-selector `SECTORS` list — the sector tier matches the label verbatim.
-CANONICAL_GICS = {
-    "Information Technology",
-    "Financials",
-    "Health Care",
-    "Consumer Discretionary",
-    "Communication Services",
-    "Industrials",
-    "Consumer Staples",
-    "Energy",
-    "Materials",
-    "Real Estate",
-    "Utilities",
-}
+# Single source of truth is `app/data/sectors.py`, which is also what every
+# writer to `symbols.sector` normalizes through.
+CANONICAL_GICS = set(CANONICAL_SECTORS)
 
 
 def test_every_russell3000_ticker_has_a_sector():
