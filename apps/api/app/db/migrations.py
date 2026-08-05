@@ -1946,6 +1946,39 @@ def run_startup_migrations(engine: Engine) -> None:
             )
         """))
 
+        # PRD-28 — per-ticker signal alert subscriptions. Composite PK
+        # (user_id, symbol, saved_screen_id) so re-subscribing is a no-op.
+        # `last_state` / `last_as_of` let the monitor emit on TRANSITION only.
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS ticker_signal_subscriptions (
+                user_id VARCHAR(36) NOT NULL,
+                symbol VARCHAR(20) NOT NULL,
+                saved_screen_id VARCHAR(36) NOT NULL,
+                email_enabled BOOLEAN NOT NULL DEFAULT 1,
+                last_state VARCHAR(16),
+                last_as_of DATE,
+                created_at TIMESTAMP NOT NULL,
+                updated_at TIMESTAMP NOT NULL,
+                PRIMARY KEY (user_id, symbol, saved_screen_id)
+            )
+        """) if is_sqlite else text("""
+            CREATE TABLE IF NOT EXISTS ticker_signal_subscriptions (
+                user_id VARCHAR(36) NOT NULL,
+                symbol VARCHAR(20) NOT NULL,
+                saved_screen_id VARCHAR(36) NOT NULL,
+                email_enabled BOOLEAN NOT NULL DEFAULT TRUE,
+                last_state VARCHAR(16),
+                last_as_of DATE,
+                created_at TIMESTAMPTZ NOT NULL,
+                updated_at TIMESTAMPTZ NOT NULL,
+                PRIMARY KEY (user_id, symbol, saved_screen_id)
+            )
+        """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_tss_user "
+            "ON ticker_signal_subscriptions(user_id)"
+        ))
+
     # ── Post-create cleanup (isolated; runs AFTER all CREATE TABLE statements) ──
     # Purge bad revenue_segments rows from PRD-08d parser bug. Isolated so a
     # missing table on fresh DB can't poison the shared transaction above.

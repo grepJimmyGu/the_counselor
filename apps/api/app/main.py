@@ -413,6 +413,19 @@ def _start_scheduler() -> None:
             max_instances=1,
             misfire_grace_time=3600,
         )
+        # PRD-28 — per-ticker alerts. Fires at 23:45 UTC, AFTER the 23:30
+        # saved-screen monitor has refreshed `screen_basket_members`, so this
+        # job only READS membership and diffs it against each subscription's
+        # last_state (both directions). Same SCREENER_SNAPSHOT_ENABLED gate as
+        # the job it depends on, so registering unconditionally is safe. Plain
+        # def on the threadpool; holds no shared asyncio primitives (#21/#22).
+        from app.jobs.ticker_alert_cron import monitor_ticker_subscriptions
+        scheduler.add_job(
+            monitor_ticker_subscriptions, "cron", hour=23, minute=45,
+            id="ticker_alert_monitor",
+            max_instances=1,
+            misfire_grace_time=3600,
+        )
         # PRD-23c — intraday screener snapshot warm. Market hours only (M-F,
         # 14:00-20:45 UTC ≈ 10am-3:45pm ET), every 15 min. No-ops unless
         # SCREENER_INTRADAY_ENABLED is set (default off) — the universe-wide

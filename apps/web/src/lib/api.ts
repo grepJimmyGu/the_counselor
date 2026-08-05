@@ -35,6 +35,7 @@ import type {
   EvidenceLedgerRow,
   SignalCard,
   ParseResult,
+  TickerSubscription,
 } from "@/lib/contracts";
 import { dispatchUpgrade } from "@/lib/upgrade-modal-event-bus";
 
@@ -988,6 +989,47 @@ export async function getSignalCardsBatch(
     method: "POST",
     headers: _bearer(backendToken ?? undefined),
     body: JSON.stringify({ saved_strategy_ids: savedStrategyIds }),
+  });
+}
+
+// PRD-28 — per-ticker alerts. Watch one symbol under one saved screen; the
+// monitor notifies on transitions in both directions. Strategist+ (the 402
+// envelope pops the global upgrade modal via fetchApi).
+
+export async function subscribeTickerAlert(
+  payload: { symbol: string; saved_screen_id: string; email_enabled?: boolean },
+  backendToken: string,
+): Promise<TickerSubscription> {
+  return fetchApi<TickerSubscription>(`/api/signals/card/subscribe`, {
+    method: "POST",
+    headers: _bearer(backendToken),
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function unsubscribeTickerAlert(
+  symbol: string,
+  savedScreenId: string,
+  backendToken: string,
+): Promise<void> {
+  const qs = new URLSearchParams({
+    symbol,
+    saved_screen_id: savedScreenId,
+  }).toString();
+  // 204 — no body to parse, so this bypasses fetchApi's json() read.
+  const res = await fetch(`${API_BASE_URL}/api/signals/card/subscribe?${qs}`, {
+    method: "DELETE",
+    headers: _bearer(backendToken),
+    cache: "no-store",
+  });
+  if (!res.ok) throw new Error(`Couldn't remove the alert (${res.status}).`);
+}
+
+export async function listTickerAlerts(
+  backendToken: string,
+): Promise<TickerSubscription[]> {
+  return fetchApi<TickerSubscription[]>(`/api/signals/card/subscriptions`, {
+    headers: _bearer(backendToken),
   });
 }
 
