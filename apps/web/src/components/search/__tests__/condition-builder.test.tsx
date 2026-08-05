@@ -62,7 +62,7 @@ describe("ConditionBuilder", () => {
     fireEvent.click(screen.getByText("Above the 200-day"));
     expect(screen.getAllByTestId("condition-chip")).toHaveLength(2);
 
-    fireEvent.click(screen.getByLabelText("Remove Oversold (below 30)"));
+    fireEvent.click(screen.getByLabelText("Remove RSI Oversold (below 30)"));
     expect(screen.getAllByTestId("condition-chip")).toHaveLength(1);
   });
 
@@ -120,5 +120,23 @@ describe("ConditionBuilder", () => {
         /before fundamentals/,
       ),
     );
+  });
+});
+
+describe("ConditionBuilder chips + universe", () => {
+  it("chips name the pill, not just the option", () => {
+    render(<ConditionBuilder onAppend={() => {}} />);
+    fireEvent.click(screen.getByTestId("condition-pill-P/E"));
+    fireEvent.click(screen.getByText("Under 15"));
+    // "Under 15" alone doesn't say under-15 WHAT.
+    expect(screen.getByTestId("condition-chip").textContent).toMatch(/P\/E · Under 15/);
+  });
+
+  it("counts against the universe it was given", async () => {
+    render(<ConditionBuilder onAppend={() => {}} universeId="russell3000" />);
+    fireEvent.click(screen.getByTestId("condition-pill-RSI"));
+    fireEvent.click(screen.getByText("Oversold (below 30)"));
+    await waitFor(() => expect(countMock).toHaveBeenCalled());
+    expect(countMock.mock.calls[0][0].universe_id).toBe("russell3000");
   });
 });

@@ -21,7 +21,7 @@ across a network await); every DB read is materialised into plain values first.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -29,8 +29,10 @@ from app.schemas.search import ParseResult, SearchIntent, SearchParseRequest
 from app.services.alpha_vantage import AlphaVantageClient
 from app.services.screen_filter_parser import extract_filters
 from app.services.screener_service import ScreenerService
+from app.data.standing_universes import standing_universe_ids
 from app.services.screen_rule_parser import extract_rules
 from app.services.search_dispatch_service import (
+    DEFAULT_SCREEN_UNIVERSE,
     FundamentalNarrowing,
     best_company_match,
     build_company_result,
@@ -60,6 +62,14 @@ async def parse_search(
     db: Session = Depends(get_db),
 ) -> ParseResult:
     query = payload.query.strip()
+    # Reject an unknown universe rather than silently screening the default —
+    # a screen that quietly ran on the wrong universe is worse than an error.
+    universe_id = payload.universe_id or DEFAULT_SCREEN_UNIVERSE
+    if universe_id not in standing_universe_ids():
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown universe '{universe_id}'.",
+        )
     matches = await _symbol_service.search(db, query)
     intent = classify(query, matches)
 
@@ -88,11 +98,15 @@ async def parse_search(
     # "oversold above 200 day MA". A screen needs none of those fields.
     rules, readings = extract_rules(query)
     if rules:
-        return build_screen_result_from_rules(query, rules, readings, fundamental)
+        return build_screen_result_from_rules(
+            query, rules, readings, fundamental, universe_id=universe_id
+        )
 
     # Nothing recognised — fall back to the LLM parser, which still handles
     # phrasings the vocabulary doesn't cover. Release the pooled conn first
     # (trap #13); every DB read above is already materialised.
     db.close()
     parsed = await parse_strategy_message(query)
-    return build_screen_result(query, parsed, fundamental=fundamental)
+    return build_screen_result(
+        query, parsed, fundamental=fundamental, universe_id=universe_id
+    )

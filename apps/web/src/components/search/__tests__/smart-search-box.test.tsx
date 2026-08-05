@@ -24,8 +24,8 @@ vi.mock("@/components/stocks/business-model-section", () => ({
 // pick button so the Conditions wiring is still exercised here. The builder's
 // own behaviour is covered in condition-builder.test.tsx.
 vi.mock("@/components/search/condition-builder", () => ({
-  ConditionBuilder: ({ onAppend }: { onAppend: (p: string) => void }) => (
-    <button data-testid="stub-pick" onClick={() => onAppend("oversold")}>
+  ConditionBuilder: ({ onAppend, universeId }: { onAppend: (p: string) => void; universeId?: string }) => (
+    <button data-testid="stub-pick" data-universe={universeId} onClick={() => onAppend("oversold")}>
       pick
     </button>
   ),
@@ -171,7 +171,8 @@ describe("SmartSearchBox mixed queries + controls", () => {
 
   it("shows the scope, conditions and saved controls inside the box", () => {
     render(<SmartSearchBox />);
-    expect(screen.getByTestId("smart-search-scope").textContent).toMatch(/US equities/);
+    // The scope is a universe picker now, not a static "US equities" label.
+    expect(screen.getByTestId("smart-search-scope").textContent).toMatch(/S&P 500/);
     expect(screen.getByTestId("smart-search-conditions")).toBeTruthy();
     expect(screen.getByTestId("smart-search-saved")).toBeTruthy();
   });
@@ -211,5 +212,41 @@ describe("SmartSearchBox mixed queries + controls", () => {
       /Sign in to see your saved screens/,
     );
     expect(savedMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("universe picker", () => {
+  it("defaults to the S&P 500 and offers the Russell 3000", () => {
+    render(<SmartSearchBox />);
+    const sel = screen.getByTestId("smart-search-scope") as HTMLSelectElement;
+    expect(sel.value).toBe("sp500");
+    expect(
+      Array.from(sel.options).map((o) => o.value),
+    ).toEqual(["sp500", "russell3000"]);
+  });
+
+  it("sends the chosen universe with the query", async () => {
+    parseMock.mockResolvedValue({
+      intent: "ambiguous", query: "x", options: [], note: "n", confidence: 0.3,
+    });
+    render(<SmartSearchBox />);
+    fireEvent.change(screen.getByTestId("smart-search-scope"), {
+      target: { value: "russell3000" },
+    });
+    submit("oversold");
+    await waitFor(() =>
+      expect(parseMock).toHaveBeenCalledWith("oversold", "russell3000"),
+    );
+  });
+
+  it("counts conditions against the chosen universe too", () => {
+    render(<SmartSearchBox />);
+    fireEvent.change(screen.getByTestId("smart-search-scope"), {
+      target: { value: "russell3000" },
+    });
+    fireEvent.click(screen.getByTestId("smart-search-conditions"));
+    expect(screen.getByTestId("stub-pick").getAttribute("data-universe")).toBe(
+      "russell3000",
+    );
   });
 });

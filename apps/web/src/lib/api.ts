@@ -972,10 +972,13 @@ export async function getSignalCard(
 
 // PRD-27 — unified smart-search dispatcher. Public (entry-mode); returns the
 // resolved intent so the box can route company / screen / ask.
-export async function parseSearch(query: string): Promise<ParseResult> {
+export async function parseSearch(
+  query: string,
+  universeId?: string,
+): Promise<ParseResult> {
   return fetchApi<ParseResult>(`/api/search/parse`, {
     method: "POST",
-    body: JSON.stringify({ query }),
+    body: JSON.stringify({ query, universe_id: universeId }),
   });
 }
 

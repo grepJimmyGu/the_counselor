@@ -37,6 +37,9 @@ const COUNT_DEBOUNCE_MS = 400;
 
 interface Selected extends ConditionOption {
   uid: string;
+  /** The pill this came from. A chip reading just "Under 15" or "Crossing
+   *  down" doesn't say under-15 WHAT — the pill name is the missing half. */
+  pillLabel: string;
 }
 
 export function ConditionBuilder({
@@ -93,10 +96,10 @@ export function ConditionBuilder({
   }, [rulesKey, universeId]);
 
   const choose = useCallback(
-    (option: ConditionOption) => {
+    (option: ConditionOption, pillLabel: string) => {
       setSelected((prev) => [
         ...prev,
-        { ...option, uid: `${option.phrase}-${prev.length}` },
+        { ...option, pillLabel, uid: `${option.phrase}-${prev.length}` },
       ]);
       onAppend(option.phrase);
       setOpenPill(null);
@@ -115,13 +118,13 @@ export function ConditionBuilder({
             <span
               key={s.uid}
               data-testid="condition-chip"
-              className="inline-flex items-center gap-1 rounded-full bg-primary/8 px-2.5 py-1 text-[11px] font-medium text-primary"
+              className="inline-flex items-center gap-1 rounded-full bg-primary/8 px-3 py-1 text-xs font-medium text-primary"
             >
-              {s.label}
+              {s.pillLabel} · {s.label}
               <button
                 type="button"
                 onClick={() => setSelected((p) => p.filter((x) => x.uid !== s.uid))}
-                aria-label={`Remove ${s.label}`}
+                aria-label={`Remove ${s.pillLabel} ${s.label}`}
                 className="rounded-full p-0.5 hover:bg-primary/15"
               >
                 <X className="h-2.5 w-2.5" />
@@ -130,7 +133,7 @@ export function ConditionBuilder({
           ))}
           <span
             data-testid="condition-count"
-            className="ml-auto text-[11px] text-muted-foreground"
+            className="ml-auto text-xs text-muted-foreground"
           >
             {counting ? (
               <span className="inline-flex items-center gap-1">
@@ -157,7 +160,7 @@ export function ConditionBuilder({
       <div className="grid grid-cols-2 gap-x-4 gap-y-4 md:grid-cols-3 lg:grid-cols-6">
         {CONDITION_GROUPS.map((group) => (
           <div key={group.key} data-testid={`condition-group-${group.key}`}>
-            <h4 className="mb-2 text-[11px] font-medium text-foreground">
+            <h4 className="mb-2 text-xs font-medium text-foreground">
               {group.label}
             </h4>
             <div className="flex flex-col gap-1.5">
@@ -172,7 +175,7 @@ export function ConditionBuilder({
                       aria-expanded={open}
                       data-testid={`condition-pill-${pill.label}`}
                       className={cn(
-                        "inline-flex w-full items-center justify-between gap-1 rounded-full border px-2.5 py-1 text-[11px] transition-colors",
+                        "inline-flex w-full items-center justify-between gap-1 rounded-full border px-3 py-1.5 text-xs transition-colors",
                         open
                           ? "border-primary bg-primary/5 text-primary"
                           : "border-border text-muted-foreground hover:border-primary/40 hover:text-foreground",
@@ -192,8 +195,8 @@ export function ConditionBuilder({
                           <button
                             key={option.label}
                             type="button"
-                            onClick={() => choose(option)}
-                            className="block w-full px-3 py-1.5 text-left text-[11px] text-foreground transition-colors hover:bg-muted/60"
+                            onClick={() => choose(option, pill.label)}
+                            className="block w-full px-3 py-2 text-left text-xs text-foreground transition-colors hover:bg-muted/60"
                           >
                             {option.label}
                           </button>

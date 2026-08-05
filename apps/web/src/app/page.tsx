@@ -103,7 +103,11 @@ export default function HomePage() {
         />
 
         <div className="relative mx-auto max-w-[1200px] px-6 pb-20 pt-24 lg:pb-28 lg:pt-32">
-          <div className="mx-auto max-w-3xl text-center">
+          {/* Wide enough for the box to breathe — the six Conditions columns
+              and the company-preview drawer both want ~1080px. The prose
+              children keep their own narrower measures (h1 is centered, the
+              subhead is max-w-xl), so only the box actually uses the width. */}
+          <div className="mx-auto max-w-[1080px] text-center">
             {/* PRD-29 — the box IS the product (問財 pattern), so it leads.
                 Removed from above it: the "Investment Research Platform" badge,
                 the "Discover. Build. Track." headline, the marketing paragraph,

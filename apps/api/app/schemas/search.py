@@ -56,6 +56,10 @@ class SearchOption(BaseModel):
 
 class SearchParseRequest(BaseModel):
     query: str = Field(..., min_length=1, max_length=400)
+    # Which standing universe to screen. The box's scope control sets this;
+    # omitted means the default (S&P 500). Validated against the registered
+    # standing universes at the route so a bad id can't reach the scanner.
+    universe_id: Optional[str] = None
 
 
 class ParseResult(BaseModel):
