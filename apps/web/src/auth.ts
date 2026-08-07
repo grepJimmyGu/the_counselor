@@ -2,6 +2,11 @@ import NextAuth from "next-auth";
 import Google from "next-auth/providers/google";
 import Credentials from "next-auth/providers/credentials";
 
+import {
+  backendTokenNeedsRefresh,
+  canAttemptBackendTokenRefresh,
+} from "@/lib/backend-token";
+
 const API_BASE =
   process.env.INTERNAL_API_BASE_URL || process.env.NEXT_PUBLIC_API_BASE_URL || "";
 
@@ -118,6 +123,74 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
         }
       }
 
+      // Expiry branch — the token is PRESENT but aged out (or about to).
+      //
+      // The self-heal above only fires on a *missing* backendToken. An expired
+      // one is still a truthy string, so before this branch existed nothing
+      // ever re-minted it: the user stayed `status === "authenticated"` while
+      // every sign-in-gated endpoint 401'd with "Invalid or expired session
+      // token." On `/api/screen/rank` that surfaced as the "Couldn't rank by
+      // return" banner — the matched names still rendered because scan/count
+      // are `allow_anonymous=True` and silently fall through to the anonymous
+      // user on a bad token, which is why it went unnoticed for so long.
+      //
+      // Kept separate from the heal above because the two need different
+      // endpoints: a missing token may mean no backend row exists yet (only
+      // `sync-user` upserts one), whereas an expired token proves the row is
+      // already there and only needs a fresh mint.
+      if (
+        !account &&
+        !user &&
+        token.backendToken &&
+        token.email &&
+        backendTokenNeedsRefresh(token.backendToken) &&
+        canAttemptBackendTokenRefresh(token.backendTokenRefreshAt)
+      ) {
+        // Stamped before the attempt, not after, so a hung or throwing fetch
+        // still counts as an attempt and the backoff holds.
+        token.backendTokenRefreshAt = Date.now() / 1000;
+        const internalKey = process.env.INTERNAL_API_KEY;
+        if (!internalKey || !API_BASE) {
+          console.warn(
+            "[auth] token refresh skipped: missing env",
+            { hasInternalKey: !!internalKey, hasApiBase: !!API_BASE, email: token.email },
+          );
+        } else {
+          try {
+            const res = await fetch(`${API_BASE}/api/auth/refresh-session-token`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                "X-Internal-Key": internalKey,
+              },
+              body: JSON.stringify({ email: token.email }),
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.session_token) {
+                token.providerUserId = data.id ?? token.providerUserId;
+                token.backendToken = data.session_token;
+              } else {
+                console.warn(
+                  "[auth] token refresh got 200 but session_token was null",
+                  { email: token.email },
+                );
+              }
+            } else {
+              console.warn(
+                "[auth] token refresh non-ok",
+                { status: res.status, email: token.email },
+              );
+            }
+          } catch (err) {
+            console.warn(
+              "[auth] token refresh threw",
+              { email: token.email, error: String(err) },
+            );
+          }
+        }
+      }
+
       if (account && user) {
         token.provider = account.provider;
         token.avatarUrl = user.image ?? null;
@@ -220,6 +293,8 @@ declare module "@auth/core/jwt" {
     avatarUrl?: string | null;
     displayName?: string | null;
     backendToken?: string | null;
+    /** Epoch seconds of the last backend-token refresh ATTEMPT (backoff key). */
+    backendTokenRefreshAt?: number;
   }
 }
 

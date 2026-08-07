@@ -18,7 +18,7 @@ import type { Route } from "next";
 import { useRouter } from "next/navigation";
 import { useSession } from "next-auth/react";
 
-import { saveScreen, screenRank, screenScan } from "@/lib/api";
+import { ApiError, saveScreen, screenRank, screenScan } from "@/lib/api";
 import type {
   RankedSymbol,
   ScreenSaveResponse,
@@ -40,6 +40,24 @@ import { SignalGlanceChip } from "@/components/signals/signal-glance-chip";
 import { PromoteToStrategyButton } from "@/components/bridge/promote-to-strategy-button";
 import type { PromoteDraft } from "@/lib/flows/promote-to-strategy";
 import { cn } from "@/lib/utils";
+
+/**
+ * Rank is sign-in-gated, so a 401 here means the session token the browser
+ * holds was rejected — not that ranking itself failed. Say something the user
+ * can act on instead of surfacing the backend's raw `detail` ("Invalid or
+ * expired session token."), which reads like an internal error.
+ *
+ * `auth.ts` re-mints the backend token before it expires, so this should be
+ * rare; it stays as the honest fallback if a refresh can't happen (e.g.
+ * INTERNAL_API_KEY missing on Vercel).
+ */
+function rankErrorMessage(e: unknown): string {
+  if (e instanceof ApiError && e.status === 401) {
+    return "Your session expired — reload the page or sign in again to rank these names.";
+  }
+  const detail = e instanceof Error ? e.message : "Ranking failed.";
+  return `Couldn't rank by return (${detail}).`;
+}
 
 function pct(v: number | null | undefined): string {
   if (v == null || Number.isNaN(v)) return "—";
@@ -165,7 +183,7 @@ export function ScreenResults({
         updateContext({ screenRankResult: resp });
       })
       .catch((e: unknown) => {
-        if (!cancelled) setRankError(e instanceof Error ? e.message : "Ranking failed.");
+        if (!cancelled) setRankError(rankErrorMessage(e));
       })
       .finally(() => {
         if (!cancelled) setLoadingRank(false);
@@ -300,7 +318,7 @@ export function ScreenResults({
             data-testid="screen-results-rank-error"
             className="mt-1 rounded-md border border-amber-200 bg-amber-50 px-3 py-1.5 text-[12px] text-amber-700"
           >
-            Couldn&apos;t rank by return ({rankError}). The matched names are shown below.
+            {rankError} The matched names are shown below.
           </p>
         )}
       </header>

@@ -769,6 +769,62 @@ module scope. If yes + the warmup loop touches it → trap #22 latent.
 Full post-mortem: this PR's commit message + the 2026-06-07 entry in
 `docs/KNOWN_ISSUES.md`.
 
+### 23. `backendToken` outlives nothing — NextAuth's session rolls, the backend JWT doesn't
+
+Trap #19 covers a brick that never *sends* `Authorization`. This is the
+opposite failure and the two are easy to confuse: the header is sent, the
+plumbing is perfect, and the request still 401s.
+
+`create_session_token` mints a 30-day JWT **once, at sign-in**. NextAuth
+re-signs its OWN session cookie with a *fresh* 30-day expiry on every session
+read (@auth/core `lib/actions/session.js` — "Refresh JWT expiry by re-signing
+it, with an updated expiry date"), and that re-sign copies `backendToken`
+through verbatim. So an active user's NextAuth session rolls forward forever
+while the backend token silently ages out underneath it. Past day 30 they are
+`status === "authenticated"` holding a token every strict route rejects.
+
+**Read the 401 detail — it tells you which bug you have** (`app/api/deps.py`):
+
+| detail | meaning |
+|---|---|
+| `Authentication required.` | no `Authorization` header → **trap #19** |
+| `Invalid or expired session token.` | header sent, `decode_session_token` raised → **this trap** |
+
+`ExpiredSignatureError` subclasses `JWTError`, so an expired token lands on the
+second row. Never diagnose these two from the UI copy alone.
+
+**Why it hid for so long:** `get_current_user_or_anonymous` swallows `JWTError`
+with a bare `pass` and falls through to the synthetic anonymous user. Every
+`allow_anonymous=True` route therefore keeps working normally on a dead token —
+only strict routes surface the 401. The 2026-08-07 report was
+`POST /api/screen/rank` showing "Couldn't rank by return (Invalid or expired
+session token.)" while the matched names rendered fine, because `screen/scan`
+next to it is anonymous-OK. It degraded instead of breaking, so nobody filed it.
+
+**The fix, and the trap inside the fix:** `auth.ts` now re-mints via
+`POST /api/auth/refresh-session-token` when `backendTokenNeedsRefresh()` says
+the token is missing, unreadable, or within a day of `exp`. That endpoint is
+deliberately **mint-only** rather than a second `sync-user` call — `sync-user`
+sets `oauth_provider`/`oauth_subject` whenever `oauth_subject` is falsy, so
+reusing it would have stamped every password-only account as Google-linked the
+first time its token aged out. **A token refresh must never mutate how an
+account logs in.**
+
+Two more things that fix had to get right, worth copying if you touch this path:
+
+- `auth.ts` is bundled into **Edge middleware** (`src/middleware.ts` imports
+  `@/auth`), so `Buffer` is unavailable — `src/lib/backend-token.ts` decodes
+  base64url with `atob`.
+- That same middleware matches nearly every route, so a failing refresh
+  endpoint would fire one outbound fetch per page navigation per signed-in
+  user. The attempt is timestamped on the JWT (`backendTokenRefreshAt`) and
+  backed off, and the stamp is written *before* the fetch so a hung request
+  still counts.
+
+Regression cover: `apps/api/tests/test_auth_session_refresh.py` (both 401
+details pinned so they stay distinguishable) and
+`apps/web/src/lib/__tests__/backend-token.test.ts`.
+
 ---
 
 ## Cross-dialect quick reference
