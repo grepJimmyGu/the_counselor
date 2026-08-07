@@ -9,6 +9,7 @@ import type { Route } from "next";
 import { Button } from "@/components/ui/button";
 import { HomeMarketPulseBlock } from "@/components/home/home-market-pulse-block";
 import { HomeCuratedScreens } from "@/components/home/home-curated-screens";
+import { HomeExampleQueries } from "@/components/home/home-example-queries";
 import { SmartSearchBox } from "@/components/search/smart-search-box";
 import { HomeMarketStrip } from "@/components/home/home-market-strip";
 import { HomeFocusSections } from "@/components/home/home-focus-sections";
@@ -121,6 +122,7 @@ export default function HomePage() {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <HomeMarketPulseBlock />
           <HomeCuratedScreens />
+          <HomeExampleQueries />
         </div>
 
         {/* ── PRD-19 Step 5: in-app notification banner (signed-in users only) ── */}
