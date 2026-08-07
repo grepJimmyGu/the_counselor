@@ -9,6 +9,7 @@ import type { Route } from "next";
 import { Button } from "@/components/ui/button";
 import { HomeMarketPulseBlock } from "@/components/home/home-market-pulse-block";
 import { HomeCuratedScreens } from "@/components/home/home-curated-screens";
+import { HomeQuantStrategies } from "@/components/home/home-quant-strategies";
 import { SmartSearchBox } from "@/components/search/smart-search-box";
 import { HomeMarketStrip } from "@/components/home/home-market-strip";
 import { HomeFocusSections } from "@/components/home/home-focus-sections";
@@ -34,6 +35,12 @@ export default function HomePage() {
   function openTemplate(template: ResearchTemplate) {
     setBuilderIdea(undefined);
     setBuilderTemplate(template);
+    setBuilderOpen(true);
+  }
+
+  function openBuilder() {
+    setBuilderIdea(undefined);
+    setBuilderTemplate(undefined);
     setBuilderOpen(true);
   }
 
@@ -121,6 +128,13 @@ export default function HomePage() {
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <HomeMarketPulseBlock />
           <HomeCuratedScreens />
+          {/* Spans the row until block 4 (example queries) lands beside it. */}
+          <div className="lg:col-span-2">
+            <HomeQuantStrategies
+              onOpenTemplate={openTemplate}
+              onBuildFromScratch={openBuilder}
+            />
+          </div>
         </div>
 
         {/* ── PRD-19 Step 5: in-app notification banner (signed-in users only) ── */}
