@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime
 from typing import Any, Optional
 
 import httpx
 
 from app.core.config import get_settings
+
+logger = logging.getLogger("livermore.fmp")
 
 
 class FMPError(RuntimeError):
@@ -369,6 +372,39 @@ class FMPClient:
 
 # ── Field normalisation ───────────────────────────────────────────────────────
 
+# A P/E outside this band is a bad derivation, not a cheap stock. FMP returns
+# `earningsYieldTTM` as a fraction for most symbols but occasionally as a
+# percent (25.0 rather than 0.025), and 1/25 silently yields a P/E of 0.04 —
+# which then sorts to the TOP of any "cheapest first" value screen. Observed on
+# ARW (0.01), AMPH (0.01), CART (0.02) and AKAM (0.04, real P/E ~30) during the
+# 2026-08-07 Russell 3000 backfill.
+#
+# We reject rather than rescue: the upstream unit is ambiguous per-symbol, so
+# any rescaling would be a guess. None is honest — the UI shows "—" and the
+# value screens skip the name. A fabricated 0.04 is worse than a blank.
+_PE_MIN = 1.0
+_PE_MAX = 1000.0
+
+
+def _derive_pe(earnings_yield) -> Optional[float]:
+    """P/E from the reciprocal of earnings yield, or None if implausible."""
+    try:
+        ey = float(earnings_yield)
+    except (TypeError, ValueError):
+        return None
+    if ey <= 0:
+        return None  # negative earnings — no meaningful P/E
+    pe = round(1.0 / ey, 2)
+    if pe < _PE_MIN or pe > _PE_MAX:
+        logger.info(
+            "discarding implausible derived P/E %.4f (earnings yield %.6f) — "
+            "upstream unit is likely percent, not fraction",
+            pe, ey,
+        )
+        return None
+    return pe
+
+
 def _normalise_key_metrics(raw: dict) -> dict:
     """
     Map stable-API key-metric field names to the legacy names used by
@@ -382,11 +418,7 @@ def _normalise_key_metrics(raw: dict) -> dict:
 
     # P/E: stable dropped peRatioTTM; derive from earningsYieldTTM (= E/P)
     if "peRatioTTM" not in raw:
-        ey = raw.get("earningsYieldTTM")
-        try:
-            out["peRatioTTM"] = round(1.0 / float(ey), 2) if ey and float(ey) > 0 else None
-        except (ValueError, TypeError):
-            out["peRatioTTM"] = None
+        out["peRatioTTM"] = _derive_pe(raw.get("earningsYieldTTM"))
 
     # P/S: use EV/Sales as the closest available proxy
     out.setdefault("priceToSalesRatioTTM", raw.get("evToSalesTTM"))
