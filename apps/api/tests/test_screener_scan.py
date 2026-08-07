@@ -11,11 +11,18 @@ from datetime import date
 
 import pytest
 
+from app.data.signal_primitives import SIGNAL_PRIMITIVES
 from app.schemas.strategy import StrategyRule
-from app.services.screener.scan_service import scan
+from app.services.screener.scan_service import readings_for_rules, scan
 from app.services.screener.signal_snapshot_service import SignalSnapshotService
 
 AS_OF = date(2026, 6, 15)
+
+CATALOG = {p.id: p for p in SIGNAL_PRIMITIVES}
+
+
+def _readings(rules):
+    return readings_for_rules(rules, CATALOG)
 
 
 @pytest.fixture
@@ -112,6 +119,126 @@ def test_readings_explain_each_match(seeded, db):
     # The catalog reading headline for rsi is surfaced per matched symbol.
     assert res.readings["AAPL"]
     assert all(isinstance(r, str) and r for r in res.readings["AAPL"])
+
+
+# ── Reading disambiguation ───────────────────────────────────────────────────
+# The catalog's `reading` is keyed on `primitive_id` alone, so two rules on the
+# same primitive used to collapse to one string. "Best Momentum Pick" carries a
+# 200-day AND a 50-day `price_above_ma`; every matched row rendered "Price above
+# its moving average" twice, verbatim, with no way to tell the two conditions
+# apart. Readings must disambiguate by the rule's effective params.
+
+
+def test_same_primitive_different_params_get_distinct_readings():
+    rules = [
+        StrategyRule(primitive_id="price_above_ma", operator="is_true",
+                     primitive_params={"period": 200}),
+        StrategyRule(primitive_id="price_above_ma", operator="is_true",
+                     primitive_params={"period": 50}, logic_with_prior="AND"),
+    ]
+    out = _readings(rules)
+    assert out[0] != out[1]
+    assert len(set(out)) == 2
+    assert "200-day" in out[0]
+    assert "50-day" in out[1]
+    # The catalog copy is still the head of the chip — only the param is added.
+    assert all(r.startswith("Price above its moving average") for r in out)
+
+
+def test_disambiguation_resolves_catalog_defaults_not_just_overrides():
+    # Only the second rule sets `primitive_params`; the first inherits the
+    # catalog default (200). Both must still label their real window, or the
+    # pair reads as "…moving average" vs "…moving average · 50-day".
+    rules = [
+        StrategyRule(primitive_id="price_above_ma", operator="is_true"),
+        StrategyRule(primitive_id="price_above_ma", operator="is_true",
+                     primitive_params={"period": 50}, logic_with_prior="AND"),
+    ]
+    out = _readings(rules)
+    assert out == [
+        "Price above its moving average · 200-day",
+        "Price above its moving average · 50-day",
+    ]
+
+
+def test_multi_param_primitive_suffixes_only_the_differing_params():
+    # MACD default is fast 12 / slow 26 / signal 9. Only fast+slow differ here,
+    # so `signal_period` stays out of the chip — it adds no distinction.
+    rules = [
+        StrategyRule(primitive_id="macd", operator="gt", threshold=0),
+        StrategyRule(primitive_id="macd", operator="gt", threshold=0,
+                     primitive_params={"fast_period": 5, "slow_period": 35},
+                     logic_with_prior="AND"),
+    ]
+    out = _readings(rules)
+    assert out[0] != out[1]
+    assert "fast 12-day, slow 26-day" in out[0]
+    assert "fast 5-day, slow 35-day" in out[1]
+    assert "signal" not in out[0] and "signal" not in out[1]
+
+
+def test_identical_rules_keep_the_plain_catalog_reading():
+    # Same primitive, same effective window (200 vs 200.0) — genuinely the same
+    # condition. There is nothing to disambiguate, so no suffix noise.
+    rules = [
+        StrategyRule(primitive_id="price_above_ma", operator="is_true",
+                     primitive_params={"period": 200}),
+        StrategyRule(primitive_id="price_above_ma", operator="is_true",
+                     primitive_params={"period": 200.0}, logic_with_prior="AND"),
+    ]
+    assert _readings(rules) == ["Price above its moving average"] * 2
+
+
+def test_non_colliding_rules_are_never_suffixed():
+    # The common case: distinct primitives keep the editorial copy verbatim.
+    rules = [
+        StrategyRule(primitive_id="rsi", operator="lt", threshold=30),
+        StrategyRule(primitive_id="adx", operator="gte", threshold=25,
+                     logic_with_prior="AND"),
+    ]
+    assert _readings(rules) == ["Overbought / oversold extreme", "How strong the trend is"]
+
+
+def test_best_momentum_pick_renders_six_distinct_chips():
+    # The reported rule set, verbatim from `recommended-templates.ts`.
+    rules = [
+        StrategyRule(primitive_id="rank_return_6m", operator="gte", threshold=0.8),
+        StrategyRule(primitive_id="time_series_momentum", operator="gt",
+                     threshold=0.15, logic_with_prior="AND"),
+        StrategyRule(primitive_id="adx", operator="gte", threshold=25,
+                     logic_with_prior="AND"),
+        StrategyRule(primitive_id="price_above_ma", operator="is_true",
+                     primitive_params={"period": 200}, logic_with_prior="AND"),
+        StrategyRule(primitive_id="price_above_ma", operator="is_true",
+                     primitive_params={"period": 50}, logic_with_prior="AND"),
+        StrategyRule(primitive_id="sector_rotation_rank", operator="lte",
+                     threshold=3, logic_with_prior="AND"),
+    ]
+    out = _readings(rules)
+    assert len(out) == 6
+    assert len(set(out)) == 6, f"duplicate chip in {out}"
+
+
+def test_scan_readings_disambiguate_end_to_end(db):
+    # Both rules read the same default-param snapshot column (the documented
+    # approximation), so both fire for AAPL — the exact shape that produced the
+    # duplicate chip on screen.
+    svc = SignalSnapshotService()
+    svc.write_symbol(db, "AAPL", {"price_above_ma": 1.0}, AS_OF)
+    db.commit()
+
+    rules = [
+        StrategyRule(primitive_id="price_above_ma", operator="is_true",
+                     primitive_params={"period": 200}),
+        StrategyRule(primitive_id="price_above_ma", operator="is_true",
+                     primitive_params={"period": 50}, logic_with_prior="AND"),
+    ]
+    res = scan(db, "symbols", rules, symbols=["AAPL"], snapshot_svc=svc)
+
+    assert res.matched == ["AAPL"]
+    chips = res.readings["AAPL"]
+    assert len(chips) == 2
+    assert len(set(chips)) == 2, f"duplicate chip rendered: {chips}"
 
 
 def test_empty_rules_match_nothing(seeded, db):
