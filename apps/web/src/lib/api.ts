@@ -90,6 +90,21 @@ export class UpgradeRequiredError extends Error {
   }
 }
 
+/**
+ * Thrown for any non-ok response that isn't the 402 upgrade envelope. Carries
+ * the HTTP status so callers can distinguish "your session died" (401) from a
+ * genuine backend failure instead of pattern-matching on `detail` text.
+ *
+ * Extends `Error`, so the many existing `e instanceof Error ? e.message : …`
+ * call sites keep working unchanged.
+ */
+export class ApiError extends Error {
+  constructor(message: string, public readonly status: number) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${API_BASE_URL}${path}`, {
     ...init,
@@ -144,7 +159,7 @@ async function fetchApi<T>(path: string, init?: RequestInit): Promise<T> {
         message = detail;
       }
     }
-    throw new Error(message);
+    throw new ApiError(message, response.status);
   }
 
   return (await response.json()) as T;

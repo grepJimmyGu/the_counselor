@@ -396,6 +396,60 @@ def sync_user(body: _SyncUserRequest, db: Session = Depends(get_db)) -> _UserRes
     )
 
 
+class _RefreshSessionTokenRequest(BaseModel):
+    email: str
+
+
+class _RefreshSessionTokenResponse(BaseModel):
+    id: str
+    session_token: str
+
+
+@router.post(
+    "/refresh-session-token",
+    response_model=_RefreshSessionTokenResponse,
+    dependencies=[Depends(_verify_internal_key)],
+)
+def refresh_session_token(
+    body: _RefreshSessionTokenRequest, db: Session = Depends(get_db)
+) -> _RefreshSessionTokenResponse:
+    """Mint a fresh backend session token for an already-authenticated user.
+
+    Called from the Next.js `jwt()` callback when the stored `backendToken` is
+    missing or near its 30-day expiry. NextAuth has already verified its own
+    signed session cookie before that callback runs, so `email` here is a
+    trusted claim; the `X-Internal-Key` guard keeps the endpoint off the public
+    surface.
+
+    Deliberately mint-only — unlike `sync-user` this writes NOTHING. Broadening
+    the re-mint trigger from "token missing" to "token expired" makes this path
+    fire for password users too, and `sync-user` would stamp
+    `oauth_provider`/`oauth_subject` onto their rows (it sets them whenever
+    `oauth_subject` is falsy). A token refresh must not mutate how an account
+    logs in.
+    """
+    user = _get_user_by_email(db, body.email)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found.")
+
+    # An orphaned User without a Plan would AttributeError on `.tier`. `sync-user`
+    # heals that row; this endpoint stays read-only and falls back to the same
+    # default tier `get_current_user_or_anonymous` uses, so a refresh can never
+    # be the thing that writes a Plan.
+    tier = user.plan.tier if user.plan else "scout"
+    if user.plan is None:
+        logging.getLogger("livermore.auth").warning(
+            "refresh-session-token: user has no plan, defaulting tier=scout: "
+            "user_id=%s email=%s",
+            user.id, user.email,
+        )
+
+    return _RefreshSessionTokenResponse(
+        id=user.id,
+        session_token=create_session_token(user.id, tier),
+    )
+
+
 @router.get("/me", dependencies=[Depends(_verify_internal_key)])
 def legacy_get_me(
     provider_user_id: str,

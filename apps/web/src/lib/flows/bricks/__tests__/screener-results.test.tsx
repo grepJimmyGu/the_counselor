@@ -2,7 +2,24 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 
-vi.mock("@/lib/api", () => ({ screenScan: vi.fn(), screenRank: vi.fn(), saveScreen: vi.fn() }));
+// `vi.mock` is hoisted above module scope, so the stand-in for the real
+// `ApiError` has to be hoisted with it.
+const { MockApiError } = vi.hoisted(() => ({
+  MockApiError: class extends Error {
+    readonly status: number;
+    constructor(message: string, status: number) {
+      super(message);
+      this.status = status;
+      this.name = "ApiError";
+    }
+  },
+}));
+vi.mock("@/lib/api", () => ({
+  screenScan: vi.fn(),
+  screenRank: vi.fn(),
+  saveScreen: vi.fn(),
+  ApiError: MockApiError,
+}));
 const mockPush = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: mockPush }) }));
 let sessionValue: { data: unknown; status: string } = {
@@ -116,6 +133,39 @@ describe("ScreenResults", () => {
     await waitFor(() =>
       expect(screen.getByTestId("screen-results-rank-error")).toBeTruthy(),
     );
+  });
+
+  it("explains an expired session instead of leaking the backend detail", async () => {
+    // Regression — 2026-08-07. A signed-in user whose backendToken had aged past
+    // its 30-day expiry saw the API's raw detail verbatim:
+    //   "Couldn't rank by return (Invalid or expired session token.)"
+    // which reads like an internal error and offers no way out. The root fix
+    // re-mints the token in auth.ts; this is the fallback message for when a
+    // refresh can't happen (e.g. INTERNAL_API_KEY missing on Vercel).
+    sessionValue = { data: { backendToken: "expired-tok" }, status: "authenticated" };
+    (screenRank as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new MockApiError("Invalid or expired session token.", 401),
+    );
+    renderResults();
+
+    const banner = await waitFor(() => screen.getByTestId("screen-results-rank-error"));
+    expect(banner.textContent).toContain("Your session expired");
+    expect(banner.textContent).toContain("sign in again");
+    expect(banner.textContent).not.toContain("Invalid or expired session token.");
+    // The basket must still render — rank is an enrichment overlay.
+    expect(screen.getByTestId("screen-result-row-AAPL")).toBeTruthy();
+  });
+
+  it("still shows the raw detail for a non-auth rank failure", async () => {
+    sessionValue = { data: { backendToken: "tok" }, status: "authenticated" };
+    (screenRank as ReturnType<typeof vi.fn>).mockRejectedValue(
+      new MockApiError("Backtest engine unavailable.", 503),
+    );
+    renderResults();
+
+    const banner = await waitFor(() => screen.getByTestId("screen-results-rank-error"));
+    expect(banner.textContent).toContain("Couldn't rank by return");
+    expect(banner.textContent).toContain("Backtest engine unavailable.");
   });
 
   it("offers an in-flow 'Edit reading' back affordance", async () => {
