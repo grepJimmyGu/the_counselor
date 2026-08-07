@@ -53,6 +53,11 @@ import { launchScreenFromParsedRules } from "@/lib/flows/launch-screen";
 // Side-effect import — registers `one_asset_mode` so startFlow can find it.
 import "@/lib/flows/one-asset-mode";
 
+/** Window event that asks this box to run a query. Dispatched by the
+ *  example-query block below the fold; see the listener for why it routes
+ *  through the box instead of navigating directly. */
+export const RUN_QUERY_EVENT = "livermore:run-query";
+
 /** The standing universes the box can screen. Both are warmed into the daily
  *  signal snapshot, so either is a live scan target; anything else would have
  *  to be scanned cold. Kept in sync with `app/data/standing_universes.py` —
@@ -102,6 +107,7 @@ function QuoteHeader({ symbol, name }: { symbol: string; name: string | null }) 
 
 export function SmartSearchBox() {
   const [query, setQuery] = React.useState("");
+  const boxRef = React.useRef<HTMLDivElement | null>(null);
   const [results, setResults] = React.useState<SymbolSearchItem[]>([]);
   const [searching, setSearching] = React.useState(false);
   const [submitting, setSubmitting] = React.useState(false);
@@ -187,8 +193,13 @@ export function SmartSearchBox() {
   };
 
   // Submit (Enter / arrow) → dispatch the query.
-  const handleSubmit = React.useCallback(async () => {
-    const q = query.trim();
+  //
+  // `override` exists for the example-query block below the fold: it needs to
+  // run a specific string, and `setQuery(text)` followed by `handleSubmit()`
+  // would submit the PREVIOUS value — this callback closes over `query`, and
+  // the state update isn't visible until the next render.
+  const handleSubmit = React.useCallback(async (override?: string) => {
+    const q = (override ?? query).trim();
     if (!q || submitting) return;
     setSubmitting(true);
     setNote(null);
@@ -238,8 +249,24 @@ export function SmartSearchBox() {
     }
   }, [query, submitting, openCompany, universeId, router]);
 
+  // Example queries (below the fold) run THROUGH this box rather than
+  // navigating straight to results: the user sees the query text land in
+  // the box, which is how they learn they can type their own. A window
+  // event keeps the two components decoupled — no lifted state, no context.
+  React.useEffect(() => {
+    function onRunQuery(e: Event) {
+      const text = (e as CustomEvent<string>).detail;
+      if (typeof text !== "string" || !text.trim()) return;
+      setQuery(text);
+      boxRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+      void handleSubmit(text);
+    }
+    window.addEventListener(RUN_QUERY_EVENT, onRunQuery);
+    return () => window.removeEventListener(RUN_QUERY_EVENT, onRunQuery);
+  }, [handleSubmit]);
+
   return (
-    <div className="mx-auto w-full max-w-[1080px] text-left">
+    <div ref={boxRef} className="mx-auto w-full max-w-[1080px] text-left">
       <div className="relative">
         {/* One bordered container holding the input AND its controls — the
             box is a single object, not an input with chrome floating near it. */}
