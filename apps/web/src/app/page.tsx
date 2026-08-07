@@ -4,16 +4,11 @@ import { useState } from "react";
 import Link from "next/link";
 import {
   ArrowRight,
-  BarChart2,
-  Bot,
-  Newspaper,
-  TrendingUp,
-  Users,
-  Zap,
 } from "lucide-react";
 import type { Route } from "next";
 import { Button } from "@/components/ui/button";
-import { MarketSnapshot } from "@/components/home/market-snapshot";
+import { HomeMarketPulseBlock } from "@/components/home/home-market-pulse-block";
+import { HomeCuratedScreens } from "@/components/home/home-curated-screens";
 import { SmartSearchBox } from "@/components/search/smart-search-box";
 import { HomeMarketStrip } from "@/components/home/home-market-strip";
 import { HomeFocusSections } from "@/components/home/home-focus-sections";
@@ -23,33 +18,6 @@ import { ChatWidget } from "@/components/ChatWidget";
 import { NotificationBanner } from "@/components/notifications/notification-banner";
 
 // ── How it works — timeline steps ──────────────────────────────────────────────
-
-const HOW_IT_WORKS = [
-  {
-    icon: BarChart2,
-    step: "01",
-    title: "Screen with Market Pulse",
-    desc: "Track sector flow, evaluate Health/Valuation/Trend, spot macro shifts.",
-  },
-  {
-    icon: Newspaper,
-    step: "02",
-    title: "Read the News Signals",
-    desc: "AI extracts catalyst type, sentiment trend, and signal quality from recent news.",
-  },
-  {
-    icon: Users,
-    step: "03",
-    title: "Discover & Fork Strategies",
-    desc: "Browse community strategies and fork ones that match your thesis.",
-  },
-  {
-    icon: Bot,
-    step: "04",
-    title: "Build & Stress-Test",
-    desc: "Choose a quant template or describe an idea in plain English. Run a deterministic backtest.",
-  },
-];
 
 // ── Main page ─────────────────────────────────────────────────────────────────
 
@@ -62,11 +30,6 @@ export default function HomePage() {
     .filter((t) => t.availability !== "unavailable")
     .slice(0, 3);
 
-  function openBuilder(idea?: string) {
-    setBuilderTemplate(undefined);
-    setBuilderIdea(idea);
-    setBuilderOpen(true);
-  }
 
   function openTemplate(template: ResearchTemplate) {
     setBuilderIdea(undefined);
@@ -151,7 +114,14 @@ export default function HomePage() {
       <div className="mx-auto max-w-[1200px] space-y-16 px-6 py-12">
 
         {/* ── Market Snapshot ────────────────────────────────────────────── */}
-        <MarketSnapshot />
+        {/* PRD-29 below the fold — every block is a query to run or a result
+            to adopt (the 問財 bar). Replaces <MarketSnapshot>, which showed a
+            hardcoded SPY/QQQ/GLD/NVDA watchlist: four tickers nobody chose,
+            answering a question nobody asked. */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <HomeMarketPulseBlock />
+          <HomeCuratedScreens />
+        </div>
 
         {/* ── PRD-19 Step 5: in-app notification banner (signed-in users only) ── */}
         <NotificationBanner />
@@ -159,55 +129,6 @@ export default function HomePage() {
         {/* ── PRD-24a §3.5–3.7 — the 3-focus reorganization (Discover · Build ·
             Your Livermore). Replaces the EntryModePicker + research pillars. ── */}
         <HomeFocusSections />
-
-        {/* ── How It Works — visual timeline ─────────────────────────────── */}
-        <section className="space-y-8">
-          <div className="text-center">
-            <h2 className="font-heading text-2xl font-bold">How It Works</h2>
-            <p className="mt-2 text-muted-foreground">From discovery to stress-tested strategy — four steps</p>
-          </div>
-
-          {/* Desktop: horizontal timeline */}
-          <div className="relative hidden gap-0 sm:grid sm:grid-cols-4">
-            {/* Connecting line */}
-            <div className="absolute left-[12.5%] right-[12.5%] top-8 h-px bg-border" aria-hidden="true" />
-
-            {HOW_IT_WORKS.map(({ icon: Icon, step, title, desc }) => (
-              <div key={step} className="relative flex flex-col items-center text-center">
-                {/* Step circle */}
-                <div className="relative z-10 flex h-16 w-16 items-center justify-center rounded-2xl border-2 border-border bg-white shadow-sm">
-                  <Icon className="h-6 w-6 text-primary" />
-                </div>
-                <span className="mt-3 font-mono text-xs font-bold text-primary/30">{step}</span>
-                <h3 className="mt-1 font-heading text-sm font-semibold">{title}</h3>
-                <p className="mt-1 max-w-[180px] text-xs leading-relaxed text-muted-foreground">{desc}</p>
-              </div>
-            ))}
-          </div>
-
-          {/* Mobile: vertical stack */}
-          <div className="flex flex-col gap-0 sm:hidden">
-            {HOW_IT_WORKS.map(({ icon: Icon, step, title, desc }, i) => (
-              <div key={step} className="flex gap-4">
-                {/* Left rail */}
-                <div className="flex flex-col items-center">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl border-2 border-border bg-white shadow-sm">
-                    <Icon className="h-5 w-5 text-primary" />
-                  </div>
-                  {i < HOW_IT_WORKS.length - 1 && (
-                    <div className="mt-1 w-px flex-1 bg-border" aria-hidden="true" />
-                  )}
-                </div>
-                {/* Content */}
-                <div className="pb-8">
-                  <span className="font-mono text-xs font-bold text-primary/30">{step}</span>
-                  <h3 className="font-heading text-sm font-semibold">{title}</h3>
-                  <p className="mt-0.5 text-sm leading-relaxed text-muted-foreground">{desc}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </section>
 
         {/* ── Templates — compact row ────────────────────────────────────── */}
         <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-muted/30 px-6 py-4">
