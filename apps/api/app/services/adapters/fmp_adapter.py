@@ -34,9 +34,19 @@ class FMPAdapter:
     def __init__(self) -> None:
         self._client = FMPClient()
 
-    async def get_profile(self, symbol: str) -> CompanyProfile:
+    async def get_profile(
+        self, symbol: str, *, include_peers: bool = True
+    ) -> CompanyProfile:
+        """Company profile. `include_peers=False` skips the extra `/stock-peers`
+        round-trip for callers that don't render peers.
+
+        Default stays True so every existing caller is unchanged. The bulk
+        backfill passes False: it reads only price / dividend / market cap, and
+        the peers call was a third of a 4-hour run spent fetching data that was
+        then discarded.
+        """
         raw = await self._client.get_profile(symbol)
-        peers = await self._get_peers_safe(symbol)
+        peers = await self._get_peers_safe(symbol) if include_peers else []
 
         # Parse 52-week range: "164.08-199.62"
         week_52_high, week_52_low = None, None

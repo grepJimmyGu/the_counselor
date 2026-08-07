@@ -76,9 +76,22 @@ logger = logging.getLogger("backfill_fundamentals")
 _DELAY_SECONDS = 0.25
 # Commit every N updates so an interrupted run keeps its progress.
 _COMMIT_EVERY = 50
+# Symbols already written, one per line. Without this a resume restarts from
+# "A" — and since target selection deliberately can't skip on "already has a
+# P/E" (a dollars-per-share yield is indistinguishable from a small fraction),
+# there is nothing else to resume from.
+_DEFAULT_STATE_FILE = "/tmp/backfill_fundamentals_done.txt"
 
 
-def _targets(db, limit: Optional[int]) -> List[str]:
+def _load_done(path: str) -> set:
+    try:
+        with open(path) as fh:
+            return {line.strip() for line in fh if line.strip()}
+    except FileNotFoundError:
+        return set()
+
+
+def _targets(db, limit: Optional[int], done: Optional[set] = None) -> List[str]:
     """Every Russell 3000 symbol present in `symbols`.
 
     Deliberately not "only the ones missing a P/E": a dollars-per-share
@@ -88,16 +101,21 @@ def _targets(db, limit: Optional[int]) -> List[str]:
     """
     universe = set(RUSSELL3000_TICKERS)
     rows = db.execute(select(SymbolCache.symbol)).all()
-    out = sorted(sym for (sym,) in rows if sym in universe)
+    out = sorted(
+        sym for (sym,) in rows if sym in universe and sym not in (done or set())
+    )
     return out[:limit] if limit else out
 
 
-async def _run(dry_run: bool, limit: Optional[int]) -> int:
+async def _run(dry_run: bool, limit: Optional[int], state_file: str) -> int:
     adapter = FMPAdapter()
     updated = failed = skipped = 0
+    done = _load_done(state_file)
+    if done:
+        logger.info("resuming — %d symbols already done per %s", len(done), state_file)
 
     with SessionLocal() as db:
-        targets = _targets(db, limit)
+        targets = _targets(db, limit, done)
         logger.info("%d Russell 3000 symbols need a P/E", len(targets))
         if dry_run:
             logger.info("DRY RUN — first 20: %s", targets[:20])
@@ -129,7 +147,7 @@ async def _run(dry_run: bool, limit: Optional[int]) -> int:
             # Dividend yield + price — from the profile, via the corrected
             # adapter, so the stored value is a fraction rather than dollars.
             try:
-                profile = await adapter.get_profile(sym)
+                profile = await adapter.get_profile(sym, include_peers=False)
                 row.dividend_yield = profile.dividend_yield
                 if profile.price is not None:
                     row.price = profile.price
@@ -140,6 +158,12 @@ async def _run(dry_run: bool, limit: Optional[int]) -> int:
 
             if wrote:
                 updated += 1
+
+            # Record the symbol only after its writes are staged, so a crash
+            # mid-symbol re-does it rather than skipping it.
+            if not dry_run:
+                with open(state_file, "a") as fh:
+                    fh.write(sym + "\n")
 
             if i % _COMMIT_EVERY == 0:
                 db.commit()
@@ -162,9 +186,17 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--dry-run", action="store_true", help="List targets, write nothing.")
     ap.add_argument("--limit", type=int, default=None, help="Cap the number of symbols (for a smoke run).")
+    ap.add_argument("--state-file", default=_DEFAULT_STATE_FILE,
+                    help="Checkpoint of completed symbols; delete it to force a full re-run.")
     args = ap.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+    # httpx logs the full request URL at INFO — which includes `?apikey=...`.
+    # Over a 2,500-symbol run that wrote the FMP key into the log thousands of
+    # times, and the log is world-readable. Nothing here needs per-request
+    # logging; our own progress lines are the useful signal.
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
     if not os.environ.get("DATABASE_URL"):
         logger.error("DATABASE_URL is not set — refusing to run against the default local DB.")
         return 2
@@ -182,7 +214,7 @@ def main() -> int:
             )
             return 2
 
-    asyncio.run(_run(args.dry_run, args.limit))
+    asyncio.run(_run(args.dry_run, args.limit, args.state_file))
     return 0
 
 
