@@ -40,9 +40,13 @@ inserts, so no meaningful disk growth (trap #10 does not apply).
 
 Usage (from `apps/api/`):
     DATABASE_URL=$(railway variables --service Postgres --json | jq -r '.DATABASE_PUBLIC_URL') \\
-    FMP_API_KEY=... python scripts/backfill_fundamentals.py --dry-run --limit 20
+    FINANCIAL_MODELING_PREP_API_KEY=... python scripts/backfill_fundamentals.py --dry-run --limit 20
 
-    DATABASE_URL=... FMP_API_KEY=... python scripts/backfill_fundamentals.py
+    DATABASE_URL=... FINANCIAL_MODELING_PREP_API_KEY=... python scripts/backfill_fundamentals.py
+
+The key name is `FINANCIAL_MODELING_PREP_API_KEY` (what `Settings` reads), NOT
+`FMP_API_KEY` — passing the latter silently configures nothing and every symbol
+fails once the run starts.
 
 Expected runtime: ~2,545 symbols × 2 calls at roughly 4/s → 20-25 minutes.
 """
@@ -164,6 +168,19 @@ def main() -> int:
     if not os.environ.get("DATABASE_URL"):
         logger.error("DATABASE_URL is not set — refusing to run against the default local DB.")
         return 2
+
+    # Check the FMP key BEFORE starting. --dry-run makes no API calls, so it
+    # can't surface a missing key; without this you'd discover it one failed
+    # symbol at a time, 2,500 warnings deep.
+    if not args.dry_run:
+        from app.core.config import get_settings
+
+        if not get_settings().financial_modeling_prep_api_key:
+            logger.error(
+                "FINANCIAL_MODELING_PREP_API_KEY is not configured — every symbol "
+                "would fail. Note the name: NOT 'FMP_API_KEY'."
+            )
+            return 2
 
     asyncio.run(_run(args.dry_run, args.limit))
     return 0
