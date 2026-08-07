@@ -34,8 +34,11 @@ from typing import Any, Dict, List, Optional, Tuple
 # both work from one rule.
 _PATTERNS: Tuple[Tuple[str, str, str, Optional[Any], Optional[Dict[str, Any]], str], ...] = (
     # ── momentum / mean reversion ─────────────────────────────────────────
-    (r"\boversold\b", "rsi", "lt", 30, {"period": 14}, "RSI below 30 (oversold)"),
-    (r"\boverbought\b", "rsi", "gt", 70, {"period": 14}, "RSI above 70 (overbought)"),
+    # People type "over-bought" and "over sold" as often as the closed form.
+    # Without the separator class these extracted NOTHING and the query fell
+    # through to the LLM.
+    (r"\bover[-\s]?sold\b", "rsi", "lt", 30, {"period": 14}, "RSI below 30 (oversold)"),
+    (r"\bover[-\s]?bought\b", "rsi", "gt", 70, {"period": 14}, "RSI above 70 (overbought)"),
     (r"\brsi\s*(?:below|under|<|<=)\s*(\d{1,3})\b", "rsi", "lt", "@1", {"period": 14},
      "RSI below {v}"),
     (r"\brsi\s*(?:above|over|>|>=)\s*(\d{1,3})\b", "rsi", "gt", "@1", {"period": 14},
@@ -43,6 +46,15 @@ _PATTERNS: Tuple[Tuple[str, str, str, Optional[Any], Optional[Dict[str, Any]], s
 
     # ── trend / moving averages ───────────────────────────────────────────
     # "above the 200-day", "above its 200 day moving average", "above 50d MA"
+    # "break(s) the 50 MA", "breaking above the 200-day". `crosses_up` is the
+    # right operator: a break is the event, not the standing state that
+    # `price_above_ma` describes (PRD-22c — a wrong operator for the kind
+    # silently fails to evaluate rather than erroring).
+    (r"\bbreak(?:s|ing)?\s+(?:above\s+)?(?:the\s+|its\s+)?(\d{1,4})"
+     r"(?:[-\s]?d(?:ay)?\b|(?=[-\s]*(?:moving\s+average|ma|sma)\b))"
+     r"[-\s]*(?:moving\s+average|ma|sma)?",
+     "price_above_ma", "crosses_up", None, {"period": "@1"},
+     "price breaking above the {p}-day average"),
     (r"\babove\s+(?:the\s+|its\s+)?(\d{1,4})[-\s]?d(?:ay)?\b", "price_above_ma", "is_true",
      None, {"period": "@1"}, "price above the {p}-day average"),
     (r"\babove\s+(?:the\s+|its\s+)?(\d{1,4})[-\s]?day\s+(?:moving\s+average|ma|sma)\b",
@@ -50,8 +62,20 @@ _PATTERNS: Tuple[Tuple[str, str, str, Optional[Any], Optional[Dict[str, Any]], s
      "price above the {p}-day average"),
     (r"\bgolden\s+cross\b", "golden_cross", "crosses_up", None, None, "golden cross"),
     (r"\bdeath\s+cross\b", "death_cross", "crosses_down", None, None, "death cross"),
-    (r"\bmacd\s+(?:golden\s+)?cross(?:ing|es)?\s*(?:up|above)?\b", "macd_signal_cross",
-     "crosses_up", None, None, "MACD crossing up"),
+    # The bounded gap is what makes compounds work. Both MACD patterns used to
+    # require "macd" IMMEDIATELY before their own phrase, so "MACD above zero
+    # line and cross up" matched only the zero-line half and silently dropped
+    # the cross — a narrower screen than the user asked for. {0,40} spans a
+    # clause without reaching into the next sentence, and excluding [.;] stops
+    # it attributing a later primitive's verb to MACD.
+    (r"\bmacd\b[^.;]{0,40}?\b(?:golden\s+)?cross(?:ing|es)?\s*(?:up|above)\b",
+     "macd_signal_cross", "crosses_up", None, None, "MACD crossing up"),
+    # The down half. Its absence was a live wrong-answer bug: the up pattern
+    # ended in `(?:up|above)?` — OPTIONAL — so "macd crossing down" matched it
+    # and produced a crosses_up rule. The Conditions builder's "Crossing down"
+    # pill therefore screened for crossings UP, with a chip that said down.
+    (r"\bmacd\b[^.;]{0,40}?\b(?:death\s+)?cross(?:ing|es)?\s*(?:down|below)\b",
+     "macd_signal_cross", "crosses_down", None, None, "MACD crossing down"),
     (r"\b(?:rising|upward)\s+(?:moving\s+average|ma|trend)\b|\buptrend\b",
      "ma_slope_positive", "is_true", None, {"period": 50}, "moving average rising"),
     (r"\b(?:strong(?:ly)?\s+)?trending\b|\bstrong\s+trend\b", "adx", "gte", 25,
@@ -68,8 +92,8 @@ _PATTERNS: Tuple[Tuple[str, str, str, Optional[Any], Optional[Dict[str, Any]], s
      "rvol_surge", "fires", None, None, "volume surge"),
 
     # ── oscillators / crosses added for the condition builder ─────────────
-    (r"\bmacd\s+above\s+zero\b|\bmacd\s+zero[-\s]?line\b", "macd_zero_line_cross",
-     "crosses_up", None, None, "MACD above the zero line"),
+    (r"\bmacd\b[^.;]{0,40}?\b(?:above\s+(?:the\s+)?zero|zero[-\s]?line)\b",
+     "macd_zero_line_cross", "crosses_up", None, None, "MACD above the zero line"),
     (r"\bstochastic\s+cross(?:ing|es)?\s*(?:up|above)\b", "stoch_k_d_cross",
      "crosses_up", None, None, "stochastic crossing up"),
     (r"\bstochastic\s+cross(?:ing|es)?\s*(?:down|below)\b", "stoch_k_d_cross",
@@ -85,6 +109,14 @@ _PATTERNS: Tuple[Tuple[str, str, str, Optional[Any], Optional[Dict[str, Any]], s
      "@1", None, "book-to-market above {v}"),
     (r"\bfcf\s+yield\s*(?:above|over|>)\s*([\d.]+)", "fcf_yield", "gt", "@1", None,
      "FCF yield above {v}"),
+    # "solid / strong / good fundamentals", "high quality". Mapped to Piotroski
+    # F-score >= 7 because that IS our fundamental-quality primitive — a
+    # 9-point accounting-health score, the closest thing to what a trader means
+    # by "solid fundamentals". Threshold 7 matches the Quality pill in the home
+    # Conditions builder, so the phrase and the pill agree.
+    (r"\b(?:solid|strong|good|healthy)\s+fundamentals\b|\bhigh[-\s]quality\b"
+     r"|\bquality\s+(?:stocks?|names?|companies)\b",
+     "f_score", "gte", 7, None, "Piotroski F-score at or above 7 (quality)"),
     (r"\bf[-\s]?score\s*(?:above|over|>=?|at least)\s*([\d.]+)", "f_score", "gte",
      "@1", None, "Piotroski F-score at or above {v}"),
 
@@ -121,11 +153,43 @@ def extract_rules(query: str) -> Tuple[List[Dict[str, Any]], List[str]]:
     readings: List[str] = []
     seen: set = set()
 
+    # Collect every match first, then emit in the order the conditions appear in
+    # the SENTENCE rather than in `_PATTERNS` order. Two reasons: the readings
+    # then echo the query back in the order it was written, and the connective
+    # between two conditions ("and" vs "or") is only recoverable from the text
+    # BETWEEN them.
+    hits = []
     for pattern, pid, operator, threshold, params, reading in _PATTERNS:
         m = re.search(pattern, lowered)
-        if not m:
-            continue
-        if pid in seen:  # one rule per primitive — first phrasing wins
+        if m:
+            hits.append((m, pattern, pid, operator, threshold, params, reading))
+    hits.sort(key=lambda h: h[0].start())
+
+    # Drop a hit whose matched span sits INSIDE another hit's span for the same
+    # primitive. "breaks above the 50-day" matches both the break pattern (the
+    # whole phrase) and the standing "above the 50-day" pattern nested in it —
+    # two rules, and two identical-looking readings, for one stated condition.
+    # The wider span is the more specific reading, so it wins.
+    def _contained(h) -> bool:
+        m, _pat, pid = h[0], h[1], h[2]
+        return any(
+            o[2] == pid
+            and o[0] is not m
+            and o[0].start() <= m.start()
+            and o[0].end() >= m.end()
+            and (o[0].end() - o[0].start()) > (m.end() - m.start())
+            for o in hits
+        )
+
+    hits = [h for h in hits if not _contained(h)]
+
+    prev_end = None
+    for m, pattern, pid, operator, threshold, params, reading in hits:
+        # Keyed on (primitive, operator), not primitive alone: "over-bought or
+        # over sold" is two legitimate RSI conditions with opposite operators.
+        # Keying on the primitive alone silently dropped the second one and
+        # screened for half of what was asked.
+        if (pid, operator) in seen:
             continue
 
         captured = m.group(1) if m.groups() else None
@@ -149,17 +213,26 @@ def extract_rules(query: str) -> Tuple[List[Dict[str, Any]], List[str]]:
             else:
                 resolved_params[k] = v
 
-        seen.add(pid)
+        seen.add((pid, operator))
+        # AND unless the query joined these two conditions with "or". Getting
+        # this wrong is not cosmetic: RSI>70 AND RSI<30 is unsatisfiable, so an
+        # "or" query folded as AND returns zero names and looks like the screen
+        # simply found nothing.
+        if not rules:
+            fold = None  # first rule must have a null fold (backend validator)
+        else:
+            between = lowered[prev_end:m.start()] if prev_end is not None else ""
+            fold = "OR" if re.search(r"\bor\b", between) else "AND"
         rule: Dict[str, Any] = {
             "primitive_id": pid,
             "operator": operator,
-            # First rule must have a null fold; the backend validator enforces it.
-            "logic_with_prior": None if not rules else "AND",
+            "logic_with_prior": fold,
         }
         if resolved_threshold is not None:
             rule["threshold"] = resolved_threshold
         if resolved_params:
             rule["primitive_params"] = resolved_params
+        prev_end = m.end()
         rules.append(rule)
         readings.append(
             _fill(reading, resolved_threshold, resolved_params.get("period")
