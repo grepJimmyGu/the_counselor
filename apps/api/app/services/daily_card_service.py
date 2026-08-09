@@ -222,8 +222,12 @@ def numeric_tokens(text: str) -> List[str]:
     """
     import re
 
+    # `rstrip(".")` matters: a figure ending a sentence otherwise captures the
+    # full stop as a decimal point — "since 2008." tokenises as `2008.`, which
+    # never matches the `2008` in the article it came from. "2.78" is
+    # unaffected, having no TRAILING dot.
     return [
-        t.lstrip("+-").replace(",", "")
+        t.lstrip("+-").replace(",", "").rstrip(".")
         for t in re.findall(r"[-+]?\d[\d,]*\.?\d*", text)
     ]
 

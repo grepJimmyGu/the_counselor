@@ -199,3 +199,11 @@ def test_guard_set_would_catch_an_invented_figure():
     nums = injected_numbers(build_card_payload(_brief(), lang=EN, score=SCORE))
     invented = [t for t in numeric_tokens("Microsoft jumped 18.4% on the day") if t not in nums]
     assert invented == ["18.4"]
+
+
+def test_a_figure_ending_a_sentence_does_not_swallow_the_full_stop():
+    """"since 2008." would otherwise tokenise as `2008.` and never match the
+    `2008` in the article it was quoted from — rejecting correct copy."""
+    assert "2008" in numeric_tokens("The biggest one-day gain since 2008.")
+    # A real decimal is untouched: it has no TRAILING dot.
+    assert "2.78" in numeric_tokens("Nasdaq rose 2.78% today")

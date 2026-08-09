@@ -16,12 +16,27 @@ eventually render `+15.5%` or `+16.51%`, and a model asked to translate
 alone; only someone comparing two of them notices. On a card built to be
 forwarded as a factual recap, that is the worst failure available.
 
-`numeric_tokens` + `injected_numbers` enforce the numeric half mechanically:
-every number-shaped token in the generated prose must match a figure we
-supplied. Magnitudes only — prose carries the sign in words ("VIX fell 6.83%"
-is correct for −6.83%), so comparing raw strings would reject good copy and
-train whoever hit it to switch the guard off. **The guard does not check
-direction words**; that is parsing, not validation.
+`card_copy.allowed_numbers` enforces the numeric half mechanically: every
+number-shaped token in the generated prose must match a figure we supplied.
+
+**The boundary is provenance, not arithmetic.** Two sources count as supplied —
+the card's own figures, *and* anything in the NEWS block we handed the model.
+Omitting the second was a real hole: Jimmy's own example copy says "biggest
+one-day gain since 2008" and "Azure revenue grew 43%". Both are correct, both
+came from articles, neither is a number we computed. A guard that rejected them
+would fire on almost every well-written card — and a guard that cries wolf gets
+switched off.
+
+Magnitudes only, sign and separators stripped, trailing full stops removed
+("since 2008." must match the article's `2008`).
+
+**Two things the guard deliberately does not do**, both because they are
+parsing rather than validation: it does not check direction words ("VIX rose
+6.83%" passes), and it does not check that a news figure was attributed to the
+right subject. It catches invented magnitudes. That is all it claims.
+
+Violations drop **per field**, not per card. One bad sentence shouldn't cost
+the whole thing, and a dropped section is already the behaviour below.
 
 **2. A section with no source collapses. It never fakes.**
 
