@@ -9,6 +9,39 @@
 
 ## Current Session
 
+**Status:** 2026-08-09 — **Jimmy's 4-point query-results spec SHIPPED end-to-end (#303 → #307).** A query now lands on `/screen`: search box retained at top, condition chips with live per-condition counts, a dense sortable table, an additional-metrics picker with range filtering, and hand-added tickers. Plus a fundamentals data repair whose remaining half is a **manual chore that must be repeated** — see below.
+
+**Shipped this session (6 PRs, all merged):**
+
+| PR | Scope |
+|---|---|
+| #303 | results table — default price/change/cap/volume columns, condition-value columns, global ranking (quotes capped 300, disclosed), 25-row paging, feedback footer |
+| #304 | `GET /api/screener/by-symbols` — fundamentals for an explicit symbol list, caller order preserved, unknown tickers omitted |
+| #305 | additional-metrics picker (quote / fundamental / technical groups) + range filters + ranking on any column; `POST /api/screen/metric-values`; **fixed `/api/search/parse` 500ing on any Alpha Vantage failure** |
+| #306 | backlog — fundamentals have no bulk refresh |
+| #307 | add a ticker by hand — URL-backed `&add=`, badged, never counted as a match |
+
+**Two bugs found by RUNNING the page, not by tests** — both invisible to the component suite:
+1. Condition columns collided with Volume (`—28.40`) — no cell padding, pre-existing from #303.
+2. `POST /api/search/parse` 500'd whenever Alpha Vantage failed. A screen *phrase* never matches the local symbol cache, so the AV call fired on **every** screen query; a missing key or a rate limit took the whole search box down. Now degrades to "no company matched". Regression test: `tests/test_search_symbol_lookup_degrades.py`.
+
+**Fundamentals data — HALF DONE, needs a repeat run.** The 2026-08-09 R3000 backfill reported 1011 updated / 299 unprofitable / 10 failed, but that covered only 1,320 of 2,552: the pre-#297 checkpoint bug had marked earlier failures as done. Measured after it: **793 R3000 names still have no P/E and 22 still hold pre-#283 percent-shaped dividend yields.** The 22 are proof rather than inference — `_upsert_symbol` writes `dividend_yield` unconditionally, so a surviving percent value means that row's profile write never landed. META, MA and INTC are in that set. A targeted re-run over the 798 suspects (skip-list state file at `/tmp/backfill_redo_done.txt`) was started by Jimmy on 2026-08-09.
+
+> **Verify the re-run with these two counts, not by eye:** across `RUSSELL3000_TICKERS` via `GET /api/screener/by-symbols`, count `pe_ratio: null` (was 793) and `dividend_yield > 0.5` (was 22). The second should reach zero.
+
+**The env-var trap, twice now:** the key is `FINANCIAL_MODELING_PREP_API_KEY`, not `FMP_API_KEY`, and it lives on Railway — `FINANCIAL_MODELING_PREP_API_KEY=$FINANCIAL_MODELING_PREP_API_KEY` silently passes empty. Read it the way `backfill_sp500_universe.py:28` does: `$(railway variables --service the_counselor --json | jq -r '.FINANCIAL_MODELING_PREP_API_KEY')`.
+
+**Next session — unblocked, in the order I'd take them:**
+1. **Nightly fundamentals refresh job** (~2h) — the real fix for the row above; today the only refresh is per-symbol on a company-page view past a 24h TTL, so the long tail never updates. Removes a recurring manual chore. Touches `main.py` lifespan → traps #21/#22 apply.
+2. **Add-to-watchlist + export** on the results page — the last piece of the screen-page redesign.
+3. **Template performance store** — block 3 ships without numbers until it exists. Never surface `perfContext` as backtested.
+
+**Blocked, do NOT pick up:** home blocks 5+6 (catalysts + themes) need a paid Alpha Vantage tier — a Jimmy decision, not an engineering task. Home block 4's example-query strings await Jimmy's own wording.
+
+---
+
+## Previous Session
+
 **Status:** 2026-06-25 — **Russell 3000 standing universe SHIPPED + verified live (PRs #248–#252 merged + deployed; #247 closed as superseded by #248/#249).** The broad US market (~2,550 names) is now a screenable universe alongside the S&P 500, and the Sector tab — silently broken by a picker-vs-DB label mismatch — is fixed. All deployed to prod and confirmed against the live DB.
 
 **Shipped this session (5 PRs merged; #247 closed as superseded by #248/#249):**
@@ -30,7 +63,7 @@
 
 ---
 
-## Previous Session
+
 
 **Status:** 2026-06-18 — **PRD-24a (Home Discovery + Template Gallery) v1 COMPLETE — shipped end-to-end in 9 PRs (#235–#243), all merged.** The 3-layer disclosure is live: Home discovery (3 focuses + "Themes firing today" + hero index strip) → a browsable gallery of **10 vetted templates** (5 live-verified composer presets + 5 sentiment) as the FIRST step of "Screen the market" → composer pre-loaded (`?template=`) **or** the sentiment hub auto-run (`?toolkit=`) → results wrapped in theme-landing chrome (banner + "what this finds" + "try other themes"). The §6 silent-0 trap is now guarded (dead-primitive denylist + warm-time coverage WARNING).
 
