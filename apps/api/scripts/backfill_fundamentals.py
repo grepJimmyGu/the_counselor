@@ -159,9 +159,14 @@ async def _run(dry_run: bool, limit: Optional[int], state_file: str) -> int:
             if wrote:
                 updated += 1
 
-            # Record the symbol only after its writes are staged, so a crash
-            # mid-symbol re-does it rather than skipping it.
-            if not dry_run:
+            # Checkpoint ONLY on a symbol that actually wrote something.
+            #
+            # Recording unconditionally meant a symbol whose calls both failed
+            # — FMP rate limits do this intermittently — was marked done and
+            # never retried on any later run. Silent permanent data loss, at
+            # roughly the failure rate (~2% observed mid-run). A crash
+            # mid-symbol still re-does it, which was the original intent.
+            if wrote and not dry_run:
                 with open(state_file, "a") as fh:
                     fh.write(sym + "\n")
 
