@@ -24,6 +24,8 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ChevronDown, Loader2, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import type { Route } from "next";
 
 import { screenCount } from "@/lib/api";
 import {
@@ -51,6 +53,7 @@ export function ConditionBuilder({
   universeId?: string;
 }) {
   const [openPill, setOpenPill] = useState<string | null>(null);
+  const router = useRouter();
   const [selected, setSelected] = useState<Selected[]>([]);
   const [count, setCount] = useState<{ matched: number; universe: number } | null>(
     null,
@@ -153,6 +156,24 @@ export function ConditionBuilder({
               "—"
             )}
           </span>
+
+          {/* "Next" — item D. The builder's phrases ARE the query (that text
+              is the source of truth on submit), so this hands the same string
+              to the results page rather than inventing a second encoding. */}
+          <button
+            type="button"
+            data-testid="condition-next"
+            onClick={() =>
+              router.push(
+                `/screen?q=${encodeURIComponent(
+                  selected.map((s) => s.phrase).join(" and "),
+                )}&universe=${universeId ?? "sp500"}` as Route,
+              )
+            }
+            className="rounded-full bg-primary px-3 py-1 text-xs font-medium text-primary-foreground transition-opacity hover:opacity-90"
+          >
+            See matches →
+          </button>
         </div>
       )}
 

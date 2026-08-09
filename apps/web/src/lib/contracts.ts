@@ -291,6 +291,9 @@ export interface SearchScreen {
   /** Plain-English echo of the fundamental constraints understood, so the UI
    *  can show WHICH part of the sentence became a filter. */
   fundamental_filters?: string[];
+  /** Plain-English reading per rule, index-aligned with `rules`. Used to label
+   *  the condition chips on the results page without re-deriving the copy. */
+  readings?: string[];
   /** PRD-29 — set when the query was PURELY fundamental (no technical rule).
    *  These are `/stocks` query params; the box navigates there instead of
    *  launching a rule-less signal scan. */

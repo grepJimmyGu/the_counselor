@@ -46,6 +46,11 @@ class SearchScreen(BaseModel):
     # Set when the fundamental match exceeded the universe cap — the caller
     # must disclose it rather than present a truncated screen as complete.
     universe_truncated_from: Optional[int] = None
+    # Plain-English reading per rule, index-aligned with `rules`. The backend
+    # already computes these to build the note; exposing them lets the results
+    # page label each condition chip without re-deriving the copy client-side
+    # (and drifting from it).
+    readings: List[str] = Field(default_factory=list)
     # Set only when the query was PURELY fundamental, i.e. `rules` is empty.
     # The `/stocks` screener params that reproduce it — that page already
     # renders P/E and dividend columns, so it's the right destination; a scan

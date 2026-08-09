@@ -258,7 +258,7 @@ def build_screen_result_from_rules(
     extractor understands the query, we skip the parser entirely.
     """
     notes: List[str] = []
-    screen_kwargs = {"rules": rules}
+    screen_kwargs = {"rules": rules, "readings": readings}
 
     if fundamental is not None and fundamental.symbols:
         screen_kwargs.update(
