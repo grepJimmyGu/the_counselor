@@ -410,10 +410,28 @@ Before adding any call to an external API:
   100 symbols per call. See `FMPClient.get_quotes_batch` for the canonical
   implementation.
 - **Class-share tickers use the hyphen convention** (BRK-B, not BRK.B).
-  Our `SP500_TICKERS` uses dot notation (BRK.B) for human readability;
-  `FMPClient._get_quote_batch_path` and `get_quote` translate dot→hyphen
-  on the way out and remap response symbols back. Any new FMP-facing code
-  must do the same or BRK.B will silently fall through.
+  Our `SP500_TICKERS` uses dot notation (BRK.B) for human readability.
+  **`FMPClient._get` now translates centrally**, so every endpoint inherits
+  it — you no longer have to remember per method.
+
+  It used to be per-method, and per-method did not hold: an audit on
+  2026-08-09 found **seven of ten** symbol-taking methods missing it
+  (`get_profile`, income statement, cash flow, balance sheet, peers,
+  revenue segments, geo segments). PR #283 had fixed `get_key_metrics`
+  alone, so a class share got a P/E and then failed its profile — a
+  half-populated row, worse than an empty one because the stale dividend
+  value survives. Surfaced in the Russell 3000 backfill log as
+  `BRK.B: profile failed (No profile data for BRK.B)`.
+
+  **Only a SINGLE-letter suffix is translated.** `cn_overview_service`
+  calls `_get("/profile", {"symbol": "000001.SZ"})` directly, and a
+  blanket `replace(".", "-")` would corrupt every CN ticker into
+  `000001-SZ`. See `_to_fmp_symbol` and
+  `tests/test_class_share_symbols.py`, which pins both directions.
+
+  The batch path (`_get_quote_batch_path`) builds its URL itself rather
+  than passing `params`, so it still translates locally and remaps
+  response symbols back.
 - **`/stable/quote` burst-rate-limits concurrent path-batch chunks.** Even
   2 concurrent 100-symbol requests dropped ~12% of late-alphabet symbols on
   cold cache. `BATCH_CONCURRENT_CHUNKS = 1` (strict serial) trades ~1s of
