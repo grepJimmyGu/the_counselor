@@ -1,146 +1,298 @@
 "use client";
 
 /**
- * Home block 1 — today's movers + where money is flowing.
+ * Home block 1 — "Moving today", the market snapshot.
  *
- * Replaces `<MarketSnapshot>`, which showed a hardcoded four-ticker watchlist
- * (SPY/QQQ/GLD/NVDA). That answered "how are these four doing?" — a question
- * nobody asked. This answers "what moved today, and which industries are money
- * going into?", which is a read worth acting on.
+ * Reads `/api/market/daily-brief`, which assembles the tape, the macro trend,
+ * the day's biggest movers, sector leadership and money flow. Every number
+ * here is deterministic and checkable against the market.
  *
- * Both halves come from `/api/market/pulse`, already computed and cached:
- * `top_assets` is ranked by CMF over the full universe, and every sector card
- * carries `cmf_20` (Chaikin Money Flow, -1..+1) — the closest thing we have to
- * 資金面. No new backend.
+ * THE TWO SOURCE SWAPS THAT MATTER. This block used to read SPY/QQQ/DIA and
+ * VXX off `/api/market/pulse`. SPY is ~$650; the S&P 500 is ~7,750 — an ETF
+ * share price shown as an index level is wrong, not merely different, and
+ * this block is built to be shared. Same for VXX, which is a VIX-*futures*
+ * ETF, not the volatility level. The brief endpoint reads `^GSPC`/`^IXIC`/
+ * `^DJI`/`^VIX` instead.
+ *
+ * FITTED TO A HALF-WIDTH SLOT. The block lives in the home page's 2-up grid
+ * (`max-w-[1200px]`, `lg:grid-cols-2`), so its real width is ~568px — not the
+ * full row. Type is on the same scale as its sibling blocks (`text-base`
+ * heading, `text-xs` labels); anything larger makes this card shout next to
+ * the three it sits with.
  */
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { getMarketPulse } from "@/lib/api";
-import type { AssetCard, SectorCard } from "@/lib/contracts";
+import { getDailyBrief } from "@/lib/api";
+import type { BriefMover, BriefQuote, BriefSector, DailyBrief } from "@/lib/contracts";
 
-/** Movers shown. Three, per the spec — enough to scan, not a leaderboard. */
-const MOVER_COUNT = 3;
-/** Sectors shown. The pulse response is already sorted by CMF descending, so
- *  this is "strongest inflow" — we append the single weakest so the block
- *  shows money leaving as well as arriving. */
-const SECTOR_COUNT = 4;
-
+/** Percent, signed. Values arrive already scaled. */
 function pct(v: number | null | undefined): string {
-  if (v === null || v === undefined) return "—";
-  return `${v >= 0 ? "+" : ""}${(v * 100).toFixed(2)}%`;
+  if (v === null || v === undefined || !Number.isFinite(v)) return "—";
+  return `${v >= 0 ? "+" : ""}${v.toFixed(2)}%`;
 }
 
-function toneFor(v: number | null | undefined): string {
-  if (v === null || v === undefined) return "text-muted-foreground";
+function level(v: number | null | undefined): string {
+  if (v === null || v === undefined || !Number.isFinite(v)) return "—";
+  return v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function tone(v: number | null | undefined): string {
+  if (v === null || v === undefined || !Number.isFinite(v)) return "text-muted-foreground";
   return v >= 0 ? "text-emerald-600" : "text-red-600";
 }
 
-function MoverTile({ a }: { a: AssetCard }) {
+/** VIX is a LEVEL, not a return — "VIX down 1.65%" is not good news the way
+ *  "S&P up 0.62%" is. Left in neutral ink with a plain-English gloss so the
+ *  green/red coding keeps meaning exactly one thing. */
+function vixMood(v: number | null | undefined): string {
+  if (v === null || v === undefined || !Number.isFinite(v)) return "";
+  if (v < 15) return "calm";
+  if (v < 20) return "steady";
+  if (v < 30) return "jumpy";
+  return "fearful";
+}
+
+function IndexTile({ q }: { q: BriefQuote }) {
+  return (
+    <div className="flex flex-col gap-0.5 px-3 py-2" data-testid="brief-index">
+      <span className="truncate text-[11px] text-muted-foreground">{q.name}</span>
+      <span className="font-mono text-[15px] font-semibold tabular-nums">{level(q.price)}</span>
+      <span className={`font-mono text-xs font-semibold tabular-nums ${tone(q.change_percent)}`}>
+        {pct(q.change_percent)}
+      </span>
+    </div>
+  );
+}
+
+function MoverRow({ m }: { m: BriefMover }) {
   return (
     <Link
-      href={`/stocks/${a.symbol}` as Route}
-      className="flex-1 rounded-lg bg-muted/40 px-3 py-2 transition-colors hover:bg-muted"
-      data-testid="pulse-mover"
+      href={`/stocks/${m.symbol}` as Route}
+      data-testid="brief-mover"
+      className="flex items-baseline gap-2 border-b border-border/60 py-1.5 text-xs last:border-b-0 hover:bg-muted/40"
     >
-      <div className="text-sm font-semibold">{a.symbol}</div>
-      <div className="text-xs text-muted-foreground">
-        {a.price !== null ? a.price.toFixed(2) : "—"}{" "}
-        <span className={toneFor(a.perf_1d)}>{pct(a.perf_1d)}</span>
-      </div>
+      <span className="w-12 shrink-0 font-mono font-semibold">{m.symbol}</span>
+      <span className="truncate text-muted-foreground">{m.name ?? ""}</span>
+      <span className={`ml-auto shrink-0 font-mono font-semibold tabular-nums ${tone(m.change_percent)}`}>
+        {pct(m.change_percent)}
+      </span>
     </Link>
   );
 }
 
-function SectorRow({ s, max }: { s: SectorCard; max: number }) {
-  const cmf = s.cmf_20 ?? 0;
-  // Bar width is relative to the strongest absolute flow on screen, so the
-  // comparison stays readable on a quiet day when every value is near zero.
-  const width = max > 0 ? Math.max(4, (Math.abs(cmf) / max) * 100) : 4;
+/** Sector names stay clickable — the old block linked each one to the
+ *  screener filtered by that sector, and dropping a working affordance in a
+ *  redesign is a regression even when the new layout is better. */
+function SectorName({ s }: { s: BriefSector | null }) {
+  if (!s) return <span className="text-muted-foreground">—</span>;
   return (
     <Link
       href={`/stocks?sector=${encodeURIComponent(s.name)}` as Route}
-      className="flex items-center gap-3 rounded px-1 py-1 text-sm transition-colors hover:bg-muted/60"
-      data-testid="pulse-sector"
+      data-testid="brief-sector"
+      className="font-semibold hover:underline"
     >
-      <span className="flex-1 truncate">{s.name}</span>
-      <span className="h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-muted">
-        <span
-          className={`block h-full rounded-full ${cmf >= 0 ? "bg-emerald-500" : "bg-red-500"}`}
-          style={{ width: `${width}%` }}
-        />
-      </span>
-      <span className={`w-12 shrink-0 text-right text-xs tabular-nums ${toneFor(cmf)}`}>
-        {cmf >= 0 ? "+" : ""}
-        {cmf.toFixed(2)}
-      </span>
+      {s.name}
     </Link>
   );
 }
 
 export function HomeMarketPulseBlock() {
-  const [movers, setMovers] = useState<AssetCard[]>([]);
-  const [sectors, setSectors] = useState<SectorCard[]>([]);
+  const [brief, setBrief] = useState<DailyBrief | null>(null);
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let live = true;
-    getMarketPulse("US")
-      .then((d) => {
-        if (!live) return;
-        setMovers((d.top_assets ?? []).slice(0, MOVER_COUNT));
-        const all = d.sectors ?? [];
-        // Already CMF-descending. Take the top few, then the weakest — a block
-        // that only ever shows inflow can't answer "what's being sold?".
-        const lead = all.slice(0, SECTOR_COUNT - 1);
-        const laggard = all.length > SECTOR_COUNT ? [all[all.length - 1]] : [];
-        setSectors([...lead, ...laggard]);
-      })
+    getDailyBrief("US")
+      .then((b) => live && setBrief(b))
       .catch(() => live && setFailed(true));
     return () => {
       live = false;
     };
   }, []);
 
-  if (failed) return null;
+  if (failed) {
+    return (
+      <section className="rounded-lg border border-border bg-card p-4" data-testid="home-market-pulse">
+        <h2 className="font-heading text-base font-semibold">Moving today</h2>
+        <p className="mt-2 text-xs text-muted-foreground">
+          Couldn&apos;t load today&apos;s snapshot. It&apos;ll be back on the next refresh.
+        </p>
+      </section>
+    );
+  }
 
-  const maxFlow = Math.max(...sectors.map((s) => Math.abs(s.cmf_20 ?? 0)), 0.01);
+  if (!brief) {
+    return (
+      <section className="rounded-lg border border-border bg-card p-4" data-testid="home-market-pulse">
+        <div className="h-4 w-28 animate-pulse rounded bg-muted" />
+        <div className="mt-3 h-16 animate-pulse rounded bg-muted/60" />
+        <div className="mt-3 h-24 animate-pulse rounded bg-muted/60" />
+      </section>
+    );
+  }
+
+  const asOfDate = brief.as_of ? brief.as_of.slice(0, 10) : null;
 
   return (
     <section
-      className="rounded-xl border border-border bg-white p-5"
+      className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4"
       data-testid="home-market-pulse"
     >
-      <div className="mb-3 flex items-baseline justify-between">
-        <h2 className="font-heading text-base font-semibold">Moving today</h2>
-        <Link href={"/stocks" as Route} className="text-xs text-primary hover:underline">
-          Market Pulse →
-        </Link>
-      </div>
-
-      <div className="flex gap-2">
-        {movers.length > 0
-          ? movers.map((a) => <MoverTile key={a.symbol} a={a} />)
-          : Array.from({ length: MOVER_COUNT }).map((_, i) => (
-              <div key={i} className="h-12 flex-1 animate-pulse rounded-lg bg-muted/50" />
-            ))}
-      </div>
-
-      <div className="mt-4">
-        <div className="mb-1.5 text-xs text-muted-foreground">
-          Money flow by industry
-        </div>
-        {sectors.length > 0 ? (
-          <div className="flex flex-col gap-0.5">
-            {sectors.map((s) => (
-              <SectorRow key={s.symbol} s={s} max={maxFlow} />
-            ))}
+      {/* Date ABOVE the headline, 11px semibold uppercase — the repo's
+          newspaper-byline pattern. A calendar anchor has to be readable at a
+          glance, not buried in footer text (product invariant). */}
+      <div>
+        {asOfDate && (
+          <div
+            className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground"
+            data-testid="brief-as-of"
+          >
+            Close · {asOfDate}
           </div>
-        ) : (
-          <div className="h-24 animate-pulse rounded bg-muted/50" />
+        )}
+        <h2 className="font-heading text-base font-semibold">Moving today</h2>
+      </div>
+
+      {/* The tape. 2×2 at this width rather than a 4-wide row that would
+          squeeze every index level to four characters. */}
+      <div className="grid grid-cols-2 gap-px overflow-hidden rounded-md border border-border bg-border">
+        {brief.indices.map((q) => (
+          <div key={q.symbol} className="bg-card">
+            <IndexTile q={q} />
+          </div>
+        ))}
+        {brief.vix && (
+          <div className="bg-card">
+            <div className="flex flex-col gap-0.5 px-3 py-2" data-testid="brief-vix">
+              <span className="truncate text-[11px] text-muted-foreground">{brief.vix.name}</span>
+              <span className="font-mono text-[15px] font-semibold tabular-nums">
+                {level(brief.vix.price)}
+              </span>
+              <span className="font-mono text-xs tabular-nums text-muted-foreground">
+                {pct(brief.vix.change_percent)} · {vixMood(brief.vix.price)}
+              </span>
+            </div>
+          </div>
         )}
       </div>
+
+      {/* Macro. Direction is the point — the level alone doesn't say whether
+          the backdrop is tightening or easing. */}
+      {brief.macro.length > 0 && (
+        <div className="flex flex-wrap gap-1.5" data-testid="brief-macro">
+          {brief.macro.map((m) => (
+            <span
+              key={m.category}
+              title={m.takeaway}
+              className="inline-flex items-baseline gap-1.5 rounded-full border border-border bg-muted px-2 py-0.5 text-[11px]"
+            >
+              <span className="text-muted-foreground">{m.label}</span>
+              {m.trend && (
+                <span className={m.direction === "up" ? "font-semibold text-amber-600" : "font-semibold text-muted-foreground"}>
+                  {m.direction === "up" ? "↑" : m.direction === "down" ? "↓" : "→"} {m.trend.toLowerCase()}
+                </span>
+              )}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Gainers | losers, side by side even at this width — the comparison is
+          the point, and stacking them doubles the block's height. */}
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Biggest gainers
+          </h3>
+          <div className="flex flex-col">
+            {brief.gainers.map((m) => (
+              <MoverRow key={m.symbol} m={m} />
+            ))}
+          </div>
+        </div>
+        <div>
+          <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Biggest losers
+          </h3>
+          <div className="flex flex-col">
+            {brief.losers.map((m) => (
+              <MoverRow key={m.symbol} m={m} />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* Sector leadership and where money actually went — two different
+          rankings, deliberately. A sector can lead on price while money
+          leaves it, and that gap is the most useful thing on the block. */}
+      <div className="flex flex-col gap-1.5 rounded-md border border-border px-3 py-2 text-xs">
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-muted-foreground">Sector leading</span>
+          <span className="truncate">
+            <SectorName s={brief.sector_leading} />{" "}
+            <span className={`font-mono tabular-nums ${tone(brief.sector_leading?.change_percent)}`}>
+              {pct(brief.sector_leading?.change_percent)}
+            </span>
+          </span>
+        </div>
+        <div className="flex items-baseline justify-between gap-2">
+          <span className="text-muted-foreground">Sector lagging</span>
+          <span className="truncate">
+            <SectorName s={brief.sector_lagging} />{" "}
+            <span className={`font-mono tabular-nums ${tone(brief.sector_lagging?.change_percent)}`}>
+              {pct(brief.sector_lagging?.change_percent)}
+            </span>
+          </span>
+        </div>
+        {brief.flow_into && brief.flow_out_of && (
+          <div
+            className="flex flex-col gap-0.5 border-t border-border/60 pt-1.5"
+            data-testid="brief-flow"
+          >
+            <div className="flex items-baseline justify-between gap-2">
+              <span className="text-muted-foreground">Money flowing</span>
+              <span className="truncate">
+                <SectorName s={brief.flow_out_of} />{" "}
+                <span className="font-mono text-muted-foreground">→</span>{" "}
+                <SectorName s={brief.flow_into} />
+              </span>
+            </div>
+            {/* The numbers behind the arrow. Without them "money flowing" is
+                an assertion the reader has to take on faith; Chaikin Money
+                Flow is a bounded −1..+1 score, so both ends are readable. */}
+            <div className="flex items-baseline justify-between gap-2 text-[11px] text-muted-foreground">
+              <span>Chaikin flow, 20d</span>
+              <span className="font-mono tabular-nums">
+                {brief.flow_out_of.money_flow?.toFixed(2)} → {brief.flow_into.money_flow?.toFixed(2)}
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Only on a day that earned it. Below the threshold the "biggest move"
+          is just the top of a quiet leaderboard, and flagging it every
+          session cries wolf. */}
+      {brief.unusual && (
+        <Link
+          href={`/stocks/${brief.unusual.symbol}` as Route}
+          data-testid="brief-unusual"
+          className="flex items-baseline gap-2 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs transition-colors hover:bg-amber-100/70"
+        >
+          <span className="text-[10px] font-bold uppercase tracking-wider text-amber-700">
+            Unusual
+          </span>
+          <span className="font-mono font-bold">{brief.unusual.symbol}</span>
+          <span className={`font-mono font-semibold tabular-nums ${tone(brief.unusual.change_percent)}`}>
+            {pct(brief.unusual.change_percent)}
+          </span>
+          <span className="ml-auto truncate text-muted-foreground">
+            biggest move in the index
+          </span>
+        </Link>
+      )}
     </section>
   );
 }

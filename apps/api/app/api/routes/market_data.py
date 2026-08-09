@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from datetime import date, datetime
 from typing import Optional
 
@@ -143,6 +144,7 @@ async def get_market_overview(
 
 # ── PRD-15: Market Pulse ──────────────────────────────────────────────────────
 
+from app.services.live_quote_service import live_quote_service
 from app.services.market_pulse_service import MarketPulseService
 from app.services.sector_comparison_service import (
     SectorComparisonResponse,
@@ -154,6 +156,51 @@ from app.services.macro_similarity_service import (
 )
 
 _pulse_svc = MarketPulseService()
+
+
+@router.get("/market/daily-brief")
+async def get_daily_brief(
+    market: str = Query(default="US", pattern="^(US|CN)$"),
+    db: Session = Depends(get_db),
+) -> dict:
+    """The deterministic half of the home "Moving today" snapshot.
+
+    Everything here is arithmetic over data we already hold — indices, VIX,
+    macro trend, the day's biggest movers, sector leadership and money flow.
+    No LLM: the generated read is a separate concern so the tape still renders
+    when the model call fails, and so a bad generation can never be mistaken
+    for a bad number.
+
+    Index levels come from `^GSPC`/`^IXIC`/`^DJI` and volatility from `^VIX`,
+    NOT from the SPY/QQQ/DIA/VXX proxies the pulse tracks — an ETF share price
+    printed as an index level is wrong, not merely different.
+    """
+    from app.services.daily_brief_service import (
+        INDEX_SYMBOLS,
+        VIX_SYMBOL,
+        build_brief,
+    )
+
+    pulse = await get_market_pulse(market=market, bypass_cache=False, db=db)
+
+    symbols = [sym for sym, _ in INDEX_SYMBOLS] + [VIX_SYMBOL]
+    quotes: dict = {}
+    try:
+        raw = await live_quote_service.get_quotes(symbols)
+        quotes = {k: (vars(v) if hasattr(v, "__dict__") else dict(v)) for k, v in raw.items()}
+    except Exception:
+        # Degrade to an empty index row rather than 500ing the whole block —
+        # the movers, sectors and flow below don't depend on these quotes.
+        logging.getLogger("livermore.daily_brief").warning(
+            "daily-brief index quotes failed; rendering without them", exc_info=True
+        )
+
+    brief = build_brief(
+        quotes=quotes,
+        pulse=pulse,
+        macro_signals=pulse.get("macro_signals"),
+    )
+    return brief.to_dict()
 
 
 @router.get("/market/pulse")

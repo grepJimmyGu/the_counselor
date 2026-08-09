@@ -1443,3 +1443,10 @@ export async function getMetricValues(
       : {}),
   });
 }
+
+/** The home "Moving today" snapshot — deterministic fields only. */
+export async function getDailyBrief(
+  market = "US",
+): Promise<import("@/lib/contracts").DailyBrief> {
+  return fetchApi(`/api/market/daily-brief?market=${encodeURIComponent(market)}`);
+}

@@ -1948,6 +1948,54 @@ export interface ScreenerResult {
   week_52_low?: number | null;
 }
 
+/** Home "Moving today" snapshot — the deterministic half. Every field here is
+ *  arithmetic over data we already hold; the generated read is separate, so a
+ *  bad generation can never be mistaken for a bad number. */
+export interface BriefQuote {
+  symbol: string;
+  name: string;
+  /** Index LEVEL (7,757.64), not an ETF share price. */
+  price: number | null;
+  /** Already a percent — the backend does not re-scale live-quote values. */
+  change_percent: number | null;
+}
+
+export interface BriefMover {
+  symbol: string;
+  name: string | null;
+  change_percent: number;
+}
+
+export interface BriefSector {
+  name: string;
+  change_percent: number | null;
+  /** Chaikin Money Flow, −1..+1. Null on the leader/laggard rows. */
+  money_flow: number | null;
+}
+
+export interface BriefMacro {
+  category: string;
+  label: string;
+  direction: "up" | "down" | "flat";
+  trend: string;
+  takeaway: string;
+}
+
+export interface DailyBrief {
+  as_of: string | null;
+  indices: BriefQuote[];
+  vix: BriefQuote | null;
+  macro: BriefMacro[];
+  gainers: BriefMover[];
+  losers: BriefMover[];
+  sector_leading: BriefSector | null;
+  sector_lagging: BriefSector | null;
+  flow_into: BriefSector | null;
+  flow_out_of: BriefSector | null;
+  /** Absent on a quiet day — below the threshold there is no unusual mover. */
+  unusual: BriefMover | null;
+}
+
 export interface MetricValuesResponse {
   /** symbol -> {primitive_id: value}. Absent cells are omitted, never null. */
   values: Record<string, Record<string, number>>;
