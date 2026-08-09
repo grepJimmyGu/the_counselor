@@ -91,3 +91,65 @@ class AlphaVantageNewsProvider:
             ))
 
         return articles
+
+
+# Market-wide news. AV's NEWS_SENTIMENT takes `topics` as well as `tickers`,
+# so the whole market costs ONE call rather than one per symbol — which is what
+# makes an always-on news ticker affordable. `financial_markets` is AV's
+# general-markets topic; without any filter the feed skews to whatever is
+# noisiest.
+_MARKET_TOPICS = "financial_markets"
+
+
+async def fetch_market_news(limit: int = 20) -> list[NewsArticle]:
+    """Latest market-wide headlines. Returns [] on any failure — a news strip
+    that vanishes is better than one that breaks the page around it."""
+    settings = get_settings()
+    if not settings.alpha_vantage_api_key:
+        return []
+
+    params = {
+        "function": "NEWS_SENTIMENT",
+        "topics": _MARKET_TOPICS,
+        "limit": min(limit, 50),
+        "sort": "LATEST",
+        "apikey": settings.alpha_vantage_api_key,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=settings.api_timeout_seconds) as client:
+            response = await client.get(AlphaVantageNewsProvider.BASE_URL, params=params)
+            response.raise_for_status()
+            data = response.json()
+    except Exception:
+        return []
+
+    articles: list[NewsArticle] = []
+    for item in data.get("feed", [])[:limit]:
+        published_at: Optional[datetime] = None
+        try:
+            raw_time = item.get("time_published", "")
+            if raw_time:
+                published_at = datetime.strptime(raw_time[:15], "%Y%m%dT%H%M%S")
+        except (ValueError, TypeError):
+            pass
+
+        sent_score = None
+        try:
+            sent_score = float(item.get("overall_sentiment_score", 0))
+        except (ValueError, TypeError):
+            pass
+
+        articles.append(NewsArticle(
+            provider="alpha_vantage",
+            # No single subject — this is the market feed, not a symbol's.
+            symbol="",
+            title=item.get("title", ""),
+            summary=item.get("summary"),
+            source_name=item.get("source"),
+            url=item.get("url"),
+            published_at=published_at,
+            topics=[t.get("topic", "") for t in item.get("topics", []) if t.get("topic")],
+            sentiment_score=sent_score,
+            sentiment_label=item.get("overall_sentiment_label"),
+        ))
+    return articles
