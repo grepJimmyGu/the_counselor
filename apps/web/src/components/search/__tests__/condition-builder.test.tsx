@@ -2,6 +2,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
+const pushMock = vi.fn();
+vi.mock("next/navigation", () => ({ useRouter: () => ({ push: pushMock }) }));
+
 vi.mock("@/lib/api", () => ({ screenCount: vi.fn() }));
 
 import { screenCount } from "@/lib/api";
@@ -138,5 +141,29 @@ describe("ConditionBuilder chips + universe", () => {
     fireEvent.click(screen.getByText("Oversold (below 30)"));
     await waitFor(() => expect(countMock).toHaveBeenCalled());
     expect(countMock.mock.calls[0][0].universe_id).toBe("russell3000");
+  });
+});
+
+describe("hand-off to the results page", () => {
+  it('"See matches" carries the selected phrases as the query', () => {
+    pushMock.mockClear();
+    render(<ConditionBuilder onAppend={() => {}} universeId="russell3000" />);
+    fireEvent.click(screen.getByTestId("condition-pill-RSI"));
+    fireEvent.click(screen.getByText("Oversold (below 30)"));
+
+    fireEvent.click(screen.getByTestId("condition-next"));
+
+    // The builder's PHRASES are the query — that text is the source of truth
+    // on submit, so the results page must receive the same string rather than
+    // a second, parallel encoding of the same conditions.
+    const url = pushMock.mock.calls[0][0] as string;
+    expect(url).toContain("/screen?q=");
+    expect(decodeURIComponent(url)).toContain("oversold");
+    expect(url).toContain("universe=russell3000");
+  });
+
+  it("offers no next action until something is selected", () => {
+    render(<ConditionBuilder onAppend={() => {}} />);
+    expect(screen.queryByTestId("condition-next")).toBeNull();
   });
 });
