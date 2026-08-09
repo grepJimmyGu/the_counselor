@@ -104,6 +104,27 @@ export function HomeQuantStrategies({
         <span className="text-xs text-muted-foreground">Backtest before you commit</span>
       </div>
 
+      {/* The three offerings are easy to confuse — they differ by WHAT they
+          decide for you, and that distinction is invisible from the cards
+          alone. Jimmy's framing, 2026-08-09. */}
+      <dl className="mb-3 grid grid-cols-1 gap-x-4 gap-y-1.5 rounded-lg bg-muted/30 px-3 py-2.5 text-xs sm:grid-cols-3">
+        <div>
+          <dt className="font-medium text-foreground">Templates</dt>
+          <dd className="text-muted-foreground">Complete strategies — they pick the names for you.</dd>
+        </div>
+        <div>
+          <dt className="font-medium text-foreground">Overlays</dt>
+          <dd className="text-muted-foreground">
+            Rules applied to a portfolio you already hold — they decide when to be
+            in or out, not what to own.
+          </dd>
+        </div>
+        <div>
+          <dt className="font-medium text-foreground">Build your own</dt>
+          <dd className="text-muted-foreground">Compose raw signals yourself.</dd>
+        </div>
+      </dl>
+
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {SHOWN.map((t) => (
           <TemplateCard key={t.id} t={t} onOpen={onOpenTemplate} />
@@ -116,7 +137,7 @@ export function HomeQuantStrategies({
           className="flex items-center justify-center gap-2 rounded-lg border border-dashed border-border p-3 text-sm font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted/30 hover:text-foreground"
         >
           <Plus className="h-4 w-4" aria-hidden="true" />
-          Build from scratch
+          Build your own signals
         </button>
       </div>
     </section>

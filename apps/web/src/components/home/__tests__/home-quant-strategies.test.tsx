@@ -78,3 +78,25 @@ describe("HomeQuantStrategies", () => {
     expect(text).toContain("ETF proxy");
   });
 });
+
+describe("the three offerings", () => {
+  it("explains how each one differs, since the cards alone don't", () => {
+    renderBlock();
+    const t = screen.getByTestId("home-quant-strategies").textContent ?? "";
+    // The distinction is WHAT each decides for you — the failure mode is a
+    // user backtesting an overlay expecting it to pick names.
+    expect(t).toMatch(/Templates/);
+    expect(t).toMatch(/pick the names for you/i);
+    expect(t).toMatch(/Overlays/);
+    expect(t).toMatch(/already hold/i);
+    expect(t).toMatch(/Build your own/);
+    expect(t).toMatch(/raw signals/i);
+  });
+
+  it('calls the last one "Build your own signals", not "Build from scratch"', () => {
+    renderBlock();
+    expect(screen.getByTestId("quant-build-from-scratch").textContent).toContain(
+      "Build your own signals",
+    );
+  });
+});

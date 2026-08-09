@@ -94,6 +94,14 @@ describe("HomeCuratedScreens", () => {
     sample_tickers: ["AAA", "BBB"],
   });
 
+  it('is titled "Special list"', async () => {
+    presetsMock.mockResolvedValue({ presets: [preset("trending-ai", 24)] });
+    render(<HomeCuratedScreens />);
+    await waitFor(() =>
+      expect(screen.getByTestId("home-curated-screens").textContent).toContain("Special list"),
+    );
+  });
+
   it("links straight to results — no intermediate page", async () => {
     presetsMock.mockResolvedValue({ presets: [preset("trending-ai", 24)] });
     render(<HomeCuratedScreens />);
