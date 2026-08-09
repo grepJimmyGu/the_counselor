@@ -9,6 +9,29 @@ vi.mock("@/lib/api", () => ({
 }));
 const pushMock = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: pushMock }) }));
+vi.mock("@/lib/useLiveQuotes", () => ({
+  useLiveQuotes: (syms: string[]) => ({
+    quotes: Object.fromEntries(
+      syms.map((s, i) => [
+        s,
+        {
+          symbol: s,
+          name: `${s} Inc.`,
+          price: 100 + i * 10,
+          change: 1,
+          change_percent: i === 0 ? 1.5 : -2.25,
+          market_cap: (i + 1) * 1e12,
+          volume: (i + 1) * 1e6,
+          day_high: null, day_low: null, exchange: "NASDAQ", fetched_at: 0,
+        },
+      ]),
+    ),
+  }),
+}));
+vi.mock("@/components/search/smart-search-box", () => ({
+  SmartSearchBox: () => <div data-testid="stub-search-box" />,
+}));
+
 vi.mock("next-auth/react", () => ({
   useSession: () => ({ data: { backendToken: "tok" }, status: "authenticated" }),
 }));
@@ -232,5 +255,145 @@ describe("QueryResults", () => {
       expect(screen.getByText("Which strategy type should I use?")).toBeTruthy(),
     );
     expect(screen.queryAllByTestId("result-row")).toHaveLength(0);
+  });
+});
+
+describe("default metrics and paging", () => {
+  it("keeps the search box on the page", async () => {
+    parseMock.mockResolvedValue(parsedOk());
+    scanMock.mockResolvedValue(scanned());
+    countMock.mockResolvedValue({ matched_count: 100 });
+    render(<QueryResults query="q" universeId="sp500" />);
+    // Spec item 1: editable in place, not "go back to change it".
+    await waitFor(() => expect(screen.getByTestId("stub-search-box")).toBeTruthy());
+  });
+
+  it("shows price, change %, market cap and volume on every row", async () => {
+    parseMock.mockResolvedValue(parsedOk());
+    scanMock.mockResolvedValue(scanned());
+    countMock.mockResolvedValue({ matched_count: 100 });
+    render(<QueryResults query="q" universeId="sp500" />);
+
+    await waitFor(() => expect(screen.getAllByTestId("result-row")).toHaveLength(3));
+    // Present regardless of what was screened — without them a row is a score
+    // with no anchor.
+    expect(screen.getAllByTestId("cell-price")[0].textContent).toBe("100.00");
+    expect(screen.getAllByTestId("cell-change_percent")[0].textContent).toBe("+1.50%");
+    expect(screen.getAllByTestId("cell-market_cap")[0].textContent).toBe("1.00T");
+    expect(screen.getAllByTestId("cell-volume")[0].textContent).toBe("1.0M");
+  });
+
+  it("sorts on a quote metric across the whole result, not just the page", async () => {
+    parseMock.mockResolvedValue(parsedOk());
+    scanMock.mockResolvedValue(scanned());
+    countMock.mockResolvedValue({ matched_count: 100 });
+    render(<QueryResults query="q" universeId="sp500" />);
+    await waitFor(() => expect(screen.getAllByTestId("result-row")).toHaveLength(3));
+
+    fireEvent.click(screen.getByTestId("sort-market_cap"));
+    const caps = screen.getAllByTestId("cell-market_cap").map((c) => c.textContent);
+    expect(caps).toEqual(["3.00T", "2.00T", "1.00T"]); // desc
+  });
+
+  it("offers feedback actions under the table", async () => {
+    parseMock.mockResolvedValue(parsedOk());
+    scanMock.mockResolvedValue(scanned());
+    countMock.mockResolvedValue({ matched_count: 100 });
+    render(<QueryResults query="q" universeId="sp500" />);
+    await waitFor(() => expect(screen.getByTestId("result-feedback")).toBeTruthy());
+    expect(screen.getByLabelText("Share this screen")).toBeTruthy();
+    expect(screen.getByLabelText("These results look wrong")).toBeTruthy();
+  });
+
+  it("shows no pager when everything fits on one screen", async () => {
+    parseMock.mockResolvedValue(parsedOk());
+    scanMock.mockResolvedValue(scanned());
+    countMock.mockResolvedValue({ matched_count: 100 });
+    render(<QueryResults query="q" universeId="sp500" />);
+    await waitFor(() => expect(screen.getAllByTestId("result-row")).toHaveLength(3));
+    expect(screen.queryByTestId("pagination")).toBeNull();
+  });
+});
+
+describe("paging at 25 per screen", () => {
+  const many = (n: number) => ({
+    matched: Array.from({ length: n }, (_, i) => `S${i}`),
+    readings: {},
+    values: Object.fromEntries(
+      Array.from({ length: n }, (_, i) => [`S${i}`, { rsi: 10 + i }]),
+    ),
+    as_of_date: "2026-08-08",
+    universe_size: 525,
+    matched_count: n,
+    unsupported_primitives: [],
+    default_param_primitives: [],
+  });
+
+  it("caps a screen at 25 rows and pages the rest", async () => {
+    parseMock.mockResolvedValue(parsedOk());
+    scanMock.mockResolvedValue(many(60));
+    countMock.mockResolvedValue({ matched_count: 100 });
+    render(<QueryResults query="q" universeId="sp500" />);
+
+    await waitFor(() => expect(screen.getAllByTestId("result-row")).toHaveLength(25));
+    expect(screen.getByTestId("page-indicator").textContent).toBe("1 / 3");
+
+    fireEvent.click(screen.getByLabelText("Next page"));
+    await waitFor(() => expect(screen.getByTestId("page-indicator").textContent).toBe("2 / 3"));
+    expect(screen.getAllByTestId("result-row")).toHaveLength(25);
+
+    fireEvent.click(screen.getByLabelText("Next page"));
+    await waitFor(() => expect(screen.getByTestId("page-indicator").textContent).toBe("3 / 3"));
+    expect(screen.getAllByTestId("result-row")).toHaveLength(10);
+  });
+
+  it("row numbers continue across pages", async () => {
+    parseMock.mockResolvedValue(parsedOk());
+    scanMock.mockResolvedValue(many(60));
+    countMock.mockResolvedValue({ matched_count: 100 });
+    render(<QueryResults query="q" universeId="sp500" />);
+    await waitFor(() => expect(screen.getAllByTestId("result-row")).toHaveLength(25));
+
+    fireEvent.click(screen.getByLabelText("Next page"));
+    // Restarting at 1 on page 2 would misrepresent rank in a ranked list.
+    await waitFor(() =>
+      expect(screen.getAllByTestId("result-row")[0].textContent).toContain("26"),
+    );
+  });
+
+  it("returns to page 1 when the sort changes", async () => {
+    parseMock.mockResolvedValue(parsedOk());
+    scanMock.mockResolvedValue(many(60));
+    countMock.mockResolvedValue({ matched_count: 100 });
+    render(<QueryResults query="q" universeId="sp500" />);
+    await waitFor(() => expect(screen.getByTestId("page-indicator").textContent).toBe("1 / 3"));
+
+    fireEvent.click(screen.getByLabelText("Next page"));
+    await waitFor(() => expect(screen.getByTestId("page-indicator").textContent).toBe("2 / 3"));
+
+    fireEvent.click(screen.getByTestId("sort-rsi"));
+    // Re-ranking while parked on page 2 would show an arbitrary slice of a
+    // list the user just asked to reorder.
+    await waitFor(() => expect(screen.getByTestId("page-indicator").textContent).toBe("1 / 3"));
+  });
+});
+
+describe("a null value must not take the page down", () => {
+  it("renders null and NaN as an em dash instead of throwing", async () => {
+    parseMock.mockResolvedValue(parsedOk());
+    scanMock.mockResolvedValue({
+      ...scanned(),
+      // The cell checked `undefined` only, so a null threw
+      // "Cannot read properties of null (reading 'toFixed')" and the whole
+      // results page went blank. One missing number should never do that.
+      values: { AAPL: { rsi: null as unknown as number }, MSFT: { rsi: NaN }, JPM: {} },
+    });
+    countMock.mockResolvedValue({ matched_count: 100 });
+
+    render(<QueryResults query="q" universeId="sp500" />);
+    await waitFor(() => expect(screen.getAllByTestId("result-row")).toHaveLength(3));
+    expect(screen.getAllByTestId("cell-rsi").map((c) => c.textContent)).toEqual([
+      "—", "—", "—",
+    ]);
   });
 });
