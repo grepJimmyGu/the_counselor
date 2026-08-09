@@ -12,9 +12,9 @@ export default async function ScreenPage({
   searchParams,
 }: {
   // Next 16: searchParams is a Promise in server components.
-  searchParams: Promise<{ q?: string; universe?: string }>;
+  searchParams: Promise<{ q?: string; universe?: string; add?: string }>;
 }) {
-  const { q, universe } = await searchParams;
+  const { q, universe, add } = await searchParams;
   const query = (q ?? "").trim();
 
   if (!query) {
@@ -30,7 +30,7 @@ export default async function ScreenPage({
   return (
     <main className="min-h-screen bg-background">
       <Suspense fallback={null}>
-        <QueryResults query={query} universeId={universe || "sp500"} />
+        <QueryResults query={query} universeId={universe || "sp500"} addParam={add ?? ""} />
       </Suspense>
     </main>
   );
