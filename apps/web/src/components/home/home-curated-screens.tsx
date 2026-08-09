@@ -1,7 +1,7 @@
 "use client";
 
 /**
- * Home block 2 — curated screens (特色榜單).
+ * Home block 2 — Special list (特色榜單).
  *
  * The nine presets already ship at `GET /api/screener/presets` with a live
  * result count and sample tickers, and `/stocks?preset=<slug>` already renders
@@ -80,7 +80,7 @@ export function HomeCuratedScreens() {
       data-testid="home-curated-screens"
     >
       <div className="mb-3 flex items-baseline justify-between">
-        <h2 className="font-heading text-base font-semibold">Curated screens</h2>
+        <h2 className="font-heading text-base font-semibold">Special list</h2>
         <Link
           href={"/stocks/screener" as Route}
           className="text-xs text-primary hover:underline"
