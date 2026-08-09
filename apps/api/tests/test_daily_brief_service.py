@@ -218,3 +218,39 @@ def test_serializes_to_plain_json_types():
 
     json.loads(json.dumps(d))  # raises if a dataclass leaked through
     assert d["indices"][0]["symbol"] == "^GSPC"
+
+
+# ── full sector list (share-card WINNERS / LOSERS columns) ──────────────────
+
+
+def test_returns_every_sector_ranked_by_return():
+    """The home block reads only leader and laggard, but the share card needs
+    full WINNERS / LOSERS columns. Ranking on the client would put the sort in
+    two places and let the card disagree with the block beside it."""
+    b = _build()
+    assert [s.name for s in b.sectors] == [
+        "Consumer Disc.", "Utilities", "Financials", "Energy",
+    ]
+    assert b.sectors[0].change_percent == 1.49
+
+
+def test_sector_list_carries_money_flow_for_the_flow_line():
+    b = _build()
+    fin = next(s for s in b.sectors if s.name == "Financials")
+    assert fin.money_flow == 0.1192
+
+
+def test_leader_and_laggard_are_the_ends_of_that_same_list():
+    """Two rankings that could disagree is a bug waiting to happen — the card
+    would show Energy last while the block called something else the laggard."""
+    b = _build()
+    assert b.sector_leading.name == b.sectors[0].name
+    assert b.sector_lagging.name == b.sectors[-1].name
+
+
+def test_sector_without_a_return_is_dropped_not_ranked_as_zero():
+    b = _build(pulse={"sectors": [
+        {"name": "Energy", "perf_1d": 0.01, "cmf_20": 0.2},
+        {"name": "Unknown", "perf_1d": None, "cmf_20": 0.1},
+    ]})
+    assert [s.name for s in b.sectors] == ["Energy"]
