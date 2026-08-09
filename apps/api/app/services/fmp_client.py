@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from datetime import datetime
 from typing import Any, Optional
 
@@ -10,6 +11,23 @@ import httpx
 from app.core.config import get_settings
 
 logger = logging.getLogger("livermore.fmp")
+
+
+# US class shares: our universes carry the dot form (BRK.B) for readability;
+# FMP wants the hyphen (BRK-B). Applied centrally in `_get` because doing it
+# per-method didn't hold — #283 fixed `get_key_metrics` and SEVEN other
+# symbol-taking methods still had the gap, so every class share silently 404'd
+# its profile, statements, peers and segments. That's the whole company page.
+#
+# Only a SINGLE-letter suffix is a class share. `cn_overview_service` calls
+# `_get("/profile", {"symbol": "000001.SZ"})` directly, and a blanket
+# `replace(".", "-")` would corrupt every CN ticker into `000001-SZ`.
+_CLASS_SHARE_RX = re.compile(r"^([A-Z]+)\.([A-Z])$")
+
+
+def _to_fmp_symbol(symbol: str) -> str:
+    """`BRK.B` -> `BRK-B`; `000001.SZ` and everything else unchanged."""
+    return _CLASS_SHARE_RX.sub(r"\1-\2", symbol.upper())
 
 
 class FMPError(RuntimeError):
@@ -50,7 +68,10 @@ class FMPClient:
         return key
 
     async def _get(self, path: str, params: dict[str, Any] | None = None) -> Any:
-        all_params = {"apikey": self._api_key(), **(params or {})}
+        params = dict(params or {})
+        if isinstance(params.get("symbol"), str):
+            params["symbol"] = _to_fmp_symbol(params["symbol"])
+        all_params = {"apikey": self._api_key(), **params}
         url = f"{self.BASE_URL}{path}"
         async with httpx.AsyncClient(timeout=self.settings.api_timeout_seconds) as client:
             for attempt in range(3):
@@ -142,12 +163,7 @@ class FMPClient:
         Key financial metrics (TTM). Returns a normalised dict that maps
         stable-API field names to the legacy TTM names our downstream code expects.
         """
-        # Class shares: our universes use dot notation (BRK.B), FMP wants the
-        # hyphen (BRK-B). `get_quote` already translates; this didn't, so every
-        # class share fell through as "No key metrics" (trap #15).
-        data = await self._get(
-            "/key-metrics-ttm", {"symbol": symbol.upper().replace(".", "-")}
-        )
+        data = await self._get("/key-metrics-ttm", {"symbol": symbol.upper()})
         if not data or not isinstance(data, list):
             raise FMPError(f"No key metrics for {symbol}")
         raw = data[0]
