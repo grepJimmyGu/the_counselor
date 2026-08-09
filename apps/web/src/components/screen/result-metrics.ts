@@ -65,6 +65,65 @@ export const DEFAULT_METRICS: MetricDef[] = [
  * can't fill produces a column of em dashes, which reads as broken data rather
  * than as an unavailable metric — worse than not offering it.
  */
+/**
+ * Technical metrics, curated from the daily snapshot.
+ *
+ * The snapshot covers 47 numeric primitives. All 47 in a picker is a wall of
+ * names most people don't recognise, so this is the readable subset — one per
+ * idea (trend strength, volatility, liquidity, momentum, position in range)
+ * rather than every variant of each.
+ *
+ * THE IDS ARE A CROSS-LANGUAGE CONTRACT with the Python snapshot, exactly like
+ * `condition-groups.ts`. An id that leaves the snapshot becomes a column of em
+ * dashes; `tests/test_result_metrics_contract.py` fails the build instead.
+ *
+ * `natr` over `atr`, and the two `distance_to_*` over the raw 52-week levels,
+ * on purpose: a column is only useful if it's comparable ACROSS rows, and a $4
+ * ATR means something different on a $20 stock than on a $900 one.
+ */
+export const TECHNICAL_METRICS: MetricDef[] = [
+  { key: "rsi", label: "RSI", source: "technical", align: "right", format: (v) => num(v, 1) },
+  { key: "adx", label: "ADX", source: "technical", align: "right", format: (v) => num(v, 1) },
+  { key: "mfi", label: "Money flow", source: "technical", align: "right", format: (v) => num(v, 1) },
+  { key: "natr", label: "ATR %", source: "technical", align: "right", format: (v) => num(v, 2) },
+  {
+    key: "realized_vol",
+    label: "Realized vol",
+    source: "technical",
+    align: "right",
+    format: (v) => num(v, 2),
+  },
+  { key: "rvol", label: "Rel. volume", source: "technical", align: "right", format: (v) => num(v, 2) },
+  {
+    key: "time_series_momentum",
+    label: "12-1 momentum",
+    source: "technical",
+    align: "right",
+    format: (v) => num(v, 2),
+  },
+  {
+    key: "distance_to_52w_high",
+    label: "From 52w high",
+    source: "technical",
+    align: "right",
+    format: (v) => num(v, 2),
+  },
+  {
+    key: "distance_to_52w_low",
+    label: "From 52w low",
+    source: "technical",
+    align: "right",
+    format: (v) => num(v, 2),
+  },
+  {
+    key: "avg_dollar_volume",
+    label: "Avg $ volume",
+    source: "technical",
+    align: "right",
+    format: money,
+  },
+];
+
 export const METRIC_GROUPS: { key: string; label: string; metrics: MetricDef[] }[] = [
   {
     key: "quote",
@@ -94,9 +153,14 @@ export const METRIC_GROUPS: { key: string; label: string; metrics: MetricDef[] }
       { key: "week_52_low", label: "52w low", source: "fundamental", align: "right", format: (v) => num(v) },
     ],
   },
+  { key: "technical", label: "Technicals", metrics: TECHNICAL_METRICS },
 ];
 
 export const ALL_OPTIONAL_METRICS: MetricDef[] = METRIC_GROUPS.flatMap((g) => g.metrics);
+
+export const METRIC_BY_KEY: Record<string, MetricDef> = Object.fromEntries(
+  [...DEFAULT_METRICS, ...ALL_OPTIONAL_METRICS].map((m) => [m.key, m]),
+);
 
 /** Pull a metric off whichever source holds it. */
 export function readMetric(
