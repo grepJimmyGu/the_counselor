@@ -104,6 +104,49 @@ class ScreenerService:
 
     # ── PRD-29: symbols-only lookup for the mixed search path ───────────────
 
+    def by_symbols(self, db: Session, symbols: Sequence[str]) -> List[ScreenerResult]:
+        """Fundamentals for an explicit symbol list.
+
+        `screen()` answers "which names match these filters"; this answers
+        "what are the numbers for these names". The results page needs the
+        second: its symbol list comes from a technical scan, so there are no
+        filters to re-run — and re-deriving them would risk returning a
+        DIFFERENT set than the one on screen.
+
+        One indexed query. Order follows the caller's list rather than the
+        DB's, so the table keeps whatever ranking the user applied.
+        """
+        wanted = [s.upper() for s in symbols]
+        if not wanted:
+            return []
+        rows = db.scalars(
+            select(SymbolCache).where(SymbolCache.symbol.in_(wanted))
+        ).all()
+        by_sym = {r.symbol.upper(): r for r in rows}
+        out: List[ScreenerResult] = []
+        for sym in wanted:
+            r = by_sym.get(sym)
+            if r is None:
+                continue  # unknown ticker — omitted, never a blank row
+            out.append(
+                ScreenerResult(
+                    symbol=r.symbol,
+                    name=r.name or r.symbol,
+                    sector=r.sector,
+                    industry=r.industry,
+                    exchange=r.exchange,
+                    country=r.country,
+                    market_cap=r.market_cap,
+                    market_cap_category=r.market_cap_category,
+                    pe_ratio=r.pe_ratio,
+                    dividend_yield=r.dividend_yield,
+                    beta=r.beta,
+                    week_52_high=r.week_52_high,
+                    week_52_low=r.week_52_low,
+                )
+            )
+        return out
+
     def matching_symbols(
         self,
         db: Session,
