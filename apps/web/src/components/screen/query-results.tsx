@@ -27,14 +27,25 @@ import type { Route } from "next";
 import { useSession } from "next-auth/react";
 import { ArrowUpDown, ChevronLeft, ChevronRight, MessageSquare, Plus, Share2, ThumbsDown, ThumbsUp, X } from "lucide-react";
 
-import { parseSearch, screenScan, screenCount } from "@/lib/api";
+import {
+  parseSearch,
+  screenScan,
+  screenCount,
+  getFundamentalsBySymbols,
+  getMetricValues,
+} from "@/lib/api";
 import { useLiveQuotes } from "@/lib/useLiveQuotes";
 import { SmartSearchBox } from "@/components/search/smart-search-box";
-import { DEFAULT_METRICS, num, readMetric } from "./result-metrics";
+import { MetricFilterBar, MetricPicker, type MetricFilter } from "./metric-picker";
+import { DEFAULT_METRICS, METRIC_BY_KEY, num, readMetric } from "./result-metrics";
 import type { ScreenScanResponse, StrategyRule } from "@/lib/contracts";
 
 /** Rows per screen, per the spec. */
 const PAGE_SIZE = 25;
+
+/** Added columns, matching the backend's per-request primitive cap. Past this
+ *  the table stops being readable anyway. */
+const MAX_ADDED_METRICS = 10;
 
 /**
  * How many matches we fetch quotes for.
@@ -78,6 +89,16 @@ export function QueryResults({
   // otherwise fetch 500 quotes to show 25.
   const [page, setPage] = useState(0);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [addedMetrics, setAddedMetrics] = useState<string[]>([]);
+  const [metricFilters, setMetricFilters] = useState<MetricFilter[]>([]);
+  // Filled on demand: only when a metric from that source is actually added.
+  const [fundamentals, setFundamentals] = useState<Record<string, Record<string, number | null>>>({});
+  const [technicals, setTechnicals] = useState<Record<string, Record<string, number>>>({});
+  const [unavailableMetrics, setUnavailableMetrics] = useState<string[]>([]);
+  // A source fetch that FAILED is not the same as one that returned nothing.
+  // Both render em dashes, so without this the two are indistinguishable and
+  // an outage reads as "these stocks have no P/E".
+  const [metricFetchFailed, setMetricFetchFailed] = useState<string[]>([]);
 
   // Parse → scan. Both are anonymous-capable, but pass the token when we have
   // one so a signed-in user gets their own tier's limits (trap #19).
@@ -210,25 +231,152 @@ export function QueryResults({
   const { quotes } = useLiveQuotes(quotedSymbols);
   const quotesTruncated = rows.length > QUOTE_CAP;
 
+  // A metric that's also a screened condition is dropped here rather than
+  // rendered twice. The picker hides those options, but a query EDIT can turn
+  // an added metric into a condition after the fact, and two columns headed
+  // "RSI" with the same numbers is the kind of thing that reads as a bug.
+  const addedDefs = useMemo(
+    () =>
+      addedMetrics
+        .filter((k) => !columns.some((c) => c.primitiveId === k))
+        .map((k) => METRIC_BY_KEY[k])
+        .filter(Boolean),
+    [addedMetrics, columns],
+  );
+
+  // Two source fetches, each keyed on the metrics that need it and fired only
+  // when there are any. Split rather than combined because they're
+  // independent: a slow fundamentals call must not hold up the technical
+  // columns, and one failing must not blank the other.
+  const wantFundamental = useMemo(
+    () => addedDefs.some((m) => m.source === "fundamental"),
+    [addedDefs],
+  );
+  const wantedTechnicals = useMemo(
+    () => addedDefs.filter((m) => m.source === "technical").map((m) => m.key).sort().join(","),
+    [addedDefs],
+  );
+  const symbolKey = useMemo(() => quotedSymbols.join(","), [quotedSymbols]);
+
+  useEffect(() => {
+    if (!wantFundamental || quotedSymbols.length === 0) return;
+    let live = true;
+    getFundamentalsBySymbols(quotedSymbols)
+      .then((res) => {
+        if (!live) return;
+        const next: Record<string, Record<string, number | null>> = {};
+        for (const r of res.results) {
+          next[r.symbol] = {
+            pe_ratio: r.pe_ratio ?? null,
+            dividend_yield: r.dividend_yield ?? null,
+            beta: r.beta ?? null,
+            week_52_high: r.week_52_high ?? null,
+            week_52_low: r.week_52_low ?? null,
+          };
+        }
+        setFundamentals(next);
+        setMetricFetchFailed((prev) => prev.filter((s) => s !== "fundamental"));
+      })
+      .catch(() => {
+        if (!live) return;
+        // Values already on screen are left alone — a transient failure
+        // shouldn't wipe numbers the user is reading — but the failure is
+        // stated, because an empty column otherwise claims the data is absent.
+        setMetricFetchFailed((prev) =>
+          prev.includes("fundamental") ? prev : [...prev, "fundamental"],
+        );
+      });
+    return () => {
+      live = false;
+    };
+    // symbolKey, not quotedSymbols: the array is a fresh reference on every
+    // render, which would re-fire this forever.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantFundamental, symbolKey]);
+
+  useEffect(() => {
+    if (!wantedTechnicals || quotedSymbols.length === 0) return;
+    let live = true;
+    const primitives = wantedTechnicals.split(",");
+    getMetricValues(quotedSymbols, primitives, { backendToken })
+      .then((res) => {
+        if (!live) return;
+        setTechnicals(res.values);
+        setUnavailableMetrics(res.unavailable);
+        setMetricFetchFailed((prev) => prev.filter((s) => s !== "technical"));
+      })
+      .catch(() => {
+        if (!live) return;
+        setMetricFetchFailed((prev) =>
+          prev.includes("technical") ? prev : [...prev, "technical"],
+        );
+      });
+    return () => {
+      live = false;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wantedTechnicals, symbolKey, backendToken]);
+
+  /** Scan values and snapshot values are both keyed by primitive id and come
+   *  from the same daily snapshot, so they read as one bag. */
+  const snapshotFor = useCallback(
+    (symbol: string, scanValues: Record<string, number>) => ({
+      ...scanValues,
+      ...(technicals[symbol] ?? {}),
+    }),
+    [technicals],
+  );
+
+  // Filters run over the FULL match list, not the visible page — the same
+  // reason ranking does. A filter that only hid rows on page 1 would report a
+  // count the user could disprove by clicking Next.
+  const filteredRows = useMemo(() => {
+    if (metricFilters.length === 0) return rows;
+    return rows.filter((r) =>
+      metricFilters.every((f) => {
+        const v = readMetric(
+          f.key,
+          quotes[r.symbol],
+          fundamentals[r.symbol],
+          snapshotFor(r.symbol, r.values),
+        );
+        // A name we have no value for is EXCLUDED by an active filter. It
+        // hasn't met the bound — we just can't say it has — and keeping it
+        // would put rows in a filtered list that visibly don't qualify.
+        if (v === undefined || v === null || !Number.isFinite(v)) return false;
+        if (f.min !== undefined && v < f.min) return false;
+        if (f.max !== undefined && v > f.max) return false;
+        return true;
+      }),
+    );
+  }, [rows, metricFilters, quotes, fundamentals, snapshotFor]);
+
   // Sorting is applied AFTER quotes land, because a default metric (price,
   // market cap) lives on the quote, not in the scan's condition values.
   // Sorting the scan alone would silently no-op on those columns.
   const sortedRows = useMemo(() => {
-    if (!sortBy) return rows;
+    if (!sortBy) return filteredRows;
     const read = (r: (typeof rows)[number]) =>
-      readMetric(sortBy, quotes[r.symbol], undefined, r.values) as number | undefined;
-    return [...rows].sort((a, b) => {
+      readMetric(
+        sortBy,
+        quotes[r.symbol],
+        fundamentals[r.symbol],
+        snapshotFor(r.symbol, r.values),
+      ) as number | undefined;
+    return [...filteredRows].sort((a, b) => {
       const av = read(a);
       const bv = read(b);
       // Names without a value sink to the bottom in BOTH directions — they
       // aren't "lowest", they're unknown, and floating them to the top of an
       // ascending sort would read as though they scored zero.
-      if (av === undefined && bv === undefined) return 0;
-      if (av === undefined) return 1;
-      if (bv === undefined) return -1;
-      return sortDir === "asc" ? av - bv : bv - av;
+      const a_ = av === null || av === undefined || !Number.isFinite(av) ? undefined : av;
+      const b_ = bv === null || bv === undefined || !Number.isFinite(bv) ? undefined : bv;
+      if (a_ === undefined && b_ === undefined) return 0;
+      if (a_ === undefined) return 1;
+      if (b_ === undefined) return -1;
+      return sortDir === "asc" ? a_ - b_ : b_ - a_;
     });
-  }, [rows, quotes, sortBy, sortDir]);
+  }, [filteredRows, rows, quotes, fundamentals, snapshotFor, sortBy, sortDir]);
 
 
   const pageCount = Math.max(1, Math.ceil(sortedRows.length / PAGE_SIZE));
@@ -241,7 +389,47 @@ export function QueryResults({
   // staying on page 8 of a now 2-page result shows an empty table.
   useEffect(() => {
     setPage(0);
-  }, [query, universeId, sortBy, sortDir, scan]);
+  }, [query, universeId, sortBy, sortDir, scan, metricFilters]);
+
+  const toggleMetric = useCallback(
+    (key: string) => {
+      const removing = addedMetrics.includes(key);
+      setAddedMetrics((prev) =>
+        removing
+          ? prev.filter((k) => k !== key)
+          : prev.length >= MAX_ADDED_METRICS
+            ? prev
+            : [...prev, key],
+      );
+      // Removing a column takes its filter and its sort with it. Either left
+      // behind would keep shrinking or reordering the table by something no
+      // longer on screen — state the user can see the effect of but not the
+      // cause.
+      if (removing) {
+        setMetricFilters((prev) => prev.filter((f) => f.key !== key));
+        setSortBy((s) => (s === key ? null : s));
+      }
+    },
+    [addedMetrics],
+  );
+
+  const clearMetrics = useCallback(() => {
+    setMetricFilters((prev) => prev.filter((f) => !addedMetrics.includes(f.key)));
+    setSortBy((s) => (s && addedMetrics.includes(s) ? null : s));
+    setAddedMetrics([]);
+  }, [addedMetrics]);
+
+  // Everything filterable: the defaults, the screened conditions, the added
+  // columns. Anything visible as a column can be filtered on — a column you
+  // can sort but not filter is an arbitrary distinction from the user's side.
+  const filterableColumns = useMemo(
+    () => [
+      ...DEFAULT_METRICS.map((m) => ({ key: m.key, label: m.label })),
+      ...addedDefs.map((m) => ({ key: m.key, label: m.label })),
+      ...columns.map((c) => ({ key: c.primitiveId, label: c.label })),
+    ],
+    [addedDefs, columns],
+  );
 
   const toggleSort = useCallback(
     (primitiveId: string) => {
@@ -308,10 +496,38 @@ export function QueryResults({
         </div>
       )}
 
+      {/* Columns and metric filters. Below the conditions, because they act on
+          the result of the screen rather than on the screen itself. */}
+      {!loading && rows.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-center gap-2" data-testid="metric-controls">
+          <MetricPicker
+            selected={addedMetrics}
+            onToggle={toggleMetric}
+            onClear={clearMetrics}
+            max={MAX_ADDED_METRICS}
+            alreadyShown={columns.map((c) => c.primitiveId)}
+          />
+          <MetricFilterBar
+            columns={filterableColumns}
+            filters={metricFilters}
+            onAdd={(f) => setMetricFilters((prev) => [...prev.filter((p) => p.key !== f.key), f])}
+            onRemove={(key) => setMetricFilters((prev) => prev.filter((f) => f.key !== key))}
+          />
+        </div>
+      )}
+
       <div className="mt-5 flex items-baseline gap-3">
         <span className="font-heading text-xl font-bold" data-testid="match-count">
           {loading ? "…" : `${scan?.matched_count ?? 0} match`}
         </span>
+        {/* When a metric filter is on, the headline count no longer describes
+            what's in the table. Saying so beside it is the whole point — a
+            count that silently means something else is worse than no count. */}
+        {metricFilters.length > 0 && !loading && (
+          <span className="text-sm text-primary" data-testid="filtered-count">
+            {filteredRows.length} after filters
+          </span>
+        )}
         {scan && (
           <span className="text-sm text-muted-foreground">
             of {scan.universe_size.toLocaleString()}
@@ -336,6 +552,21 @@ export function QueryResults({
         </p>
       )}
 
+      {metricFetchFailed.length > 0 && (
+        <p className="mt-2 text-sm text-amber-700" data-testid="metric-fetch-failed">
+          Couldn&apos;t load {metricFetchFailed.join(" and ")} metrics — those
+          columns are blank because the request failed, not because the values
+          are missing.
+        </p>
+      )}
+
+      {unavailableMetrics.length > 0 && (
+        <p className="mt-2 text-sm text-amber-700" data-testid="unavailable-metrics-warning">
+          No snapshot data for: {unavailableMetrics.join(", ")} — those columns
+          stay empty.
+        </p>
+      )}
+
       {scan?.unsupported_primitives?.length ? (
         <p className="mt-2 text-sm text-amber-700" data-testid="unsupported-warning">
           Not screened: {scan.unsupported_primitives.join(", ")} — not in the daily
@@ -349,23 +580,28 @@ export function QueryResults({
             <div key={i} className="h-14 animate-pulse rounded-lg bg-muted/50" />
           ))}
         </div>
-      ) : rows.length === 0 ? (
+      ) : filteredRows.length === 0 ? (
         <p className="mt-6 text-sm text-muted-foreground">
-          No names match. Drop a condition above to widen it.
+          {rows.length > 0
+            ? // The screen DID match — the metric filters emptied it. Pointing
+              // at conditions here would send the user to widen something that
+              // isn't the cause.
+              `No names left after filtering ${rows.length} matches. Loosen a metric filter above.`
+            : "No names match. Drop a condition above to widen it."}
         </p>
       ) : (
         <div className="mt-4 overflow-x-auto">
           <table className="w-full text-left text-sm" data-testid="results-table">
             <thead>
               <tr className="border-b border-border text-xs text-muted-foreground">
-                <th className="w-10 py-2 font-medium">#</th>
-                <th className="py-2 font-medium">Symbol</th>
-                <th className="py-2 font-medium">Name</th>
+                <th className="w-10 px-2 py-2 font-medium">#</th>
+                <th className="px-3 py-2 font-medium">Symbol</th>
+                <th className="px-3 py-2 font-medium">Name</th>
                 {/* Always present, whatever was screened. Without these a row
                     is a score with no anchor — you can't tell a $4T company
                     from a microcap, which is most of what a name means. */}
                 {DEFAULT_METRICS.map((m) => (
-                  <th key={m.key} className="py-2 text-right font-medium">
+                  <th key={m.key} className="px-3 py-2 text-right font-medium">
                     <button
                       type="button"
                       onClick={() => toggleSort(m.key)}
@@ -380,8 +616,34 @@ export function QueryResults({
                     </button>
                   </th>
                 ))}
+                {/* User-added columns, in the order they were picked. */}
+                {addedDefs.map((m) => (
+                  <th key={m.key} className="py-2 text-right font-medium">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort(m.key)}
+                      data-testid={`sort-${m.key}`}
+                      className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+                    >
+                      {m.label}
+                      <ArrowUpDown
+                        className={`h-3 w-3 shrink-0 ${sortBy === m.key ? "text-primary" : "opacity-40"}`}
+                        aria-hidden="true"
+                      />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => toggleMetric(m.key)}
+                      aria-label={`Remove ${m.label} column`}
+                      data-testid={`remove-metric-${m.key}`}
+                      className="ml-1 align-middle text-muted-foreground transition-colors hover:text-foreground"
+                    >
+                      <X className="h-3 w-3" />
+                    </button>
+                  </th>
+                ))}
                 {columns.map((col) => (
-                  <th key={col.primitiveId} className="py-2 font-medium">
+                  <th key={col.primitiveId} className="px-3 py-2 text-right font-medium">
                     <button
                       type="button"
                       onClick={() => toggleSort(col.primitiveId)}
@@ -421,8 +683,8 @@ export function QueryResults({
                   className="cursor-pointer border-b border-border/60 transition-colors hover:bg-muted/40"
                   onClick={() => router.push(`/stocks/${r.symbol}` as Route)}
                 >
-                  <td className="py-2.5 text-xs text-muted-foreground">{page * PAGE_SIZE + i + 1}</td>
-                  <td className="py-2.5">
+                  <td className="px-2 py-2.5 text-xs text-muted-foreground">{page * PAGE_SIZE + i + 1}</td>
+                  <td className="px-3 py-2.5">
                     <Link
                       href={`/stocks/${r.symbol}` as Route}
                       className="font-mono font-semibold text-primary hover:underline"
@@ -431,7 +693,7 @@ export function QueryResults({
                       {r.symbol}
                     </Link>
                   </td>
-                  <td className="max-w-[14rem] truncate py-2.5 text-muted-foreground">
+                  <td className="max-w-[14rem] truncate px-3 py-2.5 text-muted-foreground">
                     {quotes[r.symbol]?.name ?? "—"}
                   </td>
                   {DEFAULT_METRICS.map((m) => {
@@ -446,7 +708,24 @@ export function QueryResults({
                       <td
                         key={m.key}
                         data-testid={`cell-${m.key}`}
-                        className={`py-2.5 text-right tabular-nums ${tone}`}
+                        className={`px-3 py-2.5 text-right tabular-nums ${tone}`}
+                      >
+                        {m.format(v as number | null | undefined)}
+                      </td>
+                    );
+                  })}
+                  {addedDefs.map((m) => {
+                    const v = readMetric(
+                      m.key,
+                      quotes[r.symbol],
+                      fundamentals[r.symbol],
+                      snapshotFor(r.symbol, r.values),
+                    );
+                    return (
+                      <td
+                        key={m.key}
+                        data-testid={`cell-${m.key}`}
+                        className="px-3 py-2.5 text-right tabular-nums"
                       >
                         {m.format(v as number | null | undefined)}
                       </td>
@@ -458,7 +737,7 @@ export function QueryResults({
                       <td
                         key={col.primitiveId}
                         data-testid={`cell-${col.primitiveId}`}
-                        className="py-2.5 tabular-nums"
+                        className="px-3 py-2.5 text-right tabular-nums"
                       >
                         {v === undefined || v === null || !Number.isFinite(v) ? (
                           // Absent, not zero. Rendering 0 would look like a

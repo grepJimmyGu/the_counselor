@@ -6,6 +6,8 @@ vi.mock("@/lib/api", () => ({
   parseSearch: vi.fn(),
   screenScan: vi.fn(),
   screenCount: vi.fn(),
+  getFundamentalsBySymbols: vi.fn(),
+  getMetricValues: vi.fn(),
 }));
 const pushMock = vi.fn();
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: pushMock }) }));
@@ -36,12 +38,20 @@ vi.mock("next-auth/react", () => ({
   useSession: () => ({ data: { backendToken: "tok" }, status: "authenticated" }),
 }));
 
-import { parseSearch, screenScan, screenCount } from "@/lib/api";
+import {
+  parseSearch,
+  screenScan,
+  screenCount,
+  getFundamentalsBySymbols,
+  getMetricValues,
+} from "@/lib/api";
 import { QueryResults } from "../query-results";
 
 const parseMock = parseSearch as unknown as ReturnType<typeof vi.fn>;
 const scanMock = screenScan as unknown as ReturnType<typeof vi.fn>;
 const countMock = screenCount as unknown as ReturnType<typeof vi.fn>;
+const fundMock = getFundamentalsBySymbols as unknown as ReturnType<typeof vi.fn>;
+const metricMock = getMetricValues as unknown as ReturnType<typeof vi.fn>;
 
 const RULES = [
   { primitive_id: "rsi", operator: "lt", threshold: 30 },
@@ -92,6 +102,8 @@ beforeEach(() => {
   scanMock.mockReset();
   countMock.mockReset();
   pushMock.mockReset();
+  fundMock.mockReset();
+  metricMock.mockReset();
 });
 
 describe("QueryResults", () => {
@@ -395,5 +407,229 @@ describe("a null value must not take the page down", () => {
     expect(screen.getAllByTestId("cell-rsi").map((c) => c.textContent)).toEqual([
       "—", "—", "—",
     ]);
+  });
+});
+
+/**
+ * The additional-metrics picker (spec item 3): the user adds fundamental /
+ * technical columns and can then filter AND rank on them.
+ */
+describe("QueryResults — additional metrics", () => {
+  const setup = async () => {
+    parseMock.mockResolvedValue(parsedOk());
+    scanMock.mockResolvedValue(scanned());
+    countMock.mockResolvedValue({ matched_count: 100, universe_size: 525 });
+    render(<QueryResults query="q" universeId="sp500" />);
+    await waitFor(() => expect(screen.getAllByTestId("result-row")).toHaveLength(3));
+  };
+
+  const addMetric = async (key: string) => {
+    fireEvent.click(screen.getByTestId("metric-picker-toggle"));
+    fireEvent.click(await screen.findByTestId(`metric-option-${key}`));
+  };
+
+  it("adds a fundamental column and fills it from the by-symbols endpoint", async () => {
+    fundMock.mockResolvedValue({
+      results: [
+        { symbol: "AAPL", name: "Apple", pe_ratio: 30.5, dividend_yield: 0.005 },
+        { symbol: "MSFT", name: "Microsoft", pe_ratio: 27.76, dividend_yield: 0.0071 },
+      ],
+      total: 2,
+      offset: 0,
+      limit: 2,
+      filters_applied: {},
+    });
+    await setup();
+    await addMetric("pe_ratio");
+
+    await waitFor(() =>
+      expect(screen.getAllByTestId("cell-pe_ratio").map((c) => c.textContent)).toContain("30.50"),
+    );
+    // Asked for exactly the names on screen — not a filter re-derivation that
+    // could return a different set than the one displayed.
+    expect(fundMock).toHaveBeenCalledWith(["AAPL", "MSFT", "JPM"]);
+  });
+
+  it("renders dividend yield as a percent, from the stored fraction", async () => {
+    fundMock.mockResolvedValue({
+      results: [{ symbol: "AAPL", name: "Apple", dividend_yield: 0.0071 }],
+      total: 1,
+      offset: 0,
+      limit: 1,
+      filters_applied: {},
+    });
+    await setup();
+    await addMetric("dividend_yield");
+
+    // 0.71%, not 0.01% and not 71%. The store holds a FRACTION — the units bug
+    // this pins is the one that made "dividend yield above 4%" return every
+    // payer while looking like it worked.
+    await waitFor(() =>
+      expect(screen.getAllByTestId("cell-dividend_yield").map((c) => c.textContent)).toContain(
+        "0.71%",
+      ),
+    );
+  });
+
+  it("adds a technical column from the snapshot without re-running the scan", async () => {
+    metricMock.mockResolvedValue({
+      values: { AAPL: { adx: 31.2 }, MSFT: { adx: 18.4 } },
+      as_of_date: "2026-08-08",
+      unavailable: [],
+    });
+    await setup();
+    scanMock.mockClear();
+    await addMetric("adx");
+
+    await waitFor(() =>
+      expect(screen.getAllByTestId("cell-adx").map((c) => c.textContent)).toContain("31.2"),
+    );
+    // A re-scan could return a DIFFERENT matched set than the one on screen if
+    // the snapshot rolled over between the two calls.
+    expect(scanMock).not.toHaveBeenCalled();
+  });
+
+  it("filters the full match list on an added metric, not just the visible page", async () => {
+    metricMock.mockResolvedValue({
+      values: { AAPL: { adx: 31.2 }, MSFT: { adx: 18.4 }, JPM: { adx: 40.0 } },
+      as_of_date: "2026-08-08",
+      unavailable: [],
+    });
+    await setup();
+    await addMetric("adx");
+    await waitFor(() => expect(screen.getAllByTestId("cell-adx")).toHaveLength(3));
+
+    fireEvent.click(screen.getByTestId("metric-filter-toggle"));
+    fireEvent.change(screen.getByTestId("metric-filter-key"), { target: { value: "adx" } });
+    fireEvent.change(screen.getByTestId("metric-filter-min"), { target: { value: "30" } });
+    fireEvent.click(screen.getByTestId("metric-filter-apply"));
+
+    await waitFor(() => expect(screen.getAllByTestId("result-row")).toHaveLength(2));
+    // The headline count still describes the SCREEN; the filtered count is
+    // stated separately rather than overwriting it.
+    expect(screen.getByTestId("match-count").textContent).toContain("3 match");
+    expect(screen.getByTestId("filtered-count").textContent).toContain("2 after filters");
+  });
+
+  it("excludes names with no value for a filtered metric", async () => {
+    metricMock.mockResolvedValue({
+      // MSFT has no ADX at all.
+      values: { AAPL: { adx: 31.2 }, JPM: { adx: 40.0 } },
+      as_of_date: "2026-08-08",
+      unavailable: [],
+    });
+    await setup();
+    await addMetric("adx");
+    fireEvent.click(screen.getByTestId("metric-filter-toggle"));
+    fireEvent.change(screen.getByTestId("metric-filter-key"), { target: { value: "adx" } });
+    fireEvent.change(screen.getByTestId("metric-filter-min"), { target: { value: "10" } });
+    fireEvent.click(screen.getByTestId("metric-filter-apply"));
+
+    // A name we can't evaluate hasn't met the bound — keeping it would put a
+    // row in a filtered list that visibly doesn't qualify.
+    await waitFor(() => expect(screen.getAllByTestId("result-row")).toHaveLength(2));
+  });
+
+  it("ranks on an added metric", async () => {
+    metricMock.mockResolvedValue({
+      values: { AAPL: { adx: 31.2 }, MSFT: { adx: 18.4 }, JPM: { adx: 40.0 } },
+      as_of_date: "2026-08-08",
+      unavailable: [],
+    });
+    await setup();
+    await addMetric("adx");
+    await waitFor(() => expect(screen.getAllByTestId("cell-adx")).toHaveLength(3));
+
+    fireEvent.click(screen.getByTestId("sort-adx"));
+    await waitFor(() =>
+      expect(screen.getAllByTestId("cell-adx").map((c) => c.textContent)).toEqual([
+        "40.0",
+        "31.2",
+        "18.4",
+      ]),
+    );
+  });
+
+  it("removing a column drops its filter with it", async () => {
+    metricMock.mockResolvedValue({
+      values: { AAPL: { adx: 31.2 }, MSFT: { adx: 18.4 }, JPM: { adx: 40.0 } },
+      as_of_date: "2026-08-08",
+      unavailable: [],
+    });
+    await setup();
+    await addMetric("adx");
+    fireEvent.click(screen.getByTestId("metric-filter-toggle"));
+    fireEvent.change(screen.getByTestId("metric-filter-key"), { target: { value: "adx" } });
+    fireEvent.change(screen.getByTestId("metric-filter-min"), { target: { value: "30" } });
+    fireEvent.click(screen.getByTestId("metric-filter-apply"));
+    await waitFor(() => expect(screen.getAllByTestId("result-row")).toHaveLength(2));
+
+    fireEvent.click(screen.getByTestId("remove-metric-adx"));
+    // A filter left behind would keep hiding a third of the table with nothing
+    // on screen explaining why.
+    await waitFor(() => expect(screen.getAllByTestId("result-row")).toHaveLength(3));
+    expect(screen.queryByTestId("metric-filter-adx")).toBeNull();
+  });
+
+  it("says so when the snapshot can't serve a requested metric", async () => {
+    metricMock.mockResolvedValue({ values: {}, as_of_date: null, unavailable: ["adx"] });
+    await setup();
+    await addMetric("adx");
+
+    // An empty column would claim these stocks have no ADX, which is a
+    // different — and false — statement than "we don't carry it".
+    await waitFor(() =>
+      expect(screen.getByTestId("unavailable-metrics-warning").textContent).toContain("adx"),
+    );
+  });
+
+  it("doesn't offer a metric that's already a screened-condition column", async () => {
+    await setup();
+    fireEvent.click(screen.getByTestId("metric-picker-toggle"));
+    await screen.findByTestId("metric-picker-panel");
+    // The query screens on RSI, so RSI is already a column. Offering it again
+    // would add a second identical one.
+    expect(screen.queryByTestId("metric-option-rsi")).toBeNull();
+    expect(screen.getByTestId("metric-option-adx")).toBeTruthy();
+  });
+
+  it("explains the empty table when filters, not conditions, emptied it", async () => {
+    metricMock.mockResolvedValue({
+      values: { AAPL: { adx: 5 }, MSFT: { adx: 6 }, JPM: { adx: 7 } },
+      as_of_date: "2026-08-08",
+      unavailable: [],
+    });
+    await setup();
+    await addMetric("adx");
+    fireEvent.click(screen.getByTestId("metric-filter-toggle"));
+    fireEvent.change(screen.getByTestId("metric-filter-key"), { target: { value: "adx" } });
+    fireEvent.change(screen.getByTestId("metric-filter-min"), { target: { value: "90" } });
+    fireEvent.click(screen.getByTestId("metric-filter-apply"));
+
+    // Pointing at conditions here would send the user to widen something that
+    // isn't the cause.
+    await waitFor(() =>
+      expect(screen.getByText(/Loosen a metric filter/)).toBeTruthy(),
+    );
+  });
+});
+
+describe("QueryResults — metric source failures", () => {
+  it("distinguishes a failed fetch from an absent value", async () => {
+    parseMock.mockResolvedValue(parsedOk());
+    scanMock.mockResolvedValue(scanned());
+    countMock.mockResolvedValue({ matched_count: 100 });
+    metricMock.mockRejectedValue(new Error("503"));
+    render(<QueryResults query="q" universeId="sp500" />);
+    await waitFor(() => expect(screen.getAllByTestId("result-row")).toHaveLength(3));
+
+    fireEvent.click(screen.getByTestId("metric-picker-toggle"));
+    fireEvent.click(await screen.findByTestId("metric-option-adx"));
+
+    // Both an outage and a genuinely missing value render em dashes. Without
+    // this the user reads a backend failure as "these stocks have no ADX".
+    await waitFor(() =>
+      expect(screen.getByTestId("metric-fetch-failed").textContent).toContain("technical"),
+    );
   });
 });

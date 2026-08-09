@@ -1948,6 +1948,14 @@ export interface ScreenerResult {
   week_52_low?: number | null;
 }
 
+export interface MetricValuesResponse {
+  /** symbol -> {primitive_id: value}. Absent cells are omitted, never null. */
+  values: Record<string, Record<string, number>>;
+  as_of_date: string | null;
+  /** Primitives the daily snapshot doesn't cover — surfaced, not silent. */
+  unavailable: string[];
+}
+
 export interface ScreenerResponse {
   results: ScreenerResult[];
   total: number;

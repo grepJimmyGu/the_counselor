@@ -12,7 +12,7 @@ sign-in-gated step.
 from __future__ import annotations
 
 import logging
-from typing import List
+from typing import Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import func, select
@@ -27,6 +27,8 @@ from app.models.saved_strategy import SavedStrategy
 from app.models.signal_alert_subscription import SignalAlertSubscription
 from app.models.symbol import SymbolCache
 from app.schemas.screener_scan import (
+    MetricValuesRequest,
+    MetricValuesResponse,
     RankedSymbol,
     SavedScreenDetail,
     SavedScreenSummary,
@@ -52,7 +54,10 @@ from app.services.screener.saved_screen_service import (
     screen_strategy_json,
 )
 from app.services.screener.scan_service import scan
-from app.services.screener.signal_snapshot_service import SignalSnapshotService
+from app.services.screener.signal_snapshot_service import (
+    SignalSnapshotService,
+    snapshot_primitive_ids,
+)
 
 logger = logging.getLogger("livermore.screener.api")
 
@@ -62,6 +67,14 @@ router = APIRouter(prefix="/api/screen", tags=["screener"])
 # for the rank top-K cap, so a loose rule keeps the highest-momentum names
 # rather than an alphabetical slice.
 _PROXY_PRIMITIVES = ("time_series_momentum", "roc", "mom", "rank_return_6m")
+
+# Matches the results page's own quote cap — the two calls cover the same rows,
+# so a smaller bound here would blank the added columns for the tail while
+# price and volume kept rendering.
+_METRIC_VALUES_SYMBOL_CAP = 300
+# A table wider than this stops being readable, and each column is a fresh
+# frame lookup.
+_METRIC_VALUES_PRIMITIVE_CAP = 12
 
 
 def _momentum_proxy(db: Session, symbols: List[str]):
@@ -154,6 +167,71 @@ async def screen_count(
         as_of_date=result.as_of_date,
         unsupported_primitives=result.unsupported_primitives,
         default_param_primitives=result.default_param_primitives,
+    )
+
+
+@router.post("/metric-values", response_model=MetricValuesResponse)
+async def screen_metric_values(
+    payload: MetricValuesRequest,
+    auth: tuple = Depends(
+        require_entitlement(needs_run_quota=False, allow_anonymous=True, template_id_field=None)
+    ),
+    db: Session = Depends(get_db),
+) -> MetricValuesResponse:
+    """Snapshot values for names the caller already has on screen.
+
+    The results table uses this when a technical column is added to a screen
+    that didn't filter on it: `scan` returns values only for the primitives its
+    rules referenced, so "show me RSI too" has nothing to read otherwise.
+
+    Deliberately NOT a re-scan. Re-running the screen to collect one more
+    column would cost a second full evaluation and — worse — could return a
+    different matched set than the one on screen if the snapshot rolled over
+    between the two calls.
+    """
+    symbols = [s.strip().upper() for s in payload.symbols if s.strip()][
+        :_METRIC_VALUES_SYMBOL_CAP
+    ]
+    wanted = [p.strip() for p in payload.primitives if p.strip()][
+        :_METRIC_VALUES_PRIMITIVE_CAP
+    ]
+    if not symbols or not wanted:
+        return MetricValuesResponse(values={}, as_of_date=None, unavailable=[])
+
+    # Covered-vs-not is judged against the snapshot's advertised set, not
+    # against whether these particular symbols happen to hold a value. A
+    # primitive that IS covered but null for this basket is a real (empty)
+    # answer; one that isn't covered at all is a different statement, and
+    # collapsing them would tell the user their stocks lack a value they were
+    # never offered.
+    covered = set(snapshot_primitive_ids())
+    unavailable = [p for p in wanted if p not in covered]
+    servable = [p for p in wanted if p in covered]
+    if not servable:
+        return MetricValuesResponse(values={}, as_of_date=None, unavailable=unavailable)
+
+    snap = SignalSnapshotService().get_snapshot(db, symbols)
+    frame = snap.frame
+    values: Dict[str, Dict[str, float]] = {}
+    for sym in symbols:
+        if sym not in frame.index:
+            continue
+        row: Dict[str, float] = {}
+        for pid in servable:
+            if pid not in frame.columns:
+                continue
+            try:
+                v = float(frame.at[sym, pid])
+            except (TypeError, ValueError):
+                continue
+            # NaN != NaN, and infinities would sort past every real reading.
+            if v == v and v not in (float("inf"), float("-inf")):
+                row[pid] = v
+        if row:
+            values[sym] = row
+
+    return MetricValuesResponse(
+        values=values, as_of_date=snap.as_of_date, unavailable=unavailable
     )
 
 

@@ -21,6 +21,8 @@ across a network await); every DB read is materialised into plain values first.
 """
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
@@ -43,6 +45,8 @@ from app.services.search_dispatch_service import (
 )
 from app.services.strategy_parser import parse_strategy_message
 from app.services.symbol_service import SymbolService
+
+logger = logging.getLogger("livermore.search")
 
 router = APIRouter(prefix="/api/search", tags=["search"])
 
@@ -71,7 +75,21 @@ async def parse_search(
             status_code=422,
             detail=f"Unknown universe '{universe_id}'.",
         )
-    matches = await _symbol_service.search(db, query)
+    # The symbol lookup only DISAMBIGUATES intent — "is this a company name or
+    # a screen?" A screen phrase ("RSI below 30") never hits the local symbol
+    # cache, so it falls through to Alpha Vantage on every single query; an AV
+    # outage, a rate limit, or a missing key then 500s the entire search box
+    # rather than the one thing that needed it.
+    #
+    # Degrading to "no company matched" is the honest reading of a failed
+    # lookup, and it's also the correct one for a screen: `classify` treats an
+    # empty match list as "not a company", which is what a phrase like this is.
+    # A ticker query still resolves, because those DO hit the local cache.
+    try:
+        matches = await _symbol_service.search(db, query)
+    except Exception:
+        logger.warning("symbol lookup failed for %r; classifying without it", query)
+        matches = []
     intent = classify(query, matches)
 
     if intent == SearchIntent.COMPANY:

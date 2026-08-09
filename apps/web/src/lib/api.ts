@@ -1420,3 +1420,26 @@ export async function getMarketNews(
 ): Promise<import("@/lib/contracts").MarketNewsResponse> {
   return fetchApi(`/api/news/market?limit=${limit}`);
 }
+
+export async function getFundamentalsBySymbols(
+  symbols: string[],
+): Promise<import("@/lib/contracts").ScreenerResponse> {
+  return fetchApi(`/api/screener/by-symbols?symbols=${encodeURIComponent(symbols.join(","))}`);
+}
+
+/** Snapshot values for names already on screen — the results table adding a
+ *  technical column the screen didn't filter on. POST because 300 symbols
+ *  plus primitive ids overruns what a query string can safely carry. */
+export async function getMetricValues(
+  symbols: string[],
+  primitives: string[],
+  opts?: { backendToken?: string },
+): Promise<import("@/lib/contracts").MetricValuesResponse> {
+  return fetchApi("/api/screen/metric-values", {
+    method: "POST",
+    body: JSON.stringify({ symbols, primitives }),
+    ...(opts?.backendToken
+      ? { headers: { Authorization: `Bearer ${opts.backendToken}` } }
+      : {}),
+  });
+}

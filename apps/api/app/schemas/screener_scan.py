@@ -171,3 +171,28 @@ class SavedScreenDetail(SavedScreenSummary):
     rules: List[StrategyRule]
     basket: List[str]  # current members, symbols only
     history: List[ScreenBasketEntry]  # every stint, newest first
+
+
+# ── metric values (results-page "additional metrics" picker) ────────────────
+
+
+class MetricValuesRequest(BaseModel):
+    """Snapshot values for an explicit symbol list and an explicit primitive
+    list — the results table adding a technical column to names it already
+    shows. POST rather than GET because 300 symbols plus primitive ids
+    overruns what a query string can carry safely."""
+
+    symbols: List[str] = Field(..., min_length=1)
+    primitives: List[str] = Field(..., min_length=1)
+
+
+class MetricValuesResponse(BaseModel):
+    # symbol -> {primitive_id: value}. A symbol with no values at all is
+    # omitted, and so is an individual NaN cell: the column then renders "—"
+    # rather than a 0 that would sort as the lowest real reading.
+    values: Dict[str, Dict[str, float]]
+    as_of_date: Optional[date] = None
+    # Primitives the daily snapshot doesn't cover. Surfaced rather than
+    # returned as a silently empty column — an empty column reads as "these
+    # stocks have no value", which is a different and wrong claim.
+    unavailable: List[str] = Field(default_factory=list)
