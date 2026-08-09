@@ -460,6 +460,10 @@ export interface ScreenScanResponse {
   matched: string[];
   /** symbol -> satisfied rule readings ("why this matched"). */
   readings: Record<string, string[]>;
+  /** symbol -> {primitive_id: value} for the primitives screened on. Drives
+   *  one sortable column per condition — the difference between a ticker list
+   *  and a screen you can read. A missing cell is absent, not 0. */
+  values?: Record<string, Record<string, number>>;
   as_of_date: string | null;
   universe_size: number;
   matched_count: number;

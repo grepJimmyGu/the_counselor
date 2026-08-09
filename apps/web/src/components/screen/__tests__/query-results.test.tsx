@@ -45,14 +45,20 @@ function parsedOk() {
 
 function scanned() {
   return {
-    matched: ["AAPL", "MSFT"],
+    matched: ["AAPL", "MSFT", "JPM"],
     readings: {
       AAPL: ["RSI below 30 (oversold)", "price above the 200-day average"],
       MSFT: ["RSI below 30 (oversold)"],
+      JPM: ["price above the 200-day average"],
+    },
+    values: {
+      AAPL: { rsi: 25.0, price_above_ma: 1 },
+      MSFT: { rsi: 28.5 },
+      JPM: { price_above_ma: 1 },
     },
     as_of_date: "2026-08-08",
     universe_size: 525,
-    matched_count: 2,
+    matched_count: 3,
     unsupported_primitives: [],
     default_param_primitives: [],
   };
@@ -66,18 +72,66 @@ beforeEach(() => {
 });
 
 describe("QueryResults", () => {
-  it("shows matched names with the reason each one matched", async () => {
+  it("shows the VALUE each name scored, one column per condition", async () => {
     parseMock.mockResolvedValue(parsedOk());
     scanMock.mockResolvedValue(scanned());
     countMock.mockResolvedValue({ matched_count: 100, universe_size: 525 });
 
     render(<QueryResults query="oversold and above the 200-day" universeId="sp500" />);
 
-    await waitFor(() => expect(screen.getAllByTestId("result-row")).toHaveLength(2));
-    expect(screen.getByTestId("match-count").textContent).toContain("2 match");
-    // The per-row "why" is the whole point — a bare ticker list doesn't say
-    // which condition it satisfied.
-    expect(screen.getAllByTestId("row-reading").length).toBe(3);
+    await waitFor(() => expect(screen.getAllByTestId("result-row")).toHaveLength(3));
+    // "Each with relative conditions details" — the number, not just a label.
+    // A list saying AAPL matched "RSI below 30" doesn't tell you it scored 25
+    // while MSFT scraped in at 28.5.
+    const rsiCells = screen.getAllByTestId("cell-rsi").map((c) => c.textContent);
+    expect(rsiCells).toContain("25.00");
+    expect(rsiCells).toContain("28.50");
+  });
+
+  it("renders an absent value as an em dash, never as zero", async () => {
+    parseMock.mockResolvedValue(parsedOk());
+    scanMock.mockResolvedValue(scanned());
+    countMock.mockResolvedValue({ matched_count: 100 });
+
+    render(<QueryResults query="q" universeId="sp500" />);
+    await waitFor(() => expect(screen.getAllByTestId("result-row")).toHaveLength(3));
+
+    // JPM has no rsi. Showing 0.00 would read as a real measurement and sort
+    // as the lowest value in the set.
+    expect(screen.getAllByTestId("cell-rsi").map((c) => c.textContent)).toContain("—");
+  });
+
+  it("sorts by a condition column, and unknowns sink in both directions", async () => {
+    parseMock.mockResolvedValue(parsedOk());
+    scanMock.mockResolvedValue(scanned());
+    countMock.mockResolvedValue({ matched_count: 100 });
+
+    render(<QueryResults query="q" universeId="sp500" />);
+    await waitFor(() => expect(screen.getAllByTestId("result-row")).toHaveLength(3));
+
+    fireEvent.click(screen.getByTestId("sort-rsi"));           // desc first
+    let order = screen.getAllByTestId("result-row").map((r) => r.textContent?.slice(0, 8));
+    expect(order[0]).toContain("MSFT");                        // 28.5 > 25
+    expect(order[2]).toContain("JPM");                         // no value → last
+
+    fireEvent.click(screen.getByTestId("sort-rsi"));           // toggle to asc
+    order = screen.getAllByTestId("result-row").map((r) => r.textContent?.slice(0, 8));
+    expect(order[0]).toContain("AAPL");                        // 25 < 28.5
+    // Still last: an unknown is not the smallest value.
+    expect(order[2]).toContain("JPM");
+  });
+
+  it("offers a way to ADD a condition, not just remove one", async () => {
+    parseMock.mockResolvedValue(parsedOk());
+    scanMock.mockResolvedValue(scanned());
+    countMock.mockResolvedValue({ matched_count: 100 });
+
+    render(<QueryResults query="oversold" universeId="sp500" />);
+    // Without this the page is a dead end — you can narrow a screen but never
+    // widen it except by starting over.
+    await waitFor(() =>
+      expect(screen.getByTestId("add-condition").getAttribute("href")).toContain("q=oversold"),
+    );
   });
 
   it("counts every condition IN PARALLEL, not one after another", async () => {
@@ -144,7 +198,7 @@ describe("QueryResults", () => {
     countMock.mockResolvedValue({ matched_count: 7 });
 
     render(<QueryResults query="q" universeId="sp500" />);
-    await waitFor(() => expect(screen.getAllByTestId("result-row").length).toBe(2));
+    await waitFor(() => expect(screen.getAllByTestId("result-row").length).toBe(3));
 
     fireEvent.click(screen.getAllByTestId("result-row")[0]);
     // query -> results -> click -> /stocks/[ticker], per Jimmy's routing.

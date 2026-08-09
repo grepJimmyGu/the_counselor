@@ -56,6 +56,10 @@ class ScreenScanResponse(BaseModel):
     as_of_date: Optional[date]
     universe_size: int
     matched_count: int
+    # symbol -> {primitive_id: value} for the primitives screened on. Lets the
+    # results table show HOW MUCH each name satisfied a condition, not just
+    # that it did — and makes those columns sortable.
+    values: Dict[str, Dict[str, float]] = Field(default_factory=dict)
     # Rule primitives not covered by the daily snapshot (can't match yet).
     unsupported_primitives: List[str] = Field(default_factory=list)
     # Covered primitives whose rule overrides the indicator params — scanned at
