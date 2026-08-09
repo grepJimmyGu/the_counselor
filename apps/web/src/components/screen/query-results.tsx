@@ -25,10 +25,27 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import { useSession } from "next-auth/react";
-import { ArrowUpDown, Plus, X } from "lucide-react";
+import { ArrowUpDown, ChevronLeft, ChevronRight, MessageSquare, Plus, Share2, ThumbsDown, ThumbsUp, X } from "lucide-react";
 
 import { parseSearch, screenScan, screenCount } from "@/lib/api";
+import { useLiveQuotes } from "@/lib/useLiveQuotes";
+import { SmartSearchBox } from "@/components/search/smart-search-box";
+import { DEFAULT_METRICS, num, readMetric } from "./result-metrics";
 import type { ScreenScanResponse, StrategyRule } from "@/lib/contracts";
+
+/** Rows per screen, per the spec. */
+const PAGE_SIZE = 25;
+
+/**
+ * How many matches we fetch quotes for.
+ *
+ * Ranking by a quote metric has to see EVERY match, not just the visible page
+ * — "rank by market cap" that only reorders the current 25 is wrong in a way
+ * the user can't see. But the quotes endpoint batches 100 per upstream call
+ * SERIALLY (FMP burst-limits concurrent chunks), so an uncapped 3,000-name
+ * screen would be ~30 sequential calls. Capped, and disclosed when it bites.
+ */
+const QUOTE_CAP = 300;
 
 interface ConditionChip {
   /** The plain-English reading, e.g. "RSI below 30 (oversold)". */
@@ -56,6 +73,10 @@ export function QueryResults({
   const [note, setNote] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [sortBy, setSortBy] = useState<string | null>(null);
+  // 25 rows per screen, per the spec. It also keeps the live-quote batch to
+  // the visible page rather than every match — a 500-name screen would
+  // otherwise fetch 500 quotes to show 25.
+  const [page, setPage] = useState(0);
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   // Parse → scan. Both are anonymous-capable, but pass the token when we have
@@ -179,10 +200,26 @@ export function QueryResults({
       readings: scan.readings[symbol] ?? [],
       values: vals[symbol] ?? {},
     }));
-    if (!sortBy) return base;
-    return [...base].sort((a, b) => {
-      const av = a.values[sortBy];
-      const bv = b.values[sortBy];
+    return base;
+  }, [scan]);
+
+  const quotedSymbols = useMemo(
+    () => rows.slice(0, QUOTE_CAP).map((r) => r.symbol),
+    [rows],
+  );
+  const { quotes } = useLiveQuotes(quotedSymbols);
+  const quotesTruncated = rows.length > QUOTE_CAP;
+
+  // Sorting is applied AFTER quotes land, because a default metric (price,
+  // market cap) lives on the quote, not in the scan's condition values.
+  // Sorting the scan alone would silently no-op on those columns.
+  const sortedRows = useMemo(() => {
+    if (!sortBy) return rows;
+    const read = (r: (typeof rows)[number]) =>
+      readMetric(sortBy, quotes[r.symbol], undefined, r.values) as number | undefined;
+    return [...rows].sort((a, b) => {
+      const av = read(a);
+      const bv = read(b);
       // Names without a value sink to the bottom in BOTH directions — they
       // aren't "lowest", they're unknown, and floating them to the top of an
       // ascending sort would read as though they scored zero.
@@ -191,7 +228,20 @@ export function QueryResults({
       if (bv === undefined) return -1;
       return sortDir === "asc" ? av - bv : bv - av;
     });
-  }, [scan, sortBy, sortDir]);
+  }, [rows, quotes, sortBy, sortDir]);
+
+
+  const pageCount = Math.max(1, Math.ceil(sortedRows.length / PAGE_SIZE));
+  const pageRows = useMemo(
+    () => sortedRows.slice(page * PAGE_SIZE, page * PAGE_SIZE + PAGE_SIZE),
+    [sortedRows, page],
+  );
+
+  // Any change to the result set or its ordering invalidates the page index;
+  // staying on page 8 of a now 2-page result shows an empty table.
+  useEffect(() => {
+    setPage(0);
+  }, [query, universeId, sortBy, sortDir, scan]);
 
   const toggleSort = useCallback(
     (primitiveId: string) => {
@@ -207,11 +257,13 @@ export function QueryResults({
 
   return (
     <div className="mx-auto max-w-[1200px] px-6 py-8" data-testid="query-results">
-      <Link href={"/" as Route} className="text-sm text-muted-foreground hover:text-foreground">
-        ← New search
-      </Link>
+      {/* Spec item 1: the search box stays, unchanged, at the top — so the
+          query can be edited in place rather than by going back. */}
+      <SmartSearchBox />
 
-      <h1 className="mt-3 font-heading text-2xl font-bold">{query}</h1>
+      <div className="mt-6 border-t border-border pt-4">
+        <h2 className="text-sm font-medium text-muted-foreground">Selected filters</h2>
+      </div>
 
       {/* Conditions, each with its own match count and a way to drop it. */}
       {chips.length > 0 && (
@@ -277,6 +329,13 @@ export function QueryResults({
       {/* Surfaced, never silent: a rule whose primitive isn't in the daily
           snapshot can't match, and the user would otherwise read the empty
           result as "nothing qualifies". */}
+      {quotesTruncated && (
+        <p className="mt-2 text-sm text-amber-700" data-testid="quote-cap-warning">
+          Price and volume shown for the first {QUOTE_CAP} of {rows.length} matches —
+          sorting on those columns covers that subset. Narrow the screen to rank them all.
+        </p>
+      )}
+
       {scan?.unsupported_primitives?.length ? (
         <p className="mt-2 text-sm text-amber-700" data-testid="unsupported-warning">
           Not screened: {scan.unsupported_primitives.join(", ")} — not in the daily
@@ -301,6 +360,26 @@ export function QueryResults({
               <tr className="border-b border-border text-xs text-muted-foreground">
                 <th className="w-10 py-2 font-medium">#</th>
                 <th className="py-2 font-medium">Symbol</th>
+                <th className="py-2 font-medium">Name</th>
+                {/* Always present, whatever was screened. Without these a row
+                    is a score with no anchor — you can't tell a $4T company
+                    from a microcap, which is most of what a name means. */}
+                {DEFAULT_METRICS.map((m) => (
+                  <th key={m.key} className="py-2 text-right font-medium">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort(m.key)}
+                      data-testid={`sort-${m.key}`}
+                      className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+                    >
+                      {m.label}
+                      <ArrowUpDown
+                        className={`h-3 w-3 shrink-0 ${sortBy === m.key ? "text-primary" : "opacity-40"}`}
+                        aria-hidden="true"
+                      />
+                    </button>
+                  </th>
+                ))}
                 {columns.map((col) => (
                   <th key={col.primitiveId} className="py-2 font-medium">
                     <button
@@ -335,14 +414,14 @@ export function QueryResults({
               </tr>
             </thead>
             <tbody>
-              {rows.map((r, i) => (
+              {pageRows.map((r, i) => (
                 <tr
                   key={r.symbol}
                   data-testid="result-row"
                   className="cursor-pointer border-b border-border/60 transition-colors hover:bg-muted/40"
                   onClick={() => router.push(`/stocks/${r.symbol}` as Route)}
                 >
-                  <td className="py-2.5 text-xs text-muted-foreground">{i + 1}</td>
+                  <td className="py-2.5 text-xs text-muted-foreground">{page * PAGE_SIZE + i + 1}</td>
                   <td className="py-2.5">
                     <Link
                       href={`/stocks/${r.symbol}` as Route}
@@ -352,6 +431,27 @@ export function QueryResults({
                       {r.symbol}
                     </Link>
                   </td>
+                  <td className="max-w-[14rem] truncate py-2.5 text-muted-foreground">
+                    {quotes[r.symbol]?.name ?? "—"}
+                  </td>
+                  {DEFAULT_METRICS.map((m) => {
+                    const v = readMetric(m.key, quotes[r.symbol], undefined, undefined);
+                    const tone =
+                      m.key === "change_percent" && typeof v === "number"
+                        ? v >= 0
+                          ? "text-emerald-600"
+                          : "text-red-600"
+                        : "";
+                    return (
+                      <td
+                        key={m.key}
+                        data-testid={`cell-${m.key}`}
+                        className={`py-2.5 text-right tabular-nums ${tone}`}
+                      >
+                        {m.format(v as number | null | undefined)}
+                      </td>
+                    );
+                  })}
                   {columns.map((col) => {
                     const v = r.values[col.primitiveId];
                     return (
@@ -360,12 +460,19 @@ export function QueryResults({
                         data-testid={`cell-${col.primitiveId}`}
                         className="py-2.5 tabular-nums"
                       >
-                        {v === undefined ? (
+                        {v === undefined || v === null || !Number.isFinite(v) ? (
                           // Absent, not zero. Rendering 0 would look like a
                           // real reading and sort as the lowest value.
+                          //
+                          // Guards null and non-finite, not just undefined:
+                          // this checked `undefined` alone and threw
+                          // "Cannot read properties of null (reading
+                          // 'toFixed')" — one null cell took the whole page
+                          // down, which is how a missing value should never
+                          // fail.
                           <span className="text-muted-foreground/50">—</span>
                         ) : (
-                          v.toFixed(2)
+                          num(v)
                         )}
                       </td>
                     );
@@ -374,6 +481,57 @@ export function QueryResults({
               ))}
             </tbody>
           </table>
+
+          {/* Footer: feedback on the left, paging on the right (2nd reference). */}
+          <div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-3">
+            <div className="flex items-center gap-1" data-testid="result-feedback">
+              {[
+                { icon: Share2, label: "Share this screen" },
+                { icon: ThumbsUp, label: "These results look right" },
+                { icon: ThumbsDown, label: "These results look wrong" },
+                { icon: MessageSquare, label: "Comment on this screen" },
+              ].map(({ icon: Icon, label }) => (
+                <button
+                  key={label}
+                  type="button"
+                  aria-label={label}
+                  title={label}
+                  className="rounded-md p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                >
+                  <Icon className="h-4 w-4" />
+                </button>
+              ))}
+            </div>
+
+            {pageCount > 1 && (
+              <div className="flex items-center gap-1" data-testid="pagination">
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0}
+                  aria-label="Previous page"
+                  className="rounded-md border border-border px-2 py-1 text-xs disabled:opacity-40"
+                >
+                  <ChevronLeft className="h-3.5 w-3.5" />
+                </button>
+                <span className="px-2 text-xs text-muted-foreground" data-testid="page-indicator">
+                  {page + 1} / {pageCount}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPage((p) => Math.min(pageCount - 1, p + 1))}
+                  disabled={page >= pageCount - 1}
+                  aria-label="Next page"
+                  className="rounded-md border border-border px-2 py-1 text-xs disabled:opacity-40"
+                >
+                  <ChevronRight className="h-3.5 w-3.5" />
+                </button>
+                <span className="ml-2 text-xs text-muted-foreground">
+                  {PAGE_SIZE} per page
+                </span>
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

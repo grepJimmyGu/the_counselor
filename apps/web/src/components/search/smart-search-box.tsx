@@ -73,7 +73,17 @@ type UniverseId = (typeof UNIVERSES)[number]["id"];
 /** Price + day-over-day % header (the §3.8 cardinal rule). */
 function QuoteHeader({ symbol, name }: { symbol: string; name: string | null }) {
   const { quotes } = useLiveQuotes([symbol]);
-  const q = quotes[symbol.toUpperCase()];
+  const raw = quotes[symbol.toUpperCase()];
+  // A quote whose price or change is null is NOT a usable quote. The header
+  // called `.toFixed()` on both unguarded, so one null field threw
+  // "Cannot read properties of null" and took the page down — FMP returns
+  // null for a halted or delisted ticker, and this surfaced the moment the
+  // box was mounted on /screen. Treat a partial quote as no quote and fall
+  // through to the existing "no quote" branch.
+  const q =
+    raw && Number.isFinite(raw.price) && Number.isFinite(raw.change_percent)
+      ? raw
+      : undefined;
   const positive = q ? q.change_percent >= 0 : false;
   return (
     <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
