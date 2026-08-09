@@ -36,6 +36,7 @@ import {
 } from "@/lib/api";
 import { useLiveQuotes } from "@/lib/useLiveQuotes";
 import { SmartSearchBox } from "@/components/search/smart-search-box";
+import { AddTicker, MAX_ADDED_TICKERS } from "./add-ticker";
 import { MetricFilterBar, MetricPicker, type MetricFilter } from "./metric-picker";
 import { DEFAULT_METRICS, METRIC_BY_KEY, num, readMetric } from "./result-metrics";
 import type { ScreenScanResponse, StrategyRule } from "@/lib/contracts";
@@ -71,9 +72,13 @@ interface ConditionChip {
 export function QueryResults({
   query,
   universeId,
+  addParam = "",
 }: {
   query: string;
   universeId: string;
+  /** `&add=NVDA,TSLA` — hand-added names, in the URL so a result stays
+   *  shareable and survives a refresh, like the query itself. */
+  addParam?: string;
 }) {
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
@@ -94,6 +99,11 @@ export function QueryResults({
   // Filled on demand: only when a metric from that source is actually added.
   const [fundamentals, setFundamentals] = useState<Record<string, Record<string, number | null>>>({});
   const [technicals, setTechnicals] = useState<Record<string, Record<string, number>>>({});
+  // Condition values for HAND-ADDED names. Kept apart from `technicals`
+  // rather than merged into it: both come from the same endpoint and each
+  // effect replaces its own slice wholesale, so sharing one bag would let
+  // whichever landed second erase the other.
+  const [addedValues, setAddedValues] = useState<Record<string, Record<string, number>>>({});
   const [unavailableMetrics, setUnavailableMetrics] = useState<string[]>([]);
   // A source fetch that FAILED is not the same as one that returned nothing.
   // Both render em dashes, so without this the two are indistinguishable and
@@ -213,6 +223,34 @@ export function QueryResults({
     return out;
   }, [chips]);
 
+  const matchedSet = useMemo(
+    () => new Set(scan?.matched ?? []),
+    [scan],
+  );
+
+  /** Hand-added names, read from the URL. Deduped against the matches so a
+   *  stale `&add=` from an edited query can't produce a duplicate row. */
+  const addedTickers = useMemo(() => {
+    const seen = new Set<string>();
+    return addParam
+      .split(",")
+      .map((s) => s.trim().toUpperCase())
+      .filter((s) => s && !matchedSet.has(s) && !seen.has(s) && (seen.add(s), true))
+      .slice(0, MAX_ADDED_TICKERS);
+  }, [addParam, matchedSet]);
+
+  /** The URL is the state, so both writers go through it. */
+  const writeAdded = useCallback(
+    (next: string[]) => {
+      const base = `/screen?q=${encodeURIComponent(query)}&universe=${universeId}`;
+      router.replace(
+        (next.length ? `${base}&add=${next.join(",")}` : base) as Route,
+        { scroll: false },
+      );
+    },
+    [query, router, universeId],
+  );
+
   const rows = useMemo(() => {
     if (!scan) return [];
     const vals = scan.values ?? {};
@@ -220,9 +258,19 @@ export function QueryResults({
       symbol,
       readings: scan.readings[symbol] ?? [],
       values: vals[symbol] ?? {},
+      added: false,
     }));
-    return base;
-  }, [scan]);
+    // Added names carry no scan values — they were never scanned. Their
+    // condition columns are filled separately from the snapshot below.
+    return base.concat(
+      addedTickers.map((symbol) => ({
+        symbol,
+        readings: [] as string[],
+        values: {} as Record<string, number>,
+        added: true,
+      })),
+    );
+  }, [scan, addedTickers]);
 
   const quotedSymbols = useMemo(
     () => rows.slice(0, QUOTE_CAP).map((r) => r.symbol),
@@ -317,14 +365,36 @@ export function QueryResults({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wantedTechnicals, symbolKey, backendToken]);
 
+  // Condition values for hand-added names. They were never scanned, so
+  // `scan.values` has nothing for them — without this every condition column
+  // on an added row is an em dash, which reads as "no data" when the real
+  // answer is "we didn't ask". Same endpoint the metric picker uses.
+  const conditionKey = useMemo(() => columns.map((c) => c.primitiveId).join(","), [columns]);
+  const addedKey = useMemo(() => addedTickers.join(","), [addedTickers]);
+
+  useEffect(() => {
+    if (!addedKey || !conditionKey) {
+      setAddedValues({});
+      return;
+    }
+    let live = true;
+    getMetricValues(addedKey.split(","), conditionKey.split(","), { backendToken })
+      .then((res) => live && setAddedValues(res.values))
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, [addedKey, conditionKey, backendToken]);
+
   /** Scan values and snapshot values are both keyed by primitive id and come
    *  from the same daily snapshot, so they read as one bag. */
   const snapshotFor = useCallback(
     (symbol: string, scanValues: Record<string, number>) => ({
       ...scanValues,
+      ...(addedValues[symbol] ?? {}),
       ...(technicals[symbol] ?? {}),
     }),
-    [technicals],
+    [technicals, addedValues],
   );
 
   // Filters run over the FULL match list, not the visible page — the same
@@ -333,6 +403,10 @@ export function QueryResults({
   const filteredRows = useMemo(() => {
     if (metricFilters.length === 0) return rows;
     return rows.filter((r) =>
+      // A hand-added name is pinned: the user asked for it by ticker, so a
+      // metric filter never removes it. Hiding a row someone just added reads
+      // as the add having failed.
+      r.added ||
       metricFilters.every((f) => {
         const v = readMetric(
           f.key,
@@ -513,6 +587,12 @@ export function QueryResults({
             onAdd={(f) => setMetricFilters((prev) => [...prev.filter((p) => p.key !== f.key), f])}
             onRemove={(key) => setMetricFilters((prev) => prev.filter((f) => f.key !== key))}
           />
+          <AddTicker
+            added={addedTickers}
+            matched={matchedSet}
+            onAdd={(sym) => writeAdded([...addedTickers, sym])}
+            onRemove={(sym) => writeAdded(addedTickers.filter((s) => s !== sym))}
+          />
         </div>
       )}
 
@@ -526,6 +606,14 @@ export function QueryResults({
         {metricFilters.length > 0 && !loading && (
           <span className="text-sm text-primary" data-testid="filtered-count">
             {filteredRows.length} after filters
+          </span>
+        )}
+        {/* Stated separately, never folded into the match count. An added
+            name did NOT meet the conditions — counting it as a match would
+            misstate the one number this page exists to report. */}
+        {addedTickers.length > 0 && !loading && (
+          <span className="text-sm text-sky-700" data-testid="added-count">
+            + {addedTickers.length} added
           </span>
         )}
         {scan && (
@@ -685,6 +773,15 @@ export function QueryResults({
                 >
                   <td className="px-2 py-2.5 text-xs text-muted-foreground">{page * PAGE_SIZE + i + 1}</td>
                   <td className="px-3 py-2.5">
+                    {r.added && (
+                      <span
+                        data-testid={`row-added-${r.symbol}`}
+                        title="Added by you — not a match for these conditions"
+                        className="mr-1.5 rounded bg-sky-100 px-1 py-0.5 align-middle text-[9px] font-semibold uppercase tracking-wider text-sky-700"
+                      >
+                        added
+                      </span>
+                    )}
                     <Link
                       href={`/stocks/${r.symbol}` as Route}
                       className="font-mono font-semibold text-primary hover:underline"
@@ -732,7 +829,12 @@ export function QueryResults({
                     );
                   })}
                   {columns.map((col) => {
-                    const v = r.values[col.primitiveId];
+                    // Through `snapshotFor`, not `r.values` directly: a
+                    // hand-added row has no scan values (it was never
+                    // scanned), so reading the raw bag gave every condition
+                    // column an em dash — "no data" where the truth is "we
+                    // fetched it separately".
+                    const v = snapshotFor(r.symbol, r.values)[col.primitiveId];
                     return (
                       <td
                         key={col.primitiveId}

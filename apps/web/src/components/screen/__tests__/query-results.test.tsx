@@ -8,9 +8,13 @@ vi.mock("@/lib/api", () => ({
   screenCount: vi.fn(),
   getFundamentalsBySymbols: vi.fn(),
   getMetricValues: vi.fn(),
+  searchSymbols: vi.fn(),
 }));
 const pushMock = vi.fn();
-vi.mock("next/navigation", () => ({ useRouter: () => ({ push: pushMock }) }));
+const replaceMock = vi.fn();
+vi.mock("next/navigation", () => ({
+  useRouter: () => ({ push: pushMock, replace: replaceMock }),
+}));
 vi.mock("@/lib/useLiveQuotes", () => ({
   useLiveQuotes: (syms: string[]) => ({
     quotes: Object.fromEntries(
@@ -44,6 +48,7 @@ import {
   screenCount,
   getFundamentalsBySymbols,
   getMetricValues,
+  searchSymbols,
 } from "@/lib/api";
 import { QueryResults } from "../query-results";
 
@@ -52,6 +57,7 @@ const scanMock = screenScan as unknown as ReturnType<typeof vi.fn>;
 const countMock = screenCount as unknown as ReturnType<typeof vi.fn>;
 const fundMock = getFundamentalsBySymbols as unknown as ReturnType<typeof vi.fn>;
 const metricMock = getMetricValues as unknown as ReturnType<typeof vi.fn>;
+const symSearchMock = searchSymbols as unknown as ReturnType<typeof vi.fn>;
 
 const RULES = [
   { primitive_id: "rsi", operator: "lt", threshold: 30 },
@@ -104,6 +110,8 @@ beforeEach(() => {
   pushMock.mockReset();
   fundMock.mockReset();
   metricMock.mockReset();
+  symSearchMock.mockReset();
+  replaceMock.mockReset();
 });
 
 describe("QueryResults", () => {
@@ -631,5 +639,116 @@ describe("QueryResults — metric source failures", () => {
     await waitFor(() =>
       expect(screen.getByTestId("metric-fetch-failed").textContent).toContain("technical"),
     );
+  });
+});
+
+/**
+ * "Add ticker" (spec item 3, first half): hand-add a name to a result set —
+ * run the screen, then check the two or three names you already had in mind
+ * against the same columns.
+ */
+describe("QueryResults — add ticker", () => {
+  const render3 = async (addParam = "") => {
+    parseMock.mockResolvedValue(parsedOk());
+    scanMock.mockResolvedValue(scanned());
+    countMock.mockResolvedValue({ matched_count: 100, universe_size: 525 });
+    render(<QueryResults query="q" universeId="sp500" addParam={addParam} />);
+    await waitFor(() => expect(screen.getAllByTestId("result-row").length).toBeGreaterThan(0));
+  };
+
+  it("renders an added ticker as an extra row, marked as not a match", async () => {
+    metricMock.mockResolvedValue({ values: {}, as_of_date: null, unavailable: [] });
+    await render3("NVDA");
+
+    await waitFor(() => expect(screen.getAllByTestId("result-row")).toHaveLength(4));
+    expect(screen.getByTestId("row-added-NVDA")).toBeTruthy();
+    // The match count reports the SCREEN. An added name didn't meet the
+    // conditions, so folding it in would misstate the one number this page
+    // exists to report.
+    expect(screen.getByTestId("match-count").textContent).toContain("3 match");
+    expect(screen.getByTestId("added-count").textContent).toContain("1 added");
+  });
+
+  it("fills an added ticker's condition columns from the snapshot", async () => {
+    metricMock.mockResolvedValue({
+      values: { NVDA: { rsi: 62.5 } },
+      as_of_date: "2026-08-08",
+      unavailable: [],
+    });
+    await render3("NVDA");
+
+    // It was never scanned, so `scan.values` has nothing for it. Without the
+    // separate fetch every condition cell reads as "no data" when the real
+    // answer is "we didn't ask".
+    await waitFor(() =>
+      expect(screen.getAllByTestId("cell-rsi").map((c) => c.textContent)).toContain("62.50"),
+    );
+    expect(metricMock).toHaveBeenCalledWith(
+      ["NVDA"],
+      expect.arrayContaining(["rsi"]),
+      expect.anything(),
+    );
+  });
+
+  it("keeps an added ticker visible through a metric filter", async () => {
+    metricMock.mockResolvedValue({ values: { NVDA: { rsi: 62.5 } }, as_of_date: null, unavailable: [] });
+    await render3("NVDA");
+    await waitFor(() => expect(screen.getAllByTestId("result-row")).toHaveLength(4));
+
+    fireEvent.click(screen.getByTestId("metric-filter-toggle"));
+    fireEvent.change(screen.getByTestId("metric-filter-key"), { target: { value: "rsi" } });
+    fireEvent.change(screen.getByTestId("metric-filter-max"), { target: { value: "26" } });
+    fireEvent.click(screen.getByTestId("metric-filter-apply"));
+
+    // AAPL (25) survives, MSFT (28.5) and JPM (no value) go — and NVDA stays
+    // at 62.5 despite failing the filter, because the user asked for it by
+    // ticker. Hiding a row someone just added reads as the add having failed.
+    await waitFor(() => expect(screen.getAllByTestId("result-row")).toHaveLength(2));
+    expect(screen.getByTestId("row-added-NVDA")).toBeTruthy();
+  });
+
+  it("writes the added ticker to the URL so the result stays shareable", async () => {
+    symSearchMock.mockResolvedValue([{ symbol: "NVDA", name: "NVIDIA Corp" }]);
+    metricMock.mockResolvedValue({ values: {}, as_of_date: null, unavailable: [] });
+    await render3();
+
+    fireEvent.click(screen.getByTestId("add-ticker-toggle"));
+    fireEvent.change(await screen.findByTestId("add-ticker-input"), { target: { value: "nvda" } });
+    fireEvent.click(await screen.findByTestId("add-ticker-option-NVDA"));
+
+    await waitFor(() =>
+      expect(replaceMock).toHaveBeenCalledWith(
+        expect.stringContaining("add=NVDA"),
+        expect.anything(),
+      ),
+    );
+  });
+
+  it("refuses a name already in the results, and says why", async () => {
+    symSearchMock.mockResolvedValue([{ symbol: "AAPL", name: "Apple Inc." }]);
+    metricMock.mockResolvedValue({ values: {}, as_of_date: null, unavailable: [] });
+    await render3();
+
+    fireEvent.click(screen.getByTestId("add-ticker-toggle"));
+    fireEvent.change(await screen.findByTestId("add-ticker-input"), { target: { value: "aapl" } });
+    fireEvent.click(await screen.findByTestId("add-ticker-option-AAPL"));
+
+    // A control that silently does nothing reads as broken, and "it's already
+    // in your results" is the answer the user needs — not an error.
+    await waitFor(() =>
+      expect(screen.getByTestId("add-ticker-note").textContent).toContain("already matches"),
+    );
+    expect(replaceMock).not.toHaveBeenCalled();
+  });
+
+  it("drops an add= entry the screen already matched", async () => {
+    metricMock.mockResolvedValue({ values: {}, as_of_date: null, unavailable: [] });
+    // An edited query can turn a hand-added name into a real match; the stale
+    // `&add=` must not then produce a duplicate row.
+    await render3("AAPL,NVDA");
+
+    await waitFor(() => expect(screen.getAllByTestId("result-row")).toHaveLength(4));
+    expect(screen.queryByTestId("row-added-AAPL")).toBeNull();
+    expect(screen.getByTestId("row-added-NVDA")).toBeTruthy();
   });
 });
