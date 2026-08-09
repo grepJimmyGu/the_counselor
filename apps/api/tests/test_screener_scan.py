@@ -261,3 +261,46 @@ def test_no_snapshot_rows_matches_nothing(db):
     res = scan(db, "symbols", rules, symbols=["AAPL", "MSFT"], snapshot_svc=svc)
     assert res.matched == []
     assert res.universe_size == 2
+
+
+def test_scan_returns_the_value_each_symbol_scored(seeded, db):
+    """The screen has to show HOW MUCH, not just whether.
+
+    Jimmy's reference renders the screened metric as a sortable column per
+    condition ("量比 3.00"). The snapshot already holds these; the scan used to
+    filter on them and drop them, so the UI could only say a name matched.
+    """
+    rules = [StrategyRule(primitive_id="rsi", operator="lt", threshold=30)]
+    res = _scan(db, seeded, rules)
+    assert set(res.matched) == {"AAPL", "TSLA"}
+    assert res.values["AAPL"]["rsi"] == 25.0
+    assert res.values["TSLA"]["rsi"] == 20.0
+
+
+def test_values_cover_every_screened_primitive(seeded, db):
+    rules = [
+        StrategyRule(primitive_id="rsi", operator="lt", threshold=30),
+        StrategyRule(primitive_id="sma", operator="gt", threshold=100, logic_with_prior="AND"),
+    ]
+    res = _scan(db, seeded, rules)
+    assert res.matched == ["AAPL"]
+    assert res.values["AAPL"] == {"rsi": 25.0, "sma": 150.0}
+
+
+def test_a_missing_cell_is_omitted_not_sent_as_zero(seeded, db):
+    """TSLA has no `sma` row. Sending 0 would render as a real reading and sort
+    to the bottom as though it were the lowest value in the set."""
+    rules = [
+        StrategyRule(primitive_id="rsi", operator="lt", threshold=30),
+        StrategyRule(primitive_id="sma", operator="gt", threshold=100, logic_with_prior="OR"),
+    ]
+    res = _scan(db, seeded, rules)
+    assert "TSLA" in res.matched
+    assert "sma" not in res.values.get("TSLA", {})
+    assert res.values["TSLA"]["rsi"] == 20.0
+
+
+def test_unmatched_symbols_carry_no_values(seeded, db):
+    rules = [StrategyRule(primitive_id="rsi", operator="lt", threshold=30)]
+    res = _scan(db, seeded, rules)
+    assert "MSFT" not in res.values  # rsi 55 — didn't match

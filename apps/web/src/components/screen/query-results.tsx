@@ -25,7 +25,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { Route } from "next";
 import { useSession } from "next-auth/react";
-import { X } from "lucide-react";
+import { ArrowUpDown, Plus, X } from "lucide-react";
 
 import { parseSearch, screenScan, screenCount } from "@/lib/api";
 import type { ScreenScanResponse, StrategyRule } from "@/lib/contracts";
@@ -55,6 +55,8 @@ export function QueryResults({
   const [scan, setScan] = useState<ScreenScanResponse | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sortBy, setSortBy] = useState<string | null>(null);
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
 
   // Parse → scan. Both are anonymous-capable, but pass the token when we have
   // one so a signed-in user gets their own tier's limits (trap #19).
@@ -154,13 +156,54 @@ export function QueryResults({
     [chips, router, universeId],
   );
 
+  // One column per screened condition. Deduped by primitive: two rules on the
+  // same primitive (RSI > 30 and RSI < 70) read the same value, so a second
+  // identical column would be noise.
+  const columns = useMemo(() => {
+    const seen = new Set<string>();
+    const out: { primitiveId: string; label: string }[] = [];
+    chips.forEach((c) => {
+      const pid = c.rule.primitive_id;
+      if (!pid || seen.has(pid)) return;
+      seen.add(pid);
+      out.push({ primitiveId: pid, label: c.reading });
+    });
+    return out;
+  }, [chips]);
+
   const rows = useMemo(() => {
     if (!scan) return [];
-    return scan.matched.map((symbol) => ({
+    const vals = scan.values ?? {};
+    const base = scan.matched.map((symbol) => ({
       symbol,
       readings: scan.readings[symbol] ?? [],
+      values: vals[symbol] ?? {},
     }));
-  }, [scan]);
+    if (!sortBy) return base;
+    return [...base].sort((a, b) => {
+      const av = a.values[sortBy];
+      const bv = b.values[sortBy];
+      // Names without a value sink to the bottom in BOTH directions — they
+      // aren't "lowest", they're unknown, and floating them to the top of an
+      // ascending sort would read as though they scored zero.
+      if (av === undefined && bv === undefined) return 0;
+      if (av === undefined) return 1;
+      if (bv === undefined) return -1;
+      return sortDir === "asc" ? av - bv : bv - av;
+    });
+  }, [scan, sortBy, sortDir]);
+
+  const toggleSort = useCallback(
+    (primitiveId: string) => {
+      if (sortBy === primitiveId) {
+        setSortDir((d) => (d === "asc" ? "desc" : "asc"));
+      } else {
+        setSortBy(primitiveId);
+        setSortDir("desc");
+      }
+    },
+    [sortBy],
+  );
 
   return (
     <div className="mx-auto max-w-[1200px] px-6 py-8" data-testid="query-results">
@@ -197,6 +240,19 @@ export function QueryResults({
               </button>
             </span>
           ))}
+
+          {/* The reference has "+ 添加条件" beside the chips. Without it the
+              page is a dead end: you can narrow a screen but never widen it
+              except by starting over. Goes back to the builder carrying the
+              current query, so nothing is lost. */}
+          <Link
+            href={`/?q=${encodeURIComponent(query)}` as Route}
+            data-testid="add-condition"
+            className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-3 py-1 text-sm text-muted-foreground transition-colors hover:border-primary/40 hover:text-foreground"
+          >
+            <Plus className="h-3.5 w-3.5" aria-hidden="true" />
+            Add condition
+          </Link>
         </div>
       )}
 
@@ -240,22 +296,54 @@ export function QueryResults({
         </p>
       ) : (
         <div className="mt-4 overflow-x-auto">
-          <table className="w-full text-left text-sm">
+          <table className="w-full text-left text-sm" data-testid="results-table">
             <thead>
-              <tr className="border-b border-border text-xs uppercase tracking-wider text-muted-foreground">
-                <th className="w-24 py-2 font-medium">Symbol</th>
-                <th className="py-2 font-medium">Why it matched</th>
+              <tr className="border-b border-border text-xs text-muted-foreground">
+                <th className="w-10 py-2 font-medium">#</th>
+                <th className="py-2 font-medium">Symbol</th>
+                {columns.map((col) => (
+                  <th key={col.primitiveId} className="py-2 font-medium">
+                    <button
+                      type="button"
+                      onClick={() => toggleSort(col.primitiveId)}
+                      data-testid={`sort-${col.primitiveId}`}
+                      className="inline-flex items-center gap-1 transition-colors hover:text-foreground"
+                    >
+                      <span className="max-w-[14rem] truncate">{col.label}</span>
+                      <ArrowUpDown
+                        className={`h-3 w-3 shrink-0 ${
+                          sortBy === col.primitiveId ? "text-primary" : "opacity-40"
+                        }`}
+                        aria-hidden="true"
+                      />
+                      <span className="sr-only">
+                        {sortBy === col.primitiveId
+                          ? `sorted ${sortDir === "asc" ? "ascending" : "descending"}`
+                          : "sort by this"}
+                      </span>
+                    </button>
+                    {/* Date stamps must be readable at a glance, not buried
+                        (product invariant). Every column is as of the same
+                        snapshot, so it's stated once per header row. */}
+                    {scan?.as_of_date && (
+                      <div className="mt-0.5 text-[10px] font-normal text-muted-foreground/70">
+                        {scan.as_of_date}
+                      </div>
+                    )}
+                  </th>
+                ))}
               </tr>
             </thead>
             <tbody>
-              {rows.map((r) => (
+              {rows.map((r, i) => (
                 <tr
                   key={r.symbol}
                   data-testid="result-row"
                   className="cursor-pointer border-b border-border/60 transition-colors hover:bg-muted/40"
                   onClick={() => router.push(`/stocks/${r.symbol}` as Route)}
                 >
-                  <td className="py-2.5 align-top">
+                  <td className="py-2.5 text-xs text-muted-foreground">{i + 1}</td>
+                  <td className="py-2.5">
                     <Link
                       href={`/stocks/${r.symbol}` as Route}
                       className="font-mono font-semibold text-primary hover:underline"
@@ -264,19 +352,24 @@ export function QueryResults({
                       {r.symbol}
                     </Link>
                   </td>
-                  <td className="py-2.5">
-                    <div className="flex flex-wrap gap-1.5">
-                      {r.readings.map((reading, i) => (
-                        <span
-                          key={`${reading}-${i}`}
-                          data-testid="row-reading"
-                          className="rounded bg-muted/60 px-2 py-0.5 text-xs text-muted-foreground"
-                        >
-                          {reading}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
+                  {columns.map((col) => {
+                    const v = r.values[col.primitiveId];
+                    return (
+                      <td
+                        key={col.primitiveId}
+                        data-testid={`cell-${col.primitiveId}`}
+                        className="py-2.5 tabular-nums"
+                      >
+                        {v === undefined ? (
+                          // Absent, not zero. Rendering 0 would look like a
+                          // real reading and sort as the lowest value.
+                          <span className="text-muted-foreground/50">—</span>
+                        ) : (
+                          v.toFixed(2)
+                        )}
+                      </td>
+                    );
+                  })}
                 </tr>
               ))}
             </tbody>

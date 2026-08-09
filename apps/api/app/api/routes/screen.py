@@ -124,6 +124,7 @@ async def screen_scan(
     return ScreenScanResponse(
         matched=result.matched,
         readings=result.readings,
+        values=result.values,
         as_of_date=result.as_of_date,
         universe_size=result.universe_size,
         matched_count=result.matched_count,

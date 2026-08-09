@@ -56,6 +56,13 @@ class ScanResult:
     as_of_date: Optional[date]
     universe_size: int
     matched_count: int
+    # symbol -> {primitive_id: value} for the primitives the rules screened on.
+    # The snapshot frame already holds these; the scan filters on them and then
+    # dropped them, so the UI could say WHICH conditions a name matched but
+    # never BY HOW MUCH. Jimmy's reference shows the numbers as sortable
+    # columns ("量比 3.00"), which is the difference between a list of tickers
+    # and a screen you can actually read.
+    values: Dict[str, Dict[str, float]] = field(default_factory=dict)
     # Rule primitives not covered by the daily snapshot (can't match) —
     # surfaced so the UI can tell the user, never a silent always-false.
     unsupported_primitives: List[str] = field(default_factory=list)
@@ -292,9 +299,29 @@ def scan(
             if bool(mask.get(sym, False))
         ]
 
+    # Values for the screened primitives, matched symbols only. Floats that
+    # aren't finite (NaN for a missing cell) are omitted rather than sent as
+    # null — the column then renders "—" instead of a misleading 0.
+    screened_ids = [r.primitive_id for r in rules if r.primitive_id]
+    values: Dict[str, Dict[str, float]] = {}
+    for sym in matched:
+        row: Dict[str, float] = {}
+        for pid in screened_ids:
+            if pid in frame.columns:
+                raw = frame.at[sym, pid] if sym in frame.index else None
+                try:
+                    v = float(raw)
+                except (TypeError, ValueError):
+                    continue
+                if v == v and v not in (float("inf"), float("-inf")):
+                    row[pid] = v
+        if row:
+            values[sym] = row
+
     return ScanResult(
         matched=matched,
         readings=readings,
+        values=values,
         as_of_date=snap.as_of_date,
         universe_size=len(syms),
         matched_count=len(matched),
