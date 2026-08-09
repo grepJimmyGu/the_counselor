@@ -24,6 +24,10 @@ from app.services.screener_presets import (
 )
 from app.services.screener_service import ScreenerService
 
+# Matches the results page's own quote cap — the two lists are the same
+# names, so a smaller bound here would silently drop columns for the tail.
+_BY_SYMBOL_CAP = 300
+
 router = APIRouter(prefix="/api/screener", tags=["screener"])
 _service = ScreenerService()
 
@@ -32,6 +36,31 @@ _service = ScreenerService()
 def get_screener_filters(db: Session = Depends(get_db)) -> ScreenerFiltersResponse:
     """Return all unique filter options (sectors, industries, countries, exchanges)."""
     return _service.get_filters(db)
+
+
+@router.get("/by-symbols", response_model=ScreenerResponse)
+def get_by_symbols(
+    symbols: str = Query(..., description="Comma-separated tickers."),
+    db: Session = Depends(get_db),
+) -> ScreenerResponse:
+    """Fundamentals for an explicit symbol list.
+
+    The results page gets its names from a technical scan, so there are no
+    filters to re-run — and re-deriving them could return a different set than
+    the one on screen. Capped so a hand-crafted URL can't ask for the whole
+    universe in one query.
+    """
+    wanted = [s.strip().upper() for s in symbols.split(",") if s.strip()][:_BY_SYMBOL_CAP]
+    rows = _service.by_symbols(db, wanted)
+    return ScreenerResponse(
+        results=rows,
+        total=len(rows),
+        offset=0,
+        # This endpoint doesn't paginate — the caller already decided the list,
+        # and slicing it here would drop names that are on screen.
+        limit=len(rows),
+        filters_applied={"symbols": wanted},
+    )
 
 
 @router.get("/results", response_model=ScreenerResponse)
