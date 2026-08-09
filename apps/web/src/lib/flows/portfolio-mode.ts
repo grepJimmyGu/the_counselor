@@ -39,6 +39,9 @@ export const PortfolioModeFlow: FlowDefinition<PortfolioModeContext> = {
   name: "Portfolio Overlay",
   triggers: [
     "home/upload_portfolio",
+    // Home block 3: the overlay is chosen there and arrives preselected, so
+    // the picker step is a confirm rather than a decision.
+    "home/quant_overlay",
     "builders/multi_ticker_use_my_portfolio",
   ],
   initialStepId: "upload",

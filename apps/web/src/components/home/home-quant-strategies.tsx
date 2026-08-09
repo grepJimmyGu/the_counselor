@@ -20,7 +20,9 @@
  */
 
 import { Plus } from "lucide-react";
-import { researchTemplates, type ResearchTemplate } from "@/lib/contracts";
+import { researchTemplates, type OverlayKind, type ResearchTemplate } from "@/lib/contracts";
+import { OVERLAY_METADATA, OVERLAY_DISPLAY_ORDER } from "@/lib/overlay-metadata";
+import { startFlow } from "@/lib/flows/runtime";
 
 /** Unavailable templates are hidden — a card you can't run is an advert. */
 const SHOWN = researchTemplates.filter((t) => t.availability !== "unavailable").slice(0, 5);
@@ -43,6 +45,69 @@ function TierBadge({ tier }: { tier?: string }) {
     >
       Evidence {key}
     </span>
+  );
+}
+
+function GroupLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="mb-1.5 mt-3 text-[11px] font-medium uppercase tracking-wider text-muted-foreground first:mt-0">
+      {children}
+    </div>
+  );
+}
+
+/**
+ * An overlay card. Clicking starts Portfolio Mode with this overlay ALREADY
+ * chosen, so the user's path is: pick here -> upload -> results.
+ *
+ * The overlay step can't literally move before upload — `OverlayPicker` reads
+ * `context.holdings` to validate `minHoldings` and to build the backtest JSON,
+ * so it has nothing to work with until the portfolio exists. But the picker
+ * already seeds its selection from `context.selectedOverlay`, so passing it
+ * through `initialContext` gives the same effect: the choice happens first
+ * from the user's point of view, and the picker step becomes a confirm (with
+ * the date range and the track record against their actual holdings) rather
+ * than a decision.
+ */
+function OverlayCard({ kind }: { kind: OverlayKind }) {
+  const meta = OVERLAY_METADATA[kind];
+  return (
+    <button
+      type="button"
+      data-testid="quant-overlay"
+      data-overlay={kind}
+      onClick={() =>
+        startFlow("portfolio_mode", {
+          initialContext: {
+            selectedOverlay: kind,
+            fromTrigger: "home/quant_overlay",
+          },
+        })
+      }
+      className="rounded-lg border border-border p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/30"
+    >
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="truncate text-sm font-semibold">{meta.label}</span>
+        <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+          {meta.tier === "basic" ? "Basic" : "Advanced"}
+        </span>
+      </div>
+      {/* `idea` (the thesis), NOT `tagline`. Taglines carry hard performance
+          numbers — "worst loss −28% vs −55%" — with no source in
+          `overlay-metadata.ts`. Same call as the template cards: we don't put
+          an unsourced return on the home page.
+
+          `fitLabel` is omitted for a simpler reason: it is documented as
+          "from diagnosis — shown as a badge when holdings match", and on the
+          home page there is no portfolio yet. "Good fit for your portfolio"
+          would be a claim about a portfolio we have not seen. */}
+      <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
+        {meta.idea}
+      </p>
+      <div className="mt-2 truncate text-[11px] text-muted-foreground/80">
+        Needs {meta.minHoldings}+ holding{meta.minHoldings === 1 ? "" : "s"}
+      </div>
+    </button>
   );
 }
 
@@ -125,11 +190,22 @@ export function HomeQuantStrategies({
         </div>
       </dl>
 
+      <GroupLabel>Templates</GroupLabel>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
         {SHOWN.map((t) => (
           <TemplateCard key={t.id} t={t} onOpen={onOpenTemplate} />
         ))}
+      </div>
 
+      <GroupLabel>Overlays — for a portfolio you already hold</GroupLabel>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+        {OVERLAY_DISPLAY_ORDER.map((kind) => (
+          <OverlayCard key={kind} kind={kind} />
+        ))}
+      </div>
+
+      <GroupLabel>Or start from nothing</GroupLabel>
+      <div className="grid grid-cols-1 gap-2">
         <button
           type="button"
           onClick={onBuildFromScratch}
