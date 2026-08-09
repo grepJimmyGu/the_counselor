@@ -3,83 +3,148 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@/lib/api", () => ({
-  getMarketPulse: vi.fn(),
+  getDailyBrief: vi.fn(),
   getScreenerPresets: vi.fn(),
 }));
 
-import { getMarketPulse, getScreenerPresets } from "@/lib/api";
+import { getDailyBrief, getScreenerPresets } from "@/lib/api";
 import { HomeMarketPulseBlock } from "../home-market-pulse-block";
 import { HomeCuratedScreens } from "../home-curated-screens";
 
-const pulseMock = getMarketPulse as unknown as ReturnType<typeof vi.fn>;
+const briefMock = getDailyBrief as unknown as ReturnType<typeof vi.fn>;
 const presetsMock = getScreenerPresets as unknown as ReturnType<typeof vi.fn>;
 
-const sector = (name: string, cmf: number) => ({
-  symbol: name.slice(0, 3).toUpperCase(),
+const mover = (symbol: string, change_percent: number) => ({
+  symbol,
+  name: `${symbol} Inc.`,
+  change_percent,
+});
+const sector = (name: string, change_percent: number, money_flow: number | null = null) => ({
   name,
-  price: 100,
-  perf_1d: 0.01,
-  perf_5d: 0.02,
-  rs_vs_spy_5d: 0.01,
-  cmf_20: cmf,
-  volume_ratio: 1,
+  change_percent,
+  money_flow,
 });
 
+function brief(over: Record<string, unknown> = {}) {
+  return {
+    as_of: "2026-08-09T11:29:43",
+    indices: [
+      { symbol: "^GSPC", name: "S&P 500", price: 7757.64, change_percent: 0.62 },
+      { symbol: "^IXIC", name: "Nasdaq Composite", price: 26690.62, change_percent: 1.3 },
+      { symbol: "^DJI", name: "Dow Jones", price: 54036.93, change_percent: 0.28 },
+    ],
+    vix: { symbol: "^VIX", name: "VIX", price: 14.9, change_percent: -1.65 },
+    macro: [
+      {
+        category: "Inflation",
+        label: "CPI YoY: 3.9%",
+        direction: "up",
+        trend: "Rising",
+        takeaway: "Could delay rate cuts",
+      },
+    ],
+    gainers: [mover("TEAM", 35.31), mover("TWLO", 24.89), mover("ABNB", 17.43)],
+    losers: [mover("AKAM", -6.76), mover("PARA", -6.04), mover("ZTS", -5.97)],
+    sector_leading: sector("Consumer Disc.", 1.49),
+    sector_lagging: sector("Energy", -1.13),
+    flow_into: sector("Financials", -0.36, 0.1192),
+    flow_out_of: sector("Utilities", 0.53, -0.1846),
+    unusual: mover("TEAM", 35.31),
+    ...over,
+  };
+}
+
 beforeEach(() => {
-  pulseMock.mockReset();
+  briefMock.mockReset();
   presetsMock.mockReset();
 });
 
 describe("HomeMarketPulseBlock", () => {
-  it("shows three movers linking to their company pages", async () => {
-    pulseMock.mockResolvedValue({
-      top_assets: [
-        { symbol: "NVDA", name: "NVIDIA", sector: "Tech", price: 218.99, perf_1d: -0.001, cmf_20: 0.1, market_cap: 1 },
-        { symbol: "AAPL", name: "Apple", sector: "Tech", price: 230.1, perf_1d: 0.012, cmf_20: 0.2, market_cap: 1 },
-        { symbol: "MSFT", name: "Microsoft", sector: "Tech", price: 510.0, perf_1d: 0.004, cmf_20: 0.3, market_cap: 1 },
-        { symbol: "EXTRA", name: "Extra", sector: "Tech", price: 1, perf_1d: 0, cmf_20: 0, market_cap: 1 },
-      ],
-      sectors: [],
-    });
+  it("shows index LEVELS, not ETF share prices", async () => {
+    briefMock.mockResolvedValue(brief());
     render(<HomeMarketPulseBlock />);
-    await waitFor(() => expect(screen.getAllByTestId("pulse-mover")).toHaveLength(3));
-    expect(screen.getByText("NVDA").closest("a")?.getAttribute("href")).toBe("/stocks/NVDA");
-    expect(screen.queryByText("EXTRA")).toBeNull();
+    // 7,757.64 is the S&P; ~650 would be SPY. An ETF price shown as an index
+    // level is wrong, not merely different — and this block gets shared.
+    await waitFor(() => expect(screen.getByText("7,757.64")).toBeTruthy());
+    expect(screen.getByText("S&P 500")).toBeTruthy();
   });
 
-  it("shows money flow and includes an outflow sector, not just inflows", async () => {
-    pulseMock.mockResolvedValue({
-      top_assets: [],
-      sectors: [
-        sector("Financials", 0.19),
-        sector("Technology", 0.11),
-        sector("Industrials", 0.07),
-        sector("Energy", 0.05),
-        sector("Materials", -0.01),
-        sector("Communication", -0.12),
-      ],
-    });
+  it("shows both gainers and losers, each linking to its company page", async () => {
+    briefMock.mockResolvedValue(brief());
     render(<HomeMarketPulseBlock />);
-    await waitFor(() => expect(screen.getAllByTestId("pulse-sector").length).toBeGreaterThan(0));
-    // A block that only ever shows inflow can't answer "what's being sold?".
-    expect(screen.getByText("Communication")).toBeTruthy();
-    expect(screen.getByText("-0.12")).toBeTruthy();
+    await waitFor(() => expect(screen.getAllByTestId("brief-mover")).toHaveLength(6));
+    expect(screen.getAllByText("TEAM")[0].closest("a")?.getAttribute("href")).toBe("/stocks/TEAM");
+    // A block that only ever shows gainers can't answer "what got sold?".
+    expect(screen.getByText("AKAM")).toBeTruthy();
   });
 
-  it("links a sector to the screener filtered by that sector", async () => {
-    pulseMock.mockResolvedValue({ top_assets: [], sectors: [sector("Health Care", 0.09)] });
+  it("leaves VIX uncoloured — it is a level, not a return", async () => {
+    briefMock.mockResolvedValue(brief());
     render(<HomeMarketPulseBlock />);
+    const vix = await screen.findByTestId("brief-vix");
+    // "VIX down 1.65%" is not good news the way "S&P up 0.62%" is, so it must
+    // not borrow the green/red coding that means exactly one thing elsewhere.
+    expect(vix.className).not.toContain("emerald");
+    expect(vix.textContent).toContain("calm");
+  });
+
+  it("shows the Chaikin numbers behind the money-flow arrow", async () => {
+    briefMock.mockResolvedValue(brief());
+    render(<HomeMarketPulseBlock />);
+    const flow = await screen.findByTestId("brief-flow");
+    // Without the figures, "money flowing X → Y" is an assertion the reader
+    // has to take on faith.
+    expect(flow.textContent).toContain("-0.18");
+    expect(flow.textContent).toContain("0.12");
+  });
+
+  it("ranks money flow separately from sector performance", async () => {
+    briefMock.mockResolvedValue(brief());
+    render(<HomeMarketPulseBlock />);
+    await waitFor(() => expect(screen.getByTestId("brief-flow")).toBeTruthy());
+    // Consumer Disc. led on price while money went to Financials. Collapsing
+    // the two rankings would make the flow line a restatement.
+    expect(screen.getByText("Consumer Disc.")).toBeTruthy();
+    expect(screen.getByText("Financials")).toBeTruthy();
+  });
+
+  it("keeps sector names linking to the screener", async () => {
+    briefMock.mockResolvedValue(brief());
+    render(<HomeMarketPulseBlock />);
+    // The pre-redesign block had this affordance; dropping a working control
+    // in a redesign is a regression even when the new layout is better.
     await waitFor(() =>
-      expect(screen.getByText("Health Care").closest("a")?.getAttribute("href")).toBe(
-        "/stocks?sector=Health%20Care",
+      expect(screen.getByText("Energy").closest("a")?.getAttribute("href")).toBe(
+        "/stocks?sector=Energy",
       ),
     );
   });
 
-  it("renders nothing when the pulse call fails, rather than an empty shell", async () => {
-    pulseMock.mockRejectedValue(new Error("down"));
-    const { container } = render(<HomeMarketPulseBlock />);
-    await waitFor(() => expect(container.querySelector('[data-testid="home-market-pulse"]')).toBeNull());
+  it("stamps the date above the headline", async () => {
+    briefMock.mockResolvedValue(brief());
+    render(<HomeMarketPulseBlock />);
+    // Product invariant: a calendar anchor is readable at a glance, never
+    // buried in muted footer text.
+    await waitFor(() => expect(screen.getByTestId("brief-as-of").textContent).toContain("2026-08-09"));
+  });
+
+  it("hides the unusual callout on a quiet day", async () => {
+    briefMock.mockResolvedValue(brief({ unusual: null }));
+    render(<HomeMarketPulseBlock />);
+    await waitFor(() => expect(screen.getAllByTestId("brief-mover").length).toBe(6));
+    // Flagging the top of a quiet leaderboard as UNUSUAL every session cries
+    // wolf, so the backend withholds it and the block must not fake one.
+    expect(screen.queryByTestId("brief-unusual")).toBeNull();
+  });
+
+  it("says the snapshot failed instead of vanishing from the grid", async () => {
+    briefMock.mockRejectedValue(new Error("down"));
+    render(<HomeMarketPulseBlock />);
+    // The block sits in a 2x2 grid. Removing it entirely reflows the three
+    // siblings and leaves no clue anything went wrong; a two-line message
+    // keeps the layout and tells the user.
+    const el = await screen.findByTestId("home-market-pulse");
+    expect(el.textContent).toContain("Couldn't load");
   });
 });
 
