@@ -1414,3 +1414,9 @@ export async function updateEmailPreferences(
     body: JSON.stringify(payload),
   });
 }
+
+export async function getMarketNews(
+  limit = 20,
+): Promise<import("@/lib/contracts").MarketNewsResponse> {
+  return fetchApi(`/api/news/market?limit=${limit}`);
+}

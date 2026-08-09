@@ -3203,3 +3203,29 @@ export interface BottleneckThesis {
   computed_at?: string | null;
   message?: string | null;
 }
+
+/** Market-wide news for the home ticker (home block 4).
+ *  Distinct from the per-symbol `/api/sentiment/{symbol}/news` feed:
+ *  AV's NEWS_SENTIMENT takes `topics` as well as `tickers`, so the whole
+ *  market costs one upstream call, cached server-side. */
+export interface MarketNewsArticle {
+  provider: string;
+  /** Always "" — this is the market feed, not a single symbol's. */
+  symbol: string;
+  title: string;
+  summary?: string | null;
+  source_name?: string | null;
+  url?: string | null;
+  published_at?: string | null;
+  topics: string[];
+  sentiment_score?: number | null;
+  sentiment_label?: string | null;
+}
+
+export interface MarketNewsResponse {
+  articles: MarketNewsArticle[];
+  /** Seconds since the upstream fetch — the UI shows freshness rather than
+   *  implying the feed is live. */
+  age_seconds: number;
+  cached: boolean;
+}

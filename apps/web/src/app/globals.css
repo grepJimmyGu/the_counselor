@@ -159,3 +159,12 @@
     transition-duration: 0.01ms !important;
   }
 }
+
+/* Home market-news strip (PRD-29 block 4). Translating by exactly -50% is what
+   makes the duplicated headline list read as one seamless loop instead of
+   snapping back at the end. Applied only under `motion-safe:`, so
+   prefers-reduced-motion users get a static, scrollable row. */
+@keyframes ticker {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}

@@ -22,6 +22,7 @@
 
 import { useState } from "react";
 import { RUN_QUERY_EVENT } from "@/components/search/smart-search-box";
+import { MarketNewsTicker } from "./market-news-ticker";
 
 interface QueryTab {
   id: string;
@@ -129,6 +130,8 @@ export function HomeExampleQueries() {
       <p className="mt-3 text-xs text-muted-foreground">
         Runs in the search box above — edit it and try your own.
       </p>
+
+      <MarketNewsTicker />
     </section>
   );
 }
