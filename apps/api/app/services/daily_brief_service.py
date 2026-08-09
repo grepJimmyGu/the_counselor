@@ -82,6 +82,11 @@ class BriefMacro:
 @dataclass
 class DailyBrief:
     as_of: Optional[str]
+    # Every sector, sorted by 1-day return descending. The home block reads
+    # only the leader and laggard below, but the share card needs full
+    # WINNERS / LOSERS columns — and deriving those on the client would put
+    # the ranking in two places.
+    sectors: List[BriefSector] = field(default_factory=list)
     indices: List[BriefQuote] = field(default_factory=list)
     vix: Optional[BriefQuote] = None
     macro: List[BriefMacro] = field(default_factory=list)
@@ -197,6 +202,16 @@ def build_brief(
         key=lambda s: s["perf_1d"],
         reverse=True,
     )
+    brief.sectors = [
+        BriefSector(
+            name=s["name"],
+            change_percent=_pct(s.get("perf_1d")),
+            money_flow=(
+                round(float(s["cmf_20"]), 4) if s.get("cmf_20") is not None else None
+            ),
+        )
+        for s in by_perf
+    ]
     if by_perf:
         brief.sector_leading = BriefSector(
             name=by_perf[0]["name"], change_percent=_pct(by_perf[0].get("perf_1d"))

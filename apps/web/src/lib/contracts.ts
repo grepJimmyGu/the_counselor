@@ -1983,6 +1983,9 @@ export interface BriefMacro {
 
 export interface DailyBrief {
   as_of: string | null;
+  /** Every sector, ranked by 1-day return. The home block reads only the
+   *  leader/laggard fields below; the share card needs the full columns. */
+  sectors: BriefSector[];
   indices: BriefQuote[];
   vix: BriefQuote | null;
   macro: BriefMacro[];

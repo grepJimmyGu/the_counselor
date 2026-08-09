@@ -1,0 +1,240 @@
+{
+  "note": "GENERATED from scoring.ts — see evaluation_scoring.py",
+  "cases": [
+    {
+      "name": "all-null-neutral",
+      "input": {},
+      "expected": {
+        "health": 50,
+        "valuation": 50,
+        "trend": 50,
+        "final": 50,
+        "label": "Neutral"
+      }
+    },
+    {
+      "name": "strong-megacap",
+      "input": {
+        "revenueYoy": 0.22,
+        "grossMargin": 0.68,
+        "operatingMargin": 0.45,
+        "fcfMargin": 0.3,
+        "fcfConversion": 1.1,
+        "roe": 0.35,
+        "netDebt": -50000000000,
+        "currentRatio": 2.5,
+        "debtToEquity": 0.2,
+        "fcfYield": 0.09,
+        "evEbitda": 7,
+        "peRatio": 11,
+        "pegRatio": 0.7,
+        "price": 500,
+        "perf3m": 0.2,
+        "perf12m": 0.4,
+        "ma50": 450,
+        "ma200": 400,
+        "rsVsSector": 0.15
+      },
+      "expected": {
+        "health": 92,
+        "valuation": 89,
+        "trend": 81,
+        "final": 88,
+        "label": "Attractive"
+      }
+    },
+    {
+      "name": "weak-levered",
+      "input": {
+        "revenueYoy": -0.12,
+        "grossMargin": 0.15,
+        "operatingMargin": -0.05,
+        "fcfMargin": -0.02,
+        "fcfConversion": 0.3,
+        "roe": 0.02,
+        "netDebt": 60000000000,
+        "currentRatio": 0.6,
+        "debtToEquity": 4,
+        "fcfYield": 0.005,
+        "evEbitda": 40,
+        "peRatio": 60,
+        "pegRatio": 4,
+        "price": 10,
+        "perf3m": -0.3,
+        "perf12m": -0.4,
+        "ma50": 14,
+        "ma200": 18,
+        "rsVsSector": -0.25
+      },
+      "expected": {
+        "health": 22,
+        "valuation": 17,
+        "trend": 22,
+        "final": 21,
+        "label": "Caution"
+      }
+    },
+    {
+      "name": "negative-roe-abs-quirk",
+      "input": {
+        "roe": -0.35
+      },
+      "expected": {
+        "health": 58,
+        "valuation": 50,
+        "trend": 50,
+        "final": 53,
+        "label": "Neutral"
+      }
+    },
+    {
+      "name": "boundary-exact-thresholds",
+      "input": {
+        "revenueYoy": 0.2,
+        "grossMargin": 0.5,
+        "operatingMargin": 0.2,
+        "fcfMargin": 0.25,
+        "fcfConversion": 1,
+        "roe": 0.3,
+        "currentRatio": 2,
+        "debtToEquity": 0.3,
+        "fcfYield": 0.08,
+        "evEbitda": 8,
+        "peRatio": 12,
+        "pegRatio": 0.8,
+        "perf3m": 0.15,
+        "perf12m": 0.25
+      },
+      "expected": {
+        "health": 76,
+        "valuation": 75,
+        "trend": 57,
+        "final": 70,
+        "label": "Moderately Positive"
+      }
+    },
+    {
+      "name": "net-cash",
+      "input": {
+        "netDebt": -1
+      },
+      "expected": {
+        "health": 59,
+        "valuation": 50,
+        "trend": 50,
+        "final": 54,
+        "label": "Neutral"
+      }
+    },
+    {
+      "name": "trend-only-3m",
+      "input": {
+        "perf3m": 0.06
+      },
+      "expected": {
+        "health": 50,
+        "valuation": 50,
+        "trend": 58,
+        "final": 52,
+        "label": "Neutral"
+      }
+    },
+    {
+      "name": "trend-only-12m",
+      "input": {
+        "perf12m": 0.11
+      },
+      "expected": {
+        "health": 50,
+        "valuation": 50,
+        "trend": 57,
+        "final": 52,
+        "label": "Neutral"
+      }
+    },
+    {
+      "name": "ma-below",
+      "input": {
+        "price": 90,
+        "ma50": 100,
+        "ma200": 120
+      },
+      "expected": {
+        "health": 50,
+        "valuation": 50,
+        "trend": 41,
+        "final": 47,
+        "label": "Neutral"
+      }
+    },
+    {
+      "name": "no-price-with-ma",
+      "input": {
+        "ma50": 100,
+        "ma200": 120
+      },
+      "expected": {
+        "health": 50,
+        "valuation": 50,
+        "trend": 50,
+        "final": 50,
+        "label": "Neutral"
+      }
+    },
+    {
+      "name": "half-rounding-hunt-a",
+      "input": {
+        "revenueYoy": 0.06,
+        "grossMargin": 0.36,
+        "operatingMargin": 0.11,
+        "fcfMargin": 0.06,
+        "fcfConversion": 0.55,
+        "roe": 0.11,
+        "netDebt": 10000000000,
+        "currentRatio": 1.2,
+        "debtToEquity": 1
+      },
+      "expected": {
+        "health": 62,
+        "valuation": 50,
+        "trend": 50,
+        "final": 55,
+        "label": "Neutral"
+      }
+    },
+    {
+      "name": "half-rounding-hunt-b",
+      "input": {
+        "fcfYield": 0.04,
+        "evEbitda": 15,
+        "peRatio": 20,
+        "pegRatio": 1.5
+      },
+      "expected": {
+        "health": 50,
+        "valuation": 57,
+        "trend": 50,
+        "final": 52,
+        "label": "Neutral"
+      }
+    },
+    {
+      "name": "half-rounding-hunt-c",
+      "input": {
+        "price": 103,
+        "ma50": 100,
+        "ma200": 99,
+        "perf3m": 0.01,
+        "perf12m": 0.01,
+        "rsVsSector": 0
+      },
+      "expected": {
+        "health": 50,
+        "valuation": 50,
+        "trend": 56,
+        "final": 52,
+        "label": "Neutral"
+      }
+    }
+  ]
+}
