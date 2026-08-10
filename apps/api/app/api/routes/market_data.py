@@ -245,10 +245,32 @@ async def get_market_pulse(
         narrative = _pulse_svc.get_cached_narrative(market)
         if narrative is None:
             from app.services.market_pulse_narrative_service import (
+                _NARRATIVE_INDICES,
                 generate_narrative,
             )
+            # Real index levels, so the narrative stops calling a 1.17% move in
+            # QQQ "the Nasdaq rising 1.17%" when the Nasdaq moved 1.30%. US
+            # only — the CN pulse tracks ETF proxies with no index equivalent
+            # we hold, and the prompt labels those honestly as ETFs.
+            index_quotes: dict = {}
+            if market != "CN":
+                try:
+                    raw = await live_quote_service.get_quotes(
+                        [sym for sym, _ in _NARRATIVE_INDICES]
+                    )
+                    index_quotes = {
+                        k: (vars(v) if hasattr(v, "__dict__") else dict(v))
+                        for k, v in raw.items()
+                    }
+                except Exception:
+                    # Falls through to the ETF branch, which labels them as
+                    # ETFs — degraded, never wrong.
+                    logging.getLogger("livermore.market_pulse").warning(
+                        "narrative index quotes failed; using ETF proxies",
+                        exc_info=True,
+                    )
             try:
-                narrative = await generate_narrative(r)
+                narrative = await generate_narrative(r, index_quotes=index_quotes or None)
             except Exception as exc:  # noqa: BLE001 — never fail the page
                 import logging
                 logging.getLogger("livermore.market_pulse").warning(

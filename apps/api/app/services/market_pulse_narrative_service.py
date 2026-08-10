@@ -77,6 +77,15 @@ class MarketNarrative(BaseModel):
 # ── Prompt construction ──────────────────────────────────────────────────────
 
 
+# The real indices, with the names the narrative should use. Deliberately not
+# read from `daily_brief_service` — that module fetches quotes, and importing it
+# here would couple the narrative to the card's request path.
+_NARRATIVE_INDICES = (
+    ("^GSPC", "S&P 500"),
+    ("^IXIC", "Nasdaq Composite"),
+    ("^DJI", "Dow Jones"),
+)
+
 _SYSTEM_PROMPT = """You are the market read for Livermore Alpha, a retail-investor research tool.
 
 Your job is to write a 2-3 sentence narrative summary of TODAY'S market action
@@ -86,6 +95,9 @@ based on the structured data the user provides. Style notes:
   trade) — say it in normal words.
 - Cite ACTUAL NUMBERS from the data: index point values, sector % moves,
   macro readings. Don't make up numbers.
+- NEVER write a ticker symbol. Say "Technology", not "XLK"; "the Nasdaq",
+  not "QQQ". Readers of a market recap should never meet a ticker for a
+  sector or an index — use the names exactly as given.
 - Lead with the most significant move. If tech +1.4% and energy -0.8% and
   the rest is flat, lead with tech.
 - Never predict future direction. Never recommend an action. Describe what
@@ -117,11 +129,23 @@ Examples of GOOD output:
 """
 
 
-def _build_user_prompt(snapshot: dict[str, Any]) -> str:
+def _build_user_prompt(
+    snapshot: dict[str, Any],
+    index_quotes: Optional[dict] = None,
+) -> str:
     """Render the MarketPulseResponse-derived snapshot into a compact prompt.
 
-    Keeps token usage low by including only the fields the narrative needs:
-    index symbols + perf, sector leaders/laggards, macro deltas.
+    **No ticker reaches the model.** It used to receive `XLK Technology: +1.42%`
+    and duly wrote "led by XLK's 1.42% increase" onto the live home page. A
+    model can't quote a symbol it never saw, which is a stronger guarantee than
+    asking it not to.
+
+    **Index levels come from the index when we have them.** The pulse tracks
+    SPY/QQQ/DIA, and the prompt labelled QQQ as "NASDAQ 100" — so the model
+    wrote "the Nasdaq rising 1.17%" when QQQ moved 1.17% and the Nasdaq
+    Composite moved 1.30%. Two errors in one clause: the wrong instrument and
+    the wrong index. `index_quotes` carries the real ones; without it the ETFs
+    are labelled honestly as ETFs so the model can't mistake them again.
     """
     indices = snapshot.get("indices", [])
     macro = snapshot.get("macro", [])
@@ -129,33 +153,44 @@ def _build_user_prompt(snapshot: dict[str, Any]) -> str:
 
     lines: list[str] = []
     lines.append("Today's market snapshot (real values, JSON-serialized):\n")
-    lines.append("INDICES (ETF proxy):")
-    for c in indices:
-        sym = c.get("symbol")
-        name = c.get("name") or ""
-        price = c.get("price")
-        perf = c.get("perf_1d")
-        perf_str = f"{perf * 100:+.2f}%" if isinstance(perf, (int, float)) else "n/a"
-        lines.append(f"  {sym} ({name}): ${price} ({perf_str})")
+    if index_quotes:
+        lines.append("INDICES (index levels):")
+        for sym, label in _NARRATIVE_INDICES:
+            q = index_quotes.get(sym)
+            if not q:
+                continue
+            price = q.get("price")
+            chg = q.get("change_percent")
+            price_str = f"{price:,.2f}" if isinstance(price, (int, float)) else "n/a"
+            chg_str = f"{chg:+.2f}%" if isinstance(chg, (int, float)) else "n/a"
+            lines.append(f"  {label}: {price_str} ({chg_str})")
+    else:
+        # Fallback: labelled as ETFs so a missing quote fetch can't silently
+        # reintroduce "the Nasdaq rose 1.17%" for a 1.17% move in QQQ.
+        lines.append("INDICES (ETF proxies — describe as ETFs, not as the index):")
+        for c in indices:
+            name = c.get("name") or ""
+            price = c.get("price")
+            perf = c.get("perf_1d")
+            perf_str = f"{perf * 100:+.2f}%" if isinstance(perf, (int, float)) else "n/a"
+            lines.append(f"  {name} ETF: ${price} ({perf_str})")
 
     lines.append("\nSECTORS (sorted by CMF desc — first is leader, last is laggard):")
     for c in sectors[:11]:
-        sym = c.get("symbol")
         name = c.get("name") or ""
         perf = c.get("perf_1d")
         cmf = c.get("cmf_20")
         perf_str = f"{perf * 100:+.2f}%" if isinstance(perf, (int, float)) else "n/a"
         cmf_str = f"CMF {cmf:+.2f}" if isinstance(cmf, (int, float)) else "n/a"
-        lines.append(f"  {sym} {name}: {perf_str}, {cmf_str}")
+        lines.append(f"  {name}: {perf_str}, {cmf_str}")
 
     lines.append("\nMACRO:")
     for c in macro:
-        sym = c.get("symbol")
         label = c.get("label") or ""
         price = c.get("price")
         perf = c.get("perf_1d")
         perf_str = f"{perf * 100:+.2f}%" if isinstance(perf, (int, float)) else "n/a"
-        lines.append(f"  {sym} ({label}): {price} ({perf_str})")
+        lines.append(f"  {label}: {price} ({perf_str})")
 
     lines.append("\nReturn the narrative now (JSON only).")
     return "\n".join(lines)
@@ -164,7 +199,10 @@ def _build_user_prompt(snapshot: dict[str, Any]) -> str:
 # ── Public API ───────────────────────────────────────────────────────────────
 
 
-async def generate_narrative(snapshot: Any) -> Optional[MarketNarrative]:
+async def generate_narrative(
+    snapshot: Any,
+    index_quotes: Optional[dict] = None,
+) -> Optional[MarketNarrative]:
     """Produce a narrative from a `MarketPulseResponse` dataclass (or any
     object exposing `indices` / `macro` / `sectors`).
 
@@ -190,7 +228,7 @@ async def generate_narrative(snapshot: Any) -> Optional[MarketNarrative]:
             f"generate_narrative: unsupported snapshot type {type(snapshot)!r}"
         )
 
-    user_prompt = _build_user_prompt(snap_dict)
+    user_prompt = _build_user_prompt(snap_dict, index_quotes=index_quotes)
 
     try:
         result = await gateway.generate_structured(
