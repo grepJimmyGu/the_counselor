@@ -4,6 +4,7 @@ from app.models.backtest import BacktestRecord
 from app.models.chat import ChatConversation, ChatMessage  # noqa: F401
 from app.models.creator import Creator, CreatorApplication, CreatorPayout  # noqa: F401
 from app.models.email_preference import EmailPreference  # noqa: F401
+from app.models.daily_card import DailyCard  # noqa: F401
 from app.models.data_fetch_log import DataFetchLog
 from app.models.intraday_bar import IntradayBar  # noqa: F401
 from app.models.mark_as_executed_event import MarkAsExecutedEvent  # noqa: F401
@@ -28,6 +29,7 @@ from app.models.weekly_usage import WeeklyUsage  # noqa: F401
 
 __all__ = [
     "AnonymousSession",
+    "DailyCard",
     "AttributionVisit",
     "BacktestRecord",
     "ChatConversation",

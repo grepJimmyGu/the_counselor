@@ -158,6 +158,60 @@ from app.services.macro_similarity_service import (
 _pulse_svc = MarketPulseService()
 
 
+@router.post("/market/daily-card")
+async def create_or_get_daily_card(
+    lang: str = Query(default="en", pattern="^(en|zh)$"),
+    market: str = Query(default="US", pattern="^(US|CN)$"),
+    db: Session = Depends(get_db),
+) -> dict:
+    """The share button's endpoint: generate once per trading day, then serve.
+
+    POST because the first caller of the day CREATES the card. Every later
+    caller gets the same row back untouched — a forwarded link must show what
+    the sharer saw, so a second look never regenerates even if today's prose
+    would be better.
+
+    Anonymous-reachable on purpose: the card exists to be forwarded, and the
+    recipient of a shared link is by definition not signed in.
+
+    **No 3-dimensional score yet.** The score's trend dimension needs price
+    history the company overview doesn't carry, so computing it here would
+    show Trend 50 on the card while the stock page shows the real number —
+    exactly the card-vs-page divergence #310 exists to prevent. The card
+    renders without the module until that's wired properly.
+    """
+    from app.services.daily_brief_service import (
+        INDEX_SYMBOLS,
+        VIX_SYMBOL,
+        build_brief,
+    )
+    from app.services.daily_card_generation import card_to_dict, get_or_create_card
+
+    pulse = await get_market_pulse(market=market, bypass_cache=False, db=db)
+
+    quotes: dict = {}
+    try:
+        raw = await live_quote_service.get_quotes(
+            [sym for sym, _ in INDEX_SYMBOLS] + [VIX_SYMBOL]
+        )
+        quotes = {k: (vars(v) if hasattr(v, "__dict__") else dict(v)) for k, v in raw.items()}
+    except Exception:
+        logging.getLogger("livermore.daily_card").warning(
+            "card index quotes failed; rendering without the tape", exc_info=True
+        )
+
+    brief = build_brief(
+        quotes=quotes, pulse=pulse, macro_signals=pulse.get("macro_signals")
+    )
+    row = await get_or_create_card(db, brief=brief, lang=lang)
+    if row is None:
+        raise HTTPException(
+            status_code=503,
+            detail="No settled close to build a card from yet.",
+        )
+    return card_to_dict(row)
+
+
 @router.get("/market/daily-brief")
 async def get_daily_brief(
     market: str = Query(default="US", pattern="^(US|CN)$"),

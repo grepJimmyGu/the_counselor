@@ -1073,6 +1073,41 @@ def run_startup_migrations(engine: Engine) -> None:
             except Exception:
                 pass
 
+        # Daily share card — one immutable row per (trading_date, lang).
+        #
+        # The UNIQUE constraint is the race guard, not decoration: the first
+        # share of the day generates, and two users clicking in the same second
+        # would otherwise both see "no card yet" and both pay an LLM call. The
+        # loser of the insert serves the winner's card.
+        #
+        # Stores the DATA (payload + generated copy), never the rendered PNG.
+        # ~3 KB x 2 languages x 252 trading days is ~1.5 MB/year; PNGs would be
+        # ~50 MB/year on the Postgres disk, and trap #10 exists because a
+        # disk-full event during a backfill took Market Pulse down.
+        conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS daily_cards (
+                id VARCHAR(36) PRIMARY KEY,
+                trading_date VARCHAR(10) NOT NULL,
+                lang VARCHAR(8) NOT NULL,
+                payload TEXT NOT NULL DEFAULT '{}',
+                copy TEXT NOT NULL DEFAULT '{}',
+                model VARCHAR(64),
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE (trading_date, lang)
+            )
+        """) if is_sqlite else text("""
+            CREATE TABLE IF NOT EXISTS daily_cards (
+                id VARCHAR(36) PRIMARY KEY,
+                trading_date VARCHAR(10) NOT NULL,
+                lang VARCHAR(8) NOT NULL,
+                payload JSONB NOT NULL DEFAULT '{}',
+                copy JSONB NOT NULL DEFAULT '{}',
+                model VARCHAR(64),
+                created_at TIMESTAMPTZ DEFAULT now(),
+                UNIQUE (trading_date, lang)
+            )
+        """))
+
         # PRD-08c: symbol_health_scores (Piotroski + Altman Z, sector percentile)
         conn.execute(text("""
             CREATE TABLE IF NOT EXISTS symbol_health_scores (
