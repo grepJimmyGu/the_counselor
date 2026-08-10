@@ -57,6 +57,21 @@ class ChatDone:
 ChatEvent = Union[ChatToken, ChatToolCall, ChatDone]
 
 
+# `temperature` is accepted by these signatures and NOT sent to the provider.
+#
+# gpt-5 rejects any value but its default ("Unsupported value: 'temperature'
+# does not support 0.1 with this model"), which 400s every call. Rather than
+# branch per model, we let every model use its own default.
+#
+# The parameter stays in the signatures because six callers pass a considered
+# value and deleting it would be a six-service refactor for no behavioural
+# gain. If a future provider needs it back, this is the one place to wire it.
+#
+# The trade, so it is not rediscovered as a mystery: extraction-shaped tasks
+# that asked for near-zero temperature (competitor grouping 0.0, BI extraction
+# 0.1) now run at the model default and are correspondingly less repeatable.
+
+
 class LLMProvider(Protocol):
     async def generate(
         self,
@@ -154,7 +169,6 @@ class OpenAICompatibleProvider:
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt},
             ],
-            "temperature": temperature,
             "response_format": {"type": "json_object"},
         }
 
@@ -203,7 +217,6 @@ class OpenAICompatibleProvider:
         body: dict[str, Any] = {
             "model": model,
             "messages": messages,
-            "temperature": temperature,
             "stream": True,
         }
         if tools:
