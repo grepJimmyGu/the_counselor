@@ -22,7 +22,8 @@ import io
 import logging
 from typing import Any, Dict, List
 
-from app.services.card_fonts import FontUnavailable, resolve_font
+from app.services.card_fonts import FontUnavailable, font_index, resolve_font
+from app.services.card_ornaments import place as ornament
 from app.services.card_paper import (
     ACCENT,
     CARD,
@@ -53,7 +54,8 @@ FOOTER_H = 104
 def _font(lang: str, size: int, *, bold: bool = False):
     from PIL import ImageFont
 
-    return ImageFont.truetype(resolve_font(lang, bold=bold), size)
+    path = resolve_font(lang, bold=bold)
+    return ImageFont.truetype(path, size, index=font_index(path, bold=bold))
 
 
 def _wrap(draw, text: str, font, max_w: int) -> List[str]:
@@ -135,6 +137,10 @@ def render_card_png(card_data: Dict[str, Any]) -> bytes:
     # ── header: date chip, masthead beside it ───────────────────────────────
     right = date_chip(d, (x, y), payload.get("date_label", ""), f_chip)
     d.text((right + 20, y + 12), payload.get("masthead", ""), font=f_small, fill=INK_SOFT)
+    # The generated corner mark. The header band's right half is empty in every
+    # layout — the chip and masthead never reach it — so this can't displace
+    # anything. Drawn before the headline so text always wins an overlap.
+    ornament(base, "rotation", (x + inner - 96, y - 14, x + inner, y + 82), anchor="right")
     y += 68
 
     # ── headline, marker swipe under the last line ──────────────────────────
@@ -150,9 +156,15 @@ def render_card_png(card_data: Dict[str, Any]) -> bytes:
         y += 70
     y += 4
 
+    sub_top = y
     for line in _wrap(d, copy.get("subtitle") or "", f_body, inner - 250)[:3]:
         d.text((x, y), line, font=f_body, fill=INK_SOFT)
         y += 37
+    # The subtitle wraps 250px short of the margin, so that column is reserved
+    # by the layout rather than borrowed from it.
+    if y > sub_top:
+        ornament(base, "magnifier", (x + inner - 116, sub_top - 24, x + inner - 8, y + 22),
+                 anchor="right", rotate=-8)
     y += 16
 
     # ── (1) market performance ──────────────────────────────────────────────
@@ -210,7 +222,10 @@ def render_card_png(card_data: Dict[str, Any]) -> bytes:
 
         if payload.get("flow_from") and payload.get("flow_to"):
             sx = x + left_w + 22
-            bx0, by0, bx1, _ = sticky(base, (sx, y, x + inner, y + block_h), tilt=-1.2)
+            # Generated tape over the corner the drawn strip would occupy —
+            # `tape=False` so the note doesn't wear two.
+            bx0, by0, bx1, _ = sticky(base, (sx, y, x + inner, y + block_h), tilt=-1.2, tape=False)
+            ornament(base, "tape", (sx + 16, y - 22, sx + 132, y + 20), rotate=-1.2)
             d = ImageDraw.Draw(base)
             mf = labels.get("money_flow", "")
             d.text((bx0, by0), mf, font=f_sec, fill=ACCENT)
@@ -233,7 +248,8 @@ def render_card_png(card_data: Dict[str, Any]) -> bytes:
         lines = _wrap(d, body, f_body, inner - 110)[:3]
         take_h = 108 + len(lines) * 38
         top = min(y, floor - take_h)
-        bx0, by0, bx1, _ = sticky(base, (x, top, x + inner, top + take_h), tilt=0.6)
+        bx0, by0, bx1, _ = sticky(base, (x, top, x + inner, top + take_h), tilt=0.6, tape=False)
+        ornament(base, "tape", (x + 18, top - 22, x + 142, top + 20), rotate=0.6)
         d = ImageDraw.Draw(base)
         hx = badge(d, (bx0, by0), 4, f_badge)
         d.text((hx, by0 + 6), labels.get("takeaway", "").upper(), font=f_sec, fill=ACCENT)

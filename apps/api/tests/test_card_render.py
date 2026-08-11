@@ -166,6 +166,69 @@ def test_can_render_lets_the_button_ask_before_offering_a_language(monkeypatch):
     assert can_render(ZH) is False
 
 
+@pytest.mark.parametrize("lang", [EN, ZH])
+def test_bold_actually_draws_bold(lang):
+    """A `.ttc` holds several faces in one file and `truetype(path, size)`
+    silently takes index 0 — Regular. So `bold=True` returned Regular for every
+    headline on every card rendered before this was pinned, and nothing
+    errored: the text just quietly wasn't bold.
+
+    Asserted on ink rather than on the face name, because that's the thing a
+    reader can see, and it holds whether the weight comes from a second face
+    inside a collection or from a separately bundled bold file.
+    """
+    from PIL import Image, ImageDraw
+
+    from app.services.card_render import _font
+
+    try:
+        regular, bold = _font(lang, 58), _font(lang, 58, bold=True)
+    except FontUnavailable:
+        pytest.skip(f"no font for {lang} on this machine")
+
+    word = "MARKET" if lang == EN else "大盘表现"
+    ink = []
+    for font in (regular, bold):
+        im = Image.new("L", (760, 130), 255)
+        ImageDraw.Draw(im).text((10, 10), word, font=font, fill=0)
+        ink.append(sum(1 for v in im.getdata() if v < 128))
+    assert ink[1] > ink[0] * 1.05, f"bold is not heavier than regular ({ink})"
+
+
+# ── ornament ────────────────────────────────────────────────────────────────
+
+
+def test_a_missing_ornament_set_does_not_break_the_card(monkeypatch):
+    """Ornament is the one part of this card that is purely decoration, so a
+    checkout that has never run the asset build must still render. The figures
+    are the card's reason to exist; the doodles are not."""
+    from app.services import card_ornaments
+
+    monkeypatch.setattr(card_ornaments, "ORNAMENT_DIR", card_ornaments.ORNAMENT_DIR / "__absent__")
+    monkeypatch.setattr(card_ornaments, "_cache", {})
+    img = _open(render_card_png(_card()))
+    assert (img.width, img.height) == (WIDTH, HEIGHT)
+
+
+def test_tape_false_leaves_the_corner_to_the_generated_strip():
+    """Both notes wore two pieces of tape the first time the generated strip
+    was composited — `sticky()` draws its own, and nothing said not to."""
+    from PIL import Image
+
+    from app.services.card_paper import sticky
+
+    counts = []
+    for tape in (True, False):
+        im = Image.new("RGBA", (400, 300), (0, 0, 0, 0))
+        sticky(im, (40, 60, 360, 260), tape=tape)
+        # Above the note's top edge, only the tape can put pixels — save for a
+        # few from the tilt, hence a ratio rather than zero.
+        band = im.crop((40, 18, 360, 52))
+        counts.append(sum(1 for p in band.getdata() if p[3] > 0))
+    assert counts[0] > 200, "the drawn tape is missing"
+    assert counts[1] < counts[0] / 4, "tape=False still drew a strip"
+
+
 def test_latin_and_cjk_resolve_to_different_faces():
     """A Latin font asked to draw 科技 silently emits boxes rather than
     failing, so the two must not collapse to one path."""

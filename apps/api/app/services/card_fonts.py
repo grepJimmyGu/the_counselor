@@ -71,6 +71,23 @@ def _first_readable(paths: tuple) -> Optional[str]:
     return None
 
 
+# Face index within a .ttc collection. A TrueType Collection holds several
+# faces in one file, and `truetype(path, size)` silently takes index 0 —
+# Regular. So `bold=True` returned Regular for every headline on every card
+# rendered so far, and nothing errored: the text just quietly wasn't bold.
+_TTC_BOLD_INDEX = {
+    "/System/Library/Fonts/Helvetica.ttc": 1,          # Helvetica Bold
+    "/System/Library/Fonts/Hiragino Sans GB.ttc": 2,   # W6, the heavier weight
+}
+
+
+def font_index(path: str, *, bold: bool) -> int:
+    """Which face inside the file. Bundled fonts are single-face, so 0."""
+    if not bold:
+        return 0
+    return _TTC_BOLD_INDEX.get(path, 0)
+
+
 def resolve_font(lang: str, *, bold: bool = False) -> str:
     """Path to a font that can render `lang`, or raise.
 

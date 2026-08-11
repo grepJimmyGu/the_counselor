@@ -71,6 +71,46 @@ lightbulbs, sticky notes — are generated **once** as static assets and embedde
 they don't change daily and they're what a diffusion model is actually good at.
 Everything carrying meaning is drawn by us.
 
+### The split: generated pixels, rendered words
+
+Five image-model generations produced the right *look* and damaged the *data*
+every time, differently each time. The decisive case was a Chinese card where
+every figure was correct but the labels had detached — `医疗 −1.10%` when
+Healthcare was **+1.67%**. A number-only OCR gate passes that card. No single
+mechanical check catches the whole failure set.
+
+The cause is what the model is doing: it draws glyph *shapes it has seen*, not
+text it looks up. Latin has ~52 letterforms and it manages; Chinese has
+thousands of dense multi-stroke characters, so at 20px it emits stroke-shaped
+plausible non-characters (标→桁, 琼→珉) with no concept of a wrong character.
+
+So the boundary is drawn at **anything a reader reads**:
+
+| Layer | Owner | Where |
+|---|---|---|
+| Ornament — corner mark, doodles, tape | image model, **once** | `card_plate.PLATE_PROMPT` → `app/assets/plates/plate.png` |
+| Ornament placement | renderer | `card_ornaments.place()` |
+| Structure, figures, labels, prose | renderer | `card_render.py` + `card_paper.py` |
+
+The prompt asks for a **background plate with empty zones**, not a finished
+card — a finished card leaves nowhere to composite, and any mark resembling
+writing ruins the plate. `scripts/build_card_ornaments.py` then cuts the plate
+into individual transparent PNGs, because a whole plate would also decide
+*where* things sit and that is layout: the takeaway note has to land under the
+takeaway text, not wherever the model put a rectangle.
+
+Every ornament slot is one the layout already reserves — the corner mark sits
+in the header band beside the date chip, the research mark in the 250px the
+subtitle wrap deliberately leaves clear. Nothing is placed over a figure, and
+`place()` returns nothing the layout reads, so no ornament can move one.
+
+**A missing ornament set is a normal state.** `place()` is a silent no-op when
+the asset isn't on disk. Decoration is the one part of this card whose absence
+costs nothing a reader can misread — unlike a missing figure, or tofu.
+
+**Regenerating returns a different drawing**, so the generated plate is
+committed alongside the cuts; it's the only way to re-cut the ones we have.
+
 cairosvg needs system Cairo libraries on the Railway image — deployment risk
 for little gain, since the layout is fixed and every coordinate is ours.
 Playwright would give perfect fidelity by reusing the design's HTML/CSS, but it
@@ -99,7 +139,17 @@ lets the share button ask before offering a language.
 Fonts go in `apps/api/app/assets/fonts/`. **Not committed yet:** a
 GB2312-covering Noto Sans SC subset is ~4-5 MB, and committing binaries of that
 size to the repo is a call for Jimmy, not a default. Until they land, macOS dev
-fallbacks let both cards render locally and every use logs a warning.
+fallbacks let both cards render locally and every use logs a warning. A bold
+**Latin** face is only ~200-400 KB — drop any `.ttf` in as `NotoSans-Bold.ttf`
+or `Inter-Bold.ttf` and it takes precedence with no code change.
+
+**`bold=True` returned Regular on every card ever rendered.** A `.ttc` is a
+TrueType *Collection* holding several faces in one file, and
+`ImageFont.truetype(path, size)` silently takes index 0. Nothing errored — the
+headlines just quietly weren't bold. `card_fonts.font_index()` selects the
+face; `test_bold_actually_draws_bold` pins it on rendered ink rather than on a
+face name, so it holds whether the weight comes from a second face inside a
+collection or from a separately bundled bold file.
 
 **PNG output shows `livermorealpha.com` as plain readable text** — no simulated
 button (Chinese prompt §9). The real link travels in the share sheet.

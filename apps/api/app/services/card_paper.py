@@ -101,12 +101,16 @@ def arrow(d, x: int, y: int, w: int = 44, *, color=INK_SOFT, width: int = 3) -> 
     d.line([(x + w - 13, y + 8), (x + w, y)], fill=color, width=width)
 
 
-def sticky(img, box: Tuple[int, int, int, int], *, tilt: float = -1.4, fill=STICKY):
+def sticky(img, box: Tuple[int, int, int, int], *, tilt: float = -1.4, fill=STICKY, tape: bool = True):
     """A tilted sticky note with a tape strip, composited onto `img`.
 
     Rendered on its own layer and rotated, because a note at exactly 0 degrees
     reads as a yellow div. The tilt is small and fixed — enough to feel placed
     by hand, not enough to look broken.
+
+    `tape=False` suppresses the drawn strip for callers that composite the
+    generated one over the same corner — otherwise both land and the note wears
+    two pieces of tape.
     """
     from PIL import Image, ImageDraw
 
@@ -118,10 +122,11 @@ def sticky(img, box: Tuple[int, int, int, int], *, tilt: float = -1.4, fill=STIC
     ld.rounded_rectangle((pad + 3, pad + 4, pad + w + 3, pad + h + 4), radius=6, fill=(226, 214, 186, 150))
     ld.rounded_rectangle((pad, pad, pad + w, pad + h), radius=6, fill=fill + (255,))
     # Tape strip over the top-left corner.
-    ld.polygon(
-        [(pad + 18, pad - 12), (pad + 96, pad - 20), (pad + 100, pad + 8), (pad + 22, pad + 16)],
-        fill=(236, 219, 190, 205),
-    )
+    if tape:
+        ld.polygon(
+            [(pad + 18, pad - 12), (pad + 96, pad - 20), (pad + 100, pad + 8), (pad + 22, pad + 16)],
+            fill=(236, 219, 190, 205),
+        )
     layer = layer.rotate(tilt, resample=Image.BICUBIC, expand=False)
     img.alpha_composite(layer, (x0 - pad, y0 - pad))
     return (x0 + 22, y0 + 20, x1 - 22, y1 - 18)  # inner text box
