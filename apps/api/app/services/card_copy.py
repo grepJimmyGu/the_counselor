@@ -72,7 +72,10 @@ _SYSTEM = {
         "2. NEVER name a sector or an index. The card renders those itself.\n"
         "3. Say what happened and why you think it happened. If the data does "
         "not support a reason, say less rather than inventing one.\n"
-        "4. Return ONLY a JSON object. No markdown, no commentary."
+        "4. Avoid incidental numerals — write \"three drivers\", not \"3 "
+        "drivers\". Any digit you write is checked against the data, and an "
+        "unmatched one costs the whole sentence.\n"
+        "5. Return ONLY a JSON object. No markdown, no commentary."
     ),
     ZH: (
         "你在为一张「每日美股复盘」知识卡片撰写文案——独立开发者的研究笔记，"
@@ -84,7 +87,9 @@ _SYSTEM = {
         "2. 绝对不要写出板块名或指数名，卡片会自己渲染这些名称。\n"
         "3. 说清楚今天发生了什么、你认为为什么会发生。"
         "如果数据不足以支撑某个原因，就少写，不要编。\n"
-        "4. 只返回一个 JSON 对象，不要 markdown，不要额外说明。"
+        "4. 避免出现无关数字，用「三个」而不是「3个」。"
+        "你写下的任何数字都会与数据核对，对不上就会整句作废。\n"
+        "5. 只返回一个 JSON 对象，不要 markdown，不要额外说明。"
     ),
 }
 
