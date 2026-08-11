@@ -100,10 +100,16 @@ def test_the_conclusion_block_always_renders():
 
     Detected by the highlight colour: nothing else on the card uses it.
     """
-    from app.services.card_render import HIGHLIGHT
+    from app.services.card_paper import STICKY
 
+    # Tolerance, not equality: the note is drawn on a rotated layer, so its
+    # edges are antialiased and an exact-colour count undercounts. Nothing
+    # else on the card is this warm and this saturated.
     img = _open(render_card_png(_card())).convert("RGB")
-    hits = sum(1 for px in img.getdata() if px == HIGHLIGHT)
+    hits = sum(
+        1 for r, g, b in img.getdata()
+        if abs(r - STICKY[0]) < 12 and abs(g - STICKY[1]) < 12 and abs(b - STICKY[2]) < 12
+    )
     assert hits > 20_000, "the takeaway block is missing"
 
 
@@ -111,16 +117,18 @@ def test_content_does_not_run_past_the_canvas():
     """The first version overlapped the footer and ran off the bottom — the
     sections collided rather than the page growing, so nothing errored."""
     img = _open(render_card_png(_card())).convert("RGB")
-    # The last few rows must be clean ground; ink there means overflow.
+    # Ink in the bleed zone means overflow. Compared by darkness rather than
+    # against one reference pixel — the ground carries a deterministic grain
+    # now, so exact equality would fail on texture, not on layout.
     bottom = [img.getpixel((x, HEIGHT - 3)) for x in range(0, WIDTH, 7)]
-    assert all(px == img.getpixel((4, 4)) for px in bottom)
+    assert all(sum(px) > 540 for px in bottom), "content reaches the bottom edge"
 
 
 def test_a_long_headline_cannot_push_the_footer_off():
     long_copy = dict(COPY, headline="A very long headline " * 12)
     img = _open(render_card_png(_card(EN, long_copy))).convert("RGB")
     bottom = [img.getpixel((x, HEIGHT - 3)) for x in range(0, WIDTH, 7)]
-    assert all(px == img.getpixel((4, 4)) for px in bottom)
+    assert all(sum(px) > 540 for px in bottom)
 
 
 def test_chinese_wraps_instead_of_running_off_the_edge():
@@ -129,7 +137,7 @@ def test_chinese_wraps_instead_of_running_off_the_edge():
     zh = dict(COPY, headline="市场情绪彻底反转" * 8)
     img = _open(render_card_png(_card(ZH, zh))).convert("RGB")
     right = [img.getpixel((WIDTH - 3, y)) for y in range(0, HEIGHT, 7)]
-    assert all(px == img.getpixel((4, 4)) for px in right)
+    assert all(sum(px) > 540 for px in right), "text runs past the right edge"
 
 
 def test_a_data_only_card_still_renders():

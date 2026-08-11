@@ -38,7 +38,7 @@ SECTOR_ZH: Dict[str, str] = {
     "Financials": "金融",
     "Industrials": "工业",
     "Energy": "能源",
-    "Materials": "材料",
+    "Materials": "原材料",
     "Real Estate": "房地产",
     "Utilities": "公用事业",
 }

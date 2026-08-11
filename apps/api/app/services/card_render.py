@@ -1,58 +1,53 @@
 """Draw the daily share card as a PNG.
 
-Pillow rather than an SVG rasteriser, and rather than an image model.
+**Hybrid, after three image-model attempts.** Every generation produced the
+right *look* and damaged the *data*: the Chinese run corrupted sector labels
+(标普500 -> 板普, 道琼斯 -> 道搞金) so Healthcare displayed Utilities' figure;
+the English run dropped seven of eight sector percentages and omitted the
+compliance disclaimer entirely. Three runs, three different failures, all in
+the same tabular section — and no single guard catches them, since a
+number-only check passes the Chinese card and fails the English one.
 
-*Not an image model*: it cannot render `+15.51%` reliably, and a wrong figure
-on a card built to be forwarded is the worst failure this feature has.
+So: **structure and data are drawn here; only ornament is generated.** Most of
+what makes the reference feel like a notebook is structural anyway — modular
+rounded cards, numbered badges, highlighter marks, tilted sticky notes with
+tape. That vocabulary lives in `card_paper` and is deterministic. Generated
+doodles composite on top, never underneath a number.
 
-*Not cairosvg*: it needs system Cairo libraries on the Railway image, which is
-deployment risk for no gain here — the layout is fixed and I control every
-coordinate, so SVG's main advantage (declarative layout) buys little.
-
-*Not Playwright*: perfect fidelity, but a ~400MB browser on a container whose
-memory is already the binding cost constraint.
-
-3:4 portrait per both prompts, sized for a phone screenshot. Every colour is
-from Jimmy's spec. The illustration layer (arrows, sticky notes, doodles) is
-deliberately absent — those are static assets to be generated once, and a card
-with clean typography and no doodles reads as restrained, while a card with
-half-placed doodles reads as broken.
+3:4 portrait per both prompts. Palette is Jimmy's throughout.
 """
 from __future__ import annotations
 
 import io
 import logging
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List
 
 from app.services.card_fonts import FontUnavailable, resolve_font
+from app.services.card_paper import (
+    ACCENT,
+    CARD,
+    GROUND,
+    HIGHLIGHT,
+    INK,
+    INK_SOFT,
+    RULE,
+    STICKY,
+    arrow,
+    badge,
+    card,
+    date_chip,
+    highlighter,
+    paper_ground,
+    sticky,
+    tone,
+    underline,
+)
 
 logger = logging.getLogger("livermore.card_render")
 
-# 3:4, sized so text stays crisp when a phone downscales it.
 WIDTH, HEIGHT = 1080, 1440
-MARGIN = 72
-# The footer band is reserved before anything flows. Without this the stock,
-# score and takeaway blocks ran straight through the attribution and off the
-# canvas — the sections overlapped rather than the page growing, so nothing in
-# the code noticed. A section that doesn't fit is DROPPED, matching the rest of
-# the card: no source, or no room, means the module collapses rather than
-# rendering on top of another.
-#
-# Sized to what the footer actually draws — rule, source line, link line,
-# disclaimer — not a round number. At 150 it reserved 50px nothing used, and
-# the takeaway block (the spec's headline conclusion) was dropped to protect
-# empty space.
-FOOTER_H = 112
-
-# Jimmy's palette, both prompts.
-INK = (17, 17, 17)
-INK_SOFT = (102, 102, 102)
-RULE = (234, 234, 234)
-GROUND = (243, 236, 224)  # warm oatmeal — clearly not white, per the spec
-ACCENT = (139, 69, 19)  # #8B4513
-HIGHLIGHT = (244, 211, 94)  # #F4D35E
-UP = (58, 122, 84)  # muted green
-DOWN = (176, 74, 48)  # muted red-orange
+MARGIN = 60
+FOOTER_H = 104
 
 
 def _font(lang: str, size: int, *, bold: bool = False):
@@ -61,42 +56,17 @@ def _font(lang: str, size: int, *, bold: bool = False):
     return ImageFont.truetype(resolve_font(lang, bold=bold), size)
 
 
-def _arrow(d, x: int, y: int, w: int = 46) -> None:
-    """Draw the flow arrow rather than typing one.
-
-    `→` (U+2192) is absent from Helvetica and rendered as an empty box on the
-    ENGLISH card — the same missing-glyph failure as CJK tofu, and a reminder
-    that "it's only ASCII-ish" is not a font guarantee. Two lines always work.
-    """
-    mid = y + 16
-    d.line([(x, mid), (x + w, mid)], fill=INK_SOFT, width=3)
-    d.line([(x + w - 14, mid - 9), (x + w, mid)], fill=INK_SOFT, width=3)
-    d.line([(x + w - 14, mid + 9), (x + w, mid)], fill=INK_SOFT, width=3)
-
-
-def _tone(direction: Optional[str]) -> Tuple[int, int, int]:
-    """`None` means the row must not be coloured — VIX is a level, and "VIX
-    down" is not good news the way "S&P up" is."""
-    if direction == "up":
-        return UP
-    if direction == "down":
-        return DOWN
-    return INK
-
-
 def _wrap(draw, text: str, font, max_w: int) -> List[str]:
     """Greedy wrap that also breaks mid-run for CJK.
 
     Chinese has no spaces, so a space-only wrap emits one enormous line that
-    runs off the canvas — invisible in an English test and obvious to the
-    first Chinese reader.
+    leaves the canvas — invisible in every English test.
     """
     if not text:
         return []
-    has_spaces = " " in text.strip()
     lines: List[str] = []
-    if has_spaces:
-        cur = ""
+    cur = ""
+    if " " in text.strip():
         for word in text.split():
             trial = f"{cur} {word}".strip()
             if draw.textlength(trial, font=font) <= max_w or not cur:
@@ -104,224 +74,196 @@ def _wrap(draw, text: str, font, max_w: int) -> List[str]:
             else:
                 lines.append(cur)
                 cur = word
-        if cur:
-            lines.append(cur)
     else:
-        cur = ""
         for ch in text:
             if draw.textlength(cur + ch, font=font) <= max_w or not cur:
                 cur += ch
             else:
                 lines.append(cur)
                 cur = ch
-        if cur:
-            lines.append(cur)
+    if cur:
+        lines.append(cur)
     return lines
 
 
-def render_card_png(card: Dict[str, Any]) -> bytes:
+def render_card_png(card_data: Dict[str, Any]) -> bytes:
     """`card_to_dict(row)` -> PNG bytes.
 
-    Raises `FontUnavailable` rather than drawing empty boxes. A tofu card looks
-    fine to any check that only asserts the PNG has bytes, and broken to the
-    person it was forwarded to.
+    Raises `FontUnavailable` rather than drawing empty boxes: tofu passes any
+    check that only asserts the PNG has bytes, and is obviously broken to the
+    reader it was forwarded to.
     """
-    from PIL import Image, ImageDraw
+    from PIL import ImageDraw
 
-    payload = card.get("payload") or {}
-    copy = card.get("copy") or {}
-    lang = card.get("lang") or "en"
+    payload = card_data.get("payload") or {}
+    copy = card_data.get("copy") or {}
+    lang = card_data.get("lang") or "en"
     labels = payload.get("labels") or {}
 
-    img = Image.new("RGB", (WIDTH, HEIGHT), GROUND)
-    d = ImageDraw.Draw(img)
+    base = paper_ground(WIDTH, HEIGHT).convert("RGBA")
+    d = ImageDraw.Draw(base)
 
+    f_chip = _font(lang, 24, bold=True)
     f_micro = _font(lang, 21)
     f_small = _font(lang, 24)
     f_body = _font(lang, 27)
-    f_stat = _font(lang, 38, bold=True)
-    f_head = _font(lang, 56, bold=True)
-    f_label = _font(lang, 22, bold=True)
+    f_head = _font(lang, 58, bold=True)
+    f_sec = _font(lang, 25, bold=True)
+    f_stat = _font(lang, 36, bold=True)
+    f_big = _font(lang, 44, bold=True)
+    f_badge = _font(lang, 22, bold=True)
 
-    x = MARGIN
-    inner = WIDTH - MARGIN * 2
+    x, inner = MARGIN, WIDTH - MARGIN * 2
     y = MARGIN
 
-    # ── header: date above the masthead (the byline pattern) ────────────────
-    d.text((x, y), payload.get("date_label", ""), font=f_label, fill=ACCENT)
-    y += 30
-    d.text((x, y), payload.get("masthead", ""), font=f_micro, fill=INK_SOFT)
-    y += 44
+    # Measure the blocks before drawing any, so leftover height can be shared
+    # between the gaps rather than pooling in one.
+    _rows = max(len(payload.get("winners") or []), len(payload.get("losers") or []), 1)
+    _sector_h = 96 + _rows * 36
+    _has_stock = bool(payload.get("stock"))
+    _body = copy.get("takeaway_body") or ""
+    _hl = copy.get("takeaway_highlight") or ""
+    _take_lines = _wrap(d, _body, f_body, inner - 110)[:3] if _body else []
+    _take_h = (108 + len(_take_lines) * 38) if (_body or _hl) else 0
+    _fixed = 68 + 70 * len(_wrap(d, copy.get("headline") or "", f_head, inner - 30)[:2]) + 4 \
+        + 37 * len(_wrap(d, copy.get("subtitle") or "", f_body, inner - 250)[:3]) + 16 \
+        + 214 + _sector_h + (196 if _has_stock else 0) + _take_h
+    _gaps = 3 + (1 if _has_stock else 0)
+    _slack = max(0, (HEIGHT - MARGIN - FOOTER_H) - MARGIN - _fixed)
+    GAP = 18 + min(34, _slack // max(_gaps, 1))
 
-    # ── headline ────────────────────────────────────────────────────────────
-    headline = copy.get("headline") or ""
-    if headline:
-        for line in _wrap(d, headline, f_head, inner)[:2]:
-            d.text((x, y), line, font=f_head, fill=INK)
-            y += 66
-        y += 6
+    # ── header: date chip, masthead beside it ───────────────────────────────
+    right = date_chip(d, (x, y), payload.get("date_label", ""), f_chip)
+    d.text((right + 20, y + 12), payload.get("masthead", ""), font=f_small, fill=INK_SOFT)
+    y += 68
 
-    subtitle = copy.get("subtitle") or ""
-    if subtitle:
-        for line in _wrap(d, subtitle, f_body, inner)[:2]:
-            d.text((x, y), line, font=f_body, fill=INK_SOFT)
-            y += 36
-        y += 8
+    # ── headline, marker swipe under the last line ──────────────────────────
+    head_lines = _wrap(d, copy.get("headline") or "", f_head, inner - 30)[:2]
+    for i, line in enumerate(head_lines):
+        if i == len(head_lines) - 1:
+            w = d.textlength(line, font=f_head)
+            # Trailing ~55% of the line: a swipe over the phrase that lands,
+            # not a bar under the sentence.
+            start = x + int(w * 0.45)
+            highlighter(d, (start - 6, y + int(f_head.size * 0.80), x + int(w) + 10, y + f_head.size + 8))
+        d.text((x, y), line, font=f_head, fill=INK)
+        y += 70
+    y += 4
 
-    d.line([(x, y), (x + inner, y)], fill=RULE, width=2)
-    y += 24
+    for line in _wrap(d, copy.get("subtitle") or "", f_body, inner - 250)[:3]:
+        d.text((x, y), line, font=f_body, fill=INK_SOFT)
+        y += 37
+    y += 16
 
-    # ── the tape: four index tiles, 2x2 ─────────────────────────────────────
-    d.text((x, y), labels.get("market_performance", ""), font=f_label, fill=ACCENT)
-    y += 32
-    col_w = inner // 2
-    for i, stat in enumerate((payload.get("indices") or [])[:4]):
-        cx = x + (i % 2) * col_w
-        cy = y + (i // 2) * 100
-        d.text((cx, cy), stat.get("label", ""), font=f_small, fill=INK_SOFT)
-        d.text((cx, cy + 28), stat.get("value", "—"), font=f_stat, fill=INK)
-        d.text(
-            (cx, cy + 70),
-            stat.get("change", ""),
-            font=f_small,
-            fill=_tone(stat.get("direction")),
-        )
-    y += 200 + 4
+    # ── (1) market performance ──────────────────────────────────────────────
+    card_h = 214
+    card(d, (x, y, x + inner, y + card_h))
+    hx = badge(d, (x + 22, y + 18), 1, f_badge)
+    d.text((hx, y + 24), labels.get("market_performance", "").upper(), font=f_sec, fill=ACCENT)
+    ty = y + 76
+    tile_w = (inner - 52) // 4
+    for i, s in enumerate((payload.get("indices") or [])[:4]):
+        tx = x + 26 + i * tile_w
+        d.rounded_rectangle((tx, ty, tx + tile_w - 12, ty + 88), radius=12, outline=RULE, width=2)
+        d.text((tx + 13, ty + 12), s.get("label", "")[:15], font=f_micro, fill=INK_SOFT)
+        d.text((tx + 13, ty + 42), s.get("change", "—"), font=f_stat, fill=tone(s.get("direction")))
+    ny = ty + 100
+    for line in _wrap(d, copy.get("market_note") or "", f_small, inner - 60)[:1]:
+        d.text((x + 26, ny), line, font=f_small, fill=INK_SOFT)
+    y += card_h + GAP
 
-    d.line([(x, y), (x + inner, y)], fill=RULE, width=2)
-    y += 24
-
-    # ── sectors, two columns ────────────────────────────────────────────────
-    d.text((x, y), labels.get("sectors", ""), font=f_label, fill=ACCENT)
-    y += 32
-    for col, (key, heading) in enumerate(
-        (("winners", labels.get("winners", "")), ("losers", labels.get("losers", "")))
-    ):
-        cx = x + col * col_w
-        cy = y
-        d.text((cx, cy), heading, font=f_micro, fill=INK_SOFT)
-        cy += 28
-        for stat in (payload.get(key) or [])[:4]:
-            d.text((cx, cy), stat.get("label", ""), font=f_small, fill=INK)
-            d.text(
-                (cx + col_w - 130, cy),
-                stat.get("value", ""),
-                font=f_small,
-                fill=_tone(stat.get("direction")),
-            )
-            cy += 34
-    y += 28 + 4 * 34 + 10
-
-    # ── money flow ──────────────────────────────────────────────────────────
-    if payload.get("flow_from") and payload.get("flow_to"):
-        d.text((x, y), labels.get("money_flow", ""), font=f_label, fill=ACCENT)
-        y += 30
-        fw = d.textlength(payload["flow_from"], font=f_body)
-        d.text((x, y), payload["flow_from"], font=f_body, fill=INK)
-        _arrow(d, int(x + fw + 20), y)
-        d.text((x + fw + 86, y), payload["flow_to"], font=f_body, fill=INK)
-        y += 38
-    note = copy.get("money_flow_note") or ""
-    if note:
-        for line in _wrap(d, note, f_small, inner)[:1]:
-            d.text((x, y), line, font=f_small, fill=INK_SOFT)
-            y += 30
-    y += 6
+    # ── (2) sector performance ──────────────────────────────────────────────
+    # The section every generation broke. Drawn from the payload, so a label
+    # can never detach from its figure.
+    rows = max(len(payload.get("winners") or []), len(payload.get("losers") or []), 1)
+    sec_h = 96 + rows * 36
+    card(d, (x, y, x + inner, y + sec_h))
+    hx = badge(d, (x + 22, y + 18), 2, f_badge)
+    d.text((hx, y + 24), labels.get("sectors", "").upper(), font=f_sec, fill=ACCENT)
+    col_w = (inner - 52) // 2
+    for ci, key in enumerate(("losers", "winners")):
+        cx = x + 26 + ci * col_w
+        d.text((cx, y + 68), labels.get(key, "").upper(), font=f_micro, fill=INK_SOFT)
+        ry = y + 98
+        for s in (payload.get(key) or [])[:4]:
+            d.text((cx, ry), s.get("label", ""), font=f_small, fill=INK)
+            vw = d.textlength(s.get("value", ""), font=f_small)
+            d.text((cx + col_w - 46 - vw, ry), s.get("value", ""), font=f_small, fill=tone(s.get("direction")))
+            ry += 36
+    y += sec_h + GAP
 
     floor = HEIGHT - MARGIN - FOOTER_H
 
-    # Reserve the conclusion band FIRST. Both prompts call this the most
-    # important module on the card ("全图最重要的结论区域"), so it must not be
-    # what yields when space runs short. Flowing first-come-first-served
-    # dropped it three renders running while the stock bullets above it kept
-    # their room — the layout was deciding priority by accident.
-    body = copy.get("takeaway_body") or ""
-    highlight = copy.get("takeaway_highlight") or ""
-    take_lines = _wrap(d, body, f_body, inner - 48)[:2] if body else []
-    take_h = (84 + len(take_lines) * 38) if (body or highlight) else 0
-    mid_floor = floor - take_h - (16 if take_h else 0)
-
-    # ── stock of the day ────────────────────────────────────────────────────
+    # ── (3) stock of the day + the money-flow sticky beside it ──────────────
     stock = payload.get("stock")
-    if stock and y + 170 < mid_floor:
-        d.line([(x, y), (x + inner, y)], fill=RULE, width=2)
-        y += 20
-        d.text((x, y), labels.get("stock_of_day", ""), font=f_label, fill=ACCENT)
-        y += 32
-        d.text((x, y), stock.get("symbol", ""), font=f_stat, fill=INK)
-        d.text(
-            (x + 220, y + 8),
-            stock.get("change", ""),
-            font=f_body,
-            fill=_tone(stock.get("direction")),
-        )
-        y += 50
-        for point in (copy.get("stock_points") or [])[:3]:
-            if y + 30 > mid_floor:
-                break
-            for line in _wrap(d, f"· {point}", f_small, inner)[:1]:
-                d.text((x, y), line, font=f_small, fill=INK)
-                y += 30
-        # The three-dimensional score, when we have it. Absent rather than
-        # zeroed — a score of 0 reads as a verdict, not as missing data.
-        if stock.get("score_health") is not None and y + 92 < mid_floor:
-            y += 8
-            trio = [
-                (labels.get("score_health", ""), stock.get("score_health")),
-                (labels.get("score_valuation", ""), stock.get("score_valuation")),
-                (labels.get("score_trend", ""), stock.get("score_trend")),
-            ]
-            for i, (lab, val) in enumerate(trio):
-                bx = x + i * (inner // 3)
-                d.text((bx, y), lab, font=f_micro, fill=INK_SOFT)
-                d.text((bx, y + 24), str(val), font=f_stat, fill=ACCENT)
-            y += 74
-        y += 10
+    block_h = 196
+    if stock and y + block_h < floor - 180:
+        left_w = int(inner * 0.5)
+        card(d, (x, y, x + left_w, y + block_h))
+        hx = badge(d, (x + 22, y + 18), 3, f_badge)
+        d.text((hx, y + 24), labels.get("stock_of_day", "").upper(), font=f_sec, fill=ACCENT)
+        d.text((x + 26, y + 72), stock.get("symbol", ""), font=f_stat, fill=INK)
+        d.text((x + 26, y + 114), stock.get("change", ""), font=f_big, fill=tone(stock.get("direction")))
+        for p in (copy.get("stock_points") or [])[:1]:
+            for line in _wrap(d, p, f_micro, left_w - 54)[:1]:
+                d.text((x + 26, y + 166), line, font=f_micro, fill=INK_SOFT)
 
-    # ── takeaway, on the highlight block ────────────────────────────────────
+        if payload.get("flow_from") and payload.get("flow_to"):
+            sx = x + left_w + 22
+            bx0, by0, bx1, _ = sticky(base, (sx, y, x + inner, y + block_h), tilt=-1.2)
+            d = ImageDraw.Draw(base)
+            mf = labels.get("money_flow", "")
+            d.text((bx0, by0), mf, font=f_sec, fill=ACCENT)
+            underline(d, bx0, by0 + 34, int(d.textlength(mf, font=f_sec)))
+            fy = by0 + 50
+            d.text((bx0, fy), payload["flow_from"], font=f_small, fill=INK)
+            fw = d.textlength(payload["flow_from"], font=f_small)
+            arrow(d, int(bx0 + fw + 12), int(fy + 14), w=34)
+            d.text((bx0 + fw + 58, fy), payload["flow_to"], font=f_small, fill=INK)
+            ny = fy + 40
+            for line in _wrap(d, copy.get("money_flow_note") or "", f_micro, bx1 - bx0)[:3]:
+                d.text((bx0, ny), line, font=f_micro, fill=INK)
+                ny += 27
+        y += block_h + GAP
+
+    # ── (4) the conclusion, band reserved so it can never be squeezed out ───
     body = copy.get("takeaway_body") or ""
-    highlight = copy.get("takeaway_highlight") or ""
-    if (body or highlight) and y + 120 < floor:
-        block_top = y
-        lines = _wrap(d, body, f_body, inner - 48)[:3]
-        block_h = min(84 + len(lines) * 38, floor - block_top)
-        d.rectangle([(x, block_top), (x + inner, block_top + block_h)], fill=HIGHLIGHT)
-        ty = block_top + 18
-        d.text((x + 24, ty), labels.get("takeaway", ""), font=f_label, fill=ACCENT)
-        ty += 32
+    hl = copy.get("takeaway_highlight") or ""
+    if body or hl:
+        lines = _wrap(d, body, f_body, inner - 110)[:3]
+        take_h = 108 + len(lines) * 38
+        top = min(y, floor - take_h)
+        bx0, by0, bx1, _ = sticky(base, (x, top, x + inner, top + take_h), tilt=0.6)
+        d = ImageDraw.Draw(base)
+        hx = badge(d, (bx0, by0), 4, f_badge)
+        d.text((hx, by0 + 6), labels.get("takeaway", "").upper(), font=f_sec, fill=ACCENT)
+        ty = by0 + 50
         for line in lines:
-            d.text((x + 24, ty), line, font=f_body, fill=INK)
+            d.text((bx0, ty), line, font=f_body, fill=INK)
             ty += 38
-        if highlight:
-            d.text((x + 24, ty), highlight, font=f_small, fill=ACCENT)
-        y = block_top + block_h + 16
+        if hl:
+            w = d.textlength(hl, font=f_small)
+            highlighter(d, (bx0 - 4, ty + 2, bx0 + int(w) + 12, ty + f_small.size + 12), color=(252, 243, 206))
+            d.text((bx0, ty + 4), hl, font=f_small, fill=ACCENT)
 
-    # ── attribution + disclaimer, pinned to the bottom ──────────────────────
-    # Deliberately understated: a source line at the foot of a research
-    # notebook, never a CTA. Both prompts are explicit about this.
-    fy = HEIGHT - MARGIN - 76
-    d.line([(x, fy - 24), (x + inner, fy - 24)], fill=RULE, width=2)
-    d.text((x, fy), labels.get("source", ""), font=f_small, fill=INK_SOFT)
-    explore = labels.get("explore", "")
-    d.text((x, fy + 32), explore, font=f_small, fill=ACCENT)
-    ex_w = d.textlength(explore, font=f_small)
-    _arrow(d, int(x + ex_w + 14), fy + 30, w=30)
-    d.text(
-        (x + ex_w + 58, fy + 32),
-        payload.get("source_url", ""),
-        font=f_small,
-        fill=ACCENT,
-    )
-    d.text(
-        (x, HEIGHT - MARGIN + 4),
-        payload.get("disclaimer", ""),
-        font=f_micro,
-        fill=INK_SOFT,
-    )
+    # ── footer ──────────────────────────────────────────────────────────────
+    fy = HEIGHT - MARGIN - 74
+    d.line([(x, fy - 18), (x + inner, fy - 18)], fill=RULE, width=2)
+    d.text((x, fy), labels.get("source", ""), font=f_micro, fill=INK_SOFT)
+    ex = labels.get("explore", "")
+    d.text((x, fy + 30), ex, font=f_micro, fill=ACCENT)
+    ew = d.textlength(ex, font=f_micro)
+    arrow(d, int(x + ew + 12), int(fy + 40), w=26, color=ACCENT, width=2)
+    url = payload.get("source_url", "")
+    d.text((x + ew + 48, fy + 30), url, font=f_micro, fill=ACCENT)
+    underline(d, int(x + ew + 48), int(fy + 54), int(d.textlength(url, font=f_micro)), width=2)
+    # The compliance line. The image model dropped it entirely on the English
+    # run; here it is not optional.
+    d.text((x, fy + 64), payload.get("disclaimer", ""), font=_font(lang, 18), fill=INK_SOFT)
 
     buf = io.BytesIO()
-    img.save(buf, format="PNG", optimize=True)
+    base.convert("RGB").save(buf, format="PNG", optimize=True)
     return buf.getvalue()
 
 
-__all__ = ["render_card_png", "FontUnavailable", "WIDTH", "HEIGHT"]
+__all__ = ["render_card_png", "FontUnavailable", "WIDTH", "HEIGHT", "HIGHLIGHT", "GROUND", "CARD"]
