@@ -16,10 +16,20 @@ means the share button says "not available in Chinese yet", which is true and
 actionable. Same rule as the rest of the card: a section with no source
 collapses rather than faking.
 
-Bundled fonts live in `app/assets/fonts/`. They are NOT committed yet — see
-`docs/DAILY_CARD_SPEC.md`; a GB2312-covering Noto Sans SC subset is ~4-5 MB and
-committing binaries of that size to the repo is Jimmy's call, not mine. Until
-they land, the dev fallbacks below let the English card render locally.
+Bundled fonts live in `app/assets/fonts/`.
+
+**Latin is bundled and not optional.** CI proved the point the day the renderer
+landed: `FontUnavailable` on Ubuntu, because the macOS fallbacks below don't
+exist there — and Railway is Ubuntu, so the share endpoint would have 500'd in
+production for every English card. A DejaVu Sans subset (ASCII + Latin-1 + the
+punctuation and currency signs the labels use) covers it in 49 KB for both
+weights; the full pair is 1.4 MB and most of that is glyphs we never draw.
+
+**CJK is still not bundled** — see `docs/DAILY_CARD_SPEC.md`; a GB2312-covering
+Noto Sans SC subset is ~4-5 MB and committing a binary that size is Jimmy's
+call, not mine. So the Chinese card refuses on Linux today, which is the
+designed behaviour rather than a gap: `can_render` lets the share button drop
+the language instead of serving boxes.
 """
 from __future__ import annotations
 
@@ -33,9 +43,12 @@ logger = logging.getLogger("livermore.card_fonts")
 # overrides the dev fallback without any code change.
 FONT_DIR = Path(__file__).resolve().parents[1] / "assets" / "fonts"
 
-# Preferred bundled filenames, in order.
-LATIN_CANDIDATES = ("NotoSans-Bold.ttf", "NotoSans-Regular.ttf", "Inter-Regular.ttf")
-LATIN_BOLD_CANDIDATES = ("NotoSans-Bold.ttf", "Inter-Bold.ttf")
+# Preferred bundled filenames, in order. DejaVu is last because it's the
+# floor, not the choice: it ships so the English card renders on Linux at all.
+# Drop an `Inter-Bold.ttf` or `NotoSans-Bold.ttf` in beside it and it wins with
+# no code change.
+LATIN_CANDIDATES = ("NotoSans-Regular.ttf", "Inter-Regular.ttf", "DejaVuSans.ttf")
+LATIN_BOLD_CANDIDATES = ("NotoSans-Bold.ttf", "Inter-Bold.ttf", "DejaVuSans-Bold.ttf")
 CJK_CANDIDATES = ("NotoSansSC-Regular.otf", "NotoSansSC-Regular.ttf", "NotoSansSC.ttf")
 CJK_BOLD_CANDIDATES = ("NotoSansSC-Bold.otf", "NotoSansSC-Bold.ttf")
 

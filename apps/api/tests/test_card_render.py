@@ -69,11 +69,25 @@ def _open(png: bytes):
     return Image.open(io.BytesIO(png))
 
 
+def _needs(lang):
+    """Skip rather than fail when the language has no font on this machine.
+
+    Latin is bundled, so EN never skips. CJK is not — a 4-5 MB Noto Sans SC
+    subset is a call for Jimmy — so the Chinese card genuinely cannot render on
+    Linux today. Refusing is the designed behaviour (see
+    `test_missing_cjk_font_refuses_rather_than_drawing_tofu`); a red build for
+    it would be noise, and a green build that *rendered* it would be a lie.
+    """
+    if not can_render(lang):
+        pytest.skip(f"no {lang} font on this machine")
+
+
 # ── shape ───────────────────────────────────────────────────────────────────
 
 
 @pytest.mark.parametrize("lang", [EN, ZH])
 def test_renders_at_the_three_by_four_the_prompts_specify(lang):
+    _needs(lang)
     img = _open(render_card_png(_card(lang)))
     assert (img.width, img.height) == (WIDTH, HEIGHT)
     assert round(img.height / img.width, 3) == 1.333
@@ -134,6 +148,7 @@ def test_a_long_headline_cannot_push_the_footer_off():
 def test_chinese_wraps_instead_of_running_off_the_edge():
     """CJK has no spaces, so a space-only wrap emits one enormous line that
     leaves the canvas — invisible in every English test."""
+    _needs(ZH)
     zh = dict(COPY, headline="市场情绪彻底反转" * 8)
     img = _open(render_card_png(_card(ZH, zh))).convert("RGB")
     right = [img.getpixel((WIDTH - 3, y)) for y in range(0, HEIGHT, 7)]
@@ -166,6 +181,47 @@ def test_can_render_lets_the_button_ask_before_offering_a_language(monkeypatch):
     assert can_render(ZH) is False
 
 
+def test_the_bundled_latin_subset_covers_every_character_the_card_draws():
+    """The Latin font is a SUBSET — ~49 KB instead of 1.4 MB — so a character
+    outside the chosen ranges renders as an empty box rather than failing.
+
+    This is the `→` bug generalised. U+2192 is absent from Helvetica and drew a
+    box on the *English* card; nothing errored, and the byte-count checks all
+    passed. Subsetting makes that whole class of bug cheap to reintroduce, so
+    the vocabulary is pinned here: every fixed string the card can draw, plus
+    the characters number formatting produces.
+    """
+    from PIL import Image, ImageDraw
+
+    from app.services import card_labels as L
+    from app.services.card_render import _font
+
+    font = _font(EN, 28)
+
+    def bitmap(ch: str) -> bytes:
+        im = Image.new("L", (64, 72), 255)
+        ImageDraw.Draw(im).text((4, 4), ch, font=font, fill=0)
+        return im.tobytes()
+
+    # U+E000 is Private Use — no real font carries it, so whatever it draws IS
+    # this font's .notdef. Comparing against it works whether that's a visible
+    # box or nothing at all; the only character that legitimately matches a
+    # blank is whitespace, which is excluded below.
+    notdef = bitmap("")
+
+    vocabulary = set("0123456789+-.,%$&·—–'−()/:")
+    for entry in L.CHROME.values():
+        vocabulary |= set(entry[EN])
+    for entry in L.INDEX_LABELS.values():
+        vocabulary |= set(entry[EN])
+    vocabulary |= set("".join(L.WEEKDAY_EN))
+    vocabulary |= set("".join(L.SECTOR_ZH.keys()))  # the KEYS are the English names
+
+    vocabulary = {c for c in vocabulary if not c.isspace()}
+    missing = sorted(c for c in vocabulary if bitmap(c) == notdef)
+    assert not missing, f"bundled Latin font has no glyph for {missing}"
+
+
 @pytest.mark.parametrize("lang", [EN, ZH])
 def test_bold_actually_draws_bold(lang):
     """A `.ttc` holds several faces in one file and `truetype(path, size)`
@@ -181,10 +237,8 @@ def test_bold_actually_draws_bold(lang):
 
     from app.services.card_render import _font
 
-    try:
-        regular, bold = _font(lang, 58), _font(lang, 58, bold=True)
-    except FontUnavailable:
-        pytest.skip(f"no font for {lang} on this machine")
+    _needs(lang)
+    regular, bold = _font(lang, 58), _font(lang, 58, bold=True)
 
     word = "MARKET" if lang == EN else "大盘表现"
     ink = []

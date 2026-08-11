@@ -136,12 +136,33 @@ draw tofu — empty boxes pass every check that only asserts the PNG has bytes,
 and are obviously broken to the reader it was forwarded to. `card_fonts.can_render`
 lets the share button ask before offering a language.
 
-Fonts go in `apps/api/app/assets/fonts/`. **Not committed yet:** a
-GB2312-covering Noto Sans SC subset is ~4-5 MB, and committing binaries of that
-size to the repo is a call for Jimmy, not a default. Until they land, macOS dev
-fallbacks let both cards render locally and every use logs a warning. A bold
-**Latin** face is only ~200-400 KB — drop any `.ttf` in as `NotoSans-Bold.ttf`
-or `Inter-Bold.ttf` and it takes precedence with no code change.
+Fonts go in `apps/api/app/assets/fonts/`.
+
+**Latin is bundled, and it isn't optional.** CI proved it the day the renderer
+landed: `FontUnavailable` on Ubuntu, because the macOS fallbacks don't exist
+there — and Railway is Ubuntu, so the share endpoint would have 500'd in
+production for every English card. Bundled is a **DejaVu Sans subset**: ASCII,
+Latin-1, and the punctuation and currency signs the labels use. 49 KB for both
+weights against 1.4 MB for the full pair, and the rest is glyphs we never draw.
+`scripts/build_card_fonts.py` rebuilds it byte-for-byte; it needs `fonttools`,
+which is deliberately not a backend dependency.
+
+Subsetting makes the `→` bug cheap to reintroduce, so
+`test_the_bundled_latin_subset_covers_every_character_the_card_draws` pins the
+vocabulary: every fixed label string plus what number formatting produces. The
+subset keeps `--notdef-outline` so a future gap draws a visible box instead of
+nothing — silent disappearance is the failure this codebase refuses everywhere
+else.
+
+A different face takes precedence with no code change: drop in
+`Inter-Bold.ttf` or `NotoSans-Bold.ttf` and DejaVu falls to the back.
+
+**CJK is still not bundled** — a GB2312-covering Noto Sans SC subset is ~4-5 MB
+and committing a binary that size is a call for Jimmy, not a default. So the
+Chinese card refuses on Linux today. That's the designed behaviour rather than
+a gap: `can_render` lets the share button drop the language instead of serving
+boxes. The render tests skip `zh` rather than fail — a red build for it would
+be noise, and a green build that *rendered* it would be a lie.
 
 **`bold=True` returned Regular on every card ever rendered.** A `.ttc` is a
 TrueType *Collection* holding several faces in one file, and
