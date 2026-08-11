@@ -23,3 +23,7 @@ stripe==11.4.1
 # Stage 6a — analytics + transactional email. Both safe no-op until env vars set.
 posthog>=3.0.0
 resend>=2.0.0
+# Share-card rendering. NOT previously a dependency — it was importable
+# locally only via unrelated packages (matplotlib, plotly), which would have
+# made the card work in dev and ImportError on Railway.
+Pillow>=10.0,<12

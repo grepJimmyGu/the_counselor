@@ -66,18 +66,40 @@ explanations for a rally that didn't happen for those reasons.
 
 ## Rendering
 
-**Deterministic SVG → PNG, not an image model.** The doodles — arrows,
+**Pillow, not an SVG rasteriser and not an image model.** The doodles — arrows,
 lightbulbs, sticky notes — are generated **once** as static assets and embedded;
 they don't change daily and they're what a diffusion model is actually good at.
 Everything carrying meaning is drawn by us.
 
+cairosvg needs system Cairo libraries on the Railway image — deployment risk
+for little gain, since the layout is fixed and every coordinate is ours.
 Playwright would give perfect fidelity by reusing the design's HTML/CSS, but it
-ships a ~400MB browser and Railway memory is the binding constraint (see the
-backlog). SVG + a rasteriser is ~20MB.
+ships a ~400MB browser and Railway memory is the binding constraint.
 
-**Chinese needs a bundled CJK font.** A slim Railway container has no CJK
-glyphs; the 中文 card would render as tofu boxes. This looks fine locally and
-breaks only in production.
+**Two things were NOT dependencies and had to be made ones.** `Pillow` was
+importable locally only via unrelated packages (matplotlib, plotly), so the
+card would have worked in dev and `ImportError`d on Railway. And **no font is
+findable at all** — not even DejaVu — so fonts must be bundled for the ENGLISH
+card too, not just Chinese.
+
+**Layout is priority-ordered, not first-come-first-served.** The conclusion
+block's band is reserved before the optional middle content flows. Flowing in
+document order dropped it three renders running while the bullets above kept
+their room — the layout was deciding importance by accident.
+
+**Glyphs are not guaranteed either.** `→` (U+2192) is absent from Helvetica and
+rendered as an empty box on the *English* card. Arrows are drawn with lines;
+no arrow appears in any label string.
+
+**Chinese needs a bundled CJK font**, and a missing one must REFUSE rather than
+draw tofu — empty boxes pass every check that only asserts the PNG has bytes,
+and are obviously broken to the reader it was forwarded to. `card_fonts.can_render`
+lets the share button ask before offering a language.
+
+Fonts go in `apps/api/app/assets/fonts/`. **Not committed yet:** a
+GB2312-covering Noto Sans SC subset is ~4-5 MB, and committing binaries of that
+size to the repo is a call for Jimmy, not a default. Until they land, macOS dev
+fallbacks let both cards render locally and every use logs a warning.
 
 **PNG output shows `livermorealpha.com` as plain readable text** — no simulated
 button (Chinese prompt §9). The real link travels in the share sheet.
