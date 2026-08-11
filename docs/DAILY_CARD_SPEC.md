@@ -66,18 +66,111 @@ explanations for a rally that didn't happen for those reasons.
 
 ## Rendering
 
-**Deterministic SVG → PNG, not an image model.** The doodles — arrows,
+**Pillow, not an SVG rasteriser and not an image model.** The doodles — arrows,
 lightbulbs, sticky notes — are generated **once** as static assets and embedded;
 they don't change daily and they're what a diffusion model is actually good at.
 Everything carrying meaning is drawn by us.
 
-Playwright would give perfect fidelity by reusing the design's HTML/CSS, but it
-ships a ~400MB browser and Railway memory is the binding constraint (see the
-backlog). SVG + a rasteriser is ~20MB.
+### The split: generated pixels, rendered words
 
-**Chinese needs a bundled CJK font.** A slim Railway container has no CJK
-glyphs; the 中文 card would render as tofu boxes. This looks fine locally and
-breaks only in production.
+Five image-model generations produced the right *look* and damaged the *data*
+every time, differently each time. The decisive case was a Chinese card where
+every figure was correct but the labels had detached — `医疗 −1.10%` when
+Healthcare was **+1.67%**. A number-only OCR gate passes that card. No single
+mechanical check catches the whole failure set.
+
+The cause is what the model is doing: it draws glyph *shapes it has seen*, not
+text it looks up. Latin has ~52 letterforms and it manages; Chinese has
+thousands of dense multi-stroke characters, so at 20px it emits stroke-shaped
+plausible non-characters (标→桁, 琼→珉) with no concept of a wrong character.
+
+So the boundary is drawn at **anything a reader reads**:
+
+| Layer | Owner | Where |
+|---|---|---|
+| Ornament — corner mark, doodles, tape | image model, **once** | `card_plate.PLATE_PROMPT` → `app/assets/plates/plate.png` |
+| Ornament placement | renderer | `card_ornaments.place()` |
+| Structure, figures, labels, prose | renderer | `card_render.py` + `card_paper.py` |
+
+The prompt asks for a **background plate with empty zones**, not a finished
+card — a finished card leaves nowhere to composite, and any mark resembling
+writing ruins the plate. `scripts/build_card_ornaments.py` then cuts the plate
+into individual transparent PNGs, because a whole plate would also decide
+*where* things sit and that is layout: the takeaway note has to land under the
+takeaway text, not wherever the model put a rectangle.
+
+Every ornament slot is one the layout already reserves — the corner mark sits
+in the header band beside the date chip, the research mark in the 250px the
+subtitle wrap deliberately leaves clear. Nothing is placed over a figure, and
+`place()` returns nothing the layout reads, so no ornament can move one.
+
+**A missing ornament set is a normal state.** `place()` is a silent no-op when
+the asset isn't on disk. Decoration is the one part of this card whose absence
+costs nothing a reader can misread — unlike a missing figure, or tofu.
+
+**Regenerating returns a different drawing**, so the generated plate is
+committed alongside the cuts; it's the only way to re-cut the ones we have.
+
+cairosvg needs system Cairo libraries on the Railway image — deployment risk
+for little gain, since the layout is fixed and every coordinate is ours.
+Playwright would give perfect fidelity by reusing the design's HTML/CSS, but it
+ships a ~400MB browser and Railway memory is the binding constraint.
+
+**Two things were NOT dependencies and had to be made ones.** `Pillow` was
+importable locally only via unrelated packages (matplotlib, plotly), so the
+card would have worked in dev and `ImportError`d on Railway. And **no font is
+findable at all** — not even DejaVu — so fonts must be bundled for the ENGLISH
+card too, not just Chinese.
+
+**Layout is priority-ordered, not first-come-first-served.** The conclusion
+block's band is reserved before the optional middle content flows. Flowing in
+document order dropped it three renders running while the bullets above kept
+their room — the layout was deciding importance by accident.
+
+**Glyphs are not guaranteed either.** `→` (U+2192) is absent from Helvetica and
+rendered as an empty box on the *English* card. Arrows are drawn with lines;
+no arrow appears in any label string.
+
+**Chinese needs a bundled CJK font**, and a missing one must REFUSE rather than
+draw tofu — empty boxes pass every check that only asserts the PNG has bytes,
+and are obviously broken to the reader it was forwarded to. `card_fonts.can_render`
+lets the share button ask before offering a language.
+
+Fonts go in `apps/api/app/assets/fonts/`.
+
+**Latin is bundled, and it isn't optional.** CI proved it the day the renderer
+landed: `FontUnavailable` on Ubuntu, because the macOS fallbacks don't exist
+there — and Railway is Ubuntu, so the share endpoint would have 500'd in
+production for every English card. Bundled is a **DejaVu Sans subset**: ASCII,
+Latin-1, and the punctuation and currency signs the labels use. 49 KB for both
+weights against 1.4 MB for the full pair, and the rest is glyphs we never draw.
+`scripts/build_card_fonts.py` rebuilds it byte-for-byte; it needs `fonttools`,
+which is deliberately not a backend dependency.
+
+Subsetting makes the `→` bug cheap to reintroduce, so
+`test_the_bundled_latin_subset_covers_every_character_the_card_draws` pins the
+vocabulary: every fixed label string plus what number formatting produces. The
+subset keeps `--notdef-outline` so a future gap draws a visible box instead of
+nothing — silent disappearance is the failure this codebase refuses everywhere
+else.
+
+A different face takes precedence with no code change: drop in
+`Inter-Bold.ttf` or `NotoSans-Bold.ttf` and DejaVu falls to the back.
+
+**CJK is still not bundled** — a GB2312-covering Noto Sans SC subset is ~4-5 MB
+and committing a binary that size is a call for Jimmy, not a default. So the
+Chinese card refuses on Linux today. That's the designed behaviour rather than
+a gap: `can_render` lets the share button drop the language instead of serving
+boxes. The render tests skip `zh` rather than fail — a red build for it would
+be noise, and a green build that *rendered* it would be a lie.
+
+**`bold=True` returned Regular on every card ever rendered.** A `.ttc` is a
+TrueType *Collection* holding several faces in one file, and
+`ImageFont.truetype(path, size)` silently takes index 0. Nothing errored — the
+headlines just quietly weren't bold. `card_fonts.font_index()` selects the
+face; `test_bold_actually_draws_bold` pins it on rendered ink rather than on a
+face name, so it holds whether the weight comes from a second face inside a
+collection or from a separately bundled bold file.
 
 **PNG output shows `livermorealpha.com` as plain readable text** — no simulated
 button (Chinese prompt §9). The real link travels in the share sheet.

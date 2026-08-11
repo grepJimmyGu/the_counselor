@@ -38,7 +38,7 @@ SECTOR_ZH: Dict[str, str] = {
     "Financials": "金融",
     "Industrials": "工业",
     "Energy": "能源",
-    "Materials": "材料",
+    "Materials": "原材料",
     "Real Estate": "房地产",
     "Utilities": "公用事业",
 }
@@ -69,7 +69,9 @@ CHROME: Dict[str, Dict[str, str]] = {
     "drivers": {EN: "Three Drivers Behind Today's Move", ZH: "驱动行情的3个关键因素"},
     "takeaway": {EN: "Today's Takeaway", ZH: "今日结论"},
     "source": {EN: "Market data & analysis: Livermore", ZH: "数据 & 分析：Livermore"},
-    "explore": {EN: "Explore the full analysis →", ZH: "查看完整分析 →"},
+    # No arrow in the string: U+2192 is absent from many Latin faces and
+    # renders as an empty box. The renderer draws one instead.
+    "explore": {EN: "Explore the full analysis", ZH: "查看完整分析"},
     # Kept verbatim from Jimmy's two prompts — this is a compliance line, not
     # copy to be improved by whoever next edits the card.
     "disclaimer": {

@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
+from app.models.daily_card import DailyCard
 from app.schemas.data_quality import DataQualityReport
 from app.schemas.market_data import (
     DataStatusResponse,
@@ -210,6 +211,55 @@ async def create_or_get_daily_card(
             detail="No settled close to build a card from yet.",
         )
     return card_to_dict(row)
+
+
+@router.get("/market/daily-card.png")
+async def get_daily_card_image(
+    lang: str = Query(default="en", pattern="^(en|zh)$"),
+    trading_date: Optional[str] = Query(default=None),
+    db: Session = Depends(get_db),
+):
+    """The shareable image itself.
+
+    A GET so it can be a plain URL: pasted into a chat, opened by someone with
+    no account, previewed by anything that fetches images. It NEVER generates —
+    it renders a card the share POST already created, so a crawler hitting this
+    can't trigger an LLM call.
+
+    Cached hard and honestly: a past date's card is immutable by construction,
+    so `immutable` is literally true and a link that spreads costs one render.
+    """
+    from fastapi.responses import Response
+
+    from app.services.card_render import FontUnavailable, render_card_png
+    from app.services.daily_card_generation import card_to_dict, get_existing
+
+    date_key = trading_date
+    if not date_key:
+        row = (
+            db.query(DailyCard)
+            .filter(DailyCard.lang == lang)
+            .order_by(DailyCard.trading_date.desc())
+            .first()
+        )
+    else:
+        row = get_existing(db, date_key, lang)
+
+    if row is None:
+        raise HTTPException(status_code=404, detail="No card for that date yet.")
+
+    try:
+        png = render_card_png(card_to_dict(row))
+    except FontUnavailable as exc:
+        # Refusing beats a card of empty boxes: tofu looks fine to any check
+        # that only asserts the PNG has bytes, and broken to the reader.
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    return Response(
+        content=png,
+        media_type="image/png",
+        headers={"Cache-Control": "public, max-age=31536000, immutable"},
+    )
 
 
 @router.get("/market/daily-brief")
