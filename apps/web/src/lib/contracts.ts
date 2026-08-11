@@ -1999,6 +1999,32 @@ export interface DailyBrief {
   unusual: BriefMover | null;
 }
 
+export type CardLang = "en" | "zh";
+
+/** `POST /api/market/daily-card` — the row, not the image.
+ *
+ *  Generated once per trading day and then served untouched: a forwarded link
+ *  must show what the sharer saw, so a second look never regenerates. The
+ *  image lives at `/api/market/daily-card.png`, which NEVER generates. */
+export interface DailyCard {
+  trading_date: string;
+  lang: CardLang;
+  /** Null when the card was drawn from figures alone — the LLM was off or
+   *  failed, and the tape is still worth sharing. */
+  model: string | null;
+  payload: Record<string, unknown>;
+  copy: Record<string, unknown>;
+}
+
+/** `GET /api/market/daily-card/languages` — what this deployment can DRAW.
+ *
+ *  Chinese needs a bundled CJK font that isn't committed yet, so production
+ *  returns `["en"]` today. The picker asks before offering a choice; offering
+ *  a language we can't render means a 503 or a card of empty boxes. */
+export interface DailyCardLanguages {
+  languages: CardLang[];
+}
+
 export interface MetricValuesResponse {
   /** symbol -> {primitive_id: value}. Absent cells are omitted, never null. */
   values: Record<string, Record<string, number>>;

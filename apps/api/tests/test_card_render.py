@@ -290,3 +290,42 @@ def test_latin_and_cjk_resolve_to_different_faces():
         assert resolve_font(EN) != resolve_font(ZH)
     except FontUnavailable:
         pytest.skip("no CJK font on this machine")
+
+
+# ── what the share button is allowed to offer ───────────────────────────────
+
+
+def test_languages_endpoint_only_offers_what_can_actually_be_drawn(monkeypatch):
+    """The share button asks before offering a choice.
+
+    Chinese has no bundled CJK font, so Railway can't draw it — offering it
+    anyway means the user clicks through to a 503 or a card of empty boxes.
+    Pinned against `can_render` rather than a hardcoded list so bundling the
+    font later turns the option on with no code change.
+    """
+    from fastapi import Response
+
+    from app.api.routes.market_data import get_daily_card_languages
+
+    def offered_languages():
+        """Called directly rather than through a TestClient — this file's
+        style, and the route takes `Response` only to set a cache header."""
+        r = Response()
+        result = get_daily_card_languages(r)
+        assert "max-age" in r.headers["Cache-Control"], (
+            "the answer is a property of the deployment; it should be cacheable"
+        )
+        return result["languages"]
+
+    offered = offered_languages()
+    assert offered, "at least one language must always be drawable"
+    assert all(can_render(lang) for lang in offered)
+    assert EN in offered, "English is bundled; it must never drop out"
+
+    # Every source of fonts removed — bundled AND both dev fallbacks.
+    monkeypatch.setattr(card_fonts, "_DEV_CJK", ())
+    monkeypatch.setattr(card_fonts, "_DEV_LATIN", ())
+    monkeypatch.setattr(card_fonts, "FONT_DIR", card_fonts.FONT_DIR / "__absent__")
+    assert offered_languages() == [], (
+        "with no fonts at all the honest answer is none, not a default"
+    )
