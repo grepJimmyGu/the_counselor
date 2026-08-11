@@ -5,6 +5,12 @@ import { render, screen, waitFor } from "@testing-library/react";
 vi.mock("@/lib/api", () => ({
   getDailyBrief: vi.fn(),
   getScreenerPresets: vi.fn(),
+  // The block now carries <ShareCardButton>, which imports these. A module
+  // mock replaces the WHOLE module, so omitting them makes the button throw
+  // on mount and takes the entire block's render down with it.
+  getDailyCardLanguages: vi.fn().mockResolvedValue({ languages: ["en"] }),
+  createDailyCard: vi.fn(),
+  dailyCardImageUrl: () => "http://api.test/card.png",
 }));
 
 import { getDailyBrief, getScreenerPresets } from "@/lib/api";

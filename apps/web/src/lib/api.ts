@@ -1450,3 +1450,35 @@ export async function getDailyBrief(
 ): Promise<import("@/lib/contracts").DailyBrief> {
   return fetchApi(`/api/market/daily-brief?market=${encodeURIComponent(market)}`);
 }
+
+/** Create today's share card, or get back the one already made.
+ *
+ * POST because the first caller of the day CREATES it — every later caller
+ * gets the same row untouched. Anonymous-reachable on purpose: the card exists
+ * to be forwarded, and whoever opens a shared link is by definition not signed
+ * in. */
+export async function createDailyCard(
+  lang: import("@/lib/contracts").CardLang = "en",
+  market = "US",
+): Promise<import("@/lib/contracts").DailyCard> {
+  return fetchApi(
+    `/api/market/daily-card?lang=${encodeURIComponent(lang)}&market=${encodeURIComponent(market)}`,
+    { method: "POST" },
+  );
+}
+
+export async function getDailyCardLanguages(): Promise<
+  import("@/lib/contracts").DailyCardLanguages
+> {
+  return fetchApi(`/api/market/daily-card/languages`);
+}
+
+/** The image URL. A plain GET so it can be pasted into a chat, opened by
+ *  someone with no account, or previewed by anything that fetches images. */
+export function dailyCardImageUrl(
+  lang: import("@/lib/contracts").CardLang = "en",
+  tradingDate?: string,
+): string {
+  const base = `${API_BASE_URL}/api/market/daily-card.png?lang=${encodeURIComponent(lang)}`;
+  return tradingDate ? `${base}&trading_date=${encodeURIComponent(tradingDate)}` : base;
+}

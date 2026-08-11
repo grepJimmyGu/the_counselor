@@ -4,7 +4,7 @@ import logging
 from datetime import date, datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -260,6 +260,28 @@ async def get_daily_card_image(
         media_type="image/png",
         headers={"Cache-Control": "public, max-age=31536000, immutable"},
     )
+
+
+@router.get("/market/daily-card/languages")
+def get_daily_card_languages(response: Response) -> dict:
+    """Which languages this deployment can actually draw.
+
+    The share button asks before offering a choice, so a user never clicks
+    through to a 503. Chinese needs a bundled CJK font — none is committed yet
+    (~4-5 MB), so this returns `["en"]` on Railway today and both on a Mac with
+    system fonts. Offering a language we can't render would mean a card of
+    empty boxes or a failed download, and either is worse than the option not
+    being there.
+
+    Cacheable because the answer is a property of the deployment, not of the
+    day or the caller — it changes only when a font is bundled, which is a
+    deploy. Ten minutes bounds how long a newly bundled language stays hidden.
+    """
+    from app.services.card_fonts import can_render
+    from app.services.card_labels import LANGUAGES
+
+    response.headers["Cache-Control"] = "public, max-age=600"
+    return {"languages": [lang for lang in LANGUAGES if can_render(lang)]}
 
 
 @router.get("/market/daily-brief")

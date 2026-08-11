@@ -25,6 +25,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
 import { getDailyBrief } from "@/lib/api";
+import { ShareCardButton } from "@/components/home/share-card-button";
 import type { BriefMover, BriefQuote, BriefSector, DailyBrief } from "@/lib/contracts";
 
 /** Percent, signed. Values arrive already scaled. */
@@ -152,7 +153,10 @@ export function HomeMarketPulseBlock() {
             Close · {asOfDate}
           </div>
         )}
-        <h2 className="font-heading text-base font-semibold">Moving today</h2>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="font-heading text-base font-semibold">Moving today</h2>
+          <ShareCardButton />
+        </div>
       </div>
 
       {/* The tape. 2×2 at this width rather than a 4-wide row that would
