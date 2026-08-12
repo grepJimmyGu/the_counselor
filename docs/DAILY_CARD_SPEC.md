@@ -127,6 +127,30 @@ block's band is reserved before the optional middle content flows. Flowing in
 document order dropped it three renders running while the bullets above kept
 their room — the layout was deciding importance by accident.
 
+**Reserving a band is not the same as measuring it.** The 2026-08-12 card drew
+the conclusion 14px into the stock block, burying the end of two sentences.
+Three bugs compounded: the gutter count included a phantom fourth gap; the
+gutter formula spent a base 18px per gap that the block measurement never
+budgeted; and the stock block was gated on a hardcoded `floor - 180` while a
+three-line conclusion is `108 + 38 × 3 = 222` tall. Any reserved band must be
+derived from the same measurement the block is drawn from — a magic number in
+the guard is the bug waiting to happen.
+
+**Whitespace flexes before content is dropped.** On a full day (two-line
+headline, four sector rows a side, three-line conclusion) the blocks want ~12px
+more than the canvas has. The gutters compress from 18 to 14 rather than
+dropping a section; 10 is the floor, below which the cards read as one mass.
+Fixing an overlap by dropping a block trades one bug for a worse one.
+
+**A one-line slot must say when it truncated.** `_wrap(...)[:1]` silently
+dropped the remainder and the card shipped reading *"reflecting a cautious mood
+among"* — a sentence stopping mid-clause reads as a broken renderer, not an
+abridgement. `_one_line()` ellipsises instead.
+
+Overlap is asserted on **positions, not pixels**: where the note covered the
+block, the pixels *are* the note, so the buried block leaves no trace to test.
+`render_card_png(..., _geometry=dict)` is the seam.
+
 **Glyphs are not guaranteed either.** `→` (U+2192) is absent from Helvetica and
 rendered as an empty box on the *English* card. Arrows are drawn with lines;
 no arrow appears in any label string.

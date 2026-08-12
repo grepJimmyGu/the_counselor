@@ -329,3 +329,132 @@ def test_languages_endpoint_only_offers_what_can_actually_be_drawn(monkeypatch):
     assert offered_languages() == [], (
         "with no fonts at all the honest answer is none, not a default"
     )
+
+
+# ── the conclusion must not sit on top of the block above it ────────────────
+
+FULL_COPY = {
+    "headline": "Markets struggle as major indices dip.",
+    "subtitle": "Investors reacted cautiously, leading to declines across the board.",
+    "market_note": "Most indices ended the day lower, reflecting a cautious mood among investors.",
+    "money_flow_note": (
+        "Money moved out of Utilities and into Financials, indicating a shift in "
+        "preferences among investors."
+    ),
+    "stock_points": ["SBNY dropped significantly, down twenty-six percent on the session."],
+    "takeaway_body": (
+        "Overall, the market faced headwinds today with widespread declines. Investors "
+        "will need to keep a close eye on emerging trends and shifts."
+    ),
+    "takeaway_highlight": "Major indices dipped amid cautious trading.",
+}
+
+
+def _full_brief() -> DailyBrief:
+    """Four sector rows a side — what a real trading day produces, and what
+    the card that shipped with the overlap actually carried."""
+    b = _brief()
+    b.sectors = [
+        BriefSector("Energy", 1.25, 0.21),
+        BriefSector("Utilities", 1.16, -0.30),
+        BriefSector("Industrials", 0.60, 0.05),
+        BriefSector("Materials", 0.11, 0.02),
+        BriefSector("Real Estate", -0.72, -0.11),
+        BriefSector("Communication", -0.50, -0.08),
+        BriefSector("Consumer Disc.", -0.36, -0.04),
+        BriefSector("Consumer Staples", -0.31, -0.02),
+    ]
+    b.flow_out_of = BriefSector("Utilities", 1.16, -0.30)
+    b.flow_into = BriefSector("Financials", 0.4, 0.22)
+    b.unusual = BriefMover("SBNY", "Signature Bank", -26.00)
+    return b
+
+
+def _geo(copy=None, brief=None):
+    """Render, and report where each block landed."""
+    geo: dict = {}
+    render_card_png(
+        {
+            "payload": build_card_payload(brief or _full_brief(), lang=EN).to_dict(),
+            "copy": FULL_COPY if copy is None else copy,
+            "lang": EN,
+        },
+        _geometry=geo,
+    )
+    return geo
+
+
+def test_the_conclusion_never_covers_the_block_above_it():
+    """The card that shipped on 2026-08-12 drew the takeaway note 14px into the
+    stock block, burying the end of two sentences: "SBNY dropped significantly,
+    down twenty-six" and "…a shift in preferences among investors" both ran
+    under the yellow.
+
+    Three bugs compounded. `_gaps` counted four gutters where three are
+    applied; `18 + slack // gaps` then spent a base 18 per gutter that `_fixed`
+    never budgeted for; and the stock block was gated on a hardcoded
+    `floor - 180` while a three-line conclusion is 222 tall. The layout overran
+    its own floor and the conclusion absorbed the difference by overlapping.
+
+    Asserted on positions, not pixels: where the note covered the block, the
+    pixels ARE the note, so the buried block leaves no trace to test.
+    """
+    geo = _geo()
+    assert "takeaway" in geo, "the conclusion is missing"
+    if "stock" in geo:
+        assert geo["takeaway"][0] >= geo["stock"][1], (
+            f"takeaway starts at {geo['takeaway'][0]}, stock block runs to {geo['stock'][1]}"
+        )
+    assert geo["takeaway"][1] <= geo["floor"], "the conclusion runs into the footer"
+
+
+@pytest.mark.parametrize(
+    "name,over",
+    [
+        ("full day", {}),
+        ("short conclusion", {"takeaway_body": "Risk appetite returned."}),
+        ("one-line headline", {"headline": "Stocks fell."}),
+        ("long subtitle", {"subtitle": "A cautious session " * 9}),
+        ("no conclusion", {"takeaway_body": "", "takeaway_highlight": ""}),
+        ("no prose at all", None),
+    ],
+)
+def test_no_shape_of_card_overlaps_or_overflows(name, over):
+    """The overlap only appeared at one combination of block heights, which is
+    why it shipped. Every shape gets checked."""
+    copy = {} if over is None else dict(FULL_COPY, **over)
+    geo = _geo(copy=copy)
+    if "takeaway" in geo and "stock" in geo:
+        assert geo["takeaway"][0] >= geo["stock"][1], f"{name}: conclusion covers the stock block"
+    if "takeaway" in geo:
+        assert geo["takeaway"][1] <= geo["floor"], f"{name}: conclusion runs into the footer"
+    if "stock" in geo:
+        assert geo["stock"][1] <= geo["floor"], f"{name}: stock block runs into the footer"
+
+
+def test_a_full_card_keeps_the_stock_block():
+    """Fixing the overlap by dropping a section would trade one bug for a worse
+    one. On a full day the blocks want 12px more than the canvas has; the
+    gutters give it up so the stock of the day still renders."""
+    geo = _geo()
+    assert "stock" in geo, "the stock block was dropped to make room"
+    assert geo["gap"] >= 10, "gutters collapsed past legibility"
+
+
+def test_a_one_line_slot_says_it_truncated():
+    """The market note slot is one line. `_wrap(...)[:1]` dropped the rest
+    silently and the card read "…reflecting a cautious mood among" — which
+    looks like a broken renderer, not an abridgement."""
+    from app.services.card_render import _one_line
+    from PIL import Image, ImageDraw
+
+    from app.services.card_render import _font
+
+    d = ImageDraw.Draw(Image.new("RGB", (10, 10)))
+    font = _font(EN, 24)
+    long_text = "Most indices ended the day lower, reflecting a cautious mood among investors."
+    out = _one_line(d, long_text, font, 300)
+    assert out.endswith("…"), f"truncated without saying so: {out!r}"
+    assert d.textlength(out, font=font) <= 300, "the ellipsis pushed it over the width"
+    # A short string is left exactly alone.
+    assert _one_line(d, "Short.", font, 300) == "Short."
