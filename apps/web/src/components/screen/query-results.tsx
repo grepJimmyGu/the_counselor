@@ -37,6 +37,8 @@ import {
 import { useLiveQuotes } from "@/lib/useLiveQuotes";
 import { SmartSearchBox } from "@/components/search/smart-search-box";
 import { AddTicker, MAX_ADDED_TICKERS } from "./add-ticker";
+import { RECOMMENDED_TEMPLATES } from "@/lib/recommended-templates";
+import { universeLabel } from "@/lib/screen-universe";
 import { MetricFilterBar, MetricPicker, type MetricFilter } from "./metric-picker";
 import { DEFAULT_METRICS, METRIC_BY_KEY, num, readMetric } from "./result-metrics";
 import type { ScreenScanResponse, StrategyRule } from "@/lib/contracts";
@@ -73,12 +75,19 @@ export function QueryResults({
   query,
   universeId,
   addParam = "",
+  templateId = "",
 }: {
   query: string;
   universeId: string;
   /** `&add=NVDA,TSLA` — hand-added names, in the URL so a result stays
    *  shareable and survives a refresh, like the query itself. */
   addParam?: string;
+  /** `?template=best_momentum` — a starting point picked from a card rather
+   *  than typed. The template already CARRIES its rules (`primitive_id`
+   *  conditions in the scan's own vocabulary), so this path skips
+   *  `parseSearch` entirely: there is nothing to interpret, and interpreting
+   *  a phrase could return a different set than the card promised. */
+  templateId?: string;
 }) {
   const router = useRouter();
   const { data: session, status: sessionStatus } = useSession();
@@ -120,6 +129,48 @@ export function QueryResults({
       setLoading(true);
       setNote(null);
       try {
+        // A picked starting point resolves locally — no round-trip, no
+        // interpretation. Everything below (chips, counts, table, sort,
+        // add-ticker) then runs exactly as it does for a typed query, which is
+        // the point: the landing must be indistinguishable from a search.
+        const picked = templateId
+          ? RECOMMENDED_TEMPLATES.find((t) => t.id === templateId)
+          : undefined;
+        if (picked && picked.kind === "composer") {
+          setNote(
+            `Screened the ${universeLabel(picked.universe_id)} on ${picked.name} — ` +
+              `${picked.tagline.replace(/\.$/, "")}.`,
+          );
+          // ONE chip for the pick, not one per rule.
+          //
+          // The typed path gets its per-rule readings from `parseSearch`, which
+          // runs the catalog's disambiguation (a 50-day and a 200-day
+          // `price_above_ma` must not both render "Price above its moving
+          // average"). None of that exists client-side, and reimplementing it
+          // here would be a second copy of real logic, free to drift.
+          //
+          // It also reads better. The user picked "Best Momentum Pick" as a
+          // unit, not six conditions they assembled; six chips each carrying
+          // its own standalone count invites "why does this one say 400 when
+          // the result says 41?". `+ Add condition` still opens the full
+          // composer, so nothing is lost.
+          setChips([
+            {
+              reading: `${picked.name} · ${picked.rules.length} conditions`,
+              rule: picked.rules[0],
+              // Its own count IS the screen's count, already shown as
+              // "N match of M". Marking it counted keeps the effect off it.
+              countFailed: true,
+            },
+          ]);
+          const res = await screenScan(
+            { universe_id: picked.universe_id, rules: picked.rules },
+            { backendToken },
+          );
+          if (live) setScan(res);
+          return;
+        }
+
         const parsed = await parseSearch(query, universeId);
         if (!live) return;
 
@@ -159,7 +210,7 @@ export function QueryResults({
     return () => {
       live = false;
     };
-  }, [query, universeId, sessionStatus, backendToken]);
+  }, [query, universeId, templateId, sessionStatus, backendToken]);
 
   // Per-condition counts, in parallel. Each lands independently so one slow or
   // failing condition never holds up the others.

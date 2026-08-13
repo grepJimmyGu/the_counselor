@@ -1,72 +1,71 @@
 "use client";
 
 /**
- * Home block 2 — Special list (特色榜單).
+ * Home block 2 — **Hot Market Picks**.
  *
- * The nine presets already ship at `GET /api/screener/presets` with a live
- * result count and sample tickers, and `/stocks?preset=<slug>` already renders
- * their results. So this block is pure surfacing: no new backend, no new data.
+ * The five `kind: "composer"` starting points from `RECOMMENDED_TEMPLATES` —
+ * the same cards, copy and category chips as the "Screen the market" gallery,
+ * rendered through the same `<StartingPointCard>` at `compact` density. One
+ * registry, one card component, two surfaces.
  *
- * One click, straight to results — no intermediate landing page. A preset that
- * needs an extra click to show its names is a brochure, not a screen.
+ * WHY THESE FIVE AND NOT THE NINE SCREENER PRESETS. A composer template carries
+ * real `rules` — `primitive_id` conditions already in the daily snapshot's
+ * vocabulary — so a card can hand them straight to a scan and land the user on
+ * a stock list. The `sentiment` five can't; they route to the sentiment hub, so
+ * they live in the Catalysts block instead.
  *
- * Empty presets are hidden rather than shown as "0 names". Two of the nine
- * (Top Value, Top Rated) were empty until the P/E backfill ran, and a zero-count
- * card on the home page reads as a broken product; hiding is honest because the
- * count really is the whole value of the card.
+ * ONE CLICK, STRAIGHT TO THE LIST. `/screen?template=<id>` lands on the exact
+ * surface a typed search produces — same chips, same counts, same table, same
+ * add-ticker. That matters beyond consistency: from there the user's next move
+ * is identical to a search, so a pick is just a faster way to arrive at the
+ * same working surface.
+ *
+ * An earlier draft routed through `/screen?q=<phrase>`, which would have made
+ * every card's honesty depend on a phrase parsing back to the same set. These
+ * rules ARE the scan's vocabulary, so a card cannot promise one screen and
+ * return another.
  */
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import type { Route } from "next";
-import { getScreenerPresets } from "@/lib/api";
-import type { ScreenerPresetSummary } from "@/lib/contracts";
 
-/** Rotating accent per card. Purely decorative — index-based, not meaningful,
- *  so it stays stable as counts change but carries no claim about the screen. */
-const ACCENTS = [
-  "bg-primary/8 text-primary",
-  "bg-emerald-500/10 text-emerald-700",
-  "bg-amber-500/10 text-amber-700",
-  "bg-violet-500/10 text-violet-700",
-];
+import { StartingPointCard } from "@/components/screen/starting-point-card";
+import { screenCount } from "@/lib/api";
+import { RECOMMENDED_TEMPLATES } from "@/lib/recommended-templates";
 
-function PresetCard({ p, i }: { p: ScreenerPresetSummary; i: number }) {
-  return (
-    <Link
-      href={`/stocks?preset=${encodeURIComponent(p.slug)}` as Route}
-      className="group rounded-lg border border-border p-3 transition-colors hover:border-primary/40 hover:bg-muted/30"
-      data-testid="curated-screen"
-    >
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="truncate text-sm font-semibold">{p.title}</span>
-        <span
-          className={`shrink-0 rounded-full px-2 py-0.5 text-[11px] font-medium ${ACCENTS[i % ACCENTS.length]}`}
-        >
-          {p.result_count}
-        </span>
-      </div>
-      <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-        {p.description}
-      </p>
-      {p.sample_tickers.length > 0 && (
-        <div className="mt-2 truncate font-mono text-[11px] text-muted-foreground/80">
-          {p.sample_tickers.slice(0, 4).join(" · ")}
-        </div>
-      )}
-    </Link>
-  );
-}
+/** The composer five, in registry order. */
+const PICKS = RECOMMENDED_TEMPLATES.filter(
+  (t): t is Extract<typeof t, { kind: "composer" }> => t.kind === "composer",
+);
 
 export function HomeCuratedScreens() {
-  const [presets, setPresets] = useState<ScreenerPresetSummary[]>([]);
+  /** id → live match count. Absent = still counting. */
+  const [counts, setCounts] = useState<Record<string, number>>({});
   const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     let live = true;
-    getScreenerPresets()
-      .then((d) => live && setPresets((d.presets ?? []).filter((p) => p.result_count > 0)))
-      .catch(() => live && setFailed(true));
+    // Counted per card, in parallel: each lands on its own so one slow scan
+    // never holds up the rest of the grid.
+    Promise.allSettled(
+      PICKS.map((t) =>
+        screenCount({ universe_id: t.universe_id, rules: t.rules }).then((r) => ({
+          id: t.id,
+          n: r.matched_count,
+        })),
+      ),
+    ).then((settled) => {
+      if (!live) return;
+      const got: Record<string, number> = {};
+      for (const s of settled) {
+        if (s.status === "fulfilled") got[s.value.id] = s.value.n;
+      }
+      // Every count failing means the scan is down, not that the market is
+      // quiet — showing five cards that all lead nowhere is worse than none.
+      if (Object.keys(got).length === 0) setFailed(true);
+      setCounts(got);
+    });
     return () => {
       live = false;
     };
@@ -74,34 +73,38 @@ export function HomeCuratedScreens() {
 
   if (failed) return null;
 
+  // A pick matching nothing today is hidden rather than shown as "0". A
+  // zero-count card on the home page reads as a broken product, and the count
+  // is most of what the card is for.
+  const shown = PICKS.filter((t) => counts[t.id] === undefined || counts[t.id] > 0);
+
   return (
     <section
-      className="rounded-xl border border-border bg-white p-5"
+      className="rounded-xl border border-border bg-white p-4"
       data-testid="home-curated-screens"
     >
-      <div className="mb-3 flex items-baseline justify-between">
-        <h2 className="font-heading text-base font-semibold">Special list</h2>
+      <div className="mb-3 flex items-baseline justify-between gap-2">
+        <h2 className="font-heading text-base font-semibold">Hot Market Picks</h2>
         <Link
-          href={"/stocks/screener" as Route}
+          href={"/flow/custom_build_mode" as Route}
           className="text-xs text-primary hover:underline"
         >
           Screen the market →
         </Link>
       </div>
 
-      {presets.length > 0 ? (
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {presets.slice(0, 6).map((p, i) => (
-            <PresetCard key={p.slug} p={p} i={i} />
-          ))}
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-          {Array.from({ length: 4 }).map((_, i) => (
-            <div key={i} className="h-20 animate-pulse rounded-lg bg-muted/50" />
-          ))}
-        </div>
-      )}
+      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+        {shown.map((t) => (
+          <StartingPointCard
+            key={t.id}
+            t={t}
+            density="compact"
+            count={counts[t.id]}
+            href={`/screen?template=${encodeURIComponent(t.id)}&universe=${encodeURIComponent(t.universe_id)}`}
+            testId={`home-pick-${t.id}`}
+          />
+        ))}
+      </div>
     </section>
   );
 }

@@ -12,12 +12,14 @@ export default async function ScreenPage({
   searchParams,
 }: {
   // Next 16: searchParams is a Promise in server components.
-  searchParams: Promise<{ q?: string; universe?: string; add?: string }>;
+  searchParams: Promise<{ q?: string; universe?: string; add?: string; template?: string }>;
 }) {
-  const { q, universe, add } = await searchParams;
+  const { q, universe, add, template } = await searchParams;
   const query = (q ?? "").trim();
+  const templateId = (template ?? "").trim();
 
-  if (!query) {
+  // A picked starting point carries its own rules, so it needs no query text.
+  if (!query && !templateId) {
     return (
       <main className="mx-auto max-w-[1200px] px-6 py-12">
         <p className="text-sm text-muted-foreground">
@@ -30,7 +32,12 @@ export default async function ScreenPage({
   return (
     <main className="min-h-screen bg-background">
       <Suspense fallback={null}>
-        <QueryResults query={query} universeId={universe || "sp500"} addParam={add ?? ""} />
+        <QueryResults
+          query={query}
+          universeId={universe || "sp500"}
+          addParam={add ?? ""}
+          templateId={templateId}
+        />
       </Suspense>
     </main>
   );

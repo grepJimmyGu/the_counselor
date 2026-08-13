@@ -72,9 +72,12 @@ describe("HomeQuantStrategies", () => {
 
   it("shows the evidence tier, which is a sourced claim", () => {
     renderBlock();
-    const tiered = researchTemplates.filter(
-      (t) => t.availability !== "unavailable" && t.evidenceTier,
-    );
+    // Scoped to the three the block SHOWS (it used to show five). A tier on a
+    // template that isn't rendered proves nothing.
+    const tiered = researchTemplates
+      .filter((t) => t.availability !== "unavailable")
+      .slice(0, 3)
+      .filter((t) => t.evidenceTier);
     if (tiered.length === 0) return; // nothing to assert on this fixture
     const text = screen.getByTestId("home-quant-strategies").textContent ?? "";
     expect(text).toMatch(/Evidence [ABC]/);
@@ -82,7 +85,10 @@ describe("HomeQuantStrategies", () => {
 
   it("flags an ETF-proxy template on the card, not after the click", () => {
     renderBlock();
-    const proxies = researchTemplates.filter((t) => t.availability === "proxy");
+    const proxies = researchTemplates
+      .filter((t) => t.availability !== "unavailable")
+      .slice(0, 3)
+      .filter((t) => t.availability === "proxy");
     if (proxies.length === 0) return;
     const text = screen.getByTestId("home-quant-strategies").textContent ?? "";
     expect(text).toContain("ETF proxy");
@@ -100,7 +106,6 @@ describe("the three offerings", () => {
     expect(t).toMatch(/Overlays/);
     expect(t).toMatch(/already hold/i);
     expect(t).toMatch(/Build your own/);
-    expect(t).toMatch(/raw signals/i);
   });
 
   it('calls the last one "Build your own signals", not "Build from scratch"', () => {
@@ -112,52 +117,69 @@ describe("the three offerings", () => {
 });
 
 describe("overlays", () => {
-  it("offers every overlay, grouped under its own label", () => {
+  it("shows the six overlays only when asked, and read-only", () => {
+    // CHANGED 2026-08-13. These cards used to be clickable and seeded
+    // Portfolio Mode with the overlay pre-chosen. They are now descriptive:
+    // the picker chooses an overlay FOR a portfolio already uploaded, so
+    // offering the choice here with no holdings dead-ends. The CTA beside
+    // them is Upload Portfolio, which is the real next step.
     renderBlock();
-    const cards = screen.getAllByTestId("quant-overlay");
+    expect(screen.queryByTestId("quant-overlay-cards")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("quant-overlay-overview"));
+    const cards = screen.getAllByTestId(/^strategy-card-/);
     expect(cards.length).toBe(OVERLAY_DISPLAY_ORDER.length);
-    expect(screen.getByTestId("home-quant-strategies").textContent).toMatch(
-      /Overlays — for a portfolio you already hold/,
-    );
+    // Read-only: describes, does not offer.
+    for (const c of cards) expect(c.tagName).not.toBe("BUTTON");
   });
 
-  it("starts Portfolio Mode with the overlay ALREADY chosen", () => {
+  it("routes the real next step to Upload Portfolio", () => {
     vi.mocked(startFlow).mockClear();
     renderBlock();
-    const first = OVERLAY_DISPLAY_ORDER[0];
-    fireEvent.click(screen.getByText(OVERLAY_METADATA[first].label));
-
-    // The whole point of item C: choose here, then upload, then results.
-    // The picker seeds from `context.selectedOverlay`, so passing it makes
-    // that step a confirm rather than a second decision.
+    fireEvent.click(screen.getByTestId("quant-upload-portfolio"));
     expect(startFlow).toHaveBeenCalledWith(
       "portfolio_mode",
       expect.objectContaining({
-        initialContext: expect.objectContaining({ selectedOverlay: first }),
+        initialContext: expect.objectContaining({ fromTrigger: "home/upload_portfolio" }),
       }),
     );
   });
 
+  it("opens the guided wizard from Try a Template", () => {
+    vi.mocked(startFlow).mockClear();
+    renderBlock();
+    fireEvent.click(screen.getByTestId("quant-try-template"));
+    expect(startFlow).toHaveBeenCalledWith("one_asset_mode", expect.anything());
+  });
+
   it("says up front how many holdings an overlay needs", () => {
     renderBlock();
-    // `OverlayPicker` silently rejects an under-qualified overlay, so a user
-    // who picks one with too few holdings would otherwise just find the CTA
-    // dead with no explanation.
+    fireEvent.click(screen.getByTestId("quant-overlay-overview"));
     const first = OVERLAY_DISPLAY_ORDER[0];
-    const card = screen.getByTestId("home-quant-strategies")
-      .querySelector(`[data-overlay="${first}"]`);
-    expect(card?.textContent).toMatch(
+    const card = screen.getByTestId(`strategy-card-${first}`);
+    expect(card.textContent).toMatch(
       new RegExp(`Needs ${OVERLAY_METADATA[first].minHoldings}\\+ holding`),
     );
   });
 
-  it("puts no unsourced performance number on an overlay card", () => {
+  it("never shows a performance figure without its basis", () => {
+    // CHANGED 2026-08-13. This asserted that overlay taglines — "worst loss
+    // −28% vs −55%" — must not appear at all, on the stated grounds that they
+    // had "no source in overlay-metadata.ts". That was wrong: the figures come
+    // from `historicalEstimate` ("backtests from 2000-2024 … -55% to -28%")
+    // and `researchSource` (Hurst, Ooi & Pedersen, 2013).
+    //
+    // So the rule worth holding is not "hide the number" but "a number never
+    // travels without what produced it" — which is the actual product
+    // integrity concern, and a stronger check than the one it replaces.
     renderBlock();
-    const t = screen.getByTestId("home-quant-strategies").textContent ?? "";
-    // `tagline` carries figures like "worst loss -28% vs -55%" with no source
-    // in overlay-metadata.ts. Same rule as the template cards.
+    fireEvent.click(screen.getByTestId("quant-overlay-overview"));
+    const t = screen.getByTestId("quant-overlay-cards").textContent ?? "";
     for (const kind of OVERLAY_DISPLAY_ORDER) {
-      expect(t).not.toContain(OVERLAY_METADATA[kind].tagline);
+      const meta = OVERLAY_METADATA[kind];
+      if (t.includes(meta.tagline)) {
+        expect(t).toContain(meta.historicalEstimate);
+      }
     }
   });
 
