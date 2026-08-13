@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import io
 import logging
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from app.services.card_fonts import FontUnavailable, font_index, resolve_font
 from app.services.card_ornaments import place as ornament
@@ -88,12 +88,37 @@ def _wrap(draw, text: str, font, max_w: int) -> List[str]:
     return lines
 
 
-def render_card_png(card_data: Dict[str, Any]) -> bytes:
+def _one_line(draw, text: str, font, max_w: int) -> str:
+    """The first line, ellipsised when there was more.
+
+    `_wrap(...)[:1]` dropped the remainder without a mark, and the card shipped
+    reading "reflecting a cautious mood among" — a sentence that stops
+    mid-clause looks like a broken renderer rather than an abridgement. The
+    slot really is one line tall; the ellipsis is what makes that honest.
+    """
+    if not text:
+        return ""
+    lines = _wrap(draw, text, font, max_w)
+    if len(lines) <= 1:
+        return lines[0] if lines else ""
+    head = lines[0]
+    while head and draw.textlength(head + "…", font=font) > max_w:
+        head = head[:-1]
+    return head.rstrip() + "…"
+
+
+def render_card_png(card_data: Dict[str, Any], *, _geometry: Optional[Dict[str, Any]] = None) -> bytes:
     """`card_to_dict(row)` -> PNG bytes.
 
     Raises `FontUnavailable` rather than drawing empty boxes: tofu passes any
     check that only asserts the PNG has bytes, and is obviously broken to the
     reader it was forwarded to.
+
+    `_geometry` is a testing seam: pass a dict and it comes back with where
+    each block landed. Overlap is invisible in the pixels — where the
+    conclusion covered the stock block, the pixels ARE the conclusion, so the
+    evidence of the block it buried is gone. The positions are the only honest
+    place to assert it.
     """
     from PIL import ImageDraw
 
@@ -130,9 +155,23 @@ def render_card_png(card_data: Dict[str, Any]) -> bytes:
     _fixed = 68 + 70 * len(_wrap(d, copy.get("headline") or "", f_head, inner - 30)[:2]) + 4 \
         + 37 * len(_wrap(d, copy.get("subtitle") or "", f_body, inner - 250)[:3]) + 16 \
         + 214 + _sector_h + (196 if _has_stock else 0) + _take_h
-    _gaps = 3 + (1 if _has_stock else 0)
-    _slack = max(0, (HEIGHT - MARGIN - FOOTER_H) - MARGIN - _fixed)
-    GAP = 18 + min(34, _slack // max(_gaps, 1))
+    # Gaps ACTUALLY applied: after the market card, after the sector card, and
+    # after the stock block when it's drawn. Three, not four — the old count
+    # included a phantom fourth, and `18 + slack // gaps` then spent a base 18
+    # per gap that `_fixed` never budgeted for. Together they overran the
+    # layout's own floor by exactly `_slack`, which the conclusion absorbed by
+    # being drawn on top of the block above it.
+    #
+    # The whitespace flexes rather than the content: on a full card (two-line
+    # headline, four sector rows, three-line conclusion) the blocks want 12px
+    # more than exists, and a fixed 18px gutter would drop the stock block
+    # entirely. Squeezing the gutters to 14 keeps every section. 10 is the
+    # floor — below that the cards read as one mass.
+    _gaps = 2 + (1 if _has_stock else 0)
+    _room = (HEIGHT - MARGIN - FOOTER_H) - MARGIN - _fixed
+    GAP = max(10, min(52, _room // max(_gaps, 1)))
+    if _geometry is not None:
+        _geometry.update(gap=GAP, floor=HEIGHT - MARGIN - FOOTER_H)
 
     # ── header: date chip, masthead beside it ───────────────────────────────
     right = date_chip(d, (x, y), payload.get("date_label", ""), f_chip)
@@ -180,8 +219,9 @@ def render_card_png(card_data: Dict[str, Any]) -> bytes:
         d.text((tx + 13, ty + 12), s.get("label", "")[:15], font=f_micro, fill=INK_SOFT)
         d.text((tx + 13, ty + 42), s.get("change", "—"), font=f_stat, fill=tone(s.get("direction")))
     ny = ty + 100
-    for line in _wrap(d, copy.get("market_note") or "", f_small, inner - 60)[:1]:
-        d.text((x + 26, ny), line, font=f_small, fill=INK_SOFT)
+    note = _one_line(d, copy.get("market_note") or "", f_small, inner - 60)
+    if note:
+        d.text((x + 26, ny), note, font=f_small, fill=INK_SOFT)
     y += card_h + GAP
 
     # ── (2) sector performance ──────────────────────────────────────────────
@@ -205,20 +245,28 @@ def render_card_png(card_data: Dict[str, Any]) -> bytes:
     y += sec_h + GAP
 
     floor = HEIGHT - MARGIN - FOOTER_H
+    # The conclusion's band, reserved from the real measurement. It used to be
+    # guarded by a hardcoded 180 while the block is `108 + 38 * lines` tall —
+    # 222 at three lines — so a three-line takeaway was let through and then
+    # drawn on top of the stock block, burying the end of both its sentences.
+    take_top = floor - _take_h if _take_h else floor
 
     # ── (3) stock of the day + the money-flow sticky beside it ──────────────
     stock = payload.get("stock")
     block_h = 196
-    if stock and y + block_h < floor - 180:
+    if stock and y + block_h <= take_top - 12:
         left_w = int(inner * 0.5)
         card(d, (x, y, x + left_w, y + block_h))
         hx = badge(d, (x + 22, y + 18), 3, f_badge)
         d.text((hx, y + 24), labels.get("stock_of_day", "").upper(), font=f_sec, fill=ACCENT)
         d.text((x + 26, y + 72), stock.get("symbol", ""), font=f_stat, fill=INK)
         d.text((x + 26, y + 114), stock.get("change", ""), font=f_big, fill=tone(stock.get("direction")))
+        if _geometry is not None:
+            _geometry["stock"] = (y, y + block_h)
         for p in (copy.get("stock_points") or [])[:1]:
-            for line in _wrap(d, p, f_micro, left_w - 54)[:1]:
-                d.text((x + 26, y + 166), line, font=f_micro, fill=INK_SOFT)
+            point = _one_line(d, p, f_micro, left_w - 54)
+            if point:
+                d.text((x + 26, y + 166), point, font=f_micro, fill=INK_SOFT)
 
         if payload.get("flow_from") and payload.get("flow_to"):
             sx = x + left_w + 22
@@ -239,7 +287,11 @@ def render_card_png(card_data: Dict[str, Any]) -> bytes:
             for line in _wrap(d, copy.get("money_flow_note") or "", f_micro, bx1 - bx0)[:3]:
                 d.text((bx0, ny), line, font=f_micro, fill=INK)
                 ny += 27
-        y += block_h + GAP
+        # The trailing GAP can carry the flow past the reserved band even when
+        # the block itself fitted, and `min(y, floor - take_h)` below would
+        # then pull the note back up over this block. Clamp here instead, so
+        # the gap absorbs the difference rather than the reader losing a line.
+        y = min(y + block_h + GAP, take_top)
 
     # ── (4) the conclusion, band reserved so it can never be squeezed out ───
     body = copy.get("takeaway_body") or ""
@@ -248,6 +300,8 @@ def render_card_png(card_data: Dict[str, Any]) -> bytes:
         lines = _wrap(d, body, f_body, inner - 110)[:3]
         take_h = 108 + len(lines) * 38
         top = min(y, floor - take_h)
+        if _geometry is not None:
+            _geometry["takeaway"] = (top, top + take_h)
         bx0, by0, bx1, _ = sticky(base, (x, top, x + inner, top + take_h), tilt=0.6, tape=False)
         ornament(base, "tape", (x + 18, top - 22, x + 142, top + 20), rotate=0.6)
         d = ImageDraw.Draw(base)
