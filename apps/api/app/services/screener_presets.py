@@ -32,6 +32,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models.symbol import SymbolCache
+from app.services.fundamental_service import MAX_PLAUSIBLE_YIELD
 
 Tier = Literal["scout", "strategist", "quant"]
 
@@ -145,6 +146,10 @@ def _top_dividend_query(db: Session):
         _base_active_query()
         .where(SymbolCache.dividend_yield.isnot(None))
         .where(SymbolCache.dividend_yield >= 0.04)
+        # Sorted by yield descending, so the pre-fix rows holding dollars per
+        # share (SPY: 7.525) would otherwise BE this preset — the whole top of
+        # a "high dividend" screen made of ETFs that yield ~1%.
+        .where(SymbolCache.dividend_yield < MAX_PLAUSIBLE_YIELD)
         .order_by(SymbolCache.dividend_yield.desc().nulls_last())
     )
 

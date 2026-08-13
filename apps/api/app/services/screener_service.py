@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.data.screen_filter_vocab import sector_spellings
 from app.models.symbol import SymbolCache
+from app.services.fundamental_service import MAX_PLAUSIBLE_YIELD
 from app.schemas.screener import (
     ScreenerFilters,
     ScreenerFiltersResponse,
@@ -60,7 +61,13 @@ class ScreenerService:
         if filters.max_pe is not None:
             q = q.where(SymbolCache.pe_ratio <= filters.max_pe)
         if filters.min_dividend_yield is not None:
+            # Upper bound as well as lower. Rows written before the units fix
+            # still hold dollars-per-share (SPY: 7.525), and a bare `>=` ranks
+            # every one of them above every real payer — the screen returns
+            # confident nonsense rather than nothing. `sane_dividend_yield`
+            # stops new ones; this stops the existing ones from being read.
             q = q.where(SymbolCache.dividend_yield >= filters.min_dividend_yield)
+            q = q.where(SymbolCache.dividend_yield < MAX_PLAUSIBLE_YIELD)
 
         # Count total before pagination
         count_q = select(func.count()).select_from(q.subquery())
@@ -196,7 +203,13 @@ class ScreenerService:
         if filters.max_pe is not None:
             q = q.where(SymbolCache.pe_ratio <= filters.max_pe)
         if filters.min_dividend_yield is not None:
+            # Upper bound as well as lower. Rows written before the units fix
+            # still hold dollars-per-share (SPY: 7.525), and a bare `>=` ranks
+            # every one of them above every real payer — the screen returns
+            # confident nonsense rather than nothing. `sane_dividend_yield`
+            # stops new ones; this stops the existing ones from being read.
             q = q.where(SymbolCache.dividend_yield >= filters.min_dividend_yield)
+            q = q.where(SymbolCache.dividend_yield < MAX_PLAUSIBLE_YIELD)
 
         total = db.scalar(select(func.count()).select_from(q.subquery())) or 0
         # Largest first, so a capped universe keeps the most liquid names

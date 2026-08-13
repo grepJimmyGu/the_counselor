@@ -1,8 +1,31 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Optional
 
 from app.schemas.fundamental import CompanyProfile, KeyMetrics
+
+
+def _yield_from_rate(rate: Optional[float], price: Optional[float]) -> Optional[float]:
+    """Annual dividend per share ÷ price, as a **fraction** (0.0116 = 1.16%).
+
+    Deliberately not `info["dividendYield"]`: yfinance changed that key's
+    meaning between releases — older ones returned a fraction (0.0116), 0.2.x
+    returns a percent (1.16) — so forwarding it makes the stored scale depend
+    on whichever version the container happens to have installed. Silent, and
+    invisible until a screen returns the wrong names.
+
+    `dividendRate` is unambiguous: annual dollars per share. Same arithmetic
+    and same units as `fmp_adapter._dividend_yield`.
+    """
+    try:
+        r = float(rate)
+        px = float(price)
+    except (TypeError, ValueError):
+        return None
+    if r <= 0 or px <= 0:
+        return None
+    return r / px
 
 
 class YFinanceAdapter:
@@ -39,7 +62,16 @@ class YFinanceAdapter:
             price=info.get("currentPrice") or info.get("regularMarketPrice"),
             market_cap=info.get("marketCap"),
             pe_ratio=info.get("trailingPE"),
-            dividend_yield=info.get("dividendYield"),
+            # NOT `info["dividendYield"]`. yfinance changed that key's meaning
+            # between versions — older releases returned a fraction (0.0116),
+            # 0.2.x returns a percent (1.16) — so forwarding it makes the scale
+            # depend on whichever version the container happens to have.
+            # `dividendRate` is unambiguous: annual dollars per share. Same
+            # arithmetic as `fmp_adapter._dividend_yield`, same units out.
+            dividend_yield=_yield_from_rate(
+                info.get("dividendRate"),
+                info.get("currentPrice") or info.get("regularMarketPrice"),
+            ),
             beta=info.get("beta"),
             week_52_high=info.get("fiftyTwoWeekHigh"),
             week_52_low=info.get("fiftyTwoWeekLow"),
@@ -70,7 +102,9 @@ class YFinanceAdapter:
             pb_ratio=_f("priceToBook"),
             ps_ratio=_f("priceToSalesTrailing12Months"),
             free_cash_flow_yield=None,  # not directly available
-            dividend_yield=_f("dividendYield"),
+            dividend_yield=_yield_from_rate(
+                _f("dividendRate"), _f("currentPrice") or _f("regularMarketPrice")
+            ),
             roe=_f("returnOnEquity"),
             roa=_f("returnOnAssets"),
             debt_to_equity=_f("debtToEquity"),

@@ -30,6 +30,40 @@ def _market_cap_category(market_cap: Optional[float]) -> Optional[str]:
     return "micro"
 
 
+# A dividend yield is a fraction: 0.0116 is SPY's ~1.16%. Nothing at or above
+# 1.0 is a yield — it is dollars per share, or a percent that escaped its
+# conversion. Both shapes are in production: SPY holds 7.525, which is its
+# ~$7.50 annual payout, and the screener compared that against a 0.04 threshold
+# and returned it as a 752% yielder.
+MAX_PLAUSIBLE_YIELD = 1.0
+
+
+def sane_dividend_yield(value: Optional[float]) -> Optional[float]:
+    """The yield as a fraction, or None when the number cannot be one.
+
+    **Refuses rather than converts.** Dividing SPY's 7.525 by 100 would produce
+    a confident "0.075 — a 7.5% yielder" when the real figure is ~1.16%: a
+    wrong number that looks right, which is precisely the failure this column
+    already shipped once. None is honest, and a missing yield simply drops the
+    name out of a min-yield screen instead of topping it.
+
+    Applied at the DB write rather than inside one adapter, because that is the
+    only chokepoint every source passes through. `fmp_adapter` computes a
+    fraction correctly; `yfinance_adapter` forwarded whatever `dividendYield`
+    happened to mean in the installed version; a third source tomorrow arrives
+    with its own convention.
+    """
+    if value is None:
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    if v < 0 or v >= MAX_PLAUSIBLE_YIELD:
+        return None
+    return v
+
+
 class FundamentalService:
     def __init__(self) -> None:
         self._fmp = FMPAdapter()
@@ -62,7 +96,7 @@ class FundamentalService:
         # `max_pe=60` matched 0 of 16,832 symbols.
         if profile.pe_ratio is not None:
             existing.pe_ratio = profile.pe_ratio
-        existing.dividend_yield = profile.dividend_yield
+        existing.dividend_yield = sane_dividend_yield(profile.dividend_yield)
         existing.beta = profile.beta
         existing.week_52_high = profile.week_52_high
         existing.week_52_low = profile.week_52_low
