@@ -1681,9 +1681,9 @@ populate the cluster server-side; results persist indefinitely in Postgres (no T
 re-warm ~quarterly). A freshness byline (`computed_at`) on the panel per the
 "date stamps must be visible" invariant.
 
-## 2026-08-13 — The share card reaches users, and the screener's fundamental path is unblocked (#313 → #317)
+## 2026-08-13 — The share card reaches users, the screener's fundamental path is unblocked, and the home page becomes a 2×2 (#313 → #321)
 
-Five PRs merged. The daily share card went from "built but unreachable" to live,
+Seven PRs merged, two open at end of day. The daily share card went from "built but unreachable" to live,
 and two bugs that made the screener look broken were traced to their real causes.
 
 | PR | Scope |
@@ -2603,6 +2603,65 @@ Full saga in [project_log.md](../project_log.md) (2026-05-21 section) and
 - PRD-10: /sentiment hub, toolkit cards, sentiment tab on ticker page
 
 ---
+
+### The screener's fundamental path (#318)
+"The P/E filter returns nothing" was blamed twice on the known fundamentals
+coverage gap. It wasn't that. `/api/search/parse` resolved 564 matching names
+and returned the note *"Matched 564 names on P/E under 15"* — then the results
+page handed those 564 to `scan()` with an empty rule list, and `not rules`
+returned `matched: []`. An empty conjunction is vacuously true; the code read
+"no constraints" as "nothing qualifies". The answer had been computed and
+thrown away.
+
+A pinned test asserted exactly that behaviour, in exactly the production shape.
+Written before the fundamental-only path existed, where "no rules → no matches"
+reads as obviously right. Changed openly rather than worked around.
+
+Codified in `CLAUDE.md` as a hard rule: **trace the path before blaming a known
+problem** — resemblance is a hypothesis, not a diagnosis.
+
+### The backfill, and what it actually measured
+Jimmy ran `backfill_fundamentals.py` end to end: **2,542 updated / 728 genuinely
+unprofitable / 26 failed, 3h27m** — not the 20-25 minutes the docstring claimed.
+Measured on a seeded 400-name sample of the Russell 3000, before and after:
+
+| column | before | after |
+|---|---|---|
+| `sector` | 100% | 100% |
+| `pe_ratio` | 70.5% | 70.8% |
+| `dividend_yield` | 63.2% | 63.0% |
+| **`market_cap`** | **1.8%** | **99.2%** |
+
+Market cap was the only real emergency, and it had been mis-sized all day by
+measuring against 16,838 rows instead of the 2,552 that get screened. The
+script was already fetching the profile that carries it and discarding the
+value (#318). `min_market_cap=2e9` went from 99 names to 1,677, turning four
+presets and both market-cap filters back on.
+
+### The home page becomes a 2×2 (#319, #321)
+Three asks that were one request: the blocks were thinner re-inventions of
+surfaces already designed elsewhere. So most of the work was extraction —
+`starting-point-card.tsx` shared by the Screen-the-market gallery and Home, and
+the overlay picker's own `<StrategyCard>` reused read-only.
+
+- **Hot Market Picks** — the five `kind: "composer"` starting points, routing to
+  `/screen?template=<id>`, the same landing a typed query produces. "Traders
+  ask" folded in as its top section (#321): the chips and the picks do the same
+  job and land on the same surface.
+- **Quant Rules** — three sections; overlays read-only, because the picker
+  chooses an overlay FOR a portfolio already uploaded.
+- **Catalysts** — the five `kind: "sentiment"` picks over the news ticker. They
+  live here because they carry a `toolkit_id`, not `rules`, so they cannot
+  produce a stock list.
+
+Two things surfaced by building rather than planning. The overlay "no
+performance numbers" rule rested on a **false premise** — the figures it banned
+are sourced in `overlay-metadata.ts` (`historicalEstimate`, and Hurst, Ooi &
+Pedersen 2013), so the rule became "a number never travels without what
+produced it". And `brief.sectors` — every sector, ranked — had been fetched on
+every home page load since the block was written and **thrown away**, with only
+leader/laggard read: ten sectors requested to display two. `contracts.ts`
+documented it; nothing asserted on it.
 
 ## 2026-06-25 — Russell 3000 shipped and verified live (WORK_LOG checkpoint)
 
