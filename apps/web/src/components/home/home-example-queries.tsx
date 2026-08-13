@@ -22,7 +22,6 @@
 
 import { useState } from "react";
 import { RUN_QUERY_EVENT } from "@/components/search/smart-search-box";
-import { MarketNewsTicker } from "./market-news-ticker";
 
 interface QueryTab {
   id: string;
@@ -88,12 +87,15 @@ export function HomeExampleQueries() {
 
   return (
     <section
-      className="rounded-xl border border-border bg-white p-5"
+      className="rounded-xl border border-border bg-white p-4"
       data-testid="home-example-queries"
     >
       <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
         <h2 className="font-heading text-base font-semibold">Traders ask</h2>
-        <div className="flex flex-wrap items-center gap-1">
+        {/* Segmented control on the heading line rather than its own row —
+            the block is four questions tall, so a row spent on tabs is
+            expensive. */}
+        <div className="flex flex-wrap items-center gap-0.5 rounded-full bg-muted/50 p-0.5">
           {TABS.map((t) => (
             <button
               key={t.id}
@@ -103,8 +105,8 @@ export function HomeExampleQueries() {
               aria-pressed={t.id === active}
               className={
                 t.id === active
-                  ? "rounded-full bg-primary/8 px-2.5 py-1 text-xs font-medium text-primary"
-                  : "rounded-full px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
+                  ? "cursor-pointer rounded-full bg-white px-2.5 py-1 text-xs font-medium text-foreground shadow-sm"
+                  : "cursor-pointer rounded-full px-2.5 py-1 text-xs text-muted-foreground transition-colors hover:text-foreground"
               }
             >
               {t.label}
@@ -113,25 +115,27 @@ export function HomeExampleQueries() {
         </div>
       </div>
 
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+      {/* Chips sized to their text, wrapping — not full-width rows. Each row
+          held ~30 characters in a ~568px column, so most of this block was
+          empty background. */}
+      <div className="flex flex-wrap gap-1.5">
         {tab.queries.map((q) => (
           <button
             key={q}
             type="button"
             onClick={() => runQuery(q)}
             data-testid="example-query"
-            className="rounded-lg bg-muted/40 px-3 py-2 text-left text-sm transition-colors hover:bg-muted"
+            className="cursor-pointer rounded-full border border-border bg-muted/30 px-3 py-1.5 text-left text-xs transition-colors hover:border-primary/40 hover:bg-muted"
           >
             {q}
           </button>
         ))}
       </div>
 
-      <p className="mt-3 text-xs text-muted-foreground">
+      <p className="mt-2.5 text-[11px] text-muted-foreground">
         Runs in the search box above — edit it and try your own.
       </p>
 
-      <MarketNewsTicker />
     </section>
   );
 }

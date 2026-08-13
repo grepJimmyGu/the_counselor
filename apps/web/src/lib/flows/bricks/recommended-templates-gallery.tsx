@@ -19,21 +19,15 @@
  */
 
 import * as React from "react";
-import { ArrowRight, Filter, Sparkles } from "lucide-react";
+
 import type { FlowStepProps } from "@/lib/flows/types";
 import type { CustomBuildModeContext } from "@/lib/flows/custom-build-mode-context";
 import {
   RECOMMENDED_TEMPLATES,
   type RecommendedTemplate,
 } from "@/lib/recommended-templates";
-import { cn } from "@/lib/utils";
-
-const CATEGORY_LABEL: Record<string, string> = {
-  momentum: "Momentum",
-  quality: "Quality",
-  catalyst: "Catalyst",
-  event: "Event",
-};
+import { ArrowRight } from "lucide-react";
+import { StartingPointCard } from "@/components/screen/starting-point-card";
 
 function hasTemplateParam(): boolean {
   if (typeof window === "undefined") return false;
@@ -61,52 +55,6 @@ export function sentimentTemplateHref(
   const params = new URLSearchParams({ toolkit: t.toolkit_id, autorun: "1" });
   if (t.display_label) params.set("display", t.display_label);
   return `/sentiment?${params.toString()}`;
-}
-
-function TemplateCard({
-  t,
-  onPick,
-}: {
-  t: RecommendedTemplate;
-  onPick: (t: RecommendedTemplate) => void;
-}) {
-  const isSentiment = t.kind === "sentiment";
-  return (
-    <button
-      type="button"
-      data-testid={`gallery-template-${t.id}`}
-      onClick={() => onPick(t)}
-      className="group flex h-full flex-col rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:shadow-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-    >
-      <div className="mb-2 flex items-center gap-2">
-        <span
-          className={cn(
-            "inline-flex h-8 w-8 items-center justify-center rounded-lg border",
-            isSentiment
-              ? "border-amber-200 bg-amber-50 text-amber-600"
-              : "border-primary/20 bg-primary/5 text-primary",
-          )}
-        >
-          {isSentiment ? (
-            <Sparkles className="h-4 w-4" />
-          ) : (
-            <Filter className="h-4 w-4" />
-          )}
-        </span>
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-          {CATEGORY_LABEL[t.category] ?? t.category}
-        </span>
-      </div>
-      <h3 className="font-heading text-base font-semibold">{t.name}</h3>
-      <p className="mt-1 flex-1 text-sm leading-relaxed text-muted-foreground">
-        {t.tagline}
-      </p>
-      <span className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-primary">
-        {isSentiment ? "View in News & Sentiment" : "Screen this"}
-        <ArrowRight className="h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
-      </span>
-    </button>
-  );
 }
 
 export function RecommendedTemplatesGallery({
@@ -159,7 +107,12 @@ export function RecommendedTemplatesGallery({
       </header>
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {RECOMMENDED_TEMPLATES.map((t) => (
-          <TemplateCard key={t.id} t={t} onPick={onPick} />
+          <StartingPointCard
+            key={t.id}
+            t={t}
+            onPick={onPick}
+            testId={`gallery-template-${t.id}`}
+          />
         ))}
       </div>
       <div className="mt-6 text-center">

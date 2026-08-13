@@ -5,6 +5,7 @@ import { render, screen, waitFor } from "@testing-library/react";
 vi.mock("@/lib/api", () => ({
   getDailyBrief: vi.fn(),
   getScreenerPresets: vi.fn(),
+  screenCount: vi.fn(),
   // The block now carries <ShareCardButton>, which imports these. A module
   // mock replaces the WHOLE module, so omitting them makes the button throw
   // on mount and takes the entire block's render down with it.
@@ -13,12 +14,13 @@ vi.mock("@/lib/api", () => ({
   dailyCardImageUrl: () => "http://api.test/card.png",
 }));
 
-import { getDailyBrief, getScreenerPresets } from "@/lib/api";
+import { getDailyBrief, getScreenerPresets, screenCount } from "@/lib/api";
 import { HomeMarketPulseBlock } from "../home-market-pulse-block";
 import { HomeCuratedScreens } from "../home-curated-screens";
 
 const briefMock = getDailyBrief as unknown as ReturnType<typeof vi.fn>;
 const presetsMock = getScreenerPresets as unknown as ReturnType<typeof vi.fn>;
+const countMock = screenCount as unknown as ReturnType<typeof vi.fn>;
 
 const mover = (symbol: string, change_percent: number) => ({
   symbol,
@@ -154,42 +156,52 @@ describe("HomeMarketPulseBlock", () => {
   });
 });
 
-describe("HomeCuratedScreens", () => {
-  const preset = (slug: string, count: number) => ({
-    slug,
-    title: slug,
-    description: "d",
-    icon: "X",
-    tier: "scout" as const,
-    result_count: count,
-    sample_tickers: ["AAA", "BBB"],
-  });
-
-  it('is titled "Special list"', async () => {
-    presetsMock.mockResolvedValue({ presets: [preset("trending-ai", 24)] });
+describe("HomeCuratedScreens — Hot Market Picks", () => {
+  it('is titled "Hot Market Picks"', async () => {
+    countMock.mockResolvedValue({ matched_count: 24, universe_size: 525 });
     render(<HomeCuratedScreens />);
     await waitFor(() =>
-      expect(screen.getByTestId("home-curated-screens").textContent).toContain("Special list"),
-    );
-  });
-
-  it("links straight to results — no intermediate page", async () => {
-    presetsMock.mockResolvedValue({ presets: [preset("trending-ai", 24)] });
-    render(<HomeCuratedScreens />);
-    await waitFor(() =>
-      expect(screen.getByTestId("curated-screen").getAttribute("href")).toBe(
-        "/stocks?preset=trending-ai",
+      expect(screen.getByTestId("home-curated-screens").textContent).toContain(
+        "Hot Market Picks",
       ),
     );
   });
 
-  it("hides empty presets instead of advertising a zero count", async () => {
-    presetsMock.mockResolvedValue({
-      presets: [preset("top-value", 0), preset("top-dividend", 68)],
-    });
+  it("lands on the search-results surface, carrying the template and universe", async () => {
+    // Not `/stocks`, not an intermediate page. The whole point of routing to
+    // `/screen` is that a pick arrives where a typed query arrives, so the
+    // user's next move — edit a chip, add a ticker — is the same.
+    countMock.mockResolvedValue({ matched_count: 24, universe_size: 525 });
     render(<HomeCuratedScreens />);
-    await waitFor(() => expect(screen.getAllByTestId("curated-screen")).toHaveLength(1));
-    expect(screen.getByText("top-dividend")).toBeTruthy();
-    expect(screen.queryByText("top-value")).toBeNull();
+    const href = await waitFor(() =>
+      screen.getByTestId("home-pick-best_momentum").getAttribute("href"),
+    );
+    expect(href).toBe("/screen?template=best_momentum&universe=sp500");
+  });
+
+  it("shows only the composer picks — the sentiment ones cannot produce a list", async () => {
+    countMock.mockResolvedValue({ matched_count: 12, universe_size: 525 });
+    render(<HomeCuratedScreens />);
+    await waitFor(() => expect(screen.getByTestId("home-pick-best_momentum")).toBeTruthy());
+    // `positive_catalyst` routes to the sentiment hub; it belongs in Catalysts.
+    expect(screen.queryByTestId("home-pick-positive_catalyst")).toBeNull();
+  });
+
+  it("hides a pick matching nothing rather than advertising a zero", async () => {
+    countMock.mockImplementation((body: { rules: { primitive_id: string }[] }) =>
+      Promise.resolve({
+        matched_count: body.rules[0]?.primitive_id === "rank_return_6m" ? 0 : 31,
+        universe_size: 525,
+      }),
+    );
+    render(<HomeCuratedScreens />);
+    await waitFor(() => expect(screen.getByTestId("home-pick-breakout")).toBeTruthy());
+    expect(screen.queryByTestId("home-pick-best_momentum")).toBeNull();
+  });
+
+  it("renders nothing when every count fails — five dead cards is worse than none", async () => {
+    countMock.mockRejectedValue(new Error("scan down"));
+    const { container } = render(<HomeCuratedScreens />);
+    await waitFor(() => expect(container.querySelector("section")).toBeNull());
   });
 });

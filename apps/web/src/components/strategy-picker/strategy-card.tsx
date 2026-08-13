@@ -31,11 +31,11 @@ export interface StrategyCardProps {
   /** Whether this card is currently selected (shows expanded view). */
   isSelected: boolean;
   /** Whether this card is disabled (e.g. insufficient holdings). */
-  isDisabled: boolean;
+  isDisabled?: boolean;
   /** Show the schematic mechanic demo at the top of the expanded card. */
   demo?: boolean;
   /** Called when the user clicks the card to select it. */
-  onSelect: () => void;
+  onSelect?: () => void;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -57,6 +57,61 @@ function bulletLines(text: string): string[] {
     .filter(Boolean);
 }
 
+/** The condensed card's outer element.
+ *
+ * `readOnly` renders a plain `<div>` rather than a disabled `<button>`, and
+ * that distinction matters. The home "Overlay overview" is informational — the
+ * picker chooses an overlay FOR a portfolio you have already uploaded, so
+ * offering the choice with no holdings would dead-end. But rendering it as a
+ * disabled button would dim it to `opacity-60` and show a not-allowed cursor,
+ * which reads as "broken" rather than "this is a description". A read-only card
+ * is fully legible, simply not clickable, and carries no button semantics for a
+ * screen reader to announce.
+ */
+function Shell({
+  readOnly,
+  onSelect,
+  isDisabled,
+  testId,
+  children,
+}: {
+  readOnly: boolean;
+  onSelect?: () => void;
+  isDisabled?: boolean;
+  testId: string;
+  children: React.ReactNode;
+}) {
+  const base =
+    "w-full rounded-xl border p-4 text-left transition-all duration-150 " +
+    "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary";
+  if (readOnly) {
+    return (
+      <div data-testid={testId} className={cn(base, "border-border")}>
+        {children}
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={isDisabled ? undefined : onSelect}
+      disabled={isDisabled}
+      data-testid={testId}
+      className={cn(
+        base,
+        "cursor-pointer",
+        isDisabled
+          ? "cursor-not-allowed border-muted/30 bg-muted/10 opacity-60"
+          : "border-border hover:border-primary/40 hover:bg-muted/30",
+      )}
+      aria-pressed={false}
+      aria-disabled={isDisabled}
+    >
+      {children}
+    </button>
+  );
+}
+
 // ── Component ────────────────────────────────────────────────────────────────
 
 export function StrategyCard({
@@ -67,27 +122,19 @@ export function StrategyCard({
   isSelected,
   isDisabled,
   demo = false,
+  readOnly = false,
   onSelect,
-}: StrategyCardProps) {
+}: StrategyCardProps & { readOnly?: boolean }) {
   const qualifies = holdingsCount >= meta.minHoldings;
 
   if (!isSelected) {
     // ── Condensed ────────────────────────────────────────────────────────
     return (
-      <button
-        type="button"
-        onClick={isDisabled ? undefined : onSelect}
-        disabled={isDisabled}
-        data-testid={`strategy-card-${meta.kind}`}
-        className={cn(
-          "w-full cursor-pointer rounded-xl border p-4 text-left transition-all duration-150",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary",
-          isDisabled
-            ? "cursor-not-allowed border-muted/30 bg-muted/10 opacity-60"
-            : "border-border hover:border-primary/40 hover:bg-muted/30",
-        )}
-        aria-pressed={false}
-        aria-disabled={isDisabled}
+      <Shell
+        readOnly={readOnly}
+        onSelect={onSelect}
+        isDisabled={isDisabled}
+        testId={`strategy-card-${meta.kind}`}
       >
         {/* Header */}
         <div className="mb-2 flex items-center justify-between gap-2">
@@ -112,13 +159,25 @@ export function StrategyCard({
         {/* Tagline */}
         <p className="text-sm font-medium">{meta.tagline}</p>
 
+        {/* The tagline carries a hard figure — "worst loss −28% vs −55%". In
+            the picker the user can expand the card and read where it comes
+            from; a read-only overview has no expand, so the basis travels with
+            the claim or the claim doesn't ship. The rule is not "hide the
+            number" (it is a real backtest, sourced in `overlay-metadata.ts`)
+            — it is "never show a number without saying what produced it". */}
+        {readOnly && meta.historicalEstimate && (
+          <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+            {meta.historicalEstimate}
+          </p>
+        )}
+
         {/* Insufficient holdings badge */}
         {!qualifies && (
           <p className="mt-2 inline-block rounded bg-red-50 px-1.5 py-0.5 text-[11px] font-medium text-red-600">
             Needs {meta.minHoldings}+ holdings
           </p>
         )}
-      </button>
+      </Shell>
     );
   }
 
