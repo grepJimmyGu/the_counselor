@@ -241,10 +241,22 @@ def test_scan_readings_disambiguate_end_to_end(db):
     assert len(set(chips)) == 2, f"duplicate chip rendered: {chips}"
 
 
-def test_empty_rules_match_nothing(seeded, db):
+def test_empty_rules_over_a_caller_supplied_list_returns_that_list(seeded, db):
+    """CHANGED 2026-08-13, deliberately — this test previously asserted the
+    opposite, and the behaviour it pinned was the bug.
+
+    `_scan` uses `universe_id="symbols"`: the caller names the population.
+    With no rules there is nothing left to filter by, so the answer is the
+    population. Written for slice 3 as a boolean-filter unit, before the
+    fundamental-only path existed, "no rules -> no matches" looked obviously
+    right; it is what made "p/e under 15" return an empty screen under a note
+    reading "Matched 564 names on P/E under 15."
+
+    The standing-universe case is unchanged and covered below.
+    """
     res = _scan(db, seeded, [])
-    assert res.matched == []
-    assert res.matched_count == 0
+    assert sorted(res.matched) == ["AAPL", "MSFT", "TSLA"]
+    assert res.matched_count == 3
 
 
 def test_count_equals_len_matched(seeded, db):
@@ -304,3 +316,44 @@ def test_unmatched_symbols_carry_no_values(seeded, db):
     rules = [StrategyRule(primitive_id="rsi", operator="lt", threshold=30)]
     res = _scan(db, seeded, rules)
     assert "MSFT" not in res.values  # rsi 55 — didn't match
+
+
+# ── the fundamental-only path ───────────────────────────────────────────────
+
+
+def test_an_explicit_symbol_list_with_no_rules_returns_that_list(seeded, db):
+    """The bug behind "the P/E filter returns nothing", found 2026-08-13.
+
+    P/E is not a snapshot primitive — `condition-groups.ts` sets `rule: null`
+    for it — so "p/e under 15" parses to ZERO rules and 564 already-filtered
+    symbols. `/api/search/parse` had done the work and even returned the note
+    "Matched 564 names on P/E under 15." The results page then handed those
+    564 symbols to this scan with an empty rule list, and `not rules` returned
+    `matched: []`. The answer was computed and thrown away.
+
+    An empty conjunction is vacuously true. "No constraints" is not "nothing
+    qualifies".
+    """
+    result = scan(db, "symbols", [], symbols=["AAPL", "MSFT", "TSLA"])
+    assert sorted(result.matched) == ["AAPL", "MSFT", "TSLA"]
+    assert result.matched_count == 3
+
+
+def test_no_rules_and_a_standing_universe_still_matches_nothing(seeded, db):
+    """The guard is scoped deliberately. Without an explicit list there is no
+    caller-supplied filtering to honour, and returning an entire universe for
+    an empty query would be a worse bug than the one being fixed."""
+    # A standing index: `resolve_universe` ignores any symbol list, so the
+    # population is the whole index. Returning 2,552 names for an empty query
+    # would be a worse bug than the one being fixed.
+    result = scan(db, "sp500", [], symbols=["AAPL", "MSFT", "TSLA"])
+    assert result.matched == []
+    assert result.matched_count == 0
+
+
+def test_rules_still_filter_when_a_symbol_list_is_also_given(seeded, db):
+    """The identity case must not become a bypass: a caller that sends both a
+    symbol list AND rules still gets the rules applied."""
+    rule = StrategyRule(primitive_id="rsi", operator="lt", threshold=30)
+    result = scan(db, "symbols", [rule], symbols=["AAPL", "MSFT", "TSLA"], snapshot_svc=seeded)
+    assert sorted(result.matched) == ["AAPL", "TSLA"], "MSFT (rsi=55) must not match"

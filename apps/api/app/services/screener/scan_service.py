@@ -42,6 +42,7 @@ from app.services.screener.signal_snapshot_service import (
 )
 from app.services.screener.universe_resolver import (
     SectorMembershipFn,
+    is_standing_id,
     resolve_universe,
 )
 
@@ -246,6 +247,33 @@ def scan(
             "with the real params): %s",
             len(default_param),
             default_param,
+        )
+
+    if not rules and syms and not is_standing_id(universe_id):
+        # A caller-supplied population with nothing left to filter by.
+        #
+        # This is the whole fundamental-only path. "p/e under 15" is not a
+        # snapshot primitive (`condition-groups.ts` sets `rule: null` for it),
+        # so `/api/search/parse` resolves it itself and returns
+        # `universe_id="symbols"` with the 564 names that match — plus the note
+        # "Matched 564 names on P/E under 15." The results page handed those
+        # 564 straight back here with an empty rule list, `not rules` returned
+        # `matched: []`, and the user saw an empty screen under a note claiming
+        # 564 matches. The answer had been computed and was thrown away.
+        #
+        # An empty conjunction is vacuously true: "no constraints" is not
+        # "nothing qualifies". Scoped to the client-supplied tiers, because
+        # `resolve_universe` ignores `symbols` for a standing id — there the
+        # population is the whole index and returning it for an empty query
+        # would be a worse bug than the one being fixed.
+        return ScanResult(
+            matched=list(syms),
+            readings={},
+            as_of_date=snap.as_of_date,
+            universe_size=len(syms),
+            matched_count=len(syms),
+            unsupported_primitives=unsupported,
+            default_param_primitives=default_param,
         )
 
     if not syms or frame.empty or not rules:

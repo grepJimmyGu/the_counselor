@@ -67,6 +67,10 @@ from app.data.russell3000_tickers import RUSSELL3000_TICKERS  # noqa: E402
 from app.db.session import SessionLocal  # noqa: E402
 from app.models.symbol import SymbolCache  # noqa: E402
 from app.services.adapters.fmp_adapter import FMPAdapter  # noqa: E402
+from app.services.fundamental_service import (  # noqa: E402
+    _market_cap_category,
+    sane_dividend_yield,
+)
 
 logger = logging.getLogger("backfill_fundamentals")
 
@@ -148,9 +152,17 @@ async def _run(dry_run: bool, limit: Optional[int], state_file: str) -> int:
             # adapter, so the stored value is a fraction rather than dollars.
             try:
                 profile = await adapter.get_profile(sym, include_peers=False)
-                row.dividend_yield = profile.dividend_yield
+                row.dividend_yield = sane_dividend_yield(profile.dividend_yield)
                 if profile.price is not None:
                     row.price = profile.price
+                # Market cap comes back in this SAME profile call and was
+                # being dropped on the floor. It sat at 1.8% coverage across
+                # the Russell 3000 — populated only where someone had opened
+                # a company page — while four presets and both market-cap
+                # screener filters read it. The API cost was already paid.
+                if profile.market_cap is not None:
+                    row.market_cap = profile.market_cap
+                    row.market_cap_category = _market_cap_category(profile.market_cap)
                 wrote = True
             except Exception as exc:
                 failed += 1
