@@ -90,6 +90,27 @@ not improvise rules from training-data assumptions.
   returned a 502 for every A-share stock because `FinancialCheckMetrics`
   takes no `__init__` kwargs; the fix was 5 lines but four commits were
   needed because the root cause wasn't diagnosed before the first patch.
+- **Trace the path before blaming a known problem.** When a symptom resembles
+  an issue already on the board, that resemblance is a hypothesis, not a
+  diagnosis. Follow the actual code path — UI handler → API call → service →
+  query — and confirm where the value is lost. State the cause only once you
+  have run the failing call yourself. *Why:* 2026-08-13 — "the P/E filter
+  returns nothing" was attributed to the known fundamentals-backfill gap and
+  reported to Jimmy twice on that basis. The data was fine: `/api/search/parse`
+  resolved 564 matching names and the results page threw them away, because
+  `scan()` treated an empty rule list as "nothing qualifies". One `curl` to the
+  parse endpoint would have shown 564 symbols in the response.
+- **Scope a fix to the case you proved, and check what shared helpers ignore.**
+  The first patch for the above returned the *resolved* universe — but
+  `resolve_universe` discards a caller's symbol list for standing index ids, so
+  it would have returned all 2,552 Russell names for an empty query. Read what
+  every helper in the path does with your inputs before relying on it.
+- **An existing test that pins the bug must be changed openly.** Say so in the
+  test docstring, the commit, and to Jimmy — never quietly work around it, and
+  never assume the original author was wrong without stating why the contract
+  changed. *Why:* same incident — `test_empty_rules_match_nothing` asserted
+  exactly the broken behaviour, written before the fundamental-only path
+  existed, when "no rules → no matches" looked obviously right.
 - **Wrap up with a goal-vs-result summary.** After every meaningful chunk
   of work, summarize: (1) what the original goal was, (2) what was actually
   achieved, and (3) what was started vs ended with (a before/after table if
@@ -307,9 +328,21 @@ The canonical in-repo sources of truth (read on demand, not all at boot):
 
 | Topic | File |
 |---|---|
-| Current state + next action + resumption checklist | [`agent-system/WORK_LOG.md`](agent-system/WORK_LOG.md) |
-| Chronological history of what shipped | [`project_log.md`](project_log.md) |
-| Episodic build journal + lessons | [`docs/BUILDING_LIVERMORE_JOURNAL.md`](docs/BUILDING_LIVERMORE_JOURNAL.md) |
+| **State** — where work stopped, what's next, what not to touch | [`agent-system/WORK_LOG.md`](agent-system/WORK_LOG.md) |
+| **History** — the one chronological log of what shipped | [`project_log.md`](project_log.md) |
+| **Journal** — the story of the project, and its lessons | [`docs/BUILDING_LIVERMORE_JOURNAL.md`](docs/BUILDING_LIVERMORE_JOURNAL.md) |
+
+> **Only two of those are logs, and they do different jobs.** `WORK_LOG.md` is
+> STATE: rewrite the top of it at every checkpoint, never append dated entries,
+> keep it short enough to read at boot. `project_log.md` is HISTORY: append a
+> dated entry per session, never trim. The journal is a journal — narrative and
+> reflection, not a changelog — and still gets updated.
+>
+> *Why:* by 2026-08-13 the two logs shared 13 of 22 dates and WORK_LOG had grown
+> to 1,025 lines, so nobody could read it at boot — the one thing it existed
+> for — and it went three weeks stale. Restructured that day: history merged
+> into `project_log.md`, WORK_LOG cut to state only. If you find yourself adding
+> a dated entry to WORK_LOG, it belongs in `project_log.md`.
 | Production crash post-mortems | [`docs/KNOWN_ISSUES.md`](docs/KNOWN_ISSUES.md) |
 | Traffic-gated work (Stage 5b/6b) | [`docs/DEFERRED.md`](docs/DEFERRED.md) |
 | Pre-enforcement checklist before `GATING_ENABLED=true` | [`docs/SHADOW_MODE_REVIEW.md`](docs/SHADOW_MODE_REVIEW.md) |

@@ -1473,6 +1473,79 @@ It started as a question, not a ticket: *if I turn active execution on, what act
 
 ---
 
+### Episode 47 — The card that couldn't be read, and the filter that was never broken (August 11–13)
+
+Two stories from the same three days, and both turn on the same mistake: trusting
+a thing that *looked* right.
+
+**The model drew beautiful cards and lied on every one.** The daily share card
+was meant to be generated end-to-end by an image model — Xiaohongshu-style,
+hand-drawn, warm. Five generations in, every single one had the right look and
+damaged data, differently each time. The one that settled it was a Chinese card
+where every *figure* was correct but the labels had drifted off their rows:
+`医疗 −1.10%` when Healthcare was actually **+1.67%**. Every number on the card
+was real. Every number was attached to the wrong thing. A number-only OCR check
+passes that card cleanly.
+
+The cause turned out to be worth understanding rather than working around. The
+model isn't typesetting text; it's drawing glyph shapes it has seen. Latin gets
+away with it — 52 letterforms. Chinese has thousands of dense multi-stroke
+characters, so at 20px the model produces stroke-shaped plausible non-characters
+(标→桁, 琼→珉) and has no concept of a wrong character, so nothing errors.
+
+Jimmy's call was the right one and stated in a sentence: *separate image
+generation from words generation.* The model now draws ornament — a corner
+doodle, sticky-note shapes, tape — and the renderer draws everything anyone
+reads. The prompt asks for a **background plate with empty zones**, never a
+finished card.
+
+**Two font bugs, and the second would have taken production down.** `bold=True`
+had been returning Regular on every card ever rendered: a `.ttc` is a *collection*
+of faces and `truetype(path, size)` silently takes index 0. Nothing errored; the
+headlines just quietly weren't bold. Then CI went red on Ubuntu with
+`FontUnavailable` — and that one wasn't a test problem. The card resolved fonts
+through macOS system paths as a dev fallback, with the real answer meant to be a
+bundled file that was never bundled. Railway is a slim Linux container. **Every
+English card would have 500'd in production.** The module docstring had predicted
+this exact failure the day it was written; CI was simply the first place it was
+allowed to happen.
+
+**The filter that was never broken.** Jimmy asked why the screener's P/E filter
+returned nothing. There was an obvious culprit sitting right there: a known
+fundamentals-coverage gap, half the columns sparsely populated. I blamed it.
+Twice, in writing, in a summary he read.
+
+It was wrong. `/api/search/parse` resolved the query perfectly — 564 matching
+names, and a note that said so: *"Matched 564 names on P/E under 15."* The
+results page then handed those 564 symbols to a scan with an empty rule list,
+and the scan returned nothing, because `not rules` was treated as "nothing
+qualifies". An empty conjunction is vacuously true. The answer had been computed
+and thrown away, and the user got an empty screen underneath a note claiming 564
+matches.
+
+One `curl` to the parse endpoint would have shown the 564 symbols in the
+response. The lesson is now a hard rule in `CLAUDE.md`: **when a symptom
+resembles a known problem, that resemblance is a hypothesis, not a diagnosis.**
+
+There was a second-order version of the same error in the fix itself. The first
+patch returned the *resolved* universe — but `resolve_universe` silently ignores
+a caller's symbol list for standing index ids, so it would have returned all
+2,552 Russell names for an empty query. Read what the helpers do with your
+inputs.
+
+**And the measurement that reframed everything.** The coverage numbers I had been
+quoting were against all 16,838 rows in the symbols table. The universe that
+actually gets screened is the 2,552-name Russell 3000. Measured properly:
+`sector` 100%, `pe_ratio` 70.5%, `dividend_yield` 63.2%, and `market_cap` at
+**1.8%** — seven names in a 400-name sample. Four presets and both market-cap
+filters read that column. The wrong denominator had made a genuine emergency look
+like a footnote, and it was the reason a week of "small fixes" felt endless
+instead of ranked. Jimmy's push-back — *"I need a very clear evaluation on the
+urgency and necessity"* — was the correction that produced the real answer.
+
+
+---
+
 ## Recurring journeys (themes)
 
 ### "Scope-cut every stage"
