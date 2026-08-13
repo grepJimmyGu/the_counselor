@@ -1,7 +1,17 @@
 "use client";
 
 /**
- * Home block 4 — example queries (老股民都愛這麼問).
+ * The "Traders ask" strip — the top section of **Hot Market Picks**.
+ *
+ * It stopped being its own block on 2026-08-13. The questions and the picks
+ * beneath them do the same job — start a screen — and land on the same results
+ * surface; the only difference is typed vs ready-made. Standing alone it was
+ * also too short to be a box, which is why the grid had to be told not to
+ * stretch it.
+ *
+ * THE FILE STAYS PUT even though the component moved. `test_home_example_queries.py`
+ * reads this path directly to prove every string parses — a cross-language
+ * contract with no other connection between the strings and the extractors.
  *
  * Clicking a query does NOT navigate to results. It writes the text into the
  * search box, scrolls there, and submits. That's the whole point: the user
@@ -81,20 +91,17 @@ function runQuery(text: string) {
   window.dispatchEvent(new CustomEvent(RUN_QUERY_EVENT, { detail: text }));
 }
 
-export function HomeExampleQueries() {
+export function TradersAsk() {
   const [active, setActive] = useState(TABS[0].id);
   const tab = TABS.find((t) => t.id === active) ?? TABS[0];
 
   return (
-    <section
-      className="rounded-xl border border-border bg-white p-4"
-      data-testid="home-example-queries"
-    >
-      <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
-        <h2 className="font-heading text-base font-semibold">Traders ask</h2>
-        {/* Segmented control on the heading line rather than its own row —
-            the block is four questions tall, so a row spent on tabs is
-            expensive. */}
+    <div data-testid="home-example-queries">
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Traders ask
+        </div>
+        {/* Segmented control on the label line rather than its own row. */}
         <div className="flex flex-wrap items-center gap-0.5 rounded-full bg-muted/50 p-0.5">
           {TABS.map((t) => (
             <button
@@ -115,9 +122,7 @@ export function HomeExampleQueries() {
         </div>
       </div>
 
-      {/* Chips sized to their text, wrapping — not full-width rows. Each row
-          held ~30 characters in a ~568px column, so most of this block was
-          empty background. */}
+      {/* Chips sized to their text, wrapping — not full-width rows. */}
       <div className="flex flex-wrap gap-1.5">
         {tab.queries.map((q) => (
           <button
@@ -132,11 +137,10 @@ export function HomeExampleQueries() {
         ))}
       </div>
 
-      <p className="mt-2.5 text-[11px] text-muted-foreground">
+      <p className="mt-2 text-[11px] text-muted-foreground">
         Runs in the search box above — edit it and try your own.
       </p>
-
-    </section>
+    </div>
   );
 }
 

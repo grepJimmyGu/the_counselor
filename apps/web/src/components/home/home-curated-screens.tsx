@@ -14,6 +14,16 @@
  * a stock list. The `sentiment` five can't; they route to the sentiment hub, so
  * they live in the Catalysts block instead.
  *
+ * "Traders ask" is its top section, merged in on 2026-08-13. The chips and the
+ * picks do the same job — start a screen — and land on the same results
+ * surface; typed vs ready-made is the only difference. Grouping them makes that
+ * relationship visible, and it retires the `items-start` workaround the grid
+ * needed when "Traders ask" was too short to stand as its own box.
+ *
+ * FOUR PICKS SHOWN, NOT FIVE. Five in a two-column grid leaves an orphan in row
+ * three, which is what made this block 505px against its row-mate's 389px. The
+ * fifth is named in a line beneath rather than dropped silently.
+ *
  * ONE CLICK, STRAIGHT TO THE LIST. `/screen?template=<id>` lands on the exact
  * surface a typed search produces — same chips, same counts, same table, same
  * add-ticker. That matters beyond consistency: from there the user's next move
@@ -31,6 +41,7 @@ import Link from "next/link";
 import type { Route } from "next";
 
 import { StartingPointCard } from "@/components/screen/starting-point-card";
+import { TradersAsk } from "@/components/home/home-example-queries";
 import { screenCount } from "@/lib/api";
 import { RECOMMENDED_TEMPLATES } from "@/lib/recommended-templates";
 
@@ -93,8 +104,16 @@ export function HomeCuratedScreens() {
         </Link>
       </div>
 
+      <TradersAsk />
+
+      <div className="my-3 h-px bg-border" />
+
+      <div className="mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+        Ready-made screens
+      </div>
+
       <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-        {shown.map((t) => (
+        {shown.slice(0, 4).map((t) => (
           <StartingPointCard
             key={t.id}
             t={t}
@@ -105,6 +124,18 @@ export function HomeCuratedScreens() {
           />
         ))}
       </div>
+
+      {/* The fifth (and any pick hidden for matching nothing) is named rather
+          than silently absent — "see all" is a link, not a disappearance. */}
+      {shown.length > 4 && (
+        <p className="mt-2 text-[11px] text-muted-foreground">
+          {shown[4].name}
+          {shown.length > 5 ? ` and ${shown.length - 5} more` : ""} ·{" "}
+          <Link href={"/flow/custom_build_mode" as Route} className="text-primary hover:underline">
+            see all {shown.length}
+          </Link>
+        </p>
+      )}
     </section>
   );
 }

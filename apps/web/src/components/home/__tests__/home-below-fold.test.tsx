@@ -154,6 +154,57 @@ describe("HomeMarketPulseBlock", () => {
     const el = await screen.findByTestId("home-market-pulse");
     expect(el.textContent).toContain("Couldn't load");
   });
+
+  it("renders the full sector board from `sectors`, which used to be discarded", async () => {
+    // `brief.sectors` — every sector ranked — has been fetched on every home
+    // load since this block was written, while only leader/laggard were read:
+    // ten sectors requested to display two. Nothing caught it because nothing
+    // asserted on the field.
+    briefMock.mockResolvedValue(
+      brief({
+        sectors: [
+          sector("Technology", 5.5),
+          sector("Energy", 1.25),
+          sector("Industrials", 0.6),
+          sector("Materials", 0.11),
+          sector("Consumer Staples", -0.31),
+          sector("Real Estate", -0.72),
+          sector("Communication", -2.7),
+        ],
+      }),
+    );
+    render(<HomeMarketPulseBlock />);
+    const block = await screen.findByTestId("home-market-pulse");
+    await waitFor(() => expect(block.textContent).toContain("Sectors up"));
+    const t = block.textContent ?? "";
+    expect(t).toContain("Technology");
+    expect(t).toContain("Communication");
+    expect(t).toContain("Real Estate");   // would be invisible under leader/laggard
+  });
+
+  it("orders the board itself rather than trusting the wire", async () => {
+    // The two columns only mean "up" and "down" if the list really is ranked.
+    briefMock.mockResolvedValue(
+      brief({
+        sectors: [sector("Energy", -3.1), sector("Technology", 4.2), sector("Utilities", 0.4)],
+      }),
+    );
+    render(<HomeMarketPulseBlock />);
+    const block = await screen.findByTestId("home-market-pulse");
+    await waitFor(() => expect(block.textContent).toContain("Sectors up"));
+    const t = block.textContent ?? "";
+    expect(t.indexOf("Technology")).toBeLessThan(t.indexOf("Sectors down"));
+  });
+
+  it("falls back to leader/laggard when `sectors` is absent", async () => {
+    // A partial payload must not cost the block its sector information —
+    // `sector_leading` / `sector_lagging` are separate fields.
+    briefMock.mockResolvedValue(brief({ sectors: [] }));
+    render(<HomeMarketPulseBlock />);
+    const block = await screen.findByTestId("home-market-pulse");
+    await waitFor(() => expect(block.textContent).toContain("Sector leading"));
+    expect(block.textContent).toContain("Consumer Disc.");
+  });
 });
 
 describe("HomeCuratedScreens — Hot Market Picks", () => {
