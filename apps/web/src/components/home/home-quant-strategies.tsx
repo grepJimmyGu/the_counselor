@@ -8,9 +8,10 @@
  *   Overlays     — rules over a book you already hold
  *   Build your own
  *
- * The "Try a Template" and "Upload Portfolio" entries moved here from
- * `home-focus-sections.tsx`: they are the front doors to these two sections and
- * were sitting a block away from the cards they open.
+ * "Try a Template", "Upload Portfolio" and the composer entry all moved here
+ * from the old `home-focus-sections` block, which was deleted on 2026-08-14:
+ * once the 2x2 carried this content, that section was a second copy of it
+ * further down the page.
  *
  * OVERLAYS ARE READ-ONLY HERE. The picker chooses an overlay FOR a portfolio
  * already uploaded, so offering the choice with no holdings dead-ends. These
@@ -35,6 +36,7 @@ import { researchTemplates, type OverlayKind, type ResearchTemplate } from "@/li
 import { OVERLAY_METADATA, OVERLAY_DISPLAY_ORDER } from "@/lib/overlay-metadata";
 import { StrategyCard } from "@/components/strategy-picker/strategy-card";
 import { startFlow } from "@/lib/flows/runtime";
+import { INITIAL_CUSTOM_BUILD_CONTEXT } from "@/lib/flows/custom-build-mode-context";
 
 /** Unavailable templates are hidden — a card you can't run is an advert. */
 /** Three, not five: the row is "Try a Template" plus three, at four columns. */
@@ -112,23 +114,29 @@ function TemplateCard({
 
 export function HomeQuantStrategies({
   onOpenTemplate,
-  onBuildFromScratch,
 }: {
   onOpenTemplate: (t: ResearchTemplate) => void;
-  onBuildFromScratch: () => void;
 }) {
   // Collapsed by default: six overlay cards would dominate a block that has
   // two other sections to show.
   const [showOverlays, setShowOverlays] = useState(false);
 
-  // These two launch flows directly rather than arriving as props. The page
-  // owns the template MODAL's state (hence `onOpenTemplate`), but a flow is
+  // These launch flows directly rather than arriving as props. The page owns
+  // the template MODAL's state (hence `onOpenTemplate`), but a flow is
   // self-contained — `startFlow` navigates — so routing them through the page
-  // would add a prop that only forwards. Same calls as `home-focus-sections`.
+  // would add a prop that only forwards.
   const onTryTemplate = () =>
     startFlow("one_asset_mode", { initialContext: { fromTrigger: "home/pick_asset" } });
   const onUploadPortfolio = () =>
     startFlow("portfolio_mode", { initialContext: { fromTrigger: "home/upload_portfolio" } });
+  // Straight into the composer, the same landing the old "Build from scratch"
+  // card used — a full-page universe picker + primitive catalog + rule canvas.
+  // It previously opened the small builder MODAL, which is a different and much
+  // narrower surface for the same intent.
+  const onBuild = () =>
+    startFlow("custom_build_mode", {
+      initialContext: { ...INITIAL_CUSTOM_BUILD_CONTEXT, fromTrigger: "home/custom_build" },
+    });
 
   return (
     <section
@@ -221,7 +229,7 @@ export function HomeQuantStrategies({
       <GroupLabel>Or start from nothing</GroupLabel>
       <button
         type="button"
-        onClick={onBuildFromScratch}
+        onClick={onBuild}
         data-testid="quant-build-from-scratch"
         className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-border p-2.5 text-sm font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted/30 hover:text-foreground"
       >
