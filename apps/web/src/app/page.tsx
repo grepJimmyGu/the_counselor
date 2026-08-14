@@ -13,7 +13,6 @@ import { HomeQuantStrategies } from "@/components/home/home-quant-strategies";
 import { MarketCatalysts } from "@/components/home/market-catalysts";
 import { SmartSearchBox } from "@/components/search/smart-search-box";
 import { HomeMarketStrip } from "@/components/home/home-market-strip";
-import { HomeFocusSections } from "@/components/home/home-focus-sections";
 import { researchTemplates, type ResearchTemplate } from "@/lib/contracts";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
 import { ChatWidget } from "@/components/ChatWidget";
@@ -36,12 +35,6 @@ export default function HomePage() {
   function openTemplate(template: ResearchTemplate) {
     setBuilderIdea(undefined);
     setBuilderTemplate(template);
-    setBuilderOpen(true);
-  }
-
-  function openBuilder() {
-    setBuilderIdea(undefined);
-    setBuilderTemplate(undefined);
     setBuilderOpen(true);
   }
 
@@ -135,19 +128,12 @@ export default function HomePage() {
           <HomeCuratedScreens />
           {/* Block 4 now fills the second cell, so block 3 no longer spans the
               row — the four blocks sit as a 2×2 grid. */}
-          <HomeQuantStrategies
-            onOpenTemplate={openTemplate}
-            onBuildFromScratch={openBuilder}
-          />
+          <HomeQuantStrategies onOpenTemplate={openTemplate} />
           <MarketCatalysts />
         </div>
 
         {/* ── PRD-19 Step 5: in-app notification banner (signed-in users only) ── */}
         <NotificationBanner />
-
-        {/* ── PRD-24a §3.5–3.7 — the 3-focus reorganization (Discover · Build ·
-            Your Livermore). Replaces the EntryModePicker + research pillars. ── */}
-        <HomeFocusSections />
 
         {/* ── Templates — compact row ────────────────────────────────────── */}
         <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-muted/30 px-6 py-4">

@@ -11,14 +11,8 @@ import { HomeQuantStrategies } from "../home-quant-strategies";
 
 function renderBlock() {
   const onOpenTemplate = vi.fn();
-  const onBuildFromScratch = vi.fn();
-  render(
-    <HomeQuantStrategies
-      onOpenTemplate={onOpenTemplate}
-      onBuildFromScratch={onBuildFromScratch}
-    />,
-  );
-  return { onOpenTemplate, onBuildFromScratch };
+  render(<HomeQuantStrategies onOpenTemplate={onOpenTemplate} />);
+  return { onOpenTemplate };
 }
 
 describe("HomeQuantStrategies", () => {
@@ -39,10 +33,21 @@ describe("HomeQuantStrategies", () => {
     expect(onOpenTemplate).toHaveBeenCalledWith(expect.objectContaining({ id: first.id }));
   });
 
-  it("offers build-from-scratch", () => {
-    const { onBuildFromScratch } = renderBlock();
+  it("opens the full composer, not the builder modal", () => {
+    // CHANGED 2026-08-14. This used to call an `onBuildFromScratch` prop that
+    // opened the small builder MODAL. It now starts `custom_build_mode` — the
+    // full-page universe picker + primitive catalog + rule canvas, the same
+    // landing the removed "Build from scratch" card used. Same intent, and the
+    // modal was a much narrower surface for it.
+    vi.mocked(startFlow).mockClear();
+    renderBlock();
     fireEvent.click(screen.getByTestId("quant-build-from-scratch"));
-    expect(onBuildFromScratch).toHaveBeenCalled();
+    expect(startFlow).toHaveBeenCalledWith(
+      "custom_build_mode",
+      expect.objectContaining({
+        initialContext: expect.objectContaining({ fromTrigger: "home/custom_build" }),
+      }),
+    );
   });
 
   it("never presents a performance claim", () => {
