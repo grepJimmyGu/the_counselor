@@ -99,6 +99,19 @@ function SectorName({ s }: { s: BriefSector | null }) {
   );
 }
 
+function SectorRow({ s }: { s: BriefSector }) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 py-0.5 text-xs">
+      <span className="truncate">
+        <SectorName s={s} />
+      </span>
+      <span className={`shrink-0 font-mono tabular-nums ${tone(s.change_percent)}`}>
+        {pct(s.change_percent)}
+      </span>
+    </div>
+  );
+}
+
 export function HomeMarketPulseBlock() {
   const [brief, setBrief] = useState<DailyBrief | null>(null);
   const [failed, setFailed] = useState(false);
@@ -123,6 +136,13 @@ export function HomeMarketPulseBlock() {
       </section>
     );
   }
+
+  // Sorted defensively rather than trusting the wire order: `sectors` is
+  // documented as ranked, but the board's two columns only mean "up" and
+  // "down" if that holds, and a silent re-order would make it lie.
+  const ranked = [...(brief?.sectors ?? [])]
+    .filter((s) => s.change_percent !== null && s.change_percent !== undefined)
+    .sort((a, b) => (b.change_percent ?? 0) - (a.change_percent ?? 0));
 
   if (!brief) {
     return (
@@ -228,28 +248,59 @@ export function HomeMarketPulseBlock() {
         </div>
       </div>
 
-      {/* Sector leadership and where money actually went — two different
-          rankings, deliberately. A sector can lead on price while money
-          leaves it, and that gap is the most useful thing on the block. */}
+      {/* The full sector board.
+          `brief.sectors` — every sector ranked by 1-day return — has been on
+          the wire since this block was written and was thrown away: only
+          `sector_leading` / `sector_lagging` were read, so ten sectors were
+          fetched to display two. `contracts.ts` says as much on the field.
+          No new request, no backend change. */}
+      {ranked.length === 0 ? (
+        // Fallback when `sectors` is absent — an older payload, or a partial
+        // one. `sector_leading` / `sector_lagging` are separate fields and can
+        // be present when the full list isn't, so losing the board must not
+        // mean losing sector information altogether.
+        <div className="flex flex-col gap-1.5 rounded-md border border-border px-3 py-2 text-xs">
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-muted-foreground">Sector leading</span>
+            <span className="truncate">
+              <SectorName s={brief.sector_leading} />{" "}
+              <span className={`font-mono tabular-nums ${tone(brief.sector_leading?.change_percent)}`}>
+                {pct(brief.sector_leading?.change_percent)}
+              </span>
+            </span>
+          </div>
+          <div className="flex items-baseline justify-between gap-2">
+            <span className="text-muted-foreground">Sector lagging</span>
+            <span className="truncate">
+              <SectorName s={brief.sector_lagging} />{" "}
+              <span className={`font-mono tabular-nums ${tone(brief.sector_lagging?.change_percent)}`}>
+                {pct(brief.sector_lagging?.change_percent)}
+              </span>
+            </span>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-2 gap-x-4 rounded-md border border-border px-3 py-2">
+          <div>
+            <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Sectors up
+            </h3>
+            {ranked.slice(0, 4).map((s) => (
+              <SectorRow key={s.name} s={s} />
+            ))}
+          </div>
+          <div>
+            <h3 className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Sectors down
+            </h3>
+            {ranked.slice(-4).reverse().map((s) => (
+              <SectorRow key={s.name} s={s} />
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col gap-1.5 rounded-md border border-border px-3 py-2 text-xs">
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="text-muted-foreground">Sector leading</span>
-          <span className="truncate">
-            <SectorName s={brief.sector_leading} />{" "}
-            <span className={`font-mono tabular-nums ${tone(brief.sector_leading?.change_percent)}`}>
-              {pct(brief.sector_leading?.change_percent)}
-            </span>
-          </span>
-        </div>
-        <div className="flex items-baseline justify-between gap-2">
-          <span className="text-muted-foreground">Sector lagging</span>
-          <span className="truncate">
-            <SectorName s={brief.sector_lagging} />{" "}
-            <span className={`font-mono tabular-nums ${tone(brief.sector_lagging?.change_percent)}`}>
-              {pct(brief.sector_lagging?.change_percent)}
-            </span>
-          </span>
-        </div>
         {brief.flow_into && brief.flow_out_of && (
           <div
             className="flex flex-col gap-0.5 border-t border-border/60 pt-1.5"

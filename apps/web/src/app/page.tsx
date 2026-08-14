@@ -10,7 +10,6 @@ import { Button } from "@/components/ui/button";
 import { HomeMarketPulseBlock } from "@/components/home/home-market-pulse-block";
 import { HomeCuratedScreens } from "@/components/home/home-curated-screens";
 import { HomeQuantStrategies } from "@/components/home/home-quant-strategies";
-import { HomeExampleQueries } from "@/components/home/home-example-queries";
 import { MarketCatalysts } from "@/components/home/market-catalysts";
 import { SmartSearchBox } from "@/components/search/smart-search-box";
 import { HomeMarketStrip } from "@/components/home/home-market-strip";
@@ -127,13 +126,11 @@ export default function HomePage() {
             to adopt (the 問財 bar). Replaces <MarketSnapshot>, which showed a
             hardcoded SPY/QQQ/GLD/NVDA watchlist: four tickers nobody chose,
             answering a question nobody asked. */}
-        {/* `items-start`: each block takes its natural height rather than
-            stretching to its row-mate. Stretching put ~200px of empty space
-            inside "Traders ask" — dead space inside a bordered box reads as
-            broken, where a shorter box just reads as a shorter box. The block
-            can't simply be given more content: its questions are Jimmy's copy
-            and each one is asserted to parse. */}
-        <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-2">
+        {/* A true 2×2: Moving today · Hot Market Picks / Quant Rules · Catalysts.
+            `items-start` is gone — it was there because "Traders ask" was too
+            short to fill a cell, and that block is now the top section of Hot
+            Market Picks rather than a box of its own. */}
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           <HomeMarketPulseBlock />
           <HomeCuratedScreens />
           {/* Block 4 now fills the second cell, so block 3 no longer spans the
@@ -142,13 +139,8 @@ export default function HomePage() {
             onOpenTemplate={openTemplate}
             onBuildFromScratch={openBuilder}
           />
-          <HomeExampleQueries />
+          <MarketCatalysts />
         </div>
-
-        {/* Catalysts sits full width beneath the 2×2 rather than as a fifth
-            cell: it carries the news ticker, which is horizontal by nature and
-            reads badly squeezed into a ~568px column. */}
-        <MarketCatalysts />
 
         {/* ── PRD-19 Step 5: in-app notification banner (signed-in users only) ── */}
         <NotificationBanner />

@@ -2,16 +2,16 @@
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 
-import { HomeExampleQueries, EXAMPLE_QUERIES } from "../home-example-queries";
+import { TradersAsk, EXAMPLE_QUERIES } from "../home-example-queries";
 import { RUN_QUERY_EVENT } from "@/components/search/smart-search-box";
 
-describe("HomeExampleQueries", () => {
+describe("TradersAsk — the strip inside Hot Market Picks", () => {
   it("dispatches the query text rather than navigating", () => {
     const seen: string[] = [];
     const onRun = (e: Event) => seen.push((e as CustomEvent<string>).detail);
     window.addEventListener(RUN_QUERY_EVENT, onRun);
 
-    render(<HomeExampleQueries />);
+    render(<TradersAsk />);
     const first = screen.getAllByTestId("example-query")[0];
     const text = first.textContent ?? "";
     fireEvent.click(first);
@@ -23,7 +23,7 @@ describe("HomeExampleQueries", () => {
   });
 
   it("switches the visible set when a tab is picked", () => {
-    render(<HomeExampleQueries />);
+    render(<TradersAsk />);
     const before = screen.getAllByTestId("example-query").map((e) => e.textContent);
     fireEvent.click(screen.getByTestId("query-tab-fundamentals"));
     const after = screen.getAllByTestId("example-query").map((e) => e.textContent);
@@ -32,7 +32,7 @@ describe("HomeExampleQueries", () => {
   });
 
   it("marks the active tab for assistive tech", () => {
-    render(<HomeExampleQueries />);
+    render(<TradersAsk />);
     expect(screen.getByTestId("query-tab-trend").getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(screen.getByTestId("query-tab-reversal"));
     expect(screen.getByTestId("query-tab-reversal").getAttribute("aria-pressed")).toBe("true");
@@ -40,7 +40,7 @@ describe("HomeExampleQueries", () => {
   });
 
   it("every tab has queries — an empty tab is why we didn't copy 問財's 3", () => {
-    render(<HomeExampleQueries />);
+    render(<TradersAsk />);
     for (const id of ["trend", "reversal", "fundamentals"]) {
       fireEvent.click(screen.getByTestId(`query-tab-${id}`));
       expect(screen.getAllByTestId("example-query").length).toBeGreaterThan(2);
