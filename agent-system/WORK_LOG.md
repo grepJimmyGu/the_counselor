@@ -15,62 +15,74 @@
 
 ---
 
-## Current state — 2026-08-13
+## Current state — 2026-08-13 (end of day)
 
-**Shipped and merged today:** #313 (card generated once daily) · #314 (ornament +
-bundled fonts) · #315 (the share button) · #316 (card layout overlap) · #317
-(dividend-yield units). See `project_log.md` for what each did.
+**Seven PRs merged today**, #313 → #319. Two open.
 
-**The daily share card is live and reachable.** Share button sits on "Moving
-today". English only in production — the Chinese card needs a bundled CJK font
-(~4-5 MB), which is Jimmy's call; `can_render` hides the option until it lands,
-so nothing is broken by its absence.
+The daily share card went from built-but-unreachable to live. The screener's
+fundamental filters went from silently empty to working. The home page became a
+2×2. And the fundamentals backfill ran end to end for the first time in weeks.
 
-### In flight
+### Open
 
-| Branch | State |
-|---|---|
-| `claude/fix/fundamental-screen-path` | scan empty-rules fix + market cap in the backfill — **PR pending**, suite running |
+| PR | State | Note |
+|---|---|---|
+| [#320](https://github.com/grepJimmyGu/the_counselor/pull/320) | CLEAN | backlog salvage from the closed #308 + what the backfill measured |
+| [#321](https://github.com/grepJimmyGu/the_counselor/pull/321) | CI running | home 2×2: Traders ask folds into Hot Market Picks, sector board |
+
+#308 is **closed** — superseded by the doc restructure, with its
+`PROJECT_BACKLOG.md` half salvaged into #320 rather than lost.
+
+### Data: fixed today, measured not assumed
+
+Seeded 400-name sample of the Russell 3000, before/after Jimmy's backfill run
+(2,542 updated / 728 genuinely unprofitable / 26 failed, **3h27m**):
+
+| column | before | after |
+|---|---|---|
+| `sector` | 100% | 100% |
+| `pe_ratio` | 70.5% | 70.8% |
+| `dividend_yield` | 63.2% | 63.0% |
+| **`market_cap`** | **1.8%** | **99.2%** |
+
+`min_market_cap=2e9`: 99 names → 1,677. Four presets and both market-cap
+filters were reading a column almost nothing populated.
+
+Also fixed: dollars-per-share stored as dividend yields (#317 — write guard,
+read guard, and 0 bad rows remaining) and the empty-rules scan that discarded
+564 already-matched names (#318).
 
 ### Next actions, in order
 
-1. **Merge the fundamental-screen-path PR.** Unblocks "p/e under 15" and every
-   fundamental condition in the Conditions composer — they resolve 564 / 884
-   names today and the results page discards them.
-2. **Jimmy runs `scripts/backfill_fundamentals.py`.** `market_cap` sits at
-   **1.8%** across the Russell 3000; four presets and both market-cap filters
-   read it. ~25 min. This is the highest-value outstanding item.
-3. **Design the lazy-refresh mechanism.** No scheduled job refreshes
-   fundamentals — coverage is an accident of which script ran last and which
-   company pages people opened. Until that exists, every gap needs a manual
-   backfill and drift resumes the same day. Sizing depends on the FMP quota.
+1. **Merge #320 and #321** once CI settles. Both are low-risk; #320 is
+   docs-only.
+2. **Design the lazy-refresh mechanism.** This is the largest *engineering*
+   item and now has its governing number: a full sweep is ~5,100 FMP calls at
+   ~5s/symbol = **3.5 hours**, which rules out a nightly full refresh and
+   argues for refresh driven by traffic, with a cron only as a floor. Blocked
+   on one input: **the FMP plan's rate ceiling** — Jimmy's to supply. Brief is
+   in `docs/PROJECT_BACKLOG.md` §5.
+3. **Stripe.** Fully built, unconfigured — paywalls are live with no pay path.
+   Turn-on is 4 price IDs + secret/webhook keys on Railway, test-mode first.
+   This is the largest *product* item on the board and has been quiet for
+   weeks; it surfaced only because the doc restructure nearly deleted the note.
 
 ### Known and deliberately not fixed
 
-- **Chinese card** — refuses on Linux by design until a CJK font is bundled.
-- **`market_cap` 1.8%** — needs the backfill run above.
-- **25 stale dividend rows** — the #317 read guard stops them being reported;
-  `scripts/fix_dividend_yield_units.py --apply` tidies the data when convenient.
-- **[#308](https://github.com/grepJimmyGu/the_counselor/pull/308)** — stale
-  work-log docs PR, open for weeks. Largely superseded by this restructure.
-
-### Still-open deferrals carried forward from 2026-06-25
-
-- **Stripe is fully built but unconfigured** — paywalls are live with no pay
-  path. Turn-on is 4 price IDs + secret/webhook keys on Railway, test-mode
-  first. PostHog is configured and flowing.
-- **Liquidity floor on Russell 3000 presets** — the broad market's microcaps
-  surface junk in `best_momentum`-type screens. Shipped raw deliberately; tune
-  against real results.
-- **Six AV-drift class shares** unreconciled (AKE / BF.A / BF.B / GEFB / HEIA /
-  LENB) — hyphen convention, see trap #15.
-- **`pct_below_high` primitive** — in `PROJECT_BACKLOG`.
+- **Chinese share card** refuses on Linux by design until a CJK font (~4-5 MB)
+  is bundled — Jimmy's call. `can_render` hides the option, so nothing breaks.
+- **26 failed calls** in the backfill, unexamined. Class-share tickers
+  (BRK.B → BRK-B, trap #15) are the usual suspect; the log would say.
+- **Blocks 5+6** (今天炒什麼 theme+catalyst read) still blocked on the Alpha
+  Vantage tier. **Not** the same as the `Catalysts` block shipped in #319 —
+  see the warning in `PROJECT_BACKLOG.md`.
+- `scripts/fix_dividend_yield_units.py --apply` is available but unnecessary:
+  the #317 read guard already stops bad rows being reported.
 
 ### Don't touch without coordinating
 
-The screener / fundamentals path — `scan_service.py`,
-`backfill_fundamentals.py`, `fundamental_service.py`, `screener_service.py` —
-has work in flight on the branch above.
+Nothing is in flight on a branch. #320 and #321 are pushed and awaiting merge;
+both touch docs and `apps/web/src/components/home/` respectively.
 
 ---
 
