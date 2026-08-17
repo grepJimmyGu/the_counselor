@@ -11,6 +11,7 @@ import { HomeMarketPulseBlock } from "@/components/home/home-market-pulse-block"
 import { HomeCuratedScreens } from "@/components/home/home-curated-screens";
 import { HomeQuantStrategies } from "@/components/home/home-quant-strategies";
 import { MarketCatalysts } from "@/components/home/market-catalysts";
+import { HomeYourLivermore } from "@/components/home/home-your-livermore";
 import { SmartSearchBox } from "@/components/search/smart-search-box";
 import { HomeMarketStrip } from "@/components/home/home-market-strip";
 import { researchTemplates, type ResearchTemplate } from "@/lib/contracts";
@@ -134,6 +135,8 @@ export default function HomePage() {
 
         {/* ── PRD-19 Step 5: in-app notification banner (signed-in users only) ── */}
         <NotificationBanner />
+
+        <HomeYourLivermore />
 
         {/* ── Templates — compact row ────────────────────────────────────── */}
         <section className="flex flex-wrap items-center gap-3 rounded-2xl border border-border bg-muted/30 px-6 py-4">
