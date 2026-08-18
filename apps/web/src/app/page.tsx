@@ -18,6 +18,7 @@ import { researchTemplates, type ResearchTemplate } from "@/lib/contracts";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
 import { ChatWidget } from "@/components/ChatWidget";
 import { NotificationBanner } from "@/components/notifications/notification-banner";
+import { UnresolvedExits } from "@/components/notifications/unresolved-exits";
 
 // ── How it works — timeline steps ──────────────────────────────────────────────
 
@@ -134,6 +135,9 @@ export default function HomePage() {
         </div>
 
         {/* ── PRD-19 Step 5: in-app notification banner (signed-in users only) ── */}
+        {/* Above the dismissible banner: an unresolved exit is a decision
+            the user still owes, not a notice to clear. */}
+        <UnresolvedExits />
         <NotificationBanner />
 
         <HomeYourLivermore />

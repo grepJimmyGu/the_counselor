@@ -653,3 +653,131 @@ def test_confirm_exit_404_for_non_owner(make_user, db: Session) -> None:
             current_user=other, db=db,
         )
     assert exc.value.status_code == 404
+
+
+# ── unresolved exits + "I'm holding" (2026-08-18) ───────────────────────────
+
+
+def test_unresolved_exits_lists_a_pending_tier(make_user, db: Session) -> None:
+    from app.api.routes.saved_strategies import list_unresolved_exits
+
+    user = make_user(email="unres-list@test.com")
+    strategy, pos = _declared_position_with_pending(db, user)
+
+    out = list_unresolved_exits(current_user=user, db=db)
+    assert len(out) == 1
+    assert out[0].symbol == "AAPL"
+    assert out[0].trigger_type == "tp1_hit"
+    assert out[0].position_id == pos.id
+    assert out[0].strategy_id == strategy.id
+
+
+def test_unresolved_exits_is_empty_with_nothing_pending(
+    make_user, db: Session
+) -> None:
+    from app.api.routes.saved_strategies import list_unresolved_exits
+
+    user = make_user(email="unres-empty@test.com")
+    _save_active_strategy_with_ladder(db, user)
+    assert list_unresolved_exits(current_user=user, db=db) == []
+
+
+def test_unresolved_exits_does_not_leak_another_users_positions(
+    make_user, db: Session
+) -> None:
+    from app.api.routes.saved_strategies import list_unresolved_exits
+
+    owner = make_user(email="unres-owner@test.com")
+    other = make_user(email="unres-other@test.com")
+    _declared_position_with_pending(db, owner)
+
+    assert list_unresolved_exits(current_user=other, db=db) == []
+
+
+def test_REGRESSION_confirming_an_exit_clears_it_from_unresolved(
+    make_user, db: Session
+) -> None:
+    """The list is DERIVED from trade_log rather than stored, so resolving
+    the exit is what removes it — there is no separate row to forget to
+    update, and dismissing a banner cannot make it disappear."""
+    from app.api.routes.saved_strategies import (
+        ConfirmExitRequest, confirm_position_exit, list_unresolved_exits,
+    )
+
+    user = make_user(email="unres-confirm@test.com")
+    strategy, pos = _declared_position_with_pending(db, user, shares=10.0)
+    assert len(list_unresolved_exits(current_user=user, db=db)) == 1
+
+    confirm_position_exit(
+        strategy.id, pos.id,
+        ConfirmExitRequest(trigger_type="tp1_hit", shares_sold=3.0, fill_price=114.0),
+        current_user=user, db=db,
+    )
+    assert list_unresolved_exits(current_user=user, db=db) == []
+
+
+def test_holding_resolves_the_exit_without_selling_anything(
+    make_user, db: Session
+) -> None:
+    """"I'm holding" is an ordinary decision, not non-compliance. Before
+    this endpoint a user who chose to keep the position had no way to say
+    so: their only options were to leave it pending forever or dismiss the
+    notice, and dismissing loses the fact that it fired."""
+    from app.api.routes.saved_strategies import (
+        HoldExitRequest, hold_position_through_exit, list_unresolved_exits,
+    )
+
+    user = make_user(email="unres-hold@test.com")
+    strategy, pos = _declared_position_with_pending(db, user, shares=10.0)
+
+    out = hold_position_through_exit(
+        strategy.id, pos.id,
+        HoldExitRequest(trigger_type="tp1_hit", user_note="riding it"),
+        current_user=user, db=db,
+    )
+
+    # Nothing sold.
+    assert out.shares_remaining == 10.0
+    assert out.is_open is True
+    assert out.final_pnl is None
+    # Resolved, and recorded as a decision rather than a sale.
+    held = [e for e in out.trade_log if e.get("event") == "tp1_hit"][-1]
+    assert held["status"] == "held"
+    assert held["user_note"] == "riding it"
+    # And it stops asking.
+    assert list_unresolved_exits(current_user=user, db=db) == []
+
+
+def test_holding_a_tier_that_is_not_pending_is_a_400(
+    make_user, db: Session
+) -> None:
+    from app.api.routes.saved_strategies import (
+        HoldExitRequest, hold_position_through_exit,
+    )
+
+    user = make_user(email="unres-hold-400@test.com")
+    strategy, pos = _declared_position_with_pending(db, user)
+    with pytest.raises(HTTPException) as exc:
+        hold_position_through_exit(
+            strategy.id, pos.id,
+            HoldExitRequest(trigger_type="stop_hit"),
+            current_user=user, db=db,
+        )
+    assert exc.value.status_code == 400
+
+
+def test_holding_is_owner_only(make_user, db: Session) -> None:
+    from app.api.routes.saved_strategies import (
+        HoldExitRequest, hold_position_through_exit,
+    )
+
+    owner = make_user(email="unres-hold-owner@test.com")
+    other = make_user(email="unres-hold-other@test.com")
+    strategy, pos = _declared_position_with_pending(db, owner)
+    with pytest.raises(HTTPException) as exc:
+        hold_position_through_exit(
+            strategy.id, pos.id,
+            HoldExitRequest(trigger_type="tp1_hit"),
+            current_user=other, db=db,
+        )
+    assert exc.value.status_code == 404

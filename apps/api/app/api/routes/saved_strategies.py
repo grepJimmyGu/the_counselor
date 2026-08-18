@@ -64,6 +64,98 @@ def list_saved_strategies(
     return [SavedStrategyResponse.model_validate(r) for r in rows if not is_screen(r)]
 
 
+class UnresolvedExit(BaseModel):
+    """An exit tier that fired and the user has neither acted on nor
+    consciously declined."""
+    strategy_id: str
+    strategy_title: str
+    position_id: str
+    symbol: str
+    trigger_type: str
+    tier_label: Optional[str] = None
+    signaled_at: Optional[str] = None
+    price: Optional[float] = None
+    pct_change: Optional[float] = None
+    action: Optional[str] = None
+    shares: Optional[float] = None
+    shares_remaining: float
+    entry_price: float
+
+
+# DECLARED BEFORE `/{strategy_id}`. FastAPI matches in declaration order, so
+# below that route this path would be swallowed as a strategy id and 404.
+@router.get("/unresolved-exits", response_model=list[UnresolvedExit])
+def list_unresolved_exits(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[UnresolvedExit]:
+    """Every exit the user has been told about and not yet resolved.
+
+    DERIVED, NOT STORED — and that is the point. An exit alert is delivered
+    as a `NotificationBannerEntry`, which the user can dismiss; dismissing
+    is how you clear a notice, not how you decide about a position. Until
+    now that was the same gesture, so an exit could be tidied away and the
+    fact that a stop had fired went with it.
+
+    Reading the state back out of `trade_log` means it cannot be dismissed
+    away. A `pending_confirmation` event stays visible here until it becomes
+    `executed` (the user sold — see confirm-exit) or `held` (the user
+    consciously kept the position — see the hold endpoint below). Missing
+    the email now makes an exit LATE rather than LOST, which is the whole
+    difference between a monitor you can rely on and one you cannot.
+
+    Cheap by construction: only OPEN positions carry unresolved tiers, and
+    a user with nothing open pays one indexed query.
+    """
+    from sqlalchemy import select
+    from app.models.position_state import PositionState
+
+    strategy_ids = [
+        r.id for r in saved_strategy_service.list_user_strategies(db, current_user.id)
+    ]
+    if not strategy_ids:
+        return []
+
+    positions = db.execute(
+        select(PositionState)
+        .where(PositionState.saved_strategy_id.in_(strategy_ids))
+        .where(PositionState.is_open == True)  # noqa: E712
+    ).scalars().all()
+    if not positions:
+        return []
+
+    titles = {
+        r.id: (r.title or "Your strategy")
+        for r in saved_strategy_service.list_user_strategies(db, current_user.id)
+    }
+
+    out: list[UnresolvedExit] = []
+    for pos in positions:
+        for ev in (pos.trade_log or []):
+            if ev.get("status") != "pending_confirmation":
+                continue
+            out.append(UnresolvedExit(
+                strategy_id=pos.saved_strategy_id,
+                strategy_title=titles.get(pos.saved_strategy_id, "Your strategy"),
+                position_id=pos.id,
+                symbol=pos.symbol,
+                trigger_type=ev.get("event", ""),
+                tier_label=ev.get("tier_label"),
+                signaled_at=ev.get("timestamp"),
+                price=ev.get("price"),
+                pct_change=ev.get("pct_change"),
+                action=ev.get("action") or ev.get("suggested_action"),
+                shares=ev.get("shares", ev.get("suggested_shares")),
+                shares_remaining=pos.shares_remaining,
+                entry_price=pos.entry_price,
+            ))
+
+    # Most recent first — a stop that fired this afternoon matters more than
+    # a target from last week.
+    out.sort(key=lambda u: u.signaled_at or "", reverse=True)
+    return out
+
+
 @router.get("/{strategy_id}", response_model=SavedStrategyResponse)
 def get_saved_strategy(
     strategy_id: str,
@@ -975,6 +1067,98 @@ def confirm_position_exit(
                 if fp is not None and sh is not None:
                     realized += (float(fp) - pos.entry_price) * float(sh)
         pos.final_pnl = realized
+
+    db.commit()
+    db.refresh(pos)
+    return _position_to_view(pos)
+
+
+# ── active-execution: "I'm holding" — the OTHER way to resolve an exit ──────
+
+
+class HoldExitRequest(BaseModel):
+    """The user saw the exit signal and consciously kept the position."""
+    trigger_type: str
+    user_note: Optional[str] = None
+
+
+@router.post(
+    "/{strategy_id}/positions/{position_id}/hold",
+    response_model=PositionView,
+)
+def hold_position_through_exit(
+    strategy_id: str,
+    position_id: str,
+    payload: HoldExitRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> PositionView:
+    """Resolve a pending exit as "I looked, and I'm keeping it". Owner-only.
+
+    WHY THIS EXISTS. Until now a fired tier had exactly one resolution:
+    confirm that you sold. A user who saw the signal and decided to hold —
+    a completely ordinary decision, and one this product must not treat as
+    non-compliance — had no way to say so. Their only options were to leave
+    the exit pending forever or dismiss the notice, and dismissing loses the
+    fact that it fired. So the honest answer was unrecordable, and
+    `unresolved-exits` would have nagged them about a decision they had
+    already made.
+
+    It is also the difference between a research tool and an instruction
+    system. Livermore reports that a rule the user set was met; what they do
+    next is theirs. "Holding" is not a failure state.
+
+    Effect: flips the matching `pending_confirmation` event to `held`.
+    Deliberately does NOT touch `shares_remaining`, `is_open` or
+    `final_pnl` — nothing was sold, so nothing moves.
+
+    The tier stays disarmed. It fired, the user decided; re-notifying about
+    the same rung would be nagging, and the exit ladder's contract is that
+    each tier fires at most once per entry.
+
+    Failures:
+      - 404 if strategy/position missing or not owned by the caller
+      - 400 if no pending event matches `trigger_type`
+    """
+    from sqlalchemy import select
+    from app.models.position_state import PositionState
+
+    _ = _resolve_owned_strategy(db, strategy_id, current_user)
+
+    pos = db.execute(
+        select(PositionState)
+        .where(PositionState.id == position_id)
+        .where(PositionState.saved_strategy_id == strategy_id)
+    ).scalar_one_or_none()
+    if pos is None:
+        raise HTTPException(status_code=404, detail="Position not found.")
+
+    log = list(pos.trade_log or [])
+    pending_idx = None
+    for i in range(len(log) - 1, -1, -1):
+        ev = log[i]
+        if (
+            ev.get("event") == payload.trigger_type
+            and ev.get("status") == "pending_confirmation"
+        ):
+            pending_idx = i
+            break
+    if pending_idx is None:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"No pending '{payload.trigger_type}' exit to resolve on "
+                f"{pos.symbol}."
+            ),
+        )
+
+    ev = dict(log[pending_idx])
+    ev["status"] = "held"
+    ev["held_at"] = datetime.utcnow().isoformat()
+    if payload.user_note:
+        ev["user_note"] = payload.user_note
+    log[pending_idx] = ev
+    pos.trade_log = log
 
     db.commit()
     db.refresh(pos)
