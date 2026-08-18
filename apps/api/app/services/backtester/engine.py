@@ -176,6 +176,37 @@ class BacktestEngine:
         close_matrix = pd.concat(closes, axis=1).sort_index().ffill().dropna(how="all")
         return close_matrix, aligned
 
+    def _build_adjusted_open_matrix(
+        self,
+        aligned_frames: dict[str, pd.DataFrame],
+        close_matrix: pd.DataFrame,
+    ) -> pd.DataFrame:
+        """Split/dividend-adjusted OPEN, on `close_matrix`'s index + columns.
+
+        `price_bars` stores a RAW `open` alongside `close` and
+        `adjusted_close`. The adjustment ratio `adjusted_close / close`
+        applies to every price on that bar, so the adjusted open is
+        `open * ratio` — derivable from columns we already load, with no new
+        ingestion. Mixing a raw open with adjusted closes would show a
+        fabricated overnight gap of the full split ratio on every split date.
+
+        Missing or zero closes yield NaN for that bar; the caller treats a
+        NaN gap as zero rather than inventing one.
+        """
+        cols = []
+        for symbol in close_matrix.columns:
+            frame = aligned_frames.get(symbol)
+            if frame is None or frame.empty or "open" not in frame.columns:
+                continue
+            ratio = frame["adjusted_close"] / frame["close"].replace(0, np.nan)
+            cols.append((frame["open"] * ratio).rename(symbol))
+        if not cols:
+            return pd.DataFrame(
+                np.nan, index=close_matrix.index, columns=close_matrix.columns
+            )
+        out = pd.concat(cols, axis=1).sort_index()
+        return out.reindex(index=close_matrix.index, columns=close_matrix.columns)
+
     async def _fetch_signal_matrix(
         self,
         providers: list,
@@ -1220,7 +1251,7 @@ class BacktestEngine:
         weights: pd.DataFrame,
         close_matrix: pd.DataFrame,
         exit_ladder: list,
-    ) -> pd.DataFrame:
+    ) -> tuple[pd.DataFrame, pd.DataFrame]:
         """PRD-16c: post-process the weight matrix with a multi-tier exit
         ladder. For each position, track entry price (first bar where the
         weight goes from 0 → > 0), then on each subsequent bar evaluate
@@ -1238,14 +1269,23 @@ class BacktestEngine:
         This runs after `_generate_weights` and before the returns
         computation, so the equity curve + trade log reflect the
         ladder-adjusted positions.
+
+        Returns `(adjusted_weights, exited_weights)`. `exited_weights[sym][T]`
+        is the weight a ladder tier removed ON BAR T — the caller needs it
+        because the sale does not happen at bar T's close. The user learns
+        after the close and sells at the NEXT session's open, so that weight
+        still earns the overnight gap. See `run()`.
         """
+        zeros = pd.DataFrame(0.0, index=weights.index, columns=weights.columns)
         if not exit_ladder:
-            return weights
+            return weights, zeros
         new_weights = weights.copy()
+        exited = zeros.copy()
         for symbol in weights.columns:
             if symbol not in close_matrix.columns:
                 continue
             w = new_weights[symbol].to_numpy(copy=True)
+            exited_arr = np.zeros(len(w), dtype=float)
             prices = close_matrix[symbol].to_numpy()
             entry_price: Optional[float] = None
             entry_weight = 0.0
@@ -1273,12 +1313,18 @@ class BacktestEngine:
                         already_fired=fired,
                     ):
                         fired.add(fire.trigger_type)
+                        # What the position held on THIS bar, before this tier
+                        # touched it. The difference afterwards is the weight
+                        # that leaves — and it leaves at the NEXT open, not
+                        # here, so `run()` still owes it the overnight gap.
+                        held_before = float(w[i])
                         if fire.action == "sell_all":
                             # Zero the position forward until the next entry.
                             k = i
                             while k < len(w) and w[k] > 0:
                                 w[k] = 0.0
                                 k += 1
+                            exited_arr[i] += held_before - float(w[i])
                             entry_price = None
                             fired = set()
                             break  # position closed; move to next bar
@@ -1293,6 +1339,7 @@ class BacktestEngine:
                         while k < len(w) and w[k] > 0:
                             w[k] = max(w[k] - delta, 0.0)
                             k += 1
+                        exited_arr[i] += held_before - float(w[i])
                     continue
 
                 if entry_price is not None and w[i] == 0:
@@ -1301,7 +1348,8 @@ class BacktestEngine:
                     fired = set()
 
             new_weights[symbol] = w
-        return new_weights
+            exited[symbol] = exited_arr
+        return new_weights, exited
 
     async def _check_microcap(self, strategy: StrategyJSON, db: Session) -> list[str]:
         """
@@ -1495,15 +1543,42 @@ class BacktestEngine:
         # computing returns. Position-aware: tracks entry price + which
         # tiers have fired per open position. No-op when exit_ladder is
         # None — existing strategies keep their behavior.
+        # A ladder exit is DETECTED on bar T's close and EXECUTED at the next
+        # session's open — the user is notified after the close and acts the
+        # following morning. So the exiting weight is not simply gone from
+        # bar T: it still carries the overnight gap, which for a stop is the
+        # adverse direction more often than not (stops fire on bad news, and
+        # bad news gaps down). Modelling the exit at bar T's close, as this
+        # engine did until 2026-08-18, quietly hands every stopped strategy a
+        # fill its own user could never have got.
+        open_gap_pnl = pd.Series(0.0, index=close_matrix.index)
         if strategy.risk_management.exit_ladder:
-            weights = self._apply_exit_ladder(
+            weights, ladder_exits = self._apply_exit_ladder(
                 weights, close_matrix, strategy.risk_management.exit_ladder
             )
+            adjusted_open = self._build_adjusted_open_matrix(aligned_frames, close_matrix)
+            prev_close = close_matrix.shift(1)
+            overnight_gap = (
+                ((adjusted_open - prev_close) / prev_close)
+                .replace([np.inf, -np.inf], np.nan)
+                .fillna(0.0)
+            )
+            # `.shift(1)` moves each exit onto the bar it is actually sold on,
+            # where `overnight_gap` is close[T] → open[T+1]. An exit on the
+            # final bar shifts off the end and earns nothing, which is right:
+            # there is no next session to sell into.
+            open_gap_pnl = (
+                ladder_exits.shift(1).fillna(0.0) * overnight_gap
+            ).sum(axis=1)
 
         asset_returns = close_matrix.pct_change().fillna(0.0)
         turnover = weights.diff().abs().sum(axis=1).fillna(0.0)
         costs = turnover * ((strategy.transaction_cost_bps + strategy.slippage_bps) / 10000)
-        portfolio_returns = (weights.shift(1).fillna(0.0) * asset_returns).sum(axis=1) - costs
+        portfolio_returns = (
+            (weights.shift(1).fillna(0.0) * asset_returns).sum(axis=1)
+            + open_gap_pnl
+            - costs
+        )
         benchmark_returns = benchmark_close.pct_change().fillna(0.0)
 
         equity_curve = strategy.initial_capital * (1.0 + portfolio_returns).cumprod()
