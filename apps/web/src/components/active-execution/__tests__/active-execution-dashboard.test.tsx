@@ -364,3 +364,40 @@ describe("ActiveExecutionDashboard", () => {
     });
   });
 });
+
+
+// ── daily strategies (2026-08-18) ───────────────────────────────────────────
+
+describe("ActiveExecutionDashboard — daily strategies", () => {
+  it("REGRESSION: renders the declare form for a daily strategy", () => {
+    /* The parent page used to gate this whole section on
+     * `bar_resolution !== "daily"`, so the backend's daily-position support
+     * shipped unreachable: #327 lifted the 400 on declaring a daily
+     * position, but the form to declare one was never rendered for exactly
+     * the users it was built for. */
+    render(<ActiveExecutionDashboard strategyId="s1" barResolution="daily" />);
+    expect(screen.getByTestId("active-execution-dashboard")).toBeTruthy();
+    expect(screen.getByTestId("declare-position-open")).toBeTruthy();
+  });
+
+  it("hides the intraday-only bricks for a daily strategy", () => {
+    /* Their endpoints early-return for daily, so rendering them would give
+     * the user two permanently empty panels and teach them the page is
+     * broken. */
+    render(<ActiveExecutionDashboard strategyId="s1" barResolution="daily" />);
+    expect(screen.queryByTestId("universe-watch-skeleton")).toBeNull();
+    expect(screen.queryByTestId("intraday-chart-error")).toBeNull();
+  });
+
+  it("still shows the intraday bricks for an intraday strategy", () => {
+    render(<ActiveExecutionDashboard strategyId="s1" barResolution="15min" />);
+    expect(screen.getByTestId("universe-watch-skeleton")).toBeTruthy();
+  });
+
+  it("defaults to daily when no resolution is supplied", () => {
+    // Safer default: a missing value must not silently light up panels that
+    // will render empty.
+    render(<ActiveExecutionDashboard strategyId="s1" />);
+    expect(screen.queryByTestId("universe-watch-skeleton")).toBeNull();
+  });
+});

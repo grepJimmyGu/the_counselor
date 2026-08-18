@@ -362,16 +362,30 @@ export default function SavedStrategyPage() {
           </section>
         )}
 
-        {/* Active execution dashboard — owner-only, rendered when the
-            BacktestRecord's matching SavedStrategy uses a non-daily
-            bar_resolution. The dashboard polls /api/saved-strategies/{id}/...
-            endpoints; non-owners get 404 (the brick surfaces that as an
-            error state without crashing). PRD-16c-3c + PRD-16c-6. */}
+        {/* Active execution dashboard — owner-only. Polls
+            /api/saved-strategies/{id}/... ; non-owners get 404 and the
+            bricks surface that as an error state without crashing.
+
+            GATED ON THE EXIT LADDER, NOT THE BAR RESOLUTION (2026-08-18).
+            This used to require `bar_resolution !== "daily"`, which made the
+            backend's daily-position support unreachable: #327 lifted the
+            400 on declaring a daily position, but the form to declare one
+            was never rendered for those strategies. The backend's real
+            requirement is an exit ladder — with no ladder there is nothing
+            to monitor a position against — so the UI now asks the same
+            question the API does. */}
         {data.saved_strategy_id &&
-          (s as unknown as { bar_resolution?: string })?.bar_resolution &&
-          (s as unknown as { bar_resolution: string }).bar_resolution !==
-            "daily" && (
-          <ActiveExecutionDashboard strategyId={data.saved_strategy_id} />
+          Boolean(
+            (s as unknown as { risk_management?: { exit_ladder?: unknown[] } })
+              ?.risk_management?.exit_ladder?.length,
+          ) && (
+          <ActiveExecutionDashboard
+            strategyId={data.saved_strategy_id}
+            barResolution={
+              (s as unknown as { bar_resolution?: string })?.bar_resolution ??
+              "daily"
+            }
+          />
         )}
 
         {/* Community — comments */}
