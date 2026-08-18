@@ -90,10 +90,24 @@ def _prefs_allow(prefs: EmailPreference, template: str, category: str) -> bool:
         return False
     if template == "daily_digest" and not prefs.daily_digest_enabled:
         return False
-    # PRD-16c active execution — position-event alerts (exit-tier fires)
-    # are signal alerts; honor the same opt-in toggle as signal_change.
-    if template == "position_event" and not prefs.signal_alerts_enabled:
-        return False
+    # `position_event` is DELIBERATELY NOT gated on signal_alerts_enabled.
+    #
+    # It was until 2026-08-18, on the reasoning that an exit-tier fire "is a
+    # signal alert". The two are not the same thing. `signal_change` says
+    # "a strategy you follow would enter X" — a discovery feed the user
+    # opted into and can reasonably tire of. `position_event` says "the stop
+    # on the position YOU declared has been hit". The user asked for that
+    # specific monitoring by declaring the position, and turning off a
+    # discovery feed is not a request to stop hearing about their own money.
+    #
+    # Under the old coupling a user who muted signal alerts months earlier
+    # got no exit email — only an in-app banner they had no reason to look
+    # for. It falls through to the transactional branch below instead.
+    #
+    # If muting these while keeping positions open turns out to be a real
+    # want, the answer is a dedicated `position_alerts_enabled` toggle, not
+    # re-attaching them to the discovery feed. Closing the position is the
+    # existing way to stop the monitoring.
 
     # Globally unsubscribed = no marketing, but transactional still goes through
     # (legally required for things like password reset, payment failed).

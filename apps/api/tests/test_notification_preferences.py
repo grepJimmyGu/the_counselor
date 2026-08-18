@@ -232,3 +232,63 @@ def test_patch_captures_posthog_with_new_flag_values(
     assert props["signal_alerts_enabled"] is False
     assert props["daily_digest_enabled"] is True
     assert props["silent_days_enabled"] is True
+
+
+# ── position_event is NOT a discovery-feed alert (2026-08-18) ───────────────
+
+
+def test_prefs_allow_sends_position_event_even_when_signal_alerts_are_off(
+    make_user, db: Session
+) -> None:
+    """CONTRACT CHANGE. `position_event` was gated on
+    `signal_alerts_enabled` until 2026-08-18, on the reasoning that an
+    exit-tier fire "is a signal alert". It is not the same thing.
+
+    `signal_change` says "a strategy you follow would enter X" — a discovery
+    feed the user can reasonably tire of. `position_event` says "the stop on
+    the position YOU declared has been hit". Declaring a position IS the
+    opt-in for that monitoring, and muting a discovery feed is not a request
+    to stop hearing about your own money.
+
+    Under the old coupling a user who muted signal alerts months earlier got
+    no exit email — only an in-app banner they had no reason to look for.
+
+    Nothing pinned the old behaviour, which is part of how it survived.
+    """
+    user = make_user(email="posevent-muted@test.com")
+    prefs = get_or_create_prefs(db, user.id)
+    prefs.signal_alerts_enabled = False
+    db.commit()
+
+    assert _prefs_allow(prefs, template="position_event", category="transactional") is True
+
+
+def test_muting_signal_alerts_still_blocks_the_discovery_feed(
+    make_user, db: Session
+) -> None:
+    """The distinction the change above depends on. If muting stopped
+    blocking `signal_change` too, we would have removed the user's control
+    rather than un-conflating two different notifications.
+    """
+    user = make_user(email="posevent-distinct@test.com")
+    prefs = get_or_create_prefs(db, user.id)
+    prefs.signal_alerts_enabled = False
+    db.commit()
+
+    assert _prefs_allow(prefs, template="signal_change", category="transactional") is False
+    assert _prefs_allow(prefs, template="position_event", category="transactional") is True
+
+
+def test_globally_unsubscribed_user_still_gets_exit_alerts(
+    make_user, db: Session
+) -> None:
+    """`position_event` is transactional, so it bypasses `unsubscribed_at`
+    the same way a password reset does. Someone who unsubscribed from
+    marketing has not asked to stop being told their stop was hit on a
+    position they are still holding."""
+    user = make_user(email="posevent-unsub@test.com")
+    prefs = get_or_create_prefs(db, user.id)
+    prefs.unsubscribed_at = datetime.utcnow()
+    db.commit()
+
+    assert _prefs_allow(prefs, template="position_event", category="transactional") is True
