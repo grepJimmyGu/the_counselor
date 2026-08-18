@@ -462,6 +462,32 @@ def _start_scheduler() -> None:
             max_instances=1,
             misfire_grace_time=120,
         )
+
+        # Daily exit monitor — one run per session, after the close.
+        #
+        # EXPLICIT MARKET TIMEZONE. `BackgroundScheduler()` above takes the
+        # container's local zone (UTC on Railway), so a UTC hour would drift
+        # an hour against the closing bell every March and November — the
+        # exact defect the intraday window has, where `hour="14-20"` leaves
+        # the first 30 minutes of an EDT session unmonitored. A per-job
+        # timezone fixes it here without touching the intraday job, whose
+        # window is expressed in UTC and would silently move if the
+        # scheduler's zone changed underneath it.
+        #
+        # 17:10 ET: past the 16:00 close with room for the vendor to publish
+        # a settled daily bar. The user reads it that evening and acts at the
+        # next open, which is what the backtest now models.
+        from app.jobs.daily_position_jobs import monitor_daily_positions
+        scheduler.add_job(
+            monitor_daily_positions, "cron",
+            day_of_week="mon-fri", hour=17, minute=10,
+            timezone="America/New_York",
+            id="daily_position_monitor",
+            max_instances=1,
+            # A once-daily job is worth catching up on after a restart; the
+            # fire-once guard makes a late run idempotent.
+            misfire_grace_time=3600,
+        )
         scheduler.start()
     except Exception as exc:
         logger.warning("APScheduler failed to start: %s", exc)
