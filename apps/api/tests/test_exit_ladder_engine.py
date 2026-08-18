@@ -176,7 +176,7 @@ def test_no_exit_ladder_returns_weights_unchanged() -> None:
     engine = BacktestEngine()
     w = _weights([0.0, 1.0, 1.0, 1.0, 0.0])
     p = _prices([100, 100, 110, 120, 130])
-    out = engine._apply_exit_ladder(w, p, [])
+    out, _ = engine._apply_exit_ladder(w, p, [])
     assert (out["AAA"].values == w["AAA"].values).all()
 
 
@@ -186,7 +186,7 @@ def test_stop_tier_fires_on_drawdown() -> None:
     w = _weights([0.0, 1.0, 1.0, 1.0, 1.0, 1.0])
     p = _prices([100, 100, 95, 88, 90, 92])
     ladder = [ExitTier(trigger_pct=-0.10, action="sell_all", label="Stop")]
-    out = engine._apply_exit_ladder(w, p, ladder)
+    out, _ = engine._apply_exit_ladder(w, p, ladder)
     # Entry on bar 1 (price 100). Bar 3 = 88 → -12% → stop fires.
     # Weights from bar 3 onward should be zero.
     assert out["AAA"].iloc[1] == 1.0
@@ -205,7 +205,7 @@ def test_take_profit_sell_fraction_partial_out() -> None:
         ExitTier(trigger_pct=-0.10, action="sell_all", label="Stop"),
         ExitTier(trigger_pct=+0.15, action="sell_fraction", fraction=0.33, label="TP1"),
     ]
-    out = engine._apply_exit_ladder(w, p, ladder)
+    out, _ = engine._apply_exit_ladder(w, p, ladder)
     # Bar 3 = 115 → +15% → TP1 fires, weight × (1 - 0.33) = 0.67
     assert out["AAA"].iloc[1] == 1.0
     assert out["AAA"].iloc[2] == 1.0  # +10%, below trigger
@@ -224,7 +224,7 @@ def test_multi_tier_ladder_fires_in_order() -> None:
         ExitTier(trigger_pct=+0.15, action="sell_fraction", fraction=0.33, label="TP1"),
         ExitTier(trigger_pct=+0.30, action="sell_all", label="TP2"),
     ]
-    out = engine._apply_exit_ladder(w, p, ladder)
+    out, _ = engine._apply_exit_ladder(w, p, ladder)
     # Entry bar 1 (100). Bar 3 = 115 → +15% TP1 fires (× 0.67).
     # Bar 5 = 130 → +30% TP2 fires (sell_all → 0).
     assert out["AAA"].iloc[1] == 1.0
@@ -245,7 +245,7 @@ def test_tier_fires_at_most_once_per_entry() -> None:
         ExitTier(trigger_pct=-0.10, action="sell_all", label="Stop"),
         ExitTier(trigger_pct=+0.15, action="sell_fraction", fraction=0.50, label="TP1"),
     ]
-    out = engine._apply_exit_ladder(w, p, ladder)
+    out, _ = engine._apply_exit_ladder(w, p, ladder)
     # Bar 2 = 116 → +16% → TP1 fires once, w × 0.5
     # Bars 3-5 should stay at 0.5, NOT decay to 0.25 / 0.125 / etc.
     assert out["AAA"].iloc[2] == pytest.approx(0.5, abs=1e-6)
@@ -265,7 +265,7 @@ def test_new_entry_resets_fired_tiers() -> None:
         ExitTier(trigger_pct=-0.10, action="sell_all", label="Stop"),
         ExitTier(trigger_pct=+0.15, action="sell_fraction", fraction=0.50, label="TP1"),
     ]
-    out = engine._apply_exit_ladder(w, p, ladder)
+    out, _ = engine._apply_exit_ladder(w, p, ladder)
     # First entry: bar 1 (100). Bar 2 = 120 → TP1 fires → 0.5.
     assert out["AAA"].iloc[2] == pytest.approx(0.5, abs=1e-6)
     # Strategy closes position on bar 3 (weight=0).
@@ -289,7 +289,7 @@ def test_stop_evaluated_before_take_profit_on_same_bar() -> None:
         ExitTier(trigger_pct=-0.10, action="sell_all", label="Stop"),
         ExitTier(trigger_pct=+0.30, action="sell_all", label="TP2"),
     ]
-    out = engine._apply_exit_ladder(w, p, ladder)
+    out, _ = engine._apply_exit_ladder(w, p, ladder)
     assert out["AAA"].iloc[2] == 0.0
 
 
@@ -309,7 +309,7 @@ def test_ladder_runs_independently_per_symbol() -> None:
         ExitTier(trigger_pct=-0.10, action="sell_all", label="Stop"),
         ExitTier(trigger_pct=+0.15, action="sell_fraction", fraction=0.50, label="TP1"),
     ]
-    out = engine._apply_exit_ladder(w, p, ladder)
+    out, _ = engine._apply_exit_ladder(w, p, ladder)
     # AAA: stop fires bar 2 → 0 onward.
     assert out["AAA"].iloc[1] == 0.5
     assert out["AAA"].iloc[2] == 0.0
@@ -345,7 +345,7 @@ def test_REGRESSION_second_scale_out_takes_a_fraction_of_the_ENTRY_weight():
         ExitTier(trigger_pct=+0.15, action="sell_fraction", fraction=1 / 3, label="TP1"),
         ExitTier(trigger_pct=+0.30, action="sell_fraction", fraction=1 / 3, label="TP2"),
     ]
-    out = engine._apply_exit_ladder(w, p, ladder)["AAA"]
+    out = engine._apply_exit_ladder(w, p, ladder)[0]["AAA"]
     assert out.iloc[0] == pytest.approx(0.30, abs=1e-9)
     assert out.iloc[1] == pytest.approx(0.20, abs=1e-9)
     assert out.iloc[2] == pytest.approx(0.10, abs=1e-9)
@@ -365,6 +365,120 @@ def test_REGRESSION_two_negative_tiers_both_fire_in_the_engine():
         ExitTier(trigger_pct=-0.10, action="sell_all", label="Stop"),
         ExitTier(trigger_pct=-0.05, action="sell_fraction", fraction=0.5, label="Trim"),
     ]
-    out = engine._apply_exit_ladder(w, p, ladder)["AAA"]
+    out = engine._apply_exit_ladder(w, p, ladder)[0]["AAA"]
     assert out.iloc[1] == pytest.approx(0.20, abs=1e-9)  # trim at -6%
     assert out.iloc[2] == pytest.approx(0.0, abs=1e-9)   # stop MUST still fire
+
+
+# ── next-open exit fills (2026-08-18) ───────────────────────────────────────
+
+
+def test_exited_weight_is_recorded_on_the_bar_the_tier_FIRED():
+    """A ladder exit is detected on bar T's close but sold at T+1's open, so
+    `run()` needs to know how much weight left and on which bar in order to
+    credit it the overnight gap. A sell_all releases the whole held weight.
+    """
+    engine = BacktestEngine()
+    idx = pd.date_range("2026-01-01", periods=3, freq="D")
+    w = pd.DataFrame({"AAA": [1.0, 1.0, 1.0]}, index=idx)
+    p = pd.DataFrame({"AAA": [100.0, 90.0, 95.0]}, index=idx)  # -10% on bar 1
+    ladder = [ExitTier(trigger_pct=-0.08, action="sell_all", label="Stop")]
+    weights, exited = engine._apply_exit_ladder(w, p, ladder)
+    assert weights["AAA"].tolist() == [1.0, 0.0, 0.0]
+    assert exited["AAA"].tolist() == [0.0, 1.0, 0.0]
+
+
+def test_each_scale_out_is_recorded_separately():
+    engine = BacktestEngine()
+    idx = pd.date_range("2026-01-01", periods=3, freq="D")
+    w = pd.DataFrame({"AAA": [1.0, 1.0, 1.0]}, index=idx)
+    p = pd.DataFrame({"AAA": [100.0, 115.0, 130.0]}, index=idx)
+    ladder = [
+        ExitTier(trigger_pct=-0.08, action="sell_all", label="S"),
+        ExitTier(trigger_pct=+0.15, action="sell_fraction", fraction=1 / 3, label="TP1"),
+        ExitTier(trigger_pct=+0.30, action="sell_fraction", fraction=1 / 3, label="TP2"),
+    ]
+    _, exited = engine._apply_exit_ladder(w, p, ladder)
+    assert exited["AAA"].iloc[1] == pytest.approx(1 / 3, abs=1e-9)
+    assert exited["AAA"].iloc[2] == pytest.approx(1 / 3, abs=1e-9)
+
+
+def test_no_ladder_reports_no_exits():
+    engine = BacktestEngine()
+    idx = pd.date_range("2026-01-01", periods=2, freq="D")
+    w = pd.DataFrame({"AAA": [1.0, 1.0]}, index=idx)
+    p = pd.DataFrame({"AAA": [100.0, 50.0]}, index=idx)
+    weights, exited = engine._apply_exit_ladder(w, p, [])
+    assert weights.equals(w)
+    assert exited.to_numpy().sum() == 0.0
+
+
+def test_REGRESSION_adjusted_open_applies_the_split_ratio():
+    """`price_bars` stores a RAW open beside an adjusted close. Pairing the
+    two directly would show a fabricated overnight gap the size of the split
+    on every split date — a 2:1 split would read as a 100% move. The ratio
+    adjusted_close/close applies to every price on the bar, including open.
+    """
+    engine = BacktestEngine()
+    idx = pd.date_range("2026-01-01", periods=2, freq="D")
+    close_matrix = pd.DataFrame({"AAA": [100.0, 50.0]}, index=idx)
+    aligned = {
+        "AAA": pd.DataFrame(
+            {
+                "open": [100.0, 200.0],       # raw, pre-split on bar 1
+                "close": [100.0, 200.0],      # raw
+                "adjusted_close": [100.0, 50.0],  # 4:1 adjustment on bar 1
+            },
+            index=idx,
+        )
+    }
+    adjusted_open = engine._build_adjusted_open_matrix(aligned, close_matrix)
+    assert adjusted_open["AAA"].iloc[0] == pytest.approx(100.0)
+    assert adjusted_open["AAA"].iloc[1] == pytest.approx(50.0)  # NOT 200.0
+
+
+def test_REGRESSION_stopped_position_is_charged_the_overnight_gap():
+    """The whole point of the change. A stop detected at bar 1's close of 90
+    is sold at bar 2's open of 85 — the position eats that 5.6% gap. The
+    engine used to assume a fill at 90, handing every stopped strategy a
+    price its own user could never have got.
+    """
+    engine = BacktestEngine()
+    idx = pd.date_range("2026-01-01", periods=3, freq="D")
+    w = pd.DataFrame({"AAA": [1.0, 1.0, 1.0]}, index=idx)
+    close_matrix = pd.DataFrame({"AAA": [100.0, 90.0, 95.0]}, index=idx)
+    ladder = [ExitTier(trigger_pct=-0.08, action="sell_all", label="Stop")]
+    _, exited = engine._apply_exit_ladder(w, close_matrix, ladder)
+
+    aligned = {
+        "AAA": pd.DataFrame(
+            {
+                "open": [100.0, 92.0, 85.0],
+                "close": [100.0, 90.0, 95.0],
+                "adjusted_close": [100.0, 90.0, 95.0],
+            },
+            index=idx,
+        )
+    }
+    adjusted_open = engine._build_adjusted_open_matrix(aligned, close_matrix)
+    prev_close = close_matrix.shift(1)
+    gap = ((adjusted_open - prev_close) / prev_close).replace(
+        [np.inf, -np.inf], np.nan
+    ).fillna(0.0)
+    correction = (exited.shift(1).fillna(0.0) * gap).sum(axis=1)
+
+    assert correction.iloc[1] == pytest.approx(0.0)  # nothing sold yet
+    assert correction.iloc[2] == pytest.approx((85.0 - 90.0) / 90.0, abs=1e-9)
+
+
+def test_exit_on_the_final_bar_earns_no_gap():
+    """There is no next session to sell into, so the shift drops it. Better
+    than inventing a fill price for a day the backtest never saw."""
+    engine = BacktestEngine()
+    idx = pd.date_range("2026-01-01", periods=2, freq="D")
+    w = pd.DataFrame({"AAA": [1.0, 1.0]}, index=idx)
+    close_matrix = pd.DataFrame({"AAA": [100.0, 80.0]}, index=idx)
+    ladder = [ExitTier(trigger_pct=-0.08, action="sell_all", label="Stop")]
+    _, exited = engine._apply_exit_ladder(w, close_matrix, ladder)
+    assert exited["AAA"].iloc[1] == pytest.approx(1.0)
+    assert exited.shift(1).fillna(0.0).to_numpy().sum() == pytest.approx(0.0)
