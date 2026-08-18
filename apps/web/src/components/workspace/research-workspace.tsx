@@ -40,6 +40,7 @@ import {
 } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DrawdownChart, EquityCurveChart } from "@/components/workspace/charts";
+import { MethodologyNote } from "@/components/workspace/methodology-note";
 import { MonthlyHeatmap } from "@/components/workspace/monthly-heatmap";
 import { BacktestLoading } from "@/components/strategy-builder/backtest-loading";
 import { StrategyBuilderModal } from "@/components/strategy-builder/strategy-builder-modal";
@@ -641,6 +642,7 @@ export function ResearchWorkspace() {
                 <h2 className="text-sm font-semibold">{t.equityCurve}</h2>
               </div>
               <EquityCurveChart result={backtestResult} />
+              <MethodologyNote version={backtestResult.engine_version} />
             </div>
 
             {/* Trade log */}

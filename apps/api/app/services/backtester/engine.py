@@ -21,6 +21,21 @@ _FUNDAMENTAL_STRATEGY_TYPES = frozenset({
 
 from app.models.backtest import BacktestRecord
 from app.services.exit_ladder import Bar, evaluate_bar, weight_delta_for
+
+# Stamped onto every BacktestResult so a number can be traced to the
+# methodology that produced it. Bump this whenever a change moves results
+# for an UNCHANGED strategy — otherwise a user who re-runs an old strategy
+# sees different figures from their own saved card with nothing to explain
+# the gap.
+#
+# 2026.08.18 — three changes, all of which make results WORSE and all of
+#   which were previously flattering:
+#     * scale-out tiers take a fraction of the ORIGINAL position, not of
+#       what remains (the notifier always did; the engine compounded)
+#     * ladder exits fill at the NEXT session's open, carrying the
+#       overnight gap, instead of at the price that triggered the tier
+#     * transaction cost and slippage default to 5 bps each instead of 0
+BACKTEST_ENGINE_VERSION = "2026.08.18"
 from app.schemas.backtest import (
     AnnualReturnItem,
     BacktestMetrics,
@@ -1640,6 +1655,7 @@ class BacktestEngine:
                 for dt, value in monthly_returns.items()
             ],
             warnings=warnings,
+            engine_version=BACKTEST_ENGINE_VERSION,
         )
 
         db.add(
