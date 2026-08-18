@@ -87,3 +87,9 @@ class BacktestResult(BaseModel):
     monthly_returns: list[MonthlyReturnItem]
     warnings: list[str]
     created_at: Optional[datetime] = None
+    # Which methodology produced these numbers. `None` means the result
+    # predates versioning — see BACKTEST_ENGINE_VERSION in the engine for
+    # what changed. Deliberately NOT defaulted to the current version:
+    # stored payloads without the key would then claim to be current, which
+    # is the one thing this field exists to prevent.
+    engine_version: Optional[str] = None

@@ -715,6 +715,13 @@ export interface BacktestResult {
   monthly_returns: { year: number; month: number; return_pct: number }[];
   warnings: string[];
   created_at?: string | null;
+  /** Which backtest methodology produced these numbers.
+   *
+   *  `null`/absent means the result predates versioning (before
+   *  2026-08-18) and was computed WITHOUT transaction costs and with
+   *  ladder exits filling at the price that triggered the tier rather
+   *  than at the next session's open — both of which flattered results. */
+  engine_version?: string | null;
 }
 
 export interface ExplanationResponse {

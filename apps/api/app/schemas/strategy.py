@@ -300,8 +300,17 @@ class StrategyJSON(BaseModel):
     end_date: date
     initial_capital: float = Field(..., gt=0)
     rebalance_frequency: RebalanceFrequency
-    transaction_cost_bps: float = Field(0.0, ge=0)
-    slippage_bps: float = Field(0.0, ge=0)
+    # Costs are ON by default (2026-08-18). Both were 0.0, so every backtest
+    # in the product ran GROSS — and a daily strategy that turns over weekly
+    # can be entirely an artifact of that. Commissions are ~0 at retail
+    # brokers now, so the real cost is spread plus market impact; 5 + 5 bps
+    # is a defensible floor for liquid large caps and optimistic for small
+    # caps, which the result states rather than trying to model per-name.
+    # Charged as `turnover x (tc + slip)/10000` per rebalance, plus entry and
+    # exit on ladder trades. A user can raise these; nothing silently zeroes
+    # them any more.
+    transaction_cost_bps: float = Field(5.0, ge=0)
+    slippage_bps: float = Field(5.0, ge=0)
     rules: list[StrategyRule] = Field(default_factory=list)
     position_sizing: PositionSizing
     risk_management: RiskManagement = Field(default_factory=RiskManagement)
