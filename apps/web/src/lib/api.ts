@@ -36,6 +36,7 @@ import type {
   SignalCard,
   ParseResult,
   TickerSubscription,
+  UnresolvedExit,
 } from "@/lib/contracts";
 import { dispatchUpgrade } from "@/lib/upgrade-modal-event-bus";
 
@@ -1481,4 +1482,40 @@ export function dailyCardImageUrl(
 ): string {
   const base = `${API_BASE_URL}/api/market/daily-card.png?lang=${encodeURIComponent(lang)}`;
   return tradingDate ? `${base}&trading_date=${encodeURIComponent(tradingDate)}` : base;
+}
+
+// ── Unresolved exits (2026-08-18) ───────────────────────────────────────────
+
+/** Every exit the user has been told about and not yet resolved.
+ *
+ *  Derived server-side from `trade_log`, so dismissing a notification does
+ *  not clear it — missing the email makes an exit LATE, not LOST. */
+export async function listUnresolvedExits(
+  backendToken: string,
+): Promise<UnresolvedExit[]> {
+  return fetchApi<UnresolvedExit[]>("/api/saved-strategies/unresolved-exits", {
+    headers: { Authorization: `Bearer ${backendToken}` },
+  });
+}
+
+/** Record that the user saw the exit signal and consciously kept the
+ *  position. Sells nothing; `shares_remaining` is untouched. */
+export async function holdThroughExit(
+  strategyId: string,
+  positionId: string,
+  body: { trigger_type: string; user_note?: string | null },
+  backendToken: string,
+): Promise<unknown> {
+  return fetchApi<unknown>(
+    `/api/saved-strategies/${encodeURIComponent(strategyId)}` +
+      `/positions/${encodeURIComponent(positionId)}/hold`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${backendToken}`,
+      },
+      body: JSON.stringify(body),
+    },
+  );
 }

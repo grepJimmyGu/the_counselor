@@ -3321,3 +3321,24 @@ export interface MarketNewsResponse {
   age_seconds: number;
   cached: boolean;
 }
+
+/** One exit tier that fired and the user has not yet resolved.
+ *
+ *  DERIVED server-side from the position's `trade_log`, not stored as its
+ *  own row — so it cannot be dismissed away. It disappears only when the
+ *  user confirms a sale or records that they are holding. */
+export interface UnresolvedExit {
+  strategy_id: string;
+  strategy_title: string;
+  position_id: string;
+  symbol: string;
+  trigger_type: string;
+  tier_label?: string | null;
+  signaled_at?: string | null;
+  price?: number | null;
+  pct_change?: number | null;
+  action?: string | null;
+  shares?: number | null;
+  shares_remaining: number;
+  entry_price: number;
+}
