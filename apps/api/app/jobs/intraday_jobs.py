@@ -333,7 +333,7 @@ def _dispatch_position_event(
 
     # In-app banner first (DB write, very unlikely to fail) so the user
     # gets the in-app notification even if email is down.
-    _write_position_banner(db, user.id, strategy_name, pos.symbol, rendered["subject"])
+    _write_position_banner(db, user.id, strat, pos.symbol, rendered["subject"])
 
     try:
         return send_email(
@@ -354,11 +354,21 @@ def _dispatch_position_event(
 
 
 def _write_position_banner(
-    db: Session, user_id: str, strategy_name: str, symbol: str, subject: str,
+    db: Session, user_id: str, strat, symbol: str, subject: str,
 ) -> None:
     """Write a NotificationBannerEntry for the in-app surface. Reuses a
     fresh SessionLocal so a banner-write failure can't poison the cron's
-    main transaction. Best-effort."""
+    main transaction. Best-effort.
+
+    CARRIES THE STRATEGY ID (2026-08-18). This passed `strategy_slug=None`
+    until then, and `<BannerRow>` renders its entire action row —
+    `<MarkAsExecutedButton>` and the "View strategy" link — only when that
+    field is set. So an exit banner offered a title, a body, and a dismiss
+    X: the user was told a stop had fired and given no way to act on it,
+    and the only control present dismissed the notice. The field has always
+    held `SavedStrategy.id` (see signal_cron, and the comment in
+    `notification-banner.tsx`).
+    """
     try:
         from app.models.notification_banner import NotificationBannerEntry
         with SessionLocal() as banner_db:
@@ -366,11 +376,11 @@ def _write_position_banner(
                 user_id=user_id,
                 title=subject,
                 body=(
-                    f"Your strategy '{strategy_name}' signalled an exit on "
-                    f"{symbol}. Review the suggested action and mark it "
-                    "executed once you've acted."
+                    f"{symbol} reached a level your strategy "
+                    f"'{strat.title or 'Your strategy'}' defines as an exit. "
+                    "Nothing has been sold — Livermore does not place trades."
                 ),
-                strategy_slug=None,
+                strategy_slug=strat.id,
             ))
             banner_db.commit()
     except Exception:

@@ -8,6 +8,7 @@ import { Loader2 } from "lucide-react";
 import { getSavedStrategy, updateStrategyVisibility, getStrategyLivePerformance } from "@/lib/api";
 import { EquityCurveChart, DrawdownChart } from "@/components/workspace/charts";
 import { ActiveExecutionDashboard } from "@/components/active-execution/active-execution-dashboard";
+import { ExecutedFromEmail } from "@/components/notifications/executed-from-email";
 import type { BacktestResult, LivePerformance, SavedStrategy } from "@/lib/contracts";
 import { UpvoteButton } from "@/components/community/upvote-button";
 import { CommentsSection } from "@/components/community/comments-section";
@@ -105,6 +106,10 @@ export default function SavedStrategyPage() {
   return (
     <main className="min-h-screen bg-background">
       <div className="mx-auto max-w-4xl px-4 py-8 space-y-8">
+
+        {/* Arrived from an exit email's confirm link. Renders only when
+            `?action=executed` is present, so a normal visit is unaffected. */}
+        <ExecutedFromEmail strategyId={slug} />
 
         {/* Header */}
         <div className="space-y-3 border-b border-border pb-6">
