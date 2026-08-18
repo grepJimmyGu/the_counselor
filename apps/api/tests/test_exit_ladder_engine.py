@@ -318,3 +318,53 @@ def test_ladder_runs_independently_per_symbol() -> None:
     assert out["BBB"].iloc[2] == 0.5  # +5%, below TP1
     assert out["BBB"].iloc[3] == pytest.approx(0.25, abs=1e-6)  # × 0.5
     assert out["BBB"].iloc[4] == pytest.approx(0.25, abs=1e-6)
+
+
+def test_REGRESSION_second_scale_out_takes_a_fraction_of_the_ENTRY_weight():
+    """Convention decided 2026-08-18: fraction of the ORIGINAL position.
+
+    The engine previously compounded (`w *= 1 - f`), so a second 1/3 tier
+    removed 1/3 of an ALREADY-REDUCED weight while the live monitor sized
+    the same tier off `shares_initial`. The user's backtested equity curve
+    was therefore not the plan the exit alert told them to execute.
+
+    Every pre-existing test in this file exercises only the FIRST scale-out,
+    where both conventions give the same answer — which is why the
+    divergence survived. This one exercises the second, where they differ:
+
+        entry weight 0.30, two 1/3 tiers
+          fraction-of-initial   → 0.30, 0.20, 0.10   (correct)
+          fraction-of-remaining → 0.30, 0.20, 0.1333 (old)
+    """
+    engine = BacktestEngine()
+    idx = pd.date_range("2026-01-01", periods=3, freq="D")
+    w = pd.DataFrame({"AAA": [0.30, 0.30, 0.30]}, index=idx)
+    p = pd.DataFrame({"AAA": [100.0, 115.0, 130.0]}, index=idx)  # entry, +15%, +30%
+    ladder = [
+        ExitTier(trigger_pct=-0.08, action="sell_all", label="Stop"),
+        ExitTier(trigger_pct=+0.15, action="sell_fraction", fraction=1 / 3, label="TP1"),
+        ExitTier(trigger_pct=+0.30, action="sell_fraction", fraction=1 / 3, label="TP2"),
+    ]
+    out = engine._apply_exit_ladder(w, p, ladder)["AAA"]
+    assert out.iloc[0] == pytest.approx(0.30, abs=1e-9)
+    assert out.iloc[1] == pytest.approx(0.20, abs=1e-9)
+    assert out.iloc[2] == pytest.approx(0.10, abs=1e-9)
+
+
+def test_REGRESSION_two_negative_tiers_both_fire_in_the_engine():
+    """The live monitor keyed every negative tier to the constant string
+    "stop_hit", so a "-5% trim / -10% stop out" ladder permanently disarmed
+    the hard stop. The engine keyed on the ladder index and did not have the
+    bug; this pins that it still doesn't, now that both share one evaluator.
+    """
+    engine = BacktestEngine()
+    idx = pd.date_range("2026-01-01", periods=3, freq="D")
+    w = pd.DataFrame({"AAA": [0.40, 0.40, 0.40]}, index=idx)
+    p = pd.DataFrame({"AAA": [100.0, 94.0, 88.0]}, index=idx)  # entry, -6%, -12%
+    ladder = [
+        ExitTier(trigger_pct=-0.10, action="sell_all", label="Stop"),
+        ExitTier(trigger_pct=-0.05, action="sell_fraction", fraction=0.5, label="Trim"),
+    ]
+    out = engine._apply_exit_ladder(w, p, ladder)["AAA"]
+    assert out.iloc[1] == pytest.approx(0.20, abs=1e-9)  # trim at -6%
+    assert out.iloc[2] == pytest.approx(0.0, abs=1e-9)   # stop MUST still fire

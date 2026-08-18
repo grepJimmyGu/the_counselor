@@ -20,6 +20,7 @@ _FUNDAMENTAL_STRATEGY_TYPES = frozenset({
 })
 
 from app.models.backtest import BacktestRecord
+from app.services.exit_ladder import Bar, evaluate_bar, weight_delta_for
 from app.schemas.backtest import (
     AnnualReturnItem,
     BacktestMetrics,
@@ -1247,8 +1248,8 @@ class BacktestEngine:
             w = new_weights[symbol].to_numpy(copy=True)
             prices = close_matrix[symbol].to_numpy()
             entry_price: Optional[float] = None
-            fired: set[int] = set()
-            partial_factor = 1.0  # cumulative scaling for active sell_fraction tiers
+            entry_weight = 0.0
+            fired: set[str] = set()
 
             for i in range(len(w)):
                 price = prices[i] if i < len(prices) else None
@@ -1256,48 +1257,48 @@ class BacktestEngine:
                     continue
 
                 if entry_price is None and w[i] > 0:
-                    # New entry: snapshot entry price, reset state.
+                    # New entry: snapshot the entry price AND the weight the
+                    # ladder's fractions are measured against, then reset the
+                    # fired-tier state.
                     entry_price = float(price)
-                    fired.clear()
-                    partial_factor = 1.0
+                    entry_weight = float(w[i])
+                    fired = set()
                     continue
 
                 if entry_price is not None and w[i] > 0:
-                    pct = (float(price) - entry_price) / entry_price
-                    for j, tier in enumerate(exit_ladder):
-                        if j in fired:
-                            continue
-                        triggered = (
-                            (tier.trigger_pct < 0 and pct <= tier.trigger_pct)
-                            or (tier.trigger_pct > 0 and pct >= tier.trigger_pct)
-                        )
-                        if not triggered:
-                            continue
-                        fired.add(j)
-                        if tier.action == "sell_all":
+                    for fire in evaluate_bar(
+                        ladder=exit_ladder,
+                        entry_price=entry_price,
+                        bar=Bar.from_close(float(price)),
+                        already_fired=fired,
+                    ):
+                        fired.add(fire.trigger_type)
+                        if fire.action == "sell_all":
                             # Zero the position forward until the next entry.
                             k = i
                             while k < len(w) and w[k] > 0:
                                 w[k] = 0.0
                                 k += 1
                             entry_price = None
-                            fired.clear()
-                            partial_factor = 1.0
+                            fired = set()
                             break  # position closed; move to next bar
-                        # sell_fraction: apply cumulative scaling forward.
-                        fraction = tier.fraction or 0.0
-                        partial_factor *= (1.0 - fraction)
+                        # Scale-out: remove this tier's share of the ENTRY
+                        # weight, floored at zero. Subtractive, not the old
+                        # multiplicative `w *= (1 - f)` — that compounded, so
+                        # each tier took a fraction of an already-reduced
+                        # position and the backtest disagreed with the live
+                        # monitor. See `app/services/exit_ladder.py`.
+                        delta = weight_delta_for(fire, entry_weight=entry_weight)
                         k = i
                         while k < len(w) and w[k] > 0:
-                            w[k] *= (1.0 - fraction)
+                            w[k] = max(w[k] - delta, 0.0)
                             k += 1
                     continue
 
                 if entry_price is not None and w[i] == 0:
                     # Strategy closed the position itself; reset state.
                     entry_price = None
-                    fired.clear()
-                    partial_factor = 1.0
+                    fired = set()
 
             new_weights[symbol] = w
         return new_weights
