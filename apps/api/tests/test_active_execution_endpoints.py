@@ -64,6 +64,28 @@ def _save_daily_strategy(db: Session, user) -> SavedStrategy:
     )
 
 
+def _save_daily_strategy_with_ladder(db: Session, user) -> SavedStrategy:
+    """A daily strategy that IS eligible for a tracked position (2026-08-18).
+
+    Daily used to be rejected outright; the gate is now the exit ladder
+    alone. `app/jobs/daily_position_jobs.py` monitors these after the close.
+    """
+    return saved_strategy_service.save_strategy(
+        db, user,
+        SaveStrategyRequest(
+            title="Daily runner",
+            strategy_json={
+                "strategy_type": "moving_average_filter",
+                "universe": ["NVDA"],
+                "bar_resolution": "daily",
+                "risk_management": {"exit_ladder": [
+                    {"trigger_pct": -0.08, "action": "sell_all", "label": "Stop"},
+                ]},
+            },
+        ),
+    )
+
+
 def _seed_intraday_bar(
     db: Session, *, symbol: str, price: float, minutes_ago: int = 5,
     resolution: str = "15min",
@@ -362,9 +384,37 @@ def test_declare_position_creates_open_position(make_user, db: Session) -> None:
     assert len(rows) == 1
 
 
-def test_declare_position_rejects_daily_strategy(make_user, db: Session) -> None:
+def test_declare_position_ACCEPTS_a_daily_strategy_with_a_ladder(
+    make_user, db: Session
+) -> None:
+    """CONTRACT CHANGE, 2026-08-18. This test previously asserted the
+    opposite — `test_declare_position_rejects_daily_strategy` pinned a 400
+    for any daily strategy.
+
+    That rule excluded the majority case and the only self-consistent one.
+    Entry signals come from the daily snapshot and the backtester runs on
+    daily bars (it soft-degrades any intraday choice), so a daily strategy
+    is the single configuration where the backtest and the live monitor
+    measure the same thing. The gate is now the exit ladder alone.
+    """
     user = make_user(email="decl-daily@test.com")
-    strategy = _save_daily_strategy(db, user)
+    strategy = _save_daily_strategy_with_ladder(db, user)
+    out = declare_position(
+        strategy.id,
+        DeclarePositionRequest(symbol="NVDA", shares=10, entry_price=100.0),
+        current_user=user, db=db,
+    )
+    assert out.symbol == "NVDA"
+    assert out.is_open is True
+
+
+def test_declare_position_rejects_a_daily_strategy_without_a_ladder(
+    make_user, db: Session
+) -> None:
+    """Still rejected, but for the reason that actually matters: with no
+    ladder there is nothing to monitor the position against."""
+    user = make_user(email="decl-daily-noladder@test.com")
+    strategy = _save_daily_strategy(db, user)  # no risk_management
     with pytest.raises(HTTPException) as exc:
         declare_position(
             strategy.id,
@@ -372,7 +422,7 @@ def test_declare_position_rejects_daily_strategy(make_user, db: Session) -> None
             current_user=user, db=db,
         )
     assert exc.value.status_code == 400
-    assert "active execution" in exc.value.detail.lower()
+    assert "exit ladder" in exc.value.detail.lower()
 
 
 def test_declare_position_rejects_intraday_without_ladder(make_user, db: Session) -> None:

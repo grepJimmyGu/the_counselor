@@ -88,6 +88,9 @@ class TierFire:
     action: str
     fraction_of_initial: float
     observed_price: float
+    # The ladder's own label ("Stop", "TP1"). Notifications should show what
+    # the user named the rung, not a synthesised word for its direction.
+    tier_label: Optional[str] = None
 
 
 def trigger_type_for(tier_index: int) -> str:
@@ -187,6 +190,7 @@ def evaluate_bar(
                 action=tier.action,
                 fraction_of_initial=fraction,
                 observed_price=float(observed),
+                tier_label=getattr(tier, "label", None),
             )
         )
 

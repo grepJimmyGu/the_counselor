@@ -762,20 +762,26 @@ def declare_position(
 
     strategy = _resolve_owned_strategy(db, strategy_id, current_user)
 
-    # Active-execution eligibility: a tracked position only makes sense
-    # when the strategy has an exit ladder + a non-daily resolution.
+    # Active-execution eligibility: a tracked position needs an exit ladder
+    # to be monitored against. Bar resolution NO LONGER gates this.
+    #
+    # Daily strategies were rejected here until 2026-08-18, which excluded
+    # the majority case and the only coherent one: entry signals come from
+    # the daily snapshot and the backtester runs on daily bars (it degrades
+    # any intraday choice), so a daily strategy is the one configuration
+    # where the backtest and the live monitor measure the same thing.
+    # `app/jobs/daily_position_jobs.py` monitors these after the close.
     sj = strategy.strategy_json or {}
-    bar_resolution = sj.get("bar_resolution", "daily")
     has_ladder = bool(
         (sj.get("risk_management") or {}).get("exit_ladder")
     )
-    if bar_resolution == "daily" or not has_ladder:
+    if not has_ladder:
         raise HTTPException(
             status_code=400,
             detail=(
-                "This strategy isn't set up for active execution. Enable "
-                "Active Execution (a non-daily bar resolution + an exit "
-                "ladder) on the strategy before declaring a tracked position."
+                "This strategy has no exit ladder, so there is nothing to "
+                "monitor a position against. Add a stop (and any targets) "
+                "to the strategy before declaring a tracked position."
             ),
         )
 
