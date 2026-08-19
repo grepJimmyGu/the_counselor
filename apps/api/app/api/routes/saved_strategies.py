@@ -79,7 +79,18 @@ class UnresolvedExit(BaseModel):
     action: Optional[str] = None
     shares: Optional[float] = None
     shares_remaining: float
+    shares_initial: float
     entry_price: float
+    # Which staleness story the ticket must tell. A daily exit was measured
+    # on a COMPLETED session's bar and acted on at the next open; an
+    # intraday one was sampled from a ~15-min-delayed feed. Same field,
+    # opposite caveats — and telling a daily user their price is "delayed 20
+    # minutes" would be both wrong and less useful than the truth.
+    bar_resolution: str = "daily"
+    # The session the tier was measured on (daily path records it). The
+    # signal timestamp is when the CRON ran, which is not the same thing and
+    # is the less meaningful of the two on a bar the market already closed.
+    bar_date: Optional[str] = None
 
 
 # DECLARED BEFORE `/{strategy_id}`. FastAPI matches in declaration order, so
@@ -124,9 +135,11 @@ def list_unresolved_exits(
     if not positions:
         return []
 
-    titles = {
-        r.id: (r.title or "Your strategy")
-        for r in saved_strategy_service.list_user_strategies(db, current_user.id)
+    rows = saved_strategy_service.list_user_strategies(db, current_user.id)
+    titles = {r.id: (r.title or "Your strategy") for r in rows}
+    resolutions = {
+        r.id: ((r.strategy_json or {}).get("bar_resolution") or "daily")
+        for r in rows
     }
 
     out: list[UnresolvedExit] = []
@@ -147,7 +160,10 @@ def list_unresolved_exits(
                 action=ev.get("action") or ev.get("suggested_action"),
                 shares=ev.get("shares", ev.get("suggested_shares")),
                 shares_remaining=pos.shares_remaining,
+                shares_initial=pos.shares_initial,
                 entry_price=pos.entry_price,
+                bar_resolution=resolutions.get(pos.saved_strategy_id, "daily"),
+                bar_date=ev.get("bar_date"),
             ))
 
     # Most recent first — a stop that fired this afternoon matters more than
