@@ -169,7 +169,12 @@ def test_signal_change_dispatches_email_banner_and_posthog(
             "user_id": user_.id,
             "html_has_unsub": "Unsubscribe from this strategy" in html,
             "html_has_compliance": "Not investment advice" in html,
-            "text_has_executed_link": "Mark as executed" in text,
+            # CONTRACT CHANGE 2026-08-19: the label is now semantic — an
+            # entry signal reads "I bought this", an exit "I executed this".
+            # What this assertion always cared about is that the email
+            # carries an ACTION LINK at all, so it checks the link rather
+            # than one of the two labels.
+            "text_has_executed_link": "?action=" in text,
         })
         return True
 
@@ -406,3 +411,57 @@ def _make_awaitable(value):
     async def _coro(*a, **kw):
         return value
     return _coro()
+
+
+# ── entry signals route to the declare flow (2026-08-19) ────────────────────
+
+
+def _render(change_type: str, make_user, db):
+    from app.emails.signal_change import (
+        SignalChangePayload, render_signal_change,
+    )
+    from datetime import date as _date
+
+    user = make_user(email=f"entry-{change_type}@test.com")
+    return render_signal_change(user, SignalChangePayload(
+        strategy_name="Momentum runner", strategy_id="strat_1",
+        change_type=change_type, new_signal_display="LONG NVDA",
+        as_of_date=_date(2026, 8, 19),
+        reference_prices={"NVDA": 118.40},
+        rule_context="50-day MA crossed above the 200-day.",
+        risk_context="YTD +14%.",
+    ))
+
+
+def test_REGRESSION_an_entry_signal_links_to_the_declare_flow(
+    make_user, db: Session
+) -> None:
+    """`flip_to_long` used to build `?action=executed`, the same link an
+    EXIT sends. So a user told "your strategy entered NVDA" clicked
+    "I executed this" and landed on a prompt reading "nothing has been
+    sold… confirm what you sold" — wrong verb, wrong control, and the one
+    thing they needed was never offered.
+
+    That mattered beyond copy: an entry that never becomes a declared
+    PositionState is invisible to the exit monitor, so the ladder the user
+    built never runs on the trade it was built for.
+    """
+    out = _render("flip_to_long", make_user, db)
+    assert "?action=entered" in out["text"]
+    assert "?action=executed" not in out["text"]
+    assert "I bought this" in out["text"]
+
+
+def test_an_exit_signal_still_links_to_the_exit_confirm(
+    make_user, db: Session
+) -> None:
+    """The distinction the change depends on. If exits also became
+    "entered", we would have moved the bug rather than fixed it."""
+    out = _render("flip_to_cash", make_user, db)
+    assert "?action=executed" in out["text"]
+    assert "?action=entered" not in out["text"]
+
+
+def test_a_rebalance_keeps_the_exit_style_link(make_user, db: Session) -> None:
+    out = _render("rebalance", make_user, db)
+    assert "?action=executed" in out["text"]

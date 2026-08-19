@@ -70,7 +70,20 @@ def render_signal_change(user: User, payload: SignalChangePayload) -> dict[str, 
     )
     settings_url = f"{site_url}/account/notifications"
     detail_url = f"{site_url}/strategies/{payload.strategy_id}"
-    executed_url = f"{detail_url}?action=executed"
+    # The action link must match what the user actually did. An ENTRY
+    # signal ("flip_to_long") used to point at `?action=executed`, the same
+    # as an exit — so a user told "your strategy entered NVDA" clicked
+    # "I executed this" and landed on a prompt reading "nothing has been
+    # sold… confirm what you sold." Wrong verb, wrong control, and the one
+    # thing they needed — declaring the position so the exit ladder starts
+    # watching it — was not offered.
+    #
+    # That mattered beyond copy: an entry that never becomes a declared
+    # PositionState is invisible to the exit monitor, so the ladder the user
+    # built never runs on the trade it was built for.
+    _entered = payload.change_type == "flip_to_long"
+    executed_url = f"{detail_url}?action={'entered' if _entered else 'executed'}"
+    executed_label = "I bought this" if _entered else "I executed this"
 
     action_words = {
         "flip_to_cash": "moved to cash",
@@ -109,7 +122,7 @@ RISK CONTEXT
 {payload.risk_context}
 
 View detail: {detail_url}
-Mark as executed: {executed_url}
+{executed_label}: {executed_url}
 
 ---
 Not investment advice. Past performance does not guarantee future results.
@@ -153,7 +166,7 @@ Notification settings: {settings_url}
         </td></tr>
         <tr><td style="padding:8px 32px 24px 32px;">
           <a href="{detail_url}" style="display:inline-block;background:#0f172a;color:#ffffff;font-size:14px;font-weight:600;text-decoration:none;padding:10px 18px;border-radius:8px;margin-right:8px;">View strategy detail →</a>
-          <a href="{executed_url}" style="display:inline-block;color:#0ea5e9;font-size:14px;font-weight:600;text-decoration:none;padding:10px 4px;">I executed this</a>
+          <a href="{executed_url}" style="display:inline-block;color:#0ea5e9;font-size:14px;font-weight:600;text-decoration:none;padding:10px 4px;">{executed_label}</a>
         </td></tr>
         <tr><td style="padding:16px 32px;border-top:1px solid #e2e8f0;background:#f8fafc;border-radius:0 0 12px 12px;">
           <p style="margin:0 0 8px;font-size:11px;color:#94a3b8;line-height:1.5;">
