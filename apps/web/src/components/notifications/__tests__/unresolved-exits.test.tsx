@@ -39,7 +39,10 @@ const exit1 = {
   action: "sell_all",
   shares: 120,
   shares_remaining: 120,
+  shares_initial: 120,
   entry_price: 118.4,
+  bar_resolution: "daily",
+  bar_date: "2026-08-18",
 };
 
 beforeEach(() => {
@@ -114,6 +117,18 @@ describe("UnresolvedExits", () => {
     const link = screen.getByText(/i sold — record it/i).closest("a");
     expect(link?.getAttribute("href")).toContain("/strategies/strat_1");
     expect(link?.getAttribute("href")).toContain("action=executed");
+  });
+
+  it("keeps the ticket collapsed until asked", async () => {
+    // Several open exits must stay scannable; the ticket is what you reach
+    // for once you have decided to act on a particular one.
+    listUnresolvedExitsMock.mockResolvedValue([exit1]);
+    render(<UnresolvedExits />);
+    await waitFor(() => screen.getByTestId("unresolved-exits"));
+    expect(screen.queryByTestId("exit-ticket-NVDA")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("toggle-ticket-NVDA"));
+    expect(screen.getByTestId("exit-ticket-NVDA")).toBeTruthy();
   });
 
   it("survives the endpoint failing rather than breaking the page", async () => {

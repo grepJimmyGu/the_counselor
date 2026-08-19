@@ -3347,5 +3347,13 @@ export interface UnresolvedExit {
   action?: string | null;
   shares?: number | null;
   shares_remaining: number;
+  shares_initial: number;
   entry_price: number;
+  /** Decides which staleness story the ticket tells. A daily exit was
+   *  measured on a COMPLETED session and acted on at the next open; an
+   *  intraday one was sampled from a ~15-min-delayed feed. */
+  bar_resolution: string;
+  /** The session the tier was measured on. More meaningful than the signal
+   *  timestamp, which is only when the cron happened to run. */
+  bar_date?: string | null;
 }

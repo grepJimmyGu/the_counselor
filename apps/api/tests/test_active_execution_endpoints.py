@@ -781,3 +781,27 @@ def test_holding_is_owner_only(make_user, db: Session) -> None:
             current_user=other, db=db,
         )
     assert exc.value.status_code == 404
+
+
+def test_unresolved_exit_carries_what_the_ticket_needs(make_user, db: Session) -> None:
+    """The order ticket renders from this payload, and two of its fields
+    decide what it may say.
+
+    `bar_resolution` picks the staleness story: a DAILY exit was measured on
+    a completed session and acted on at the next open, while an intraday one
+    was sampled from a ~15-min-delayed feed. Telling a daily user their
+    price is "delayed 20 minutes" would be both wrong and less useful than
+    the truth.
+
+    `shares_initial` decides whether a quantity may be printed at all — a
+    scale-out is only unambiguous while the position is untouched.
+    """
+    from app.api.routes.saved_strategies import list_unresolved_exits
+
+    user = make_user(email="unres-ticket@test.com")
+    _declared_position_with_pending(db, user, shares=10.0)
+
+    out = list_unresolved_exits(current_user=user, db=db)[0]
+    assert out.bar_resolution in {"daily", "5min", "15min", "30min", "60min"}
+    assert out.shares_initial == 10.0
+    assert out.entry_price > 0

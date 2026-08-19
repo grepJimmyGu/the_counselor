@@ -35,6 +35,7 @@ import type { Route } from "next";
 import { useSession } from "next-auth/react";
 
 import { holdThroughExit, listUnresolvedExits } from "@/lib/api";
+import { ExitTicket } from "@/components/notifications/exit-ticket";
 import type { UnresolvedExit } from "@/lib/contracts";
 
 function pct(v?: number | null) {
@@ -49,6 +50,10 @@ export function UnresolvedExits() {
 
   const [items, setItems] = useState<UnresolvedExit[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
+  // Tickets are collapsed by default: the list must stay scannable when
+  // several exits are open, and the ticket is what you reach for once
+  // you have decided to act on a particular one.
+  const [openTicket, setOpenTicket] = useState<string | null>(null);
 
   const load = useCallback(() => {
     if (!backendToken) return;
@@ -130,12 +135,22 @@ export function UnresolvedExits() {
                   · {item.strategy_title}
                 </span>
               </div>
-              <div className="mt-2 flex items-center gap-3">
+              <div className="mt-2 flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setOpenTicket((cur) => (cur === key ? null : key))
+                  }
+                  data-testid={`toggle-ticket-${item.symbol}`}
+                  className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[12px] font-medium text-slate-800 transition hover:bg-slate-50"
+                >
+                  {openTicket === key ? "Hide ticket" : "Show order ticket"}
+                </button>
                 <Link
                   href={
                     `/strategies/${encodeURIComponent(item.strategy_id)}?action=executed` as Route
                   }
-                  className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[12px] font-medium text-slate-800 transition hover:bg-slate-50"
+                  className="text-[12px] font-medium text-slate-600 underline-offset-2 transition hover:text-slate-800 hover:underline"
                 >
                   I sold — record it
                 </Link>
@@ -148,6 +163,11 @@ export function UnresolvedExits() {
                   {busy === key ? "Saving…" : "I'm holding"}
                 </button>
               </div>
+              {openTicket === key && (
+                <div className="mt-3">
+                  <ExitTicket item={item} />
+                </div>
+              )}
             </li>
           );
         })}
