@@ -22,6 +22,28 @@ class Settings(BaseSettings):
     fred_api_key: str = ""
     reddit_client_id: str = ""
     reddit_client_secret: str = ""
+    # SnapTrade — read-only brokerage connection (slice 3). All three must
+    # be present or the feature reports itself unconfigured and every route
+    # 503s; it never degrades to storing a brokerage credential in the clear.
+    #
+    # `snaptrade_encryption_key` is a Fernet key protecting the per-user
+    # `userSecret` SnapTrade issues at registration. That value cannot be
+    # re-derived — it IS the user's identity to SnapTrade — so it must be
+    # stored, and a credential to somebody's brokerage connection should not
+    # sit in the database in plaintext.
+    #
+    # Deliberately NOT derived from the JWT secret. Rotating that is a
+    # routine security operation; coupling them would make a routine
+    # rotation silently orphan every brokerage connection we hold.
+    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    snaptrade_client_id: str = ""
+    snaptrade_consumer_key: str = ""
+    snaptrade_encryption_key: str = ""
+    # "commercial" (an app serving many users) or "personal" (individual
+    # use). Configurable because it depends on the SnapTrade plan behind the
+    # key, and getting it wrong should be an env-var flip rather than a
+    # code change and redeploy.
+    snaptrade_auth_mode: str = "commercial"
     reddit_user_agent: str = "livermore-research/1.0"
     internal_api_key: str = ""  # shared secret for Next.js → FastAPI internal calls
     nextauth_secret: str = ""   # signs session JWTs; must match NEXTAUTH_SECRET in Next.js

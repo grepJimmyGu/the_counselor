@@ -1667,6 +1667,39 @@ def run_startup_migrations(engine: Engine) -> None:
                 "ON notification_banner_entries (user_id, acknowledged_at)"
             ))
 
+        # Slice 3 — SnapTrade read-only brokerage connection.
+        # `user_secret_encrypted` holds a Fernet token, never plaintext:
+        # SnapTrade's per-user secret cannot be re-derived, so it must be
+        # stored, and a credential to somebody's brokerage connection should
+        # be useless to anyone who gets a copy of this database.
+        # No FK on user_id (trap #1).
+        if is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS snaptrade_users (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL UNIQUE,
+                    snaptrade_user_id VARCHAR(128) NOT NULL,
+                    user_secret_encrypted TEXT NOT NULL,
+                    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+                    last_synced_at DATETIME
+                )
+            """))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS snaptrade_users (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL UNIQUE,
+                    snaptrade_user_id VARCHAR(128) NOT NULL,
+                    user_secret_encrypted TEXT NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    last_synced_at TIMESTAMPTZ
+                )
+            """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_snaptrade_user "
+            "ON snaptrade_users (user_id)"
+        ))
+
         # PRD-19 — mark_as_executed_events (retention metric loop)
         # User-attested signal action log. One row per "Mark as executed"
         # click. Latency from the linked SignalEvent's created_at to

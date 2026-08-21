@@ -16,6 +16,14 @@ anthropic>=0.97.0
 beautifulsoup4>=4.13.0
 bcrypt==4.2.1
 python-jose[cryptography]==3.3.0
+# SnapTrade read-only brokerage connection (slice 3). The official SDK is
+# used rather than hand-rolled HTTP: every request is signed with a
+# timestamp + HMAC scheme, and hand-rolling that is exactly the class of
+# thing that fails subtly and silently (apps/api/CLAUDE.md trap #14).
+snaptrade-python-sdk==13.0.3
+# Direct, not transitive-via-python-jose: `Fernet` protects the per-user
+# SnapTrade userSecret at rest, so this must not vanish if jose's extras change.
+cryptography>=42.0.0
 apscheduler==3.10.4
 email-validator==2.2.0
 google-auth>=2.29.0
