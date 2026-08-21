@@ -35,7 +35,7 @@ class Settings(BaseSettings):
     # Deliberately NOT derived from the JWT secret. Rotating that is a
     # routine security operation; coupling them would make a routine
     # rotation silently orphan every brokerage connection we hold.
-    #   python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
+    #   python3 -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"
     snaptrade_client_id: str = ""
     snaptrade_consumer_key: str = ""
     snaptrade_encryption_key: str = ""
