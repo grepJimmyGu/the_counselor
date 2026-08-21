@@ -1,7 +1,12 @@
-"""SnapTrade — read-only brokerage connection routes (slice 3).
+"""SnapTrade — brokerage connection and order placement.
 
-Three routes: what state is this user in, give me a portal to connect a
-broker, and what does that broker say I hold. Nothing here places an order.
+Status, connect-a-broker, read holdings (slice 3), and place an order
+(slice 4c).
+
+ORDER PLACEMENT IS TWO ROUTES, and the split is the safety property.
+`/orders/preview` prices an order and returns a trade id; `/orders/place`
+takes ONLY that id. No route accepts a symbol and a quantity and sends it,
+so nothing can place an order the user has not seen priced.
 
 NOTHING IN THIS MODULE RETURNS `user_secret_encrypted`, and no response
 model has a field it could be serialised into. The plaintext exists only
@@ -36,6 +41,9 @@ class SnapTradeStatus(BaseModel):
     registered: bool
     connected_accounts: int
     last_synced_at: Optional[str] = None
+    # Separate from `configured`: reading holdings can be on while order
+    # placement is off, and the UI must not offer a Place button that 503s.
+    trading_enabled: bool = False
 
 
 class ConnectResponse(BaseModel):
@@ -71,7 +79,8 @@ def snaptrade_status(
     of showing a control that 503s when clicked."""
     if not st.is_configured():
         return SnapTradeStatus(
-            configured=False, registered=False, connected_accounts=0
+            configured=False, registered=False, connected_accounts=0,
+            trading_enabled=False,
         )
     reg = st.get_registration(db, current_user.id)
     accounts = 0
@@ -84,6 +93,7 @@ def snaptrade_status(
             _log.exception("snaptrade: account count failed user=%s", current_user.id)
     return SnapTradeStatus(
         configured=True,
+        trading_enabled=st.is_trading_enabled(),
         registered=reg is not None,
         connected_accounts=accounts,
         last_synced_at=(
@@ -155,3 +165,111 @@ def snaptrade_positions(
         )
         for r in rows
     ]
+
+
+# ── order placement (slice 4c) ──────────────────────────────────────────────
+#
+# Two endpoints, and the split is the safety property rather than a style
+# choice. `/orders/preview` prices an order and returns a trade id;
+# `/orders/place` takes ONLY that id. There is no route that accepts a
+# symbol and a quantity and sends it, so no client — ours or anyone's —
+# can place an order the user has not seen priced.
+
+
+class PreviewOrderRequest(BaseModel):
+    account_id: str
+    symbol: str
+    action: str                    # "BUY" | "SELL"
+    units: float
+    order_type: str = "Market"
+    time_in_force: str = "Day"
+    price: Optional[float] = None  # limit price; ignored for Market
+
+
+class PreviewOrderResponse(BaseModel):
+    trade_id: str
+    symbol: str
+    action: str
+    units: float
+    estimated_commission: Optional[float] = None
+    remaining_cash: Optional[float] = None
+
+
+class PlaceOrderRequest(BaseModel):
+    """Only an id. Deliberately carries no symbol, quantity or side — those
+    were fixed when the user previewed, and accepting them here would let a
+    caller preview one order and place a different one."""
+    trade_id: str
+
+
+class PlaceOrderResponse(BaseModel):
+    status: Optional[str] = None
+    brokerage_order_id: Optional[str] = None
+
+
+def _require_trading() -> None:
+    _require_configured()
+    if not st.is_trading_enabled():
+        raise HTTPException(
+            status_code=503,
+            detail="Order placement isn't enabled.",
+        )
+
+
+@router.post("/orders/preview", response_model=PreviewOrderResponse)
+def preview_order(
+    payload: PreviewOrderRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> PreviewOrderResponse:
+    """Price an order without sending it. Nothing is transmitted here."""
+    _require_trading()
+    try:
+        out = st.preview_order(
+            db, current_user.id,
+            account_id=payload.account_id,
+            ticker=payload.symbol,
+            action=payload.action,
+            units=payload.units,
+            order_type=payload.order_type,
+            time_in_force=payload.time_in_force,
+            price=payload.price,
+        )
+    except st.TradingDisabled:
+        raise HTTPException(status_code=503, detail="Order placement isn't enabled.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        _log.exception("snaptrade: preview failed user=%s", current_user.id)
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return PreviewOrderResponse(**{
+        k: out[k] for k in PreviewOrderResponse.model_fields if k in out
+    })
+
+
+@router.post("/orders/place", response_model=PlaceOrderResponse)
+def place_order(
+    payload: PlaceOrderRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> PlaceOrderResponse:
+    """Send an order the user has already previewed.
+
+    This is the one route in the product that moves real money. It takes a
+    trade id and nothing else, so it can only ever execute an order that
+    was priced first and shown to the person placing it.
+    """
+    _require_trading()
+    try:
+        body = st.place_previewed_order(db, current_user.id, payload.trade_id)
+    except st.TradingDisabled:
+        raise HTTPException(status_code=503, detail="Order placement isn't enabled.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        _log.exception("snaptrade: place failed user=%s", current_user.id)
+        raise HTTPException(status_code=502, detail="Couldn't place the order.") from exc
+    return PlaceOrderResponse(
+        status=body.get("status"),
+        brokerage_order_id=body.get("brokerage_order_id") or body.get("id"),
+    )

@@ -12,6 +12,30 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
+// `<PlaceOrder>` renders inside `<ExitTicket>` and fetches its own state.
+// Without this the component calls the real API during render and the whole
+// file fails for a reason unrelated to the ticket. Trading is reported OFF
+// here so the ticket renders exactly as it does for a user with no broker
+// connected — which is what the assertions below are about.
+// Same reason: `<PlaceOrder>` reads the session, which `<ExitTicket>`
+// never did before it was nested inside.
+vi.mock("next-auth/react", () => ({
+  useSession: () => ({
+    data: { backendToken: "tok" },
+    status: "authenticated" as const,
+  }),
+}));
+
+vi.mock("@/lib/api", () => ({
+  getSnapTradeStatus: async () => ({
+    configured: false, registered: false, connected_accounts: 0,
+    trading_enabled: false, last_synced_at: null,
+  }),
+  listBrokerPositions: async () => [],
+  previewOrder: async () => ({}),
+  placeOrder: async () => ({}),
+}));
+
 import { ExitTicket, quantityFor, ticketText } from "../exit-ticket";
 import type { UnresolvedExit } from "@/lib/contracts";
 

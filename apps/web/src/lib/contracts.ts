@@ -3357,3 +3357,39 @@ export interface UnresolvedExit {
    *  timestamp, which is only when the cron happened to run. */
   bar_date?: string | null;
 }
+
+/** Brokerage connection state. `trading_enabled` is separate from
+ *  `configured` on purpose: reading holdings can be on while order
+ *  placement is off, and the UI must not offer a Place button that 503s. */
+export interface SnapTradeStatus {
+  configured: boolean;
+  registered: boolean;
+  connected_accounts: number;
+  last_synced_at?: string | null;
+  trading_enabled: boolean;
+}
+
+export interface BrokerPosition {
+  account_id: string;
+  symbol: string;
+  units: number;
+  average_purchase_price?: number | null;
+  last_price?: number | null;
+  open_pnl?: number | null;
+}
+
+/** A priced order the user has not yet sent. `trade_id` is the ONLY way to
+ *  place one, which is what makes the preview impossible to skip. */
+export interface OrderPreview {
+  trade_id: string;
+  symbol: string;
+  action: string;
+  units: number;
+  estimated_commission?: number | null;
+  remaining_cash?: number | null;
+}
+
+export interface OrderResult {
+  status?: string | null;
+  brokerage_order_id?: string | null;
+}

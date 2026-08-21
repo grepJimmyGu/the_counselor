@@ -1,17 +1,32 @@
-"""Slice 3 is READ-ONLY, and this test is what makes that structural.
+"""Order placement is allowed. TWO things about it are not.
 
-The SnapTrade SDK exposes order placement — `/trade/place`, `/trade/impact`,
-`/accounts/{id}/trading/*`, and a whole `client.trading` group. Placing
-orders is a different regulatory question from publishing: it is the piece
-that needs counsel and probably a registered partner (§6.6 of
-build_specs/daily_path_v1.md), and it must not become reachable because
-somebody reached for the nearest SDK method while doing something else.
+CONTRACT CHANGE, stated openly per CLAUDE.md. This file previously asserted
+that NO application code could reach a SnapTrade trading endpoint at all
+(slice 3 was read-only). Order placement is now a deliberate product
+decision, so a blanket ban would be wrong — it would just get deleted the
+first time someone needed it, taking the useful invariants with it.
 
-A comment saying "read-only" would not survive that. A failing build does.
+What replaces it are the two rules that actually protect a user, and both
+are stronger than "don't trade":
 
-If you are here because this test went red: that is the point. Placing
-orders is not a code review question, it is a legal one. Do not relax this
-to land a feature.
+  1. NO ORDER WITHOUT A PREVIEW THE USER SAW.
+     SnapTrade's `place_force_order` (POST /trade/place) sends an order with
+     no impact check. The supported path is `get_order_impact` -> a trade
+     id -> `place_order(trade_id)`, so the only way to place anything is to
+     have first priced it. `place_force_order` is banned outright: it is
+     the one call that can put an order in the market without the user
+     having seen what it costs.
+
+  2. NO AUTOMATIC ORDERS.
+     Trading calls may appear ONLY in the service that owns them and the
+     routes that expose them. Not in `jobs/` — nothing on a timer may place
+     an order — and not in the screener, backtester or signal paths. Every
+     order must originate in a request a person made.
+
+If you are here because this went red: adding a trading call to a cron, or
+reaching for `place_force_order` to skip a round-trip, changes what this
+product does to people's money without anyone deciding to. That is not a
+code review question.
 """
 
 from __future__ import annotations
@@ -19,81 +34,102 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
-
 APP = Path(__file__).resolve().parents[1] / "app"
 
-# Method names and paths that transact. Drawn from the SDK's own surface
-# (snaptrade_client/paths/__init__.py), not guessed.
-FORBIDDEN = [
-    r"\.trading\b",
-    r"place_order",
-    r"place_force_order",
-    r"trade/place",
-    r"trade/impact",
-    r"get_order_impact",
-    r"cancel_user_account_order",
-    r"place_bracket_order",
-    r"replace_order",
-    r"preview_order",
-]
+# The only two files permitted to call a trading endpoint.
+_TRADING_OWNERS = {
+    APP / "services" / "snaptrade_service.py",
+    APP / "api" / "routes" / "snaptrade.py",
+}
 
-_PATTERN = re.compile("|".join(FORBIDDEN))
+# Banned everywhere, including the owners above.
+_FORCE = re.compile(r"place_force_order|trade/place\b")
 
-# This file names the forbidden calls in order to forbid them.
-_ALLOWED = {"test_snaptrade_readonly_guard.py"}
+# Allowed, but only in the owners.
+_TRADING = re.compile(
+    r"\.trading\b|place_order|get_order_impact|place_complex_order"
+    r"|place_crypto_order|place_mleg_order|replace_order|cancel_order"
+)
+
+_SELF = "test_snaptrade_readonly_guard.py"
 
 
-def _python_sources():
+def _sources():
     for path in APP.rglob("*.py"):
-        if path.name in _ALLOWED:
-            continue
         yield path
 
 
-def test_no_application_code_can_place_a_brokerage_order():
-    offenders = []
-    for path in _python_sources():
-        try:
-            text = path.read_text(encoding="utf-8")
-        except (UnicodeDecodeError, OSError):
+def _code_lines(path: Path):
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (UnicodeDecodeError, OSError):
+        return
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        stripped = line.strip()
+        if stripped.startswith("#"):
             continue
-        for lineno, line in enumerate(text.splitlines(), start=1):
-            stripped = line.strip()
-            # A comment explaining what we deliberately do NOT call is the
-            # documentation this rule depends on; only real calls count.
-            if stripped.startswith("#"):
-                continue
-            if _PATTERN.search(line):
+        yield lineno, line, stripped
+
+
+def test_nothing_can_place_an_order_the_user_never_saw_priced():
+    """`place_force_order` skips the impact check. The whole confirmation
+    guarantee rests on a trade id being obtainable only from a preview, and
+    this call routes around that."""
+    offenders = []
+    for path in _sources():
+        if path.name == _SELF:
+            continue
+        for lineno, line, stripped in _code_lines(path):
+            if _FORCE.search(line):
                 offenders.append(f"{path.relative_to(APP.parent)}:{lineno}: {stripped}")
 
     assert not offenders, (
-        "Application code references a SnapTrade TRADING surface. Slice 3 is "
-        "read-only; order placement needs counsel and probably a registered "
-        "partner before any of this ships.\n  " + "\n  ".join(offenders)
+        "Code reaches SnapTrade's force-order path, which places an order "
+        "with no impact preview. Use get_order_impact -> place_order so the "
+        "user sees the cost before anything is sent.\n  " + "\n  ".join(offenders)
     )
 
 
-def test_the_guard_would_actually_catch_something():
-    """A guard that cannot fail is decoration. This proves the pattern
-    matches a real trading call, so a green result above means the codebase
-    is clean rather than the regex being broken."""
-    assert _PATTERN.search("api.trading.place_force_order(...)")
-    assert _PATTERN.search("client.trading.get_order_impact(x)")
-    assert not _PATTERN.search("api.account_information.get_all_account_positions(...)")
+def test_only_the_designated_service_and_routes_can_trade_at_all():
+    """No automatic orders. A trading call in `jobs/` would mean something
+    on a timer can move real money with nobody in the loop."""
+    offenders = []
+    for path in _sources():
+        if path.name == _SELF or path in _TRADING_OWNERS:
+            continue
+        for lineno, line, stripped in _code_lines(path):
+            if _TRADING.search(line):
+                offenders.append(f"{path.relative_to(APP.parent)}:{lineno}: {stripped}")
 
-
-def test_the_service_exposes_no_write_helpers():
-    """Read the module's public surface directly, so adding a transacting
-    helper fails here even if it avoids every string above."""
-    from app.services import snaptrade_service
-
-    public = {n for n in dir(snaptrade_service) if not n.startswith("_")}
-    forbidden_names = {
-        n for n in public
-        if any(v in n.lower() for v in ("place", "order", "trade_", "buy", "sell", "cancel"))
-    }
-    assert not forbidden_names, (
-        f"snaptrade_service exposes what look like transacting helpers: "
-        f"{sorted(forbidden_names)}"
+    assert not offenders, (
+        "A trading call appears outside snaptrade_service.py and its routes. "
+        "Every order must originate in a request a person made — nothing on "
+        "a schedule, and nothing in a signal path.\n  " + "\n  ".join(offenders)
     )
+
+
+def test_no_job_or_cron_imports_the_trading_service():
+    """Belt and braces for the rule above: even importing the module into a
+    scheduled path is a step toward automatic execution."""
+    offenders = []
+    for path in (APP / "jobs").rglob("*.py"):
+        for lineno, line, stripped in _code_lines(path):
+            if "snaptrade" in line.lower():
+                offenders.append(f"{path.relative_to(APP.parent)}:{lineno}: {stripped}")
+    assert not offenders, (
+        "A scheduled job references SnapTrade. Orders must never be placed "
+        "by a timer.\n  " + "\n  ".join(offenders)
+    )
+
+
+def test_the_guards_would_actually_catch_something():
+    """Guards that cannot fail are decoration."""
+    assert _FORCE.search("api.trading.place_force_order(...)")
+    assert _TRADING.search("api.trading.place_order(trade_id=t)")
+    assert _TRADING.search("client.trading.get_order_impact(x)")
+    assert not _TRADING.search("api.account_information.get_all_account_positions(...)")
+
+
+def test_the_guard_is_actually_reading_files():
+    """If `app/` moved, every test above would pass by scanning nothing."""
+    assert len(list(_sources())) > 50

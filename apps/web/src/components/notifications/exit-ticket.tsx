@@ -38,6 +38,7 @@ import Link from "next/link";
 import type { Route } from "next";
 
 import type { UnresolvedExit } from "@/lib/contracts";
+import { PlaceOrder } from "@/components/execution/place-order";
 
 function money(v?: number | null) {
   return v === null || v === undefined ? "—" : `$${v.toFixed(2)}`;
@@ -197,6 +198,15 @@ export function ExitTicket({ item }: { item: UnresolvedExit }) {
           ? "Measured on a completed session's bar. This is the price that met the rule, not one you can still get — you would act at the next open."
           : "Prices are delayed up to ~20 minutes. This is the bar that met the rule, not a quote."}
       </p>
+
+      {/* Only offered when the quantity is unambiguous. If the ticket
+          refuses to state a share count, it must not offer to send one —
+          the whole reason it refuses is that we do not know what the user
+          holds. `<PlaceOrder>` renders nothing unless trading is enabled,
+          a broker is connected, and that broker reports the position. */}
+      {q.kind === "exact" && (
+        <PlaceOrder symbol={item.symbol} units={Number(q.shares)} action="SELL" />
+      )}
 
       <Link
         href={`/strategies/${encodeURIComponent(item.strategy_id)}?action=executed` as Route}

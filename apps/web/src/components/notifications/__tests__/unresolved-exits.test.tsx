@@ -15,6 +15,16 @@ const holdThroughExitMock = vi.fn();
 vi.mock("@/lib/api", () => ({
   listUnresolvedExits: (...a: unknown[]) => listUnresolvedExitsMock(...a),
   holdThroughExit: (...a: unknown[]) => holdThroughExitMock(...a),
+  // `<PlaceOrder>` renders inside `<ExitTicket>` and fetches its own
+  // state. Omitting these makes them undefined, which throws during render
+  // and fails every test in this file for a reason unrelated to the ticket.
+  getSnapTradeStatus: async () => ({
+    configured: false, registered: false, connected_accounts: 0,
+    trading_enabled: false, last_synced_at: null,
+  }),
+  listBrokerPositions: async () => [],
+  previewOrder: async () => ({}),
+  placeOrder: async () => ({}),
 }));
 
 vi.mock("next-auth/react", () => ({
