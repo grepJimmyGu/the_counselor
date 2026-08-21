@@ -250,3 +250,138 @@ def test_personal_mode_is_selectable(monkeypatch, configured):
     s = st.get_settings()
     monkeypatch.setattr(s, "snaptrade_auth_mode", "personal", raising=False)
     assert st._client() is not None
+
+
+# ── order placement (slice 4c) ──────────────────────────────────────────────
+
+
+@pytest.fixture
+def trading(monkeypatch, configured):
+    monkeypatch.setattr(
+        st.get_settings(), "snaptrade_trading_enabled", True, raising=False
+    )
+    return configured
+
+
+def _trading_api() -> MagicMock:
+    api = _api()
+    api.trading.symbol_search_user_account.return_value = [
+        {"id": "usym-nvda", "symbol": "NVDA", "description": "NVIDIA Corp"},
+    ]
+    api.trading.get_order_impact.return_value = {
+        "trade": {"id": "trade-1"},
+        "estimated_commission": 0.0,
+        "remaining_cash": 4200.0,
+    }
+    api.trading.place_order.return_value = {
+        "status": "EXECUTED", "brokerage_order_id": "bk-9",
+    }
+    return api
+
+
+def test_REGRESSION_trading_is_off_unless_explicitly_enabled(
+    make_user, db: Session, configured
+) -> None:
+    """Reading holdings and sending orders are different decisions.
+    Merging the code must not turn trading on — the flag defaults False and
+    is separate from the read-only configuration."""
+    user = make_user(email="t-off@test.com")
+    assert st.is_trading_enabled() is False
+    with pytest.raises(st.TradingDisabled):
+        st.preview_order(
+            db, user.id, account_id="a1", ticker="NVDA", action="BUY",
+            units=1, client=_trading_api(),
+        )
+
+
+def test_preview_prices_the_order_and_returns_a_trade_id(
+    make_user, db: Session, trading
+) -> None:
+    user = make_user(email="t-preview@test.com")
+    api = _trading_api()
+    st.register_user(db, user.id, client=api)
+
+    out = st.preview_order(
+        db, user.id, account_id="a1", ticker="NVDA", action="BUY",
+        units=10, client=api,
+    )
+    assert out["trade_id"] == "trade-1"
+    assert out["remaining_cash"] == 4200.0
+    # Nothing was sent.
+    api.trading.place_order.assert_not_called()
+
+
+def test_REGRESSION_symbol_resolution_requires_an_EXACT_ticker(
+    make_user, db: Session, trading
+) -> None:
+    """SnapTrade's search is a substring match: "NV" returns NVDA, NVR and
+    NVAX. Placing an order against a closest match to save the user a tap
+    is not a mistake worth risking."""
+    user = make_user(email="t-exact@test.com")
+    api = _trading_api()
+    api.trading.symbol_search_user_account.return_value = [
+        {"id": "usym-nvr", "symbol": "NVR"},
+        {"id": "usym-nvax", "symbol": "NVAX"},
+    ]
+    st.register_user(db, user.id, client=api)
+
+    with pytest.raises(RuntimeError, match="not tradable"):
+        st.preview_order(
+            db, user.id, account_id="a1", ticker="NVDA", action="BUY",
+            units=1, client=api,
+        )
+
+
+def test_place_takes_only_a_trade_id(make_user, db: Session, trading) -> None:
+    """The signature is the guarantee: there is no way to pass a symbol and
+    a quantity to the placing function, so no caller can assemble an order
+    and send it in one motion."""
+    import inspect
+
+    params = set(inspect.signature(st.place_previewed_order).parameters)
+    assert "trade_id" in params
+    for forbidden in ("units", "ticker", "symbol", "action", "price"):
+        assert forbidden not in params
+
+
+def test_placing_sends_the_previewed_trade(make_user, db: Session, trading) -> None:
+    user = make_user(email="t-place@test.com")
+    api = _trading_api()
+    st.register_user(db, user.id, client=api)
+
+    out = st.place_previewed_order(db, user.id, "trade-1", client=api)
+    assert out["status"] == "EXECUTED"
+    _, kwargs = api.trading.place_order.call_args
+    assert kwargs["trade_id"] == "trade-1"
+
+
+def test_preview_rejects_nonsense_before_it_reaches_the_broker(
+    make_user, db: Session, trading
+) -> None:
+    user = make_user(email="t-valid@test.com")
+    api = _trading_api()
+    st.register_user(db, user.id, client=api)
+
+    for bad in ({"units": 0}, {"units": -5}, {"action": "HODL"}):
+        kwargs = {"account_id": "a1", "ticker": "NVDA", "action": "BUY", "units": 1}
+        kwargs.update(bad)
+        with pytest.raises(ValueError):
+            st.preview_order(db, user.id, client=api, **kwargs)
+    api.trading.get_order_impact.assert_not_called()
+
+
+def test_a_preview_with_no_trade_id_is_an_error_not_a_silent_pass(
+    make_user, db: Session, trading
+) -> None:
+    """Without a trade id there is nothing to place. Returning a preview
+    that cannot be executed would strand the user at the confirm step."""
+    user = make_user(email="t-notrade@test.com")
+    api = _trading_api()
+    api.trading.get_order_impact.return_value = {"estimated_commission": 0.0}
+    st.register_user(db, user.id, client=api)
+
+    with pytest.raises(RuntimeError, match="no trade id"):
+        st.preview_order(
+            db, user.id, account_id="a1", ticker="NVDA", action="BUY",
+            units=1, client=api,
+        )

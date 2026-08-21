@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     # key, and getting it wrong should be an env-var flip rather than a
     # code change and redeploy.
     snaptrade_auth_mode: str = "commercial"
+    # Order placement (slice 4c). SEPARATE from the read-only connection on
+    # purpose: reading holdings and sending orders are different decisions
+    # with different consequences, and merging the code should not turn
+    # trading on. Defaults OFF — flip deliberately, per environment.
+    snaptrade_trading_enabled: bool = False
     reddit_user_agent: str = "livermore-research/1.0"
     internal_api_key: str = ""  # shared secret for Next.js → FastAPI internal calls
     nextauth_secret: str = ""   # signs session JWTs; must match NEXTAUTH_SECRET in Next.js

@@ -1,20 +1,16 @@
-"""SnapTrade — READ-ONLY brokerage connection (slice 3).
+"""SnapTrade — brokerage connection (slice 3) and order placement (4c).
 
-Registers a Livermore user with SnapTrade, hands them a connection portal,
-and reads back the holdings their broker reports. Nothing here places,
-previews, cancels or modifies an order.
+Registers a Livermore user with SnapTrade, hands them a portal to connect a
+broker, reads back the holdings their broker reports, and — when trading is
+enabled for the environment — prices and places an order the user has
+confirmed.
 
-WHY READ-ONLY IS ENFORCED RATHER THAN PROMISED. The SDK also exposes
-order-placement, order-impact and per-account transacting endpoints, plus
-a whole transacting group on the client. Placing an order is a different
-regulatory question from publishing — it is the piece that needs counsel
-and probably a registered partner (spec §6.6, build_specs/daily_path_v1.md)
-— so it must not become reachable because somebody reached for the nearest
-SDK method while doing something else. This module exposes read methods
-only, and `tests/test_snaptrade_readonly_guard.py` fails the build if any
-of those names appears anywhere under `app/`. (That test names them; this
-docstring deliberately does not, so the guard can stay blunt rather than
-learning to parse docstrings.)
+WHAT IS STILL ENFORCED. Order placement is a deliberate product decision,
+but two things about it are not negotiable and the guard test fails the
+build on either: no order may be sent without a preview the user saw
+(SnapTrade's force-order path is banned outright), and no order may
+originate anywhere but a request a person made (nothing in `jobs/`, ever).
+See `tests/test_snaptrade_readonly_guard.py`.
 
 WHY THE OFFICIAL SDK. Every request is signed with a timestamp + HMAC
 scheme. Hand-rolling that is precisely the class of thing that fails
@@ -286,3 +282,159 @@ def _maybe_float(v: Any) -> Optional[float]:
         return None if v is None else float(v)
     except (TypeError, ValueError):
         return None
+
+
+# ── order placement (slice 4c) ──────────────────────────────────────────────
+#
+# TWO-STEP ONLY. SnapTrade offers `place_force_order` (POST /trade/place),
+# which sends an order with no preview. This module never calls it, and
+# `tests/test_snaptrade_readonly_guard.py` fails the build if anything does.
+#
+# The difference is the entire product argument. `get_order_impact` returns
+# what the order would actually do — real cost, commission, resulting cash
+# — and a trade id. `place_order` can then only execute THAT id. So a user
+# cannot have an order placed they did not see priced: the confirmation is
+# structural, not a checkbox we remember to render.
+#
+# Nothing here is automatic. Every call originates in a request the user
+# made, one order at a time. There is no scheduled path into these
+# functions and no bulk form.
+
+
+class TradingDisabled(RuntimeError):
+    """Order placement is off for this environment. Separate from
+    `SnapTradeNotConfigured` because reading holdings and sending orders are
+    different decisions — one being on says nothing about the other."""
+
+
+def is_trading_enabled() -> bool:
+    return bool(is_configured() and get_settings().snaptrade_trading_enabled)
+
+
+def _require_trading() -> None:
+    if not is_trading_enabled():
+        raise TradingDisabled("SnapTrade order placement is not enabled")
+
+
+def resolve_symbol_id(
+    db: Session, user_id: str, account_id: str, ticker: str, *, client: Any = None
+) -> Optional[str]:
+    """Ticker -> SnapTrade `universal_symbol_id`.
+
+    The trading endpoints take an opaque symbol id, not "NVDA", and the id
+    is scoped to the account's brokerage — the same ticker can differ
+    between brokers. Resolving per account rather than globally is why this
+    takes `account_id`.
+    """
+    reg = get_registration(db, user_id)
+    if reg is None:
+        return None
+    api = client or _client()
+    resp = api.trading.symbol_search_user_account(
+        user_id=reg.user_id,
+        user_secret=decrypt_secret(reg.user_secret_encrypted),
+        account_id=account_id,
+        substring=ticker,
+    )
+    wanted = ticker.strip().upper()
+    for row in _body(resp) or []:
+        # Exact ticker only. A substring search for "NV" happily returns
+        # NVDA, NVR and NVAX; placing an order against "closest match"
+        # is not a mistake worth risking to save the user a tap.
+        if str(row.get("symbol", "")).strip().upper() == wanted:
+            sid = row.get("id")
+            return str(sid) if sid else None
+    return None
+
+
+def preview_order(
+    db: Session,
+    user_id: str,
+    *,
+    account_id: str,
+    ticker: str,
+    action: str,
+    units: float,
+    order_type: str = "Market",
+    time_in_force: str = "Day",
+    price: Optional[float] = None,
+    client: Any = None,
+) -> Dict[str, Any]:
+    """Price the order without sending it. Returns the impact plus the
+    `trade_id` that `place_order` will need.
+
+    This is the ONLY way to obtain a trade id, which is what makes the
+    preview impossible to skip.
+    """
+    _require_trading()
+    reg = get_registration(db, user_id)
+    if reg is None:
+        raise RuntimeError("No brokerage connection for this user.")
+    if units <= 0:
+        raise ValueError("units must be positive")
+    if action.upper() not in {"BUY", "SELL"}:
+        raise ValueError("action must be BUY or SELL")
+
+    api = client or _client()
+    symbol_id = resolve_symbol_id(
+        db, user_id, account_id, ticker, client=api
+    )
+    if not symbol_id:
+        raise RuntimeError(f"{ticker} is not tradable in this account.")
+
+    resp = api.trading.get_order_impact(
+        user_id=reg.user_id,
+        user_secret=decrypt_secret(reg.user_secret_encrypted),
+        account_id=account_id,
+        action=action.upper(),
+        universal_symbol_id=symbol_id,
+        order_type=order_type,
+        time_in_force=time_in_force,
+        units=units,
+        price=price,
+    )
+    body = _body(resp) or {}
+    trade = body.get("trade") or {}
+    trade_id = trade.get("id") or body.get("id")
+    if not trade_id:
+        raise RuntimeError("SnapTrade returned no trade id for this preview.")
+    return {
+        "trade_id": str(trade_id),
+        "symbol": ticker.strip().upper(),
+        "action": action.upper(),
+        "units": units,
+        "estimated_commission": _maybe_float(body.get("estimated_commission")),
+        "remaining_cash": _maybe_float(body.get("remaining_cash")),
+        "raw": body,
+    }
+
+
+def place_previewed_order(
+    db: Session, user_id: str, trade_id: str, *, client: Any = None
+) -> Dict[str, Any]:
+    """Send an order the user has already seen priced.
+
+    Takes ONLY a trade id — deliberately. There is no path here that
+    accepts a symbol and a quantity, so no caller can assemble an order and
+    send it in one motion. To place anything you must first have previewed
+    it, which means the user saw the cost.
+    """
+    _require_trading()
+    reg = get_registration(db, user_id)
+    if reg is None:
+        raise RuntimeError("No brokerage connection for this user.")
+    if not trade_id:
+        raise ValueError("trade_id is required")
+
+    api = client or _client()
+    resp = api.trading.place_order(
+        user_id=reg.user_id,
+        user_secret=decrypt_secret(reg.user_secret_encrypted),
+        trade_id=trade_id,
+    )
+    body = _body(resp) or {}
+    _log.info(
+        "snaptrade order placed user=%s trade_id=%s status=%s",
+        user_id, trade_id, body.get("status"),
+    )
+    return dict(body)

@@ -37,6 +37,10 @@ import type {
   ParseResult,
   TickerSubscription,
   UnresolvedExit,
+  SnapTradeStatus,
+  BrokerPosition,
+  OrderPreview,
+  OrderResult,
 } from "@/lib/contracts";
 import { dispatchUpgrade } from "@/lib/upgrade-modal-event-bus";
 
@@ -1518,4 +1522,62 @@ export async function holdThroughExit(
       body: JSON.stringify(body),
     },
   );
+}
+
+// ── brokerage connection + order placement ──────────────────────────────────
+
+export async function getSnapTradeStatus(
+  backendToken: string,
+): Promise<SnapTradeStatus> {
+  return fetchApi<SnapTradeStatus>("/api/snaptrade/status", {
+    headers: { Authorization: `Bearer ${backendToken}` },
+  });
+}
+
+export async function listBrokerPositions(
+  backendToken: string,
+): Promise<BrokerPosition[]> {
+  return fetchApi<BrokerPosition[]>("/api/snaptrade/positions", {
+    headers: { Authorization: `Bearer ${backendToken}` },
+  });
+}
+
+/** Price an order WITHOUT sending it. Nothing is transmitted to the broker. */
+export async function previewOrder(
+  body: {
+    account_id: string;
+    symbol: string;
+    action: string;
+    units: number;
+    order_type?: string;
+    time_in_force?: string;
+    price?: number | null;
+  },
+  backendToken: string,
+): Promise<OrderPreview> {
+  return fetchApi<OrderPreview>("/api/snaptrade/orders/preview", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${backendToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+}
+
+/** Send an order the user has already seen priced. Takes only the trade id
+ *  from `previewOrder` — there is no call that accepts a symbol and a
+ *  quantity and sends it. */
+export async function placeOrder(
+  tradeId: string,
+  backendToken: string,
+): Promise<OrderResult> {
+  return fetchApi<OrderResult>("/api/snaptrade/orders/place", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${backendToken}`,
+    },
+    body: JSON.stringify({ trade_id: tradeId }),
+  });
 }
