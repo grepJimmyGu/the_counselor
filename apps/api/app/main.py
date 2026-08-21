@@ -46,6 +46,7 @@ from app.api.routes.community_publish import (
 from app.api.routes.email import prefs_router as email_prefs_router, unsub_router as email_unsub_router
 from app.api.routes.saved_strategies import router as saved_strategies_router
 from app.api.routes.snaptrade import router as snaptrade_router
+from app.api.routes.legal import router as legal_router
 from app.api.routes.signals import router as signals_router
 from app.api.routes.notifications import router as notifications_router
 from app.api.routes.signal_primitives import router as signal_primitives_router
@@ -765,6 +766,7 @@ app.include_router(anonymous_chat_router)  # Stage 7 ticket #6 — anonymous cha
 app.include_router(live_quotes_router)  # 2026-05-21 — live quote cache
 app.include_router(saved_strategies_router)  # Stage 1a
 app.include_router(snaptrade_router)  # slice 3 — read-only brokerage connection
+app.include_router(legal_router)  # §11 disclaimer, single source
 app.include_router(community_publish_router)  # Stage 4a
 app.include_router(attribution_router)  # Stage 4a
 app.include_router(email_prefs_router)  # Stage 6a

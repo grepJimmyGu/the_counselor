@@ -3357,3 +3357,12 @@ export interface UnresolvedExit {
    *  timestamp, which is only when the cron happened to run. */
   bar_date?: string | null;
 }
+
+/** The compliance disclaimer, served from the backend so there is exactly
+ *  one copy of this wording in the product. See
+ *  `apps/api/app/services/disclaimer.py`. */
+export interface DisclaimerText {
+  short: string;
+  short_digest: string;
+  full: string;
+}

@@ -15,6 +15,15 @@ const holdThroughExitMock = vi.fn();
 vi.mock("@/lib/api", () => ({
   listUnresolvedExits: (...a: unknown[]) => listUnresolvedExitsMock(...a),
   holdThroughExit: (...a: unknown[]) => holdThroughExitMock(...a),
+  // `<Disclaimer>` renders inside this section and fetches its own text.
+  // Omitting it here makes `getDisclaimer` undefined, which throws during
+  // render and fails every test in this file for a reason that has
+  // nothing to do with unresolved exits.
+  getDisclaimer: async () => ({
+    short: "Not investment advice.",
+    short_digest: "Not investment advice.",
+    full: "Research only — not investment advice.",
+  }),
 }));
 
 vi.mock("next-auth/react", () => ({

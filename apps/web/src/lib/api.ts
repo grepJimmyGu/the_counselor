@@ -37,6 +37,7 @@ import type {
   ParseResult,
   TickerSubscription,
   UnresolvedExit,
+  DisclaimerText,
 } from "@/lib/contracts";
 import { dispatchUpgrade } from "@/lib/upgrade-modal-event-bus";
 
@@ -1518,4 +1519,14 @@ export async function holdThroughExit(
       body: JSON.stringify(body),
     },
   );
+}
+
+// ── §11 disclaimer (2026-08-21) ─────────────────────────────────────────────
+
+/** Public and unauthenticated — this is the text shown before someone has
+ *  an account. Fetched rather than duplicated as a frontend constant:
+ *  compliance copy in two places drifts, and the half nobody is looking at
+ *  is the half that goes stale. */
+export async function getDisclaimer(): Promise<DisclaimerText> {
+  return fetchApi<DisclaimerText>("/api/legal/disclaimer");
 }

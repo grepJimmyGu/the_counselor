@@ -36,6 +36,7 @@ import { useSession } from "next-auth/react";
 
 import { holdThroughExit, listUnresolvedExits } from "@/lib/api";
 import { ExitTicket } from "@/components/notifications/exit-ticket";
+import { Disclaimer } from "@/components/legal/disclaimer";
 import type { UnresolvedExit } from "@/lib/contracts";
 
 function pct(v?: number | null) {
@@ -172,6 +173,11 @@ export function UnresolvedExits() {
           );
         })}
       </ul>
+
+      {/* §11: short form visible, full text one click away. This is
+          the surface where a user is being asked to act, which is
+          where the disclosure has to be. */}
+      <Disclaimer className="mt-3 border-t border-amber-200 pt-2.5" />
     </section>
   );
 }
