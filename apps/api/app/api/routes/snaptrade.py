@@ -46,6 +46,14 @@ class SnapTradeStatus(BaseModel):
     trading_enabled: bool = False
 
 
+class ConnectRequest(BaseModel):
+    """`return_path` is a SITE-RELATIVE PATH, never a URL. The server builds
+    the origin from its own config — see `return_url_for`. Accepting a full
+    URL here would be an open redirect on the step where we have just asked
+    someone to trust us with a brokerage login."""
+    return_path: Optional[str] = None
+
+
 class ConnectResponse(BaseModel):
     redirect_uri: str
 
@@ -106,6 +114,7 @@ def snaptrade_status(
 
 @router.post("/connect", response_model=ConnectResponse)
 def snaptrade_connect(
+    payload: Optional[ConnectRequest] = None,
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> ConnectResponse:
@@ -118,7 +127,10 @@ def snaptrade_connect(
     _require_configured()
     try:
         return ConnectResponse(
-            redirect_uri=st.connection_portal_url(db, current_user.id)
+            redirect_uri=st.connection_portal_url(
+                db, current_user.id,
+                return_path=payload.return_path if payload else None,
+            )
         )
     except st.SnapTradeNotConfigured:
         raise HTTPException(status_code=503, detail="Brokerage connections aren't available right now.")

@@ -19,6 +19,7 @@
 
 import * as React from "react";
 import { Button } from "@/components/ui/button";
+import { ConnectBrokerage } from "@/components/execution/connect-brokerage";
 import { Input } from "@/components/ui/input";
 import { searchSymbols } from "@/lib/api";
 import type { Holding, SymbolSearchItem } from "@/lib/contracts";
@@ -197,6 +198,19 @@ export function PortfolioUpload({
         <h1 className="font-heading text-3xl font-bold">{title}</h1>
         <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
       </header>
+
+      {/* Connect a broker — a PEER to the manual paths, never a gate.
+          A brokerage login is a high-trust action and a real share of users
+          decline it on first contact, so it carries its own dismissal and
+          the search + CSV paths below are untouched.
+
+          It returns the user here, to this step, because losing your place
+          immediately after the most trust-demanding thing we ask is how a
+          connection flow gets abandoned. */}
+      <ConnectBrokerage
+        returnPath="/flow/portfolio_mode?connected=1"
+        dismissible
+      />
 
       {/* Primary: search → add */}
       <div className="grid gap-2">
