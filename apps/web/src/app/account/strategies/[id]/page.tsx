@@ -41,9 +41,30 @@ export default function SavedStrategyDashboardPage() {
     [rows, id],
   );
 
-  const isActive = useMemo(() => {
+  // GATED ON THE EXIT LADDER, NOT THE BAR RESOLUTION (2026-08-21).
+  //
+  // This read `bar_resolution !== "daily"` until now — the same condition
+  // #331 replaced on the public `/strategies/[slug]` page, left behind here.
+  // It matters more on this page than that one: `SavedStrategiesTile` sends
+  // EVERY SignalCard click to `/account/strategies/{id}`, so home's own
+  // strategy tile routed every user to the one page that hides the
+  // dashboard for daily strategies — which, since #327, is the path the
+  // product actually runs on.
+  //
+  // The backend's real requirement is an exit ladder: `declare_position`
+  // 400s without one because there is nothing to monitor a position
+  // against. The UI now asks the same question the API does.
+  const ladder = useMemo(() => {
+    const json = (strategy?.strategy_json ?? {}) as {
+      risk_management?: { exit_ladder?: unknown[] };
+    };
+    return json.risk_management?.exit_ladder ?? [];
+  }, [strategy]);
+  const isActive = ladder.length > 0;
+
+  const barResolution = useMemo(() => {
     const json = (strategy?.strategy_json ?? {}) as { bar_resolution?: string };
-    return !!json.bar_resolution && json.bar_resolution !== "daily";
+    return json.bar_resolution ?? "daily";
   }, [strategy]);
 
   return (
@@ -75,16 +96,18 @@ export default function SavedStrategyDashboardPage() {
             </p>
           </header>
           {isActive ? (
-            <ActiveExecutionDashboard strategyId={strategy.id} />
+            <ActiveExecutionDashboard
+              strategyId={strategy.id}
+              barResolution={barResolution}
+            />
           ) : (
             <p
               data-testid="not-active-execution"
               className="rounded-lg border border-dashed border-border bg-muted/20 px-4 py-8 text-center text-sm text-muted-foreground"
             >
-              This strategy runs on daily bars — it doesn&rsquo;t have a live
-              execution dashboard. Enable Active Execution (a non-daily bar
-              resolution + an exit ladder) when building to track positions
-              here.
+              This strategy has no exit rules, so there&rsquo;s nothing to
+              monitor a position against. Add a stop (and any targets) when
+              building, and you can track positions here.
             </p>
           )}
         </>
