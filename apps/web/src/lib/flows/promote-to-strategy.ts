@@ -83,10 +83,27 @@ function latestValue(series: Array<{ value: number | null }>): number | null {
  * Turn a percent-ATR reading into a stop/target ladder.
  *
  * Pure so the arithmetic is testable without the network. `natrPct` is ATR as
- * a percent of price (the `natr` primitive is literally `100 * atr / close`),
- * so the multiples convert straight into the `trigger_pct` that
- * `RiskManagement.exit_ladder` already consumes.
+ * a percent of price (the `natr` primitive is literally `100 * atr / close`).
+ *
+ * UNITS — the bug this function shipped with, and why the /100 is load-bearing.
+ * `trigger_pct` is a FRACTION everywhere it is consumed:
+ *
+ *   - `exit_ladder.py` compares it to `(close - entry) / entry`
+ *   - `ExitTier`'s own docstring says "-0.10 = -10% stop"
+ *   - `<ExitLadderEditor>` renders `trigger_pct * 100` and stores `input / 100`
+ *
+ * This function used to return the percent number unconverted, so a promoted
+ * screen with 3% ATR got a stop at `-6.0` — read by the evaluator as -600%.
+ * Every tier was unreachable: the stop needed the stock at -$500 from a $100
+ * entry. Nothing errored, no test failed, and the backtest of such a strategy
+ * silently ran with no exits at all.
+ *
+ * The KB's clamps ARE authored in percent (`stop_pct_clamp: [-15, -4]`), which
+ * is where the confusion came from — so clamp in percent, then convert once,
+ * here, at the boundary.
  */
+const PCT_TO_FRACTION = 100;
+
 export function ladderFromNatr(
   natrPct: number,
   defaults: ExitLadderDefaults = FALLBACK_LADDER_DEFAULTS,
@@ -96,10 +113,15 @@ export function ladderFromNatr(
   const [stopLo, stopHi] = defaults.stop_pct_clamp;
   const [tgtLo, tgtHi] = defaults.target_pct_clamp;
 
+  // Round in PERCENT space (2dp = 0.01% granularity) before converting, so a
+  // -6.00% stop lands on exactly -0.06 rather than a float with a tail.
+  const asFraction = (pct: number): number =>
+    Number((Number(pct.toFixed(2)) / PCT_TO_FRACTION).toFixed(6));
+
   const tiers: ExitTier[] = [
     {
-      trigger_pct: Number(
-        clamp(-(defaults.stop_atr_multiple * natrPct), stopLo, stopHi).toFixed(2),
+      trigger_pct: asFraction(
+        clamp(-(defaults.stop_atr_multiple * natrPct), stopLo, stopHi),
       ),
       action: "sell_all",
       label: `Stop · ${defaults.stop_atr_multiple}x ATR`,
@@ -111,7 +133,7 @@ export function ladderFromNatr(
     if (fraction === undefined) return;
     const isLast = fraction >= 1.0;
     tiers.push({
-      trigger_pct: Number(clamp(multiple * natrPct, tgtLo, tgtHi).toFixed(2)),
+      trigger_pct: asFraction(clamp(multiple * natrPct, tgtLo, tgtHi)),
       action: isLast ? "sell_all" : "sell_fraction",
       ...(isLast ? {} : { fraction }),
       label: `Target ${i + 1} · ${multiple}x ATR`,
