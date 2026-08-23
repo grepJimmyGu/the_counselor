@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 
-import { describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@/lib/api", () => ({
   searchSymbols: vi.fn(async () => [{ symbol: "NVDA", name: "NVIDIA Corp" }]),
@@ -14,6 +14,23 @@ vi.mock("@/lib/api", () => ({
     trading_enabled: false, last_synced_at: null,
   }),
   connectBrokerage: async () => ({ redirect_uri: "" }),
+  listBrokerPositions: () => listBrokerPositionsMock(),
+}));
+
+type BrokerRow = {
+  account_id: string;
+  symbol: string;
+  units: number;
+  average_purchase_price?: number;
+};
+const listBrokerPositionsMock = vi.fn<() => Promise<BrokerRow[]>>(
+  async () => [],
+);
+
+// The brick reads `?connected=1` to know it is returning from the portal.
+const searchParamsMock = vi.fn(() => new URLSearchParams());
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => searchParamsMock(),
 }));
 
 // Same reason: the connect card reads the session, which this brick did not
@@ -127,5 +144,73 @@ describe("PortfolioUpload", () => {
     expect(screen.getByText(/Weights sum to 70%/)).toBeTruthy();
     // Continue button is still enabled (warning, not block).
     expect((screen.getByTestId("portfolio-upload-continue") as HTMLButtonElement).disabled).toBe(false);
+  });
+});
+
+
+// ── returning from the brokerage portal (PRD-28 Step 2) ────────────────────
+
+describe("PortfolioUpload — holdings from a connected broker", () => {
+  const fromBroker = () =>
+    searchParamsMock.mockReturnValue(new URLSearchParams("connected=1"));
+
+  beforeEach(() => {
+    searchParamsMock.mockReturnValue(new URLSearchParams());
+    listBrokerPositionsMock.mockResolvedValue([]);
+  });
+
+  it("does not read the broker on a normal visit", async () => {
+    renderUpload();
+    await waitFor(() => screen.getByTestId("portfolio-upload"));
+    expect(listBrokerPositionsMock).not.toHaveBeenCalled();
+  });
+
+  it("REGRESSION: loads holdings when returning from the portal", async () => {
+    /* Without this the user authorises their broker, comes back, and finds
+     * the same empty form they left — which reads as the connection having
+     * failed. */
+    fromBroker();
+    listBrokerPositionsMock.mockResolvedValue([
+      { account_id: "a1", symbol: "NVDA", units: 120, average_purchase_price: 118.4 },
+    ]);
+    renderUpload();
+    await waitFor(() => screen.getByTestId("portfolio-upload-from-broker"));
+    expect(screen.getByDisplayValue("NVDA")).toBeTruthy();
+  });
+
+  it("MERGES with typed rows rather than clobbering them", async () => {
+    /* Someone may have typed tickers before deciding to connect. Losing
+     * them would punish the user who engaged most. */
+    fromBroker();
+    listBrokerPositionsMock.mockResolvedValue([
+      { account_id: "a1", symbol: "NVDA", units: 120, average_purchase_price: 118.4 },
+    ]);
+    renderUpload({ context: { holdings: [{ ticker: "MSFT", weight: 0.5 }] } });
+    await waitFor(() => screen.getByTestId("portfolio-upload-from-broker"));
+    expect(screen.getByDisplayValue("NVDA")).toBeTruthy();
+    expect(screen.getByDisplayValue("MSFT")).toBeTruthy();
+  });
+
+  it("prefers the broker's row when both sources have the same ticker", async () => {
+    /* The broker's share count and cost basis are real; the typed row was
+     * a guess. One row, not two. */
+    fromBroker();
+    listBrokerPositionsMock.mockResolvedValue([
+      { account_id: "a1", symbol: "NVDA", units: 120, average_purchase_price: 118.4 },
+    ]);
+    renderUpload({ context: { holdings: [{ ticker: "NVDA", weight: 0.9 }] } });
+    await waitFor(() => screen.getByTestId("portfolio-upload-from-broker"));
+    expect(screen.getAllByDisplayValue("NVDA")).toHaveLength(1);
+  });
+
+  it("says so, and stays usable, when the read fails after connecting", async () => {
+    /* "Connected but we couldn't read your holdings" is a different and
+     * more recoverable problem than "connection failed" — the manual paths
+     * still work. */
+    fromBroker();
+    listBrokerPositionsMock.mockRejectedValue(new Error("upstream down"));
+    renderUpload();
+    await waitFor(() => screen.getByTestId("portfolio-upload-broker-error"));
+    expect(screen.getByTestId("portfolio-upload-search")).toBeTruthy();
   });
 });
