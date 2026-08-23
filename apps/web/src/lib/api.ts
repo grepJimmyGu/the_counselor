@@ -1581,3 +1581,25 @@ export async function placeOrder(
     body: JSON.stringify({ trade_id: tradeId }),
   });
 }
+
+/** Start a brokerage connection. Returns the SnapTrade portal URL where the
+ *  user signs in AT THEIR OWN BROKER — Livermore never sees those
+ *  credentials.
+ *
+ *  `returnPath` is a SITE-RELATIVE PATH, never a URL. The server builds the
+ *  origin from its own config; passing a full URL would be an open redirect
+ *  on the step where we have just asked someone to trust us with a
+ *  brokerage login. */
+export async function connectBrokerage(
+  backendToken: string,
+  returnPath?: string,
+): Promise<{ redirect_uri: string }> {
+  return fetchApi<{ redirect_uri: string }>("/api/snaptrade/connect", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${backendToken}`,
+    },
+    body: JSON.stringify({ return_path: returnPath ?? null }),
+  });
+}

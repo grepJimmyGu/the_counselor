@@ -160,20 +160,57 @@ def register_user(db: Session, user_id: str, *, client: Any = None) -> SnapTrade
     return row
 
 
+def return_url_for(path: Optional[str]) -> str:
+    """Build the post-authorisation return URL from a caller-supplied PATH.
+
+    OPEN-REDIRECT GUARD. `custom_redirect` tells SnapTrade where to send the
+    user after they finish at their broker — so whatever reaches it is a
+    destination we hand a real person mid-flow, having just asked them to
+    trust us with a brokerage login. If a client could pass a full URL, that
+    is an open redirect on the most sensitive step in the product.
+
+    So the client sends a path and NEVER a URL. The origin comes from our own
+    configuration, and anything that is not a simple site-relative path is
+    discarded rather than sanitised — "//evil.com" and "https://evil.com" are
+    both just not paths, and half-cleaning a hostile input is how these bugs
+    survive review.
+    """
+    import os
+
+    site = os.environ.get(
+        "NEXT_PUBLIC_SITE_URL", "https://livermorealpha.com"
+    ).rstrip("/")
+    if not path or not path.startswith("/") or path.startswith("//"):
+        return site
+    if "\\" in path or "\n" in path or "\r" in path:
+        return site
+    return site + path
+
+
 def connection_portal_url(
-    db: Session, user_id: str, *, client: Any = None
+    db: Session,
+    user_id: str,
+    *,
+    return_path: Optional[str] = None,
+    client: Any = None,
 ) -> str:
     """A one-time URL where the user authorises their own broker.
 
     The authorisation happens on SnapTrade's portal against the broker's own
     login — Livermore never sees the user's brokerage credentials, which is
     the entire point of doing this through an aggregator.
+
+    `return_path` is where SnapTrade sends them afterwards. Without it they
+    land wherever SnapTrade defaults to, which for someone halfway through
+    the portfolio flow means losing their place immediately after doing the
+    most trust-demanding thing we ask of them.
     """
     reg = get_registration(db, user_id) or register_user(db, user_id, client=client)
     api = client or _client()
     resp = api.authentication.login_snap_trade_user(
         user_id=reg.user_id,
         user_secret=decrypt_secret(reg.user_secret_encrypted),
+        custom_redirect=return_url_for(return_path),
     )
     body = _body(resp)
     url = body.get("redirectURI") or body.get("redirect_uri")

@@ -385,3 +385,58 @@ def test_a_preview_with_no_trade_id_is_an_error_not_a_silent_pass(
             db, user.id, account_id="a1", ticker="NVDA", action="BUY",
             units=1, client=api,
         )
+
+
+# ── the return path (open-redirect guard) ───────────────────────────────────
+
+
+def test_a_plain_path_becomes_a_url_on_our_own_origin(configured):
+    url = st.return_url_for("/flow/portfolio_mode?connected=1")
+    assert url.endswith("/flow/portfolio_mode?connected=1")
+    assert url.startswith("http")
+
+
+@pytest.mark.parametrize("hostile", [
+    "https://evil.com/steal",
+    "http://evil.com",
+    "//evil.com",
+    "///evil.com",
+    "\\\\evil.com",
+    "javascript:alert(1)",
+    "/legit\nLocation: https://evil.com",
+])
+def test_REGRESSION_a_hostile_return_target_never_leaves_our_origin(
+    hostile, configured
+):
+    """`custom_redirect` is where SnapTrade sends a real person immediately
+    after we asked them to trust us with a brokerage login. If a caller
+    could pass a full URL, that is an open redirect at the single most
+    sensitive moment in the product.
+
+    The guard DISCARDS rather than sanitises — half-cleaning a hostile input
+    is how this bug class survives review.
+    """
+    url = st.return_url_for(hostile)
+    assert "evil.com" not in url
+    assert not url.startswith("javascript:")
+    assert "\n" not in url and "\r" not in url
+
+
+def test_no_path_returns_the_site_root(configured):
+    assert st.return_url_for(None).startswith("http")
+    assert st.return_url_for("").startswith("http")
+
+
+def test_the_portal_url_carries_the_return_target(
+    make_user, db: Session, configured
+) -> None:
+    """Without it the user lands wherever SnapTrade defaults to, which for
+    someone halfway through the portfolio flow means losing their place
+    right after doing the most trust-demanding thing we ask of them."""
+    user = make_user(email="st-return@test.com")
+    api = _api()
+    st.connection_portal_url(
+        db, user.id, return_path="/flow/portfolio_mode?connected=1", client=api,
+    )
+    _, kwargs = api.authentication.login_snap_trade_user.call_args
+    assert kwargs["custom_redirect"].endswith("/flow/portfolio_mode?connected=1")

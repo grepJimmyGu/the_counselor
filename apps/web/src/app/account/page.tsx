@@ -13,6 +13,7 @@ import { ExternalLink, Loader2 } from "lucide-react";
 import { createPortalSession } from "@/lib/api";
 import type { UserMe, Entitlements } from "@/lib/contracts";
 import type { Route } from "next";
+import { ConnectBrokerage } from "@/components/execution/connect-brokerage";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
@@ -183,6 +184,18 @@ export default function AccountPage() {
       )}
 
       {/* Email preferences link */}
+      {/* A brokerage connection is a standing SETTING, not a step in a
+          flow. Someone who declined it mid-portfolio needs a permanent
+          place to change their mind, and someone who connected needs a
+          place to see that they did. Not dismissible here — a settings
+          page you can hide a setting on is one that loses it. */}
+      <section className="space-y-4 rounded-xl border border-border bg-card p-6">
+        <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
+          Brokerage
+        </h2>
+        <ConnectBrokerage returnPath="/account?connected=1" />
+      </section>
+
       <section className="rounded-xl border border-border bg-card p-6">
         <div className="flex items-center justify-between">
           <div>

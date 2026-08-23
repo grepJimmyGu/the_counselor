@@ -5,6 +5,24 @@ import { fireEvent, render, screen } from "@testing-library/react";
 
 vi.mock("@/lib/api", () => ({
   searchSymbols: vi.fn(async () => [{ symbol: "NVDA", name: "NVIDIA Corp" }]),
+  // `<ConnectBrokerage>` renders in this step and fetches its own status.
+  // Reported unconfigured so it renders nothing — these tests are about the
+  // manual add/CSV paths, which the connect card sits beside and does not
+  // change.
+  getSnapTradeStatus: async () => ({
+    configured: false, registered: false, connected_accounts: 0,
+    trading_enabled: false, last_synced_at: null,
+  }),
+  connectBrokerage: async () => ({ redirect_uri: "" }),
+}));
+
+// Same reason: the connect card reads the session, which this brick did not
+// before the card was mounted inside it.
+vi.mock("next-auth/react", () => ({
+  useSession: () => ({
+    data: { backendToken: "tok" },
+    status: "authenticated" as const,
+  }),
 }));
 
 import { PortfolioUpload } from "../portfolio-upload";
