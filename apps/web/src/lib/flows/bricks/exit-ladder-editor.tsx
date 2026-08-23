@@ -4,7 +4,13 @@
  * Lets the user assemble a multi-tier exit ladder for their
  * active-execution strategy. Each tier has:
  *
- *   - trigger_pct: signed % from entry (negative = stop, positive = TP)
+ *   - trigger_pct: signed FRACTION from entry — -0.10 is a -10% stop, not
+ *     -10. The field is stored as a fraction because that is what
+ *     `exit_ladder.py` compares it against: `(close - entry) / entry`. This
+ *     editor is the reference implementation of the convention — it renders
+ *     `trigger_pct * 100` and stores `input / 100`. `ladderFromNatr` in
+ *     `promote-to-strategy.ts` got this wrong and shipped ladders 100x too
+ *     large, which made every tier of a promoted screen unreachable.
  *   - action: 'sell_all' (close position) or 'sell_fraction' (partial)
  *   - fraction: required for sell_fraction (0 < f < 1)
  *   - label: optional plain-English label (Stop / TP1 / TP2)

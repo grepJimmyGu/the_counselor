@@ -117,39 +117,62 @@ def save_strategy(
     record.saved_at = datetime.utcnow()
     db.commit()
 
-    # active-execution-v2: the live machinery (monitor cron, dashboard,
-    # PositionState, declare/confirm) is all keyed on the SavedStrategy
-    # table — but this endpoint only writes a BacktestRecord. For an
-    # active-execution strategy (non-daily bar_resolution + an exit
-    # ladder), ALSO create a SavedStrategy linked to this record so the
-    # loop connects: the bridge field (`saved_strategy_id` on the
-    # /strategies/{slug} response) resolves, the dashboard renders, and
-    # the cron sees the strategy. No-op for daily strategies — they don't
-    # need it, keeping the common path untouched.
-    _maybe_create_saved_strategy_for_active_execution(
+    # The live machinery (monitor cron, dashboard, PositionState,
+    # declare/confirm, "My strategies") is all keyed on the SavedStrategy
+    # table — but this endpoint only writes a BacktestRecord. So ALSO
+    # create a SavedStrategy linked to this record: the bridge field
+    # (`saved_strategy_id` on the /strategies/{slug} response) resolves,
+    # the dashboard renders, and the cron can see the strategy.
+    #
+    # Unconditional as of 2026-08-23. It used to skip daily strategies and
+    # ladder-less ones, which between them covered nearly every save the
+    # product now makes — see `_link_saved_strategy` for the two histories.
+    _link_saved_strategy(
         db, record, name=req.name, is_public=is_public, user_id=user.id,
     )
 
     return StrategySaveResponse(slug=slug, url=f"/strategies/{slug}", is_public=is_public)
 
 
-def _maybe_create_saved_strategy_for_active_execution(
+def _link_saved_strategy(
     db: Session, record: BacktestRecord, *, name: str, is_public: bool,
     user_id: str,
 ) -> None:
-    """Create a SavedStrategy linked to `record` when the strategy is set
-    up for active execution. Idempotent: skips if a SavedStrategy already
-    references this BacktestRecord. Best-effort — a failure here must not
-    fail the save (the backtest is already persisted)."""
+    """Create a SavedStrategy linked to `record`. Idempotent: skips if a
+    SavedStrategy already references this BacktestRecord. Best-effort — a
+    failure here must not fail the save (the backtest is already persisted).
+
+    THIS USED TO REFUSE, and both refusals were wrong by 2026-08:
+
+        if bar_resolution == "daily" or not exit_ladder: return
+
+    `SavedStrategy` is the row every live surface keys on — "My strategies"
+    lists it, `/account/strategies/{id}` renders from it, `declare_position`
+    targets it, the daily monitor iterates it. No row means the strategy
+    exists as a backtest and nowhere else.
+
+    1. **`bar_resolution == "daily"`** dates from when active execution meant
+       intraday. The founder's daily-only pivot inverted that: #327 added the
+       after-close daily monitor and #331/#337 removed the daily gates from
+       the two UI surfaces. This was the third gate and the deepest — a user
+       who saved a daily strategy got an EMPTY "My strategies" page, because
+       the row it lists was never written.
+
+    2. **`not exit_ladder`** made the `track` step impossible. Its whole job
+       (PRD-28 §4.2) is to attach a ladder to a strategy that arrived without
+       one — but with no ladder there was no row, and with no row there was
+       nothing to attach to. A strategy could never acquire its first ladder.
+
+    So: always link. A strategy the user chose to save is a strategy they
+    should be able to find, and whether it is tracked is a LATER decision
+    they make in `track` — not something inferred at save time from a field
+    they have not been asked about yet.
+    """
     from uuid import uuid4
     from app.models.saved_strategy import SavedStrategy
 
     try:
         strategy_json = (record.result_payload or {}).get("strategy_json") or {}
-        bar_resolution = strategy_json.get("bar_resolution", "daily")
-        exit_ladder = (strategy_json.get("risk_management") or {}).get("exit_ladder")
-        if bar_resolution == "daily" or not exit_ladder:
-            return  # not active execution — nothing to wire
 
         existing = db.scalar(
             select(SavedStrategy).where(
