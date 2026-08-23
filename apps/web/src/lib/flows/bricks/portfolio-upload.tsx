@@ -20,6 +20,9 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { ConnectBrokerage } from "@/components/execution/connect-brokerage";
+import { useSearchParams } from "next/navigation";
+import { useSession } from "next-auth/react";
+import { listBrokerPositions } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { searchSymbols } from "@/lib/api";
 import type { Holding, SymbolSearchItem } from "@/lib/contracts";
@@ -42,6 +45,15 @@ registerModeCopy("portfolio_mode", {
 interface ManualRow {
   ticker: string;
   weightText: string;
+  /** Real share count from a connected broker. Absent for typed rows. */
+  shares?: number;
+  /** The broker's cost basis. THIS is what makes connecting worth doing:
+   *  `declare_position` needs symbol + shares + entry price, and a typed
+   *  cost basis is a guess. It does not affect the backtest — a backtest
+   *  runs over history and has no business knowing what you paid. */
+  costBasis?: number;
+  /** Marks rows that came from a brokerage rather than the keyboard. */
+  fromBroker?: boolean;
 }
 
 function parseCsv(text: string): ManualRow[] {
@@ -66,11 +78,18 @@ function rowsToHoldings(rows: ManualRow[]): Holding[] {
   for (const r of rows) {
     if (!r.ticker) continue;
     const w = r.weightText ? Number(r.weightText) : NaN;
+    const basis =
+      r.costBasis !== undefined ? { cost_basis_per_share: r.costBasis } : {};
     if (Number.isFinite(w) && w > 0 && w <= 1) {
-      out.push({ ticker: r.ticker, weight: w });
+      out.push({ ticker: r.ticker, weight: w, ...basis });
+    } else if (r.shares !== undefined && r.shares > 0) {
+      // A real share count from the broker. Carried through rather than
+      // flattened to 1 — it is half of what `declare_position` needs, and
+      // the other half is the cost basis beside it.
+      out.push({ ticker: r.ticker, shares: r.shares, ...basis });
     } else {
       // Equal-weight downstream: store with no weight (engine fallback).
-      out.push({ ticker: r.ticker, shares: 1 });
+      out.push({ ticker: r.ticker, shares: 1, ...basis });
     }
   }
   return out;
@@ -96,11 +115,68 @@ export function PortfolioUpload({
       return context.holdings.map((h) => ({
         ticker: h.ticker,
         weightText: h.weight !== undefined ? String(h.weight) : "",
+        shares: h.shares,
+        costBasis: h.cost_basis_per_share,
       }));
     }
     return [{ ticker: "", weightText: "" }];
   });
   const [pasteText, setPasteText] = React.useState("");
+  const [brokerCount, setBrokerCount] = React.useState(0);
+  const [brokerError, setBrokerError] = React.useState<string | null>(null);
+
+  // ── returning from the brokerage portal ──────────────────────────────────
+  //
+  // `<ConnectBrokerage>` sends the user to SnapTrade with a return path of
+  // `/flow/portfolio_mode?connected=1`. This is the other half: without it
+  // the user authorises their broker, comes back, and finds the same empty
+  // form they left — which reads as the connection having failed.
+  //
+  // MERGES, NEVER CLOBBERS. Someone may have typed three tickers before
+  // deciding to connect, and losing them would punish the exact user who
+  // engaged most. Where both sources have a ticker the BROKER wins, because
+  // its share count and cost basis are real and the typed row was a guess.
+  const searchParams = useSearchParams();
+  const { data: session, status: sessionStatus } = useSession();
+  const backendToken = (session as unknown as { backendToken?: string } | null)
+    ?.backendToken;
+  const justConnected = searchParams?.get("connected") === "1";
+
+  React.useEffect(() => {
+    if (!justConnected) return;
+    if (sessionStatus === "loading" || !backendToken) return;
+    let live = true;
+    listBrokerPositions(backendToken)
+      .then((positions) => {
+        if (!live || positions.length === 0) return;
+        setBrokerCount(positions.length);
+        setRows((prev) => {
+          const fromBroker: ManualRow[] = positions.map((p) => ({
+            ticker: p.symbol.toUpperCase(),
+            weightText: "",
+            shares: p.units,
+            costBasis: p.average_purchase_price ?? undefined,
+            fromBroker: true,
+          }));
+          const brokerTickers = new Set(fromBroker.map((r) => r.ticker));
+          const typed = prev.filter(
+            (r) => r.ticker && !brokerTickers.has(r.ticker.toUpperCase()),
+          );
+          return [...fromBroker, ...typed];
+        });
+      })
+      .catch(() => {
+        if (live) {
+          setBrokerError(
+            "Connected, but we couldn't read your holdings just now. " +
+              "You can still add them below.",
+          );
+        }
+      });
+    return () => {
+      live = false;
+    };
+  }, [justConnected, sessionStatus, backendToken]);
 
   // ── Symbol-search typeahead (the primary add path) ──────────────────────
   const [query, setQuery] = React.useState("");
@@ -211,6 +287,27 @@ export function PortfolioUpload({
         returnPath="/flow/portfolio_mode?connected=1"
         dismissible
       />
+
+      {brokerCount > 0 && (
+        <p
+          data-testid="portfolio-upload-from-broker"
+          className="text-[13px] text-muted-foreground"
+        >
+          {brokerCount === 1
+            ? "1 holding loaded from your broker"
+            : `${brokerCount} holdings loaded from your broker`}
+          , with the shares and cost basis it reports. Edit anything that
+          looks wrong.
+        </p>
+      )}
+      {brokerError && (
+        <p
+          data-testid="portfolio-upload-broker-error"
+          className="text-[13px] text-muted-foreground"
+        >
+          {brokerError}
+        </p>
+      )}
 
       {/* Primary: search → add */}
       <div className="grid gap-2">
