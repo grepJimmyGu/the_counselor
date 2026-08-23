@@ -406,6 +406,20 @@ export interface ExitTier {
   label?: string;
 }
 
+/** What `POST /api/strategies/save` returns.
+ *
+ *  `saved_strategy_id` is the SavedStrategy row's id — the handle every live
+ *  surface needs (attach a ladder, declare a position, open the dashboard).
+ *  Nullable because the row is linked best-effort: a failure there must not
+ *  fail the save, so the `track` step degrades to a plain confirmation
+ *  rather than offering actions it cannot carry out. */
+export interface SaveStrategyResult {
+  slug: string;
+  url: string;
+  is_public: boolean;
+  saved_strategy_id: string | null;
+}
+
 export interface RiskManagement {
   max_drawdown_stop?: number;
   stop_loss_pct?: number;

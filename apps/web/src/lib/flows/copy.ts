@@ -37,6 +37,24 @@ const FRAMEWORK_COPY: CopyMap = {
   next_button: "Next",
   back_button: "Back",
   abort_button: "Cancel",
+
+  // PRD-28 — the shared `track` step. Framework-level rather than
+  // per-mode: the whole point of `track` is that both custom_build_mode and
+  // one_asset_mode end in the SAME step, so their copy should agree by
+  // default. A mode can still override any of these via registerModeCopy.
+  track_title: "Saved. What now?",
+  track_door_watch: "Watch it",
+  track_door_watch_sub: "Tell me when this triggers. Nothing is tracked yet.",
+  track_door_hold: "I already hold this",
+  track_door_hold_sub: "Track my real position against the exit rules.",
+  track_door_skip: "Just save it",
+  track_door_skip_sub: "I'm done for now.",
+  track_ladder_title: "When would you get out?",
+  track_ladder_confirm: "Save these exits to the strategy",
+  track_ladder_decline: "Not now",
+  track_declare_title: "What do you hold?",
+  track_declare_confirm: "Track this position",
+  track_done: "Done",
 };
 
 const MODE_COPY: { [modeId: string]: CopyMap } = {};

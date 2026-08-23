@@ -1,6 +1,7 @@
 # PRD-28 — Execution entry points
 
-**Status:** spec. Nothing built from this yet.
+**Status:** Steps 0–3 shipped (#337, #338, #339, #340, and the `track`
+PR). Step 4 (`/account/positions`) and the four §7 decisions remain.
 **Date:** 2026-08-21
 **Companions:** `build_specs/execution_integration_plan.md` (engineering
 plan), `build_specs/DRAFT_pm_execution_user_path.md` (PM design)
@@ -198,8 +199,27 @@ It currently marks `cost_basis_per_share` display-only, which would discard
 Connected holdings feed `inherited_universe` (overlays consume it unchanged)
 AND carry cost basis to `declare_position`.
 
-### Step 3 — the shared `track` step
+### Step 3 — the shared `track` step ✅
 Per §4. Includes `POST /{id}/exit-ladder` and its guard test.
+
+**Cost three prerequisite bug fixes (#340) that the spec did not
+anticipate**, each of which independently blocked it:
+
+1. `ladderFromNatr` emitted `trigger_pct` in PERCENT where every
+   consumer reads a FRACTION, so every calculated ladder was inert —
+   a 3%-ATR stop sat at -600%. §4.2 planned to REUSE that function as
+   the seeder, which would have put the bug on every tracked strategy.
+2. `save` refused to create a `SavedStrategy` row for daily
+   strategies. The third daily gate after #331/#337, and the deepest:
+   no row meant an empty "My strategies" page.
+3. `save` also refused one for ladder-less strategies, which made
+   §4.2 circular — you needed a ladder to get a row, and a row to
+   save a ladder.
+
+The lesson worth keeping: §4.2's instinct to reuse the existing
+seeder rather than write a second one was right, and it is what
+surfaced the unit bug. A fresh implementation would have been
+correct in isolation and left the promote path broken.
 
 ### Step 4 — `/account/positions`
 Unresolved exits first, tracked positions with their next tier, untracked

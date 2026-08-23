@@ -823,6 +823,123 @@ def get_intraday_chart(
     )
 
 
+# ── PRD-28 §2.2: attach an exit ladder to a saved strategy ──────────────────
+#
+# ONE OF THE PRODUCT'S TWO SIGN-OFF POINTS, and the reason this is its own
+# endpoint rather than a field on some larger update.
+#
+# Founder decision, 2026-08-21: saving a strategy and placing an order both
+# require explicit user sign-off, and neither may rely on a developer
+# remembering to render a confirmation dialog.
+#
+# Order placement already had that property structurally: `place_order` takes
+# only a trade id produced by a preview, so an order can only ever be one the
+# user saw priced (see `snaptrade.py`). This endpoint gives the same property
+# to the other half.
+#
+# THE RULE: the ladder arrives ONLY as an explicit payload. There is no
+# server-side path that applies a default, derives one from ATR, or copies one
+# from a template. Because the server never invents a ladder, the ladder that
+# lands on a strategy is always one the client sent — and the client can only
+# send what it rendered. The confirmation is a consequence of the API's shape
+# rather than a promise about the UI.
+#
+# `tests/test_exit_ladder_signoff_guard.py` asserts no other code path writes
+# `risk_management.exit_ladder` onto an existing SavedStrategy.
+
+
+class AttachExitLadderRequest(BaseModel):
+    """The ladder, in full, every time.
+
+    Deliberately has no "use the default" flag and no partial/patch form. A
+    request that omits `exit_ladder` is a 422, not a signal to apply
+    something sensible — "sensible" chosen by the server is exactly the stop
+    a user will not believe when it fires.
+    """
+    exit_ladder: list  # validated below by RiskManagement, the real validator
+
+
+@router.post("/{strategy_id}/exit-ladder", response_model=SavedStrategyResponse)
+def attach_exit_ladder(
+    strategy_id: str,
+    payload: AttachExitLadderRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> SavedStrategyResponse:
+    """Set the exit ladder on a strategy the user owns.
+
+    Replaces any existing ladder wholesale — the client renders the current
+    one, the user edits it, and what comes back is the whole intended state.
+    A merge would mean the saved ladder is something neither side displayed.
+
+    400 rather than 422 on a bad ladder: the tiers came from a form the user
+    just filled in, and the validator's messages ("must include at least one
+    stop tier") are written to be read by a person.
+    """
+    from app.schemas.strategy import RiskManagement
+
+    strategy = _resolve_owned_strategy(db, strategy_id, current_user)
+
+    if not payload.exit_ladder:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "An exit ladder needs at least one tier. To remove tracking, "
+                "delete the position rather than emptying the ladder."
+            ),
+        )
+
+    # Validate through the SAME model the backtester and the monitor read, so
+    # a ladder that saves is a ladder both of them can act on. Doing the
+    # checks by hand here is how the two drift apart.
+    try:
+        validated = RiskManagement(exit_ladder=payload.exit_ladder)
+    except Exception as exc:  # pydantic ValidationError
+        raise HTTPException(status_code=400, detail=_first_ladder_error(exc)) from exc
+
+    tiers = [t.model_dump(exclude_none=True) for t in (validated.exit_ladder or [])]
+
+    # REASSIGN, never mutate in place. `strategy_json` is a plain JSON column
+    # with no MutableDict wrapper, so SQLAlchemy's change detection compares
+    # object identity — mutating the nested dict leaves the row unflagged and
+    # the commit silently writes nothing. Pinned by
+    # `test_attaching_a_ladder_actually_persists`.
+    sj = dict(strategy.strategy_json or {})
+    risk = dict(sj.get("risk_management") or {})
+    risk["exit_ladder"] = tiers
+    sj["risk_management"] = risk
+    strategy.strategy_json = sj
+
+    db.commit()
+    db.refresh(strategy)
+    return SavedStrategyResponse.model_validate(strategy)
+
+
+def _first_ladder_error(exc: Exception) -> str:
+    """Pull the human sentence out of a pydantic ValidationError.
+
+    The validators in `RiskManagement` raise prose written for a user ("must
+    include at least one stop tier (trigger_pct < 0 with action='sell_all')").
+    Pydantic wraps that in several lines of type and location noise, and
+    handing the whole envelope to a form field turns a usable message into
+    something that looks like a crash.
+    """
+    errors = getattr(exc, "errors", None)
+    if callable(errors):
+        try:
+            first = errors()[0]
+            msg = str(first.get("msg", "")).strip()
+            # "Value error, <the real message>" — drop pydantic's prefix.
+            for prefix in ("Value error, ", "Assertion failed, "):
+                if msg.startswith(prefix):
+                    msg = msg[len(prefix):]
+            if msg:
+                return msg
+        except Exception:  # noqa: BLE001 — never let error handling raise
+            pass
+    return "That exit ladder isn't valid."
+
+
 # ── active-execution-v2 PR2: declare a real held position ───────────────────
 
 

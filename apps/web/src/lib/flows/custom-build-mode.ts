@@ -26,6 +26,7 @@ import { RecommendedTemplatesGallery } from "./bricks/recommended-templates-gall
 import { FlowBacktest } from "./bricks/flow-backtest";
 import { FlowReview } from "./bricks/flow-review";
 import { FlowSave } from "./bricks/flow-save";
+import { FlowTrack } from "./bricks/flow-track";
 import { ScreenResults } from "./bricks/screener-results";
 import { isScreenUniverse } from "./bricks/universe-selector";
 import {
@@ -150,7 +151,14 @@ export const CustomBuildModeFlow: FlowDefinition<CustomBuildModeContext> = {
     },
     {
       id: "save",
+      // PRD-28 §4 — no longer terminal. `track` is the SHARED step both
+      // modes end in; see flow-track.tsx for why it is one component.
       brick: FlowSave,
+      next: () => "track",
+    },
+    {
+      id: "track",
+      brick: FlowTrack,
       next: () => null,
     },
   ],

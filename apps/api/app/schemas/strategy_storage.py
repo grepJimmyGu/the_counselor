@@ -20,6 +20,12 @@ class StrategySaveResponse(BaseModel):
     slug: str
     url: str
     is_public: bool
+    # PRD-28: the SavedStrategy row's id, so the flow's `track` step can act
+    # on the strategy it just saved without a second round trip to resolve
+    # the slug. Optional because the link is best-effort — a failure there
+    # must not fail the save, and `track` degrades to a plain confirmation
+    # rather than offering actions it cannot perform.
+    saved_strategy_id: Optional[str] = None
 
 
 class VisibilityUpdateRequest(BaseModel):

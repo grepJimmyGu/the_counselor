@@ -28,6 +28,10 @@ export interface FlowSaveContext extends FlowContextBase {
   strategyJson?: StrategyJson;
   backtestResult?: BacktestResult;
   savedSlug?: string;
+  /** PRD-28 — the SavedStrategy row id, for the `track` step that follows.
+   *  Null when the backend's best-effort link failed; `<FlowTrack>` shows a
+   *  plain confirmation in that case rather than doors that would 404. */
+  savedStrategyId?: string | null;
 }
 
 export function FlowSave({
@@ -70,7 +74,7 @@ export function FlowSave({
     setSaving(true);
     setError(null);
     try {
-      const { slug } = await saveStrategy(
+      const { slug, saved_strategy_id } = await saveStrategy(
         backendToken,
         result.backtest_id,
         name.trim() || defaultName,
@@ -78,9 +82,13 @@ export function FlowSave({
         result as unknown as object,
         sj.strategy_type,
       );
-      updateContext({ savedSlug: slug } as Partial<FlowSaveContext>);
-      // Terminal step — `advance()` fires onComplete which navigates
-      // away from /flow/<modeId> to the saved-strategy detail page.
+      updateContext({
+        savedSlug: slug,
+        savedStrategyId: saved_strategy_id ?? null,
+      } as Partial<FlowSaveContext>);
+      // No longer terminal in modes that follow this with `track` — there
+      // `advance()` moves to the track step and onComplete fires from its
+      // finish button instead. Modes that end here are unchanged.
       advance();
     } catch (err: unknown) {
       if (err instanceof UpgradeRequiredError) {
