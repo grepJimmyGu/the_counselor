@@ -151,7 +151,7 @@ const translations: Record<Locale, Translations> = {
     workspaceTitle: "Research Workspace",
     workspaceDesc:
       "Turn a natural-language investment idea into validated strategy JSON, a deterministic backtest, and a skeptical sandbox review that pushes back on false confidence.",
-    noLiveTrading: "No live trading",
+    noLiveTrading: "No automated trading",
     priceBasedOnly: "Price-based strategies only",
     deterministicEngine: "Deterministic backend engine",
 
@@ -425,7 +425,7 @@ const translations: Record<Locale, Translations> = {
     workspaceTitle: "研究工作台",
     workspaceDesc:
       "将自然语言投资想法转化为量化策略 JSON，运行确定性回测，并通过沙盒评审员挑战结果中的虚假信心。",
-    noLiveTrading: "仅限回测，无实盘交易",
+    noLiveTrading: "无自动交易，下单由您确认",
     priceBasedOnly: "仅支持价格型策略",
     deterministicEngine: "确定性后端引擎",
 

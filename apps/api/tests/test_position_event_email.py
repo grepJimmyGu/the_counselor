@@ -143,7 +143,10 @@ def test_html_includes_compliance_footer() -> None:
     out = render_position_event(_user(), _payload())
     assert "Not investment advice" in out["html"]
     assert "Past performance does not guarantee future results" in out["html"]
-    assert "Livermore does not place trades" in out["html"]
+    # COPY CONTRACT CHANGED 2026-08-23 — see the frontend note in
+    # exit-ticket.test.tsx. "does not place trades" becomes false when
+    # SNAPTRADE_TRADING_ENABLED flips; this wording is true either way.
+    assert "never places an order you haven't approved" in out["html"]
 
 
 def test_text_includes_compliance_footer() -> None:

@@ -43,7 +43,8 @@ export function NotInvestmentAdviceFooter({
         )}
         data-testid="not-investment-advice-footer"
       >
-        Not investment advice. Livermore does not place trades on your behalf.
+        Not investment advice. Livermore never places an order you
+        haven&rsquo;t approved.
       </p>
     );
   }
@@ -58,8 +59,8 @@ export function NotInvestmentAdviceFooter({
     >
       <p className="text-[11px] leading-[1.55] text-slate-500">
         Not investment advice. Past performance does not guarantee future
-        results. Livermore does not place trades on your behalf — you decide
-        whether to act on any signal.
+        results. Livermore never places an order you haven&rsquo;t approved —
+        you decide whether to act on any signal.
       </p>
     </div>
   );

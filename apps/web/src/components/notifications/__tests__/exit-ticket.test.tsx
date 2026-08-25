@@ -150,9 +150,21 @@ describe("ExitTicket", () => {
     expect(screen.queryByText("Current")).toBeNull();
   });
 
-  it("says Livermore does not place trades", () => {
+  it("promises only what the API structurally guarantees", () => {
+    /* COPY CONTRACT CHANGED 2026-08-23, openly per CLAUDE.md.
+     * This asserted "Livermore does not place trades". That was TRUE when
+     * written and becomes FALSE the moment `SNAPTRADE_TRADING_ENABLED`
+     * flips — and this copy sits in the same card as the Place Order
+     * button, so it would have contradicted itself at the exact moment
+     * someone transacts.
+     *
+     * The replacement is true in BOTH states and is structurally
+     * enforced, not promised: `place_order` accepts only a trade id from
+     * a preview the user saw priced, `place_force_order` is banned, and
+     * nothing under `jobs/` may place an order. */
     render(<ExitTicket item={base} />);
-    expect(screen.getByText(/does not place trades/i)).toBeTruthy();
+    expect(screen.getByText(/never places an order you/i)).toBeTruthy();
+    expect(screen.queryByText(/does not place trades/i)).toBeNull();
   });
 
   it("copies the three-line ticket", async () => {
