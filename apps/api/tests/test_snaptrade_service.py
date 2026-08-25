@@ -264,8 +264,17 @@ def trading(monkeypatch, configured):
 
 
 def _trading_api() -> MagicMock:
+    # SECTION CORRECTED 2026-08-23, openly per CLAUDE.md. These mocks were
+    # set up on `api.trading.symbol_search_user_account`, matching the
+    # service — and BOTH were wrong. The method lives on `reference_data`.
+    #
+    # A MagicMock answers to any attribute you ask it for, so the mock
+    # agreed with the mistake and the whole file passed. That is the exact
+    # blind spot `test_snaptrade_sdk_contract.py` now covers: it checks
+    # every call against the REAL installed SDK rather than against a mock
+    # built from the same assumption as the code.
     api = _api()
-    api.trading.symbol_search_user_account.return_value = [
+    api.reference_data.symbol_search_user_account.return_value = [
         {"id": "usym-nvda", "symbol": "NVDA", "description": "NVIDIA Corp"},
     ]
     api.trading.get_order_impact.return_value = {
@@ -319,7 +328,7 @@ def test_REGRESSION_symbol_resolution_requires_an_EXACT_ticker(
     is not a mistake worth risking."""
     user = make_user(email="t-exact@test.com")
     api = _trading_api()
-    api.trading.symbol_search_user_account.return_value = [
+    api.reference_data.symbol_search_user_account.return_value = [
         {"id": "usym-nvr", "symbol": "NVR"},
         {"id": "usym-nvax", "symbol": "NVAX"},
     ]
