@@ -150,8 +150,31 @@ async def _compute_all_signals_async() -> dict:
                 state.as_of_date = today
                 state.last_computed_at = datetime.utcnow()
 
+                # THE FIRST CORRECTED RUN IS A SEED, NOT A FLIP.
+                #
+                # Every stored `current_signal` was written by the old reader,
+                # which inferred the position from the last closed trade and
+                # was wrong for most strategies. The first run of the new
+                # reader therefore DIFFERS for most of them at once — and
+                # without this guard that is a burst of SignalEvents, an
+                # immediate email each, and a very fat morning digest, all on
+                # the night this deploys.
+                #
+                # So: when the stored signal predates the corrected reader,
+                # overwrite it silently and start emitting from the next run.
+                # The user's first real alert is then a real change, not an
+                # artefact of us fixing our own arithmetic.
+                seeding = _is_legacy_signal(prev_signal)
+                if seeding:
+                    stats["seeded"] = stats.get("seeded", 0) + 1
+                    _log.info(
+                        "signal_cron: seeding corrected signal for %s "
+                        "(was %r, now %r) — no event emitted",
+                        strat.id, prev_signal, current_signal,
+                    )
+
                 # Detect change
-                if not signals_equal(prev_signal, current_signal):
+                if not seeding and not signals_equal(prev_signal, current_signal):
                     stats["changed"] += 1
                     state.last_changed_at = datetime.utcnow()
 
@@ -320,28 +343,103 @@ def _seed_throttle_counters(
         user_counts[u_key] = user_counts.get(u_key, 0) + 1
 
 
-def _extract_signal(result, sj) -> dict:
-    """Extract the current signal from a BacktestResult."""
-    from app.schemas.strategy import StrategyJSON
-    strategy_type = sj.strategy_type
+# Bumped when the READER changes in a way that alters the payload for the
+# same underlying position. Stamped onto every signal so a stored payload
+# written by an older reader is recognisable — see `_is_legacy_signal`.
+SIGNAL_READER_VERSION = 2
 
-    # For single-asset strategies: return the last position from the weight matrix
+
+def _is_legacy_signal(prev: Optional[dict]) -> bool:
+    """Was this stored signal written by a reader older than the current one?
+
+    `None` is NOT legacy: a strategy computed for the first time has no
+    stored signal, and emitting its first event is correct, long-standing
+    behaviour. This is only about payloads written by a previous reader whose
+    answer we now know to be wrong.
+    """
+    if prev is None:
+        return False
+    return prev.get("v") != SIGNAL_READER_VERSION
+
+
+def _extract_signal(result, sj) -> dict:
+    """What does this strategy say to hold right now?
+
+    Reads `result.current_weights` — the last row of the engine's weights
+    matrix, which is literally the strategy's target allocation for today.
+
+    BOTH BRANCHES USED TO GUESS, and both guesses were wrong:
+
+      - Single-asset inferred the position from the last CLOSED trade
+        (`holding_period_days > 0 and return_pct != 0`). That answers "has
+        this strategy ever completed a normal trade," not "is there a
+        position open." A strategy that went to cash two months ago still
+        reported LONG, so the signal stuck and almost never flipped — which
+        is why subscribing to alerts felt like subscribing to silence.
+
+      - The basket branch carried a `# Simplified` placeholder returning the
+        WHOLE universe as holdings, so a defensive overlay reported every
+        holding as held whichever ones had failed their moving average.
+
+    `current_weights` is None only for results computed before the field
+    existed. Falling back to the old inference there is deliberate: a stored
+    payload should keep reporting what it always reported rather than
+    silently flipping to "cash" on a re-read.
+    """
+    strategy_type = sj.strategy_type
+    weights = getattr(result, "current_weights", None)
+
+    single_asset = strategy_type in {
+        "moving_average_filter", "moving_average_crossover",
+        "rsi_mean_reversion", "breakout", "time_series_momentum",
+    }
+
+    if weights is None:
+        return _extract_signal_legacy(result, sj)
+
+    if single_asset:
+        ticker = sj.universe[0] if sj.universe else None
+        if ticker is None:
+            return {"v": SIGNAL_READER_VERSION, "position": "cash"}
+        held = float(weights.get(ticker, 0.0)) > 0
+        return {"v": SIGNAL_READER_VERSION,
+                "position": "long" if held else "cash", "ticker": ticker}
+
+    # Basket + overlay: per-holding, the shape PRD-13b §5 specified.
+    # `position` is what the strategy says to do with that name TODAY; a
+    # holding at weight 0 is one the strategy wants out of.
+    return {
+        "v": SIGNAL_READER_VERSION,
+        "holdings": [
+            {
+                "ticker": sym,
+                "position": "long" if float(weights.get(sym, 0.0)) > 0 else "cash",
+                "weight": float(weights.get(sym, 0.0)),
+            }
+            for sym in sj.universe
+        ],
+        "type": strategy_type,
+    }
+
+
+def _extract_signal_legacy(result, sj) -> dict:
+    """The pre-`current_weights` inference, kept for stored results only.
+
+    Do not extend this. It is here so a backtest computed before the weights
+    field existed keeps reporting what it reported at the time, instead of
+    appearing to change because we improved the reader.
+    """
+    strategy_type = sj.strategy_type
     if strategy_type in {
         "moving_average_filter", "moving_average_crossover",
         "rsi_mean_reversion", "breakout", "time_series_momentum",
     }:
         if len(result.trade_log) > 0:
             last_trade = result.trade_log[-1]
-            # If the last trade is still open (no exit), position is "long"
             is_long = last_trade.holding_period_days > 0 and last_trade.return_pct != 0
             return {"position": "long" if is_long else "cash",
                     "ticker": sj.universe[0] if sj.universe else "?"}
         return {"position": "cash"}
-
-    # For basket strategies: return the latest holdings
-    holdings = []
-    # Derive from the weights matrix by checking last non-zero weights
-    # Simplified: return the universe as holdings
     return {
         "holdings": [{"ticker": sym} for sym in sj.universe],
         "type": strategy_type,

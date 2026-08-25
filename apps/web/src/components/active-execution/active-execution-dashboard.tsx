@@ -27,6 +27,7 @@ import { IntradayChart } from "./intraday-chart";
 import { PositionCardsGrid } from "./position-cards-grid";
 import { TradeLogTable } from "./trade-log-table";
 import { UniverseWatchPanel } from "./universe-watch-panel";
+import { StrategySignalPanel } from "./strategy-signal-panel";
 
 interface Props {
   strategyId: string;
@@ -54,6 +55,10 @@ export function ActiveExecutionDashboard({
       aria-label="Active execution dashboard"
     >
       <div className="space-y-6">
+        {/* What the strategy says TODAY, and the buy if it wants in. The
+            entry half of the loop — the exit half is the ticket that fires
+            from the monitor. */}
+        <StrategySignalPanel strategyId={strategyId} />
         {isIntraday && <UniverseWatchPanel strategyId={strategyId} />}
         <DeclarePositionForm
           strategyId={strategyId}
