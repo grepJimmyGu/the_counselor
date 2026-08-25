@@ -18,7 +18,7 @@ in two ways:
 Compliance footer mirrors PRD-19 §"Compliance":
   - "Not investment advice"
   - "Past performance does not guarantee future results"
-  - "Livermore does not place trades on your behalf"
+  - "Livermore never places an order you haven't approved"
   - One-click unsubscribe (strategy-scoped + global)
   - CAN-SPAM postal address
 """
@@ -126,8 +126,8 @@ View detail: {detail_url}
 
 ---
 Not investment advice. Past performance does not guarantee future results.
-Livermore does not place trades on your behalf. You decide whether to act
-on this signal.
+Livermore never places an order you haven't approved. You decide whether
+to act on this signal.
 
 {CAN_SPAM_ADDRESS}
 
@@ -171,7 +171,7 @@ Notification settings: {settings_url}
         <tr><td style="padding:16px 32px;border-top:1px solid #e2e8f0;background:#f8fafc;border-radius:0 0 12px 12px;">
           <p style="margin:0 0 8px;font-size:11px;color:#94a3b8;line-height:1.5;">
             Not investment advice. Past performance does not guarantee future results.
-            Livermore does not place trades on your behalf. You decide whether to act
+            Livermore never places an order you haven't approved. You decide whether to act
             on this signal.
           </p>
           <p style="margin:0;font-size:11px;color:#94a3b8;line-height:1.5;">

@@ -356,7 +356,7 @@ def _write_banner(
                 body=(
                     f"{pos.symbol} reached a level your strategy "
                     f"'{strat.title or 'Your strategy'}' defines as an exit. "
-                    "Nothing has been sold — Livermore does not place trades."
+                    "Nothing has been sold — no order goes out unless you send it."
                 ),
                 strategy_slug=strat.id,
             ))

@@ -109,8 +109,8 @@ export function UnresolvedExits() {
           : `${items.length} strategies signalled exits`}
       </h2>
       <p className="mt-0.5 text-[13px] text-slate-600">
-        Nothing has been sold — Livermore does not place trades. These stay
-        here until you tell us what you did.
+        Nothing has been sold — no order goes out unless you send it. These
+        stay here until you tell us what you did.
       </p>
 
       <ul className="mt-3 space-y-2">

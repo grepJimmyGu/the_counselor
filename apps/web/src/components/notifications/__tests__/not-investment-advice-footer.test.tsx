@@ -11,7 +11,8 @@ describe("NotInvestmentAdviceFooter", () => {
     const node = screen.getByTestId("not-investment-advice-footer");
     expect(node.textContent).toMatch(/Not investment advice/);
     expect(node.textContent).toMatch(/Past performance/);
-    expect(node.textContent).toMatch(/does not place trades on your behalf/);
+    // See exit-ticket.test.tsx for why this wording changed.
+    expect(node.textContent).toMatch(/never places an order you/);
   });
 
   it("renders a shortened version when compact=true", () => {
@@ -29,6 +30,6 @@ describe("NotInvestmentAdviceFooter", () => {
     // The wording is INTENTIONALLY identical across surfaces — if this
     // test fails because the copy drifted, mirror the change in the
     // server-side email footers (signal_change.py + daily_digest.py).
-    expect(node.textContent).toMatch(/Livermore does not place trades/);
+    expect(node.textContent).toMatch(/Livermore never places an order you/);
   });
 });

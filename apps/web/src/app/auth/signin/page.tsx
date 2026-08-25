@@ -70,7 +70,7 @@ function SignInContent() {
         {/* Trust note */}
         <p className="text-center text-xs text-muted-foreground">
           By signing in you agree to our research-only terms.
-          No live trading, no financial advice.
+          You approve every order. No financial advice.
         </p>
       </div>
     </main>

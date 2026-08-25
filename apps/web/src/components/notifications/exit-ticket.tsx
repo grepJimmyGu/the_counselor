@@ -216,8 +216,8 @@ export function ExitTicket({ item }: { item: UnresolvedExit }) {
       </Link>
 
       <p className="mt-2 border-t border-border pt-2 text-[11px] leading-relaxed text-muted-foreground">
-        Livermore does not place trades on your behalf. The strategy signalled
-        this; you decide whether to act on it.
+        Livermore never places an order you haven&rsquo;t reviewed and
+        approved. The strategy signalled this; you decide whether to act.
       </p>
     </div>
   );

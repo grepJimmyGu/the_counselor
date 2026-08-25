@@ -81,7 +81,8 @@ describe("UnresolvedExits", () => {
     listUnresolvedExitsMock.mockResolvedValue([exit1]);
     render(<UnresolvedExits />);
     await waitFor(() => screen.getByTestId("unresolved-exits"));
-    expect(screen.getByText(/Livermore does not place trades/i)).toBeTruthy();
+    // See exit-ticket.test.tsx for why this wording changed.
+    expect(screen.getByText(/no order goes out unless you send it/i)).toBeTruthy();
   });
 
   it("offers no way to dismiss without deciding", async () => {

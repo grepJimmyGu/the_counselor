@@ -93,10 +93,18 @@ export default function HomePage() {
             </div>
 
             {/* Positioning, not marketing: the research/tool framing is a
-                stated product requirement, kept to one compact line. */}
+                stated product requirement, kept to one compact line.
+
+                "No live trading" was here until 2026-08-23. It becomes a
+                FALSE statement the moment SNAPTRADE_TRADING_ENABLED flips,
+                on the highest-trust surface the product has. "No automated
+                trading" keeps the framing, is true in BOTH states, and is
+                enforced rather than promised: test_snaptrade_readonly_guard
+                bans every trading call under `jobs/`, so nothing on a timer
+                can ever place an order. */}
             <div className="mt-6 flex flex-wrap justify-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
               {[
-                "No live trading",
+                "No automated trading",
                 "End-of-day prices",
                 "Research tool, not advice",
               ].map((label) => (
