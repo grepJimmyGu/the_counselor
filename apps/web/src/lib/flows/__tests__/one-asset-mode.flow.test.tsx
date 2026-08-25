@@ -147,6 +147,9 @@ describe("one-asset-mode FlowDefinition", () => {
       "backtest",
       "review",
       "save",
+      // PRD-28 §4 — `track` is the shared terminal step both modes
+      // now end in. Save stopped being terminal when it landed.
+      "track",
     ]);
   });
 

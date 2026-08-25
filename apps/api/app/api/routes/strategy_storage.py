@@ -6,6 +6,7 @@ import random
 import re
 import string
 from datetime import date, datetime
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -127,17 +128,22 @@ def save_strategy(
     # Unconditional as of 2026-08-23. It used to skip daily strategies and
     # ladder-less ones, which between them covered nearly every save the
     # product now makes — see `_link_saved_strategy` for the two histories.
-    _link_saved_strategy(
+    saved_strategy_id = _link_saved_strategy(
         db, record, name=req.name, is_public=is_public, user_id=user.id,
     )
 
-    return StrategySaveResponse(slug=slug, url=f"/strategies/{slug}", is_public=is_public)
+    return StrategySaveResponse(
+        slug=slug,
+        url=f"/strategies/{slug}",
+        is_public=is_public,
+        saved_strategy_id=saved_strategy_id,
+    )
 
 
 def _link_saved_strategy(
     db: Session, record: BacktestRecord, *, name: str, is_public: bool,
     user_id: str,
-) -> None:
+) -> Optional[str]:
     """Create a SavedStrategy linked to `record`. Idempotent: skips if a
     SavedStrategy already references this BacktestRecord. Best-effort — a
     failure here must not fail the save (the backtest is already persisted).
@@ -180,22 +186,28 @@ def _link_saved_strategy(
             )
         )
         if existing is not None:
-            return  # already linked (re-save / retry)
+            return existing.id  # already linked (re-save / retry)
 
-        db.add(SavedStrategy(
+        row = SavedStrategy(
             id=str(uuid4()),
             user_id=user_id,
             title=name,
             strategy_json=strategy_json,
             is_public=is_public,
             backtest_record_id=record.id,
-        ))
+        )
+        db.add(row)
         db.commit()
+        return row.id
     except Exception:
         db.rollback()
         logger.exception(
-            "active-exec SavedStrategy link failed for record=%s", record.id,
+            "SavedStrategy link failed for record=%s", record.id,
         )
+        # None, not a raise: the backtest IS saved, and failing the whole
+        # save here would lose it. The caller returns `saved_strategy_id:
+        # null` and the `track` step degrades to a plain confirmation.
+        return None
 
 
 @router.patch("/{slug}/visibility", response_model=StrategySaveResponse)

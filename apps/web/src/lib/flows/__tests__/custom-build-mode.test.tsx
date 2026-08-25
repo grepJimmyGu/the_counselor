@@ -138,6 +138,9 @@ describe("custom_build_mode flow registration", () => {
       "backtest",
       "review",
       "save",
+      // PRD-28 §4 — `track` is the shared terminal step both modes
+      // now end in. Save stopped being terminal when it landed.
+      "track",
     ]);
     const pick = CustomBuildModeFlow.steps.find((s) => s.id === "pick_template");
     expect(pick?.next?.({} as CustomBuildModeContext)).toBe("compose_signals");
@@ -151,8 +154,12 @@ describe("custom_build_mode flow registration", () => {
     expect(
       compose?.next?.({ universe_id: "sp500" } as CustomBuildModeContext),
     ).toBe("screen_results");
+    // PRD-28 §4 — save hands off to `track` rather than ending the flow.
+    // `track` is the terminal step now, and the one that fires onComplete.
     const save = CustomBuildModeFlow.steps.find((s) => s.id === "save");
-    expect(save?.next?.({} as CustomBuildModeContext)).toBeNull();
+    expect(save?.next?.({} as CustomBuildModeContext)).toBe("track");
+    const track = CustomBuildModeFlow.steps.find((s) => s.id === "track");
+    expect(track?.next?.({} as CustomBuildModeContext)).toBeNull();
   });
 
   it("validate gates compose_signals on rules + symbol + strategyJson", () => {

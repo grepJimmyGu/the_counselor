@@ -40,6 +40,7 @@ import { OneAssetSummary } from "./bricks/one-asset-summary";
 import { FlowBacktest } from "./bricks/flow-backtest";
 import { FlowReview } from "./bricks/flow-review";
 import { FlowSave } from "./bricks/flow-save";
+import { FlowTrack } from "./bricks/flow-track";
 import type { OneAssetModeContext } from "./one-asset-mode-context";
 
 registerModeCopy("one_asset_mode", {
@@ -88,7 +89,11 @@ export const OneAssetModeFlow: FlowDefinition<OneAssetModeContext> = {
     { id: "summary",       brick: OneAssetSummary },
     { id: "backtest",      brick: FlowBacktest },
     { id: "review",        brick: FlowReview },
-    { id: "save",          brick: FlowSave, next: () => null },
+    // PRD-28 §4 — save is no longer terminal. `track` is the SHARED
+    // step both modes end in; see flow-track.tsx for why it is one
+    // component and not two.
+    { id: "save",          brick: FlowSave, next: () => "track" },
+    { id: "track",         brick: FlowTrack, next: () => null },
   ],
   onComplete: (ctx) => {
     // Navigate to the saved-strategy detail page when a save succeeded;

@@ -41,6 +41,9 @@ import type {
   BrokerPosition,
   OrderPreview,
   OrderResult,
+  SaveStrategyResult,
+  ExitTier,
+  UserSavedStrategy,
 } from "@/lib/contracts";
 import { dispatchUpgrade } from "@/lib/upgrade-modal-event-bus";
 
@@ -391,7 +394,7 @@ export async function saveStrategy(
   isPublic = true,
   resultPayload?: object,
   strategyType?: string,
-): Promise<{ slug: string; url: string; is_public: boolean }> {
+): Promise<SaveStrategyResult> {
   // `backendToken` is required (added 2026-05-20 after the QA audit found
   // /api/strategies/save was completely unauthenticated). The backend now
   // 401s if the Authorization header is missing — and Scout tier saves
@@ -403,7 +406,7 @@ export async function saveStrategy(
   };
   // Attempt 1: lightweight request (no payload) — works for strategies run on production
   try {
-    return await fetchApi<{ slug: string; url: string; is_public: boolean }>(
+    return await fetchApi<SaveStrategyResult>(
       "/api/strategies/save",
       {
         method: "POST",
@@ -421,7 +424,7 @@ export async function saveStrategy(
     if (!is404 || !resultPayload) throw firstErr;
 
     // Attempt 2: full payload — for strategies run locally / on a different DB
-    return fetchApi<{ slug: string; url: string; is_public: boolean }>(
+    return fetchApi<SaveStrategyResult>(
       "/api/strategies/save",
       {
         method: "POST",
@@ -828,6 +831,39 @@ export interface DeclarePositionRequest {
   shares: number;
   entry_price: number;
   entered_at?: string;
+}
+
+/** PRD-28 §2.2 — set the exit ladder on a saved strategy.
+ *
+ *  ONE OF THE TWO SIGN-OFF POINTS. The body IS the ladder: the server has no
+ *  path that applies a default, derives one from ATR, or copies one from a
+ *  template. So whatever lands on a strategy was sent by a client, and a
+ *  client can only send what it rendered to the user.
+ *
+ *  Call this ONLY from a control the user pressed after seeing these exact
+ *  tiers. Calling it from an effect, a retry, or a "helpfully set up their
+ *  stops" path defeats the whole arrangement — the guard test
+ *  (`test_exit_ladder_signoff_guard.py`) can stop the server inventing a
+ *  ladder, but it cannot stop a client sending one nobody looked at.
+ *
+ *  Replaces any existing ladder wholesale — send the complete intended state.
+ */
+export async function attachExitLadder(
+  strategyId: string,
+  exitLadder: ExitTier[],
+  backendToken: string,
+): Promise<UserSavedStrategy> {
+  return fetchApi<UserSavedStrategy>(
+    `/api/saved-strategies/${strategyId}/exit-ladder`,
+    {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${backendToken}`,
+      },
+      body: JSON.stringify({ exit_ladder: exitLadder }),
+    },
+  );
 }
 
 export async function declarePosition(
