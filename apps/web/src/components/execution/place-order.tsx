@@ -118,7 +118,7 @@ export function PlaceOrder({
     return () => {
       live = false;
     };
-  }, [sessionStatus, backendToken, symbol]);
+  }, [sessionStatus, backendToken, symbol, action]);
 
   // A sell prices against the account that holds the shares; a buy against
   // the connected account.
