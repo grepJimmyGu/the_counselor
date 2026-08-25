@@ -85,6 +85,21 @@ def classify_change(previous: Optional[dict], new: dict) -> str:
 
 
 def _basket_tickers(signal: dict) -> set:
-    """Extract the ticker set from a basket-style signal payload."""
+    """The names a basket signal says to HOLD — not every name it mentions.
+
+    A defensive overlay's payload lists every holding in the portfolio and
+    marks each one `long` or `cash`. Counting all of them said "holds 12
+    names" for a portfolio the strategy wanted down to 9, and made a holding
+    going to cash invisible to `classify_change`, because the ticker SET was
+    unchanged. The whole point of that overlay is naming the one that fell
+    out.
+
+    A holding with no `position` key is treated as held: that is the legacy
+    payload shape, where presence in the list WAS the claim, and re-reading
+    an old signal must not make a portfolio look suddenly empty.
+    """
     holdings = signal.get("holdings") or signal.get("target_weights") or []
-    return {h["ticker"] for h in holdings if "ticker" in h}
+    return {
+        h["ticker"] for h in holdings
+        if "ticker" in h and h.get("position", "long") != "cash"
+    }

@@ -3431,6 +3431,15 @@ export interface TrackedPosition {
 
 /** A priced order the user has not yet sent. `trade_id` is the ONLY way to
  *  place one, which is what makes the preview impossible to skip. */
+/** A connected brokerage account. A SELL learns its account from the position
+ *  being sold; a BUY has to be told, because you do not own the thing yet. */
+export interface BrokerAccount {
+  id: string;
+  name?: string | null;
+  number?: string | null;
+  institution_name?: string | null;
+}
+
 export interface OrderPreview {
   trade_id: string;
   symbol: string;

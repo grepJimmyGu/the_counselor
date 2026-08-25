@@ -19,7 +19,7 @@ import logging
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, model_validator
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -188,14 +188,82 @@ def snaptrade_positions(
 # can place an order the user has not seen priced.
 
 
+class BrokerAccountView(BaseModel):
+    """Enough to choose an account and know which one you chose.
+
+    A SELL knows its account from the position being sold. A BUY does not —
+    you do not own the thing yet — so the buyer has to pick, and picking
+    requires seeing the institution and the last digits.
+    """
+    id: str
+    name: Optional[str] = None
+    number: Optional[str] = None
+    institution_name: Optional[str] = None
+
+
+@router.get("/accounts", response_model=List[BrokerAccountView])
+def snaptrade_accounts(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> List[BrokerAccountView]:
+    """The user's connected brokerage accounts.
+
+    Exists because BUY orders need an account id and cannot get one from a
+    position. `/positions` carries `account_id` per holding, which is enough
+    to sell — and useless to someone whose account is empty and who wants to
+    make their first purchase.
+    """
+    _require_configured()
+    try:
+        rows = st.list_accounts(db, current_user.id)
+    except st.SnapTradeNotConfigured:
+        raise HTTPException(status_code=503, detail="Brokerage connections aren't available right now.")
+    except Exception as exc:  # noqa: BLE001
+        _log.exception("snaptrade: accounts failed user=%s", current_user.id)
+        raise HTTPException(
+            status_code=502, detail="Couldn't read your brokerage accounts.",
+        ) from exc
+
+    out: List[BrokerAccountView] = []
+    for r in rows:
+        rid = r.get("id")
+        if not rid:
+            continue          # an account we cannot address is not an option
+        inst = r.get("institution_name")
+        if isinstance(inst, dict):
+            inst = inst.get("name")
+        out.append(BrokerAccountView(
+            id=str(rid),
+            name=r.get("name") or r.get("nickname"),
+            number=r.get("number"),
+            institution_name=inst,
+        ))
+    return out
+
+
 class PreviewOrderRequest(BaseModel):
     account_id: str
     symbol: str
     action: str                    # "BUY" | "SELL"
-    units: float
+    # EXACTLY ONE of these. A sell is sized in shares — you sell what you
+    # hold. A buy is sized in dollars, because "how much of my money" is the
+    # question a person actually answers, and SnapTrade takes a notional
+    # amount natively rather than making us round a share count.
+    units: Optional[float] = None
+    notional: Optional[float] = None
     order_type: str = "Market"
     time_in_force: str = "Day"
     price: Optional[float] = None  # limit price; ignored for Market
+
+    @model_validator(mode="after")
+    def exactly_one_size(self) -> "PreviewOrderRequest":
+        if (self.units is None) == (self.notional is None):
+            raise ValueError(
+                "Send exactly one of `units` or `notional`. Sending both "
+                "would let the ticket display one number and transmit "
+                "another."
+            )
+        return self
 
 
 class PreviewOrderResponse(BaseModel):
@@ -243,6 +311,7 @@ def preview_order(
             ticker=payload.symbol,
             action=payload.action,
             units=payload.units,
+            notional=payload.notional,
             order_type=payload.order_type,
             time_in_force=payload.time_in_force,
             price=payload.price,

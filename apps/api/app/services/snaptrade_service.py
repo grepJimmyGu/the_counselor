@@ -404,7 +404,8 @@ def preview_order(
     account_id: str,
     ticker: str,
     action: str,
-    units: float,
+    units: Optional[float] = None,
+    notional: Optional[float] = None,
     order_type: str = "Market",
     time_in_force: str = "Day",
     price: Optional[float] = None,
@@ -420,8 +421,12 @@ def preview_order(
     reg = get_registration(db, user_id)
     if reg is None:
         raise RuntimeError("No brokerage connection for this user.")
-    if units <= 0:
+    if (units is None) == (notional is None):
+        raise ValueError("Send exactly one of `units` or `notional`.")
+    if units is not None and units <= 0:
         raise ValueError("units must be positive")
+    if notional is not None and notional <= 0:
+        raise ValueError("notional must be positive")
     if action.upper() not in {"BUY", "SELL"}:
         raise ValueError("action must be BUY or SELL")
 
@@ -440,7 +445,9 @@ def preview_order(
         universal_symbol_id=symbol_id,
         order_type=order_type,
         time_in_force=time_in_force,
-        units=units,
+        # SnapTrade takes one or the other. Passing `units=None` explicitly
+        # would send a null; omit the key that is not in play.
+        **({"units": units} if units is not None else {"notional_value": notional}),
         price=price,
     )
     body = _body(resp) or {}

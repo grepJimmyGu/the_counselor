@@ -449,3 +449,94 @@ def test_the_portal_url_carries_the_return_target(
     )
     _, kwargs = api.authentication.login_snap_trade_user.call_args
     assert kwargs["custom_redirect"].endswith("/flow/portfolio_mode?connected=1")
+
+
+# ── buys are sized in dollars (PRD-41 §8.6) ─────────────────────────────────
+
+
+def test_a_buy_is_sized_in_dollars_not_shares(make_user, db: Session, configured, trading):
+    """`notional_value` goes to SnapTrade natively.
+
+    A sell is sized in shares — you sell what you hold. A buy answers "how
+    much of my money", and converting that to a share count ourselves means
+    rounding, a stale price, and a number on the ticket that differs from
+    what the broker fills. SnapTrade takes the dollar amount directly.
+    """
+    user = make_user(email="st-notional@test.com")
+    api = _trading_api()
+    st.register_user(db, user.id, client=api)
+
+    st.preview_order(
+        db, user.id, account_id="acct-1", ticker="NVDA",
+        action="BUY", notional=2000.0, client=api,
+    )
+    kwargs = api.trading.get_order_impact.call_args.kwargs
+    assert kwargs["notional_value"] == 2000.0
+    assert "units" not in kwargs, (
+        "sent both a share count and a dollar amount — SnapTrade takes one, "
+        "and sending both lets the ticket display one and transmit the other"
+    )
+    assert kwargs["action"] == "BUY"
+
+
+def test_a_sell_still_goes_by_share_count(make_user, db: Session, configured, trading):
+    user = make_user(email="st-units@test.com")
+    api = _trading_api()
+    st.register_user(db, user.id, client=api)
+
+    st.preview_order(
+        db, user.id, account_id="acct-1", ticker="NVDA",
+        action="SELL", units=120, client=api,
+    )
+    kwargs = api.trading.get_order_impact.call_args.kwargs
+    assert kwargs["units"] == 120
+    assert "notional_value" not in kwargs
+
+
+def test_sending_both_sizes_is_refused(make_user, db: Session, configured, trading):
+    """The ambiguity is the danger: which one would the broker honour?"""
+    user = make_user(email="st-both@test.com")
+    api = _trading_api()
+    st.register_user(db, user.id, client=api)
+    with pytest.raises(ValueError, match="exactly one"):
+        st.preview_order(
+            db, user.id, account_id="acct-1", ticker="NVDA",
+            action="BUY", units=10, notional=2000.0, client=api,
+        )
+
+
+def test_sending_neither_size_is_refused(make_user, db: Session, configured, trading):
+    user = make_user(email="st-neither@test.com")
+    api = _trading_api()
+    st.register_user(db, user.id, client=api)
+    with pytest.raises(ValueError, match="exactly one"):
+        st.preview_order(
+            db, user.id, account_id="acct-1", ticker="NVDA",
+            action="BUY", client=api,
+        )
+
+
+def test_accounts_are_listed_so_a_buy_can_choose_one(
+    make_user, db: Session, configured,
+) -> None:
+    """A SELL learns its account from the position being sold. A BUY cannot —
+    you do not own the thing yet — so the account list has to be reachable on
+    its own, including for a user whose brokerage account is still empty.
+    """
+    from app.api.routes.snaptrade import snaptrade_accounts
+
+    user = make_user(email="st-accts@test.com")
+    api = _api()
+    api.account_information.list_user_accounts.return_value = [
+        {"id": "acct-1", "name": "Roth", "number": "…8821",
+         "institution_name": "Schwab"},
+        {"name": "no id — unaddressable"},
+    ]
+    st.register_user(db, user.id, client=api)
+
+    with patch.object(st, "_client", return_value=api):
+        rows = snaptrade_accounts(current_user=user, db=db)
+
+    assert len(rows) == 1, "an account with no id is not an option we can offer"
+    assert rows[0].id == "acct-1"
+    assert rows[0].institution_name == "Schwab"

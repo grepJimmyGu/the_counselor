@@ -38,6 +38,7 @@ from app.models.signal_alert_subscription import SignalAlertSubscription
 from app.models.signal_event import SignalEvent
 from app.services import saved_strategy_service
 from app.services.saved_strategy_service import SaveStrategyRequest
+from app.jobs.signal_cron import SIGNAL_READER_VERSION
 
 
 # ── Fixtures: synthesize a subscribed strategy + a "prior cash" signal ───────
@@ -82,10 +83,21 @@ def _subscribe(db: Session, user, strategy) -> SignalAlertSubscription:
 
 def _seed_prior_state(db: Session, strategy, *, signal: dict) -> SavedStrategySignalState:
     """Seed a prior SavedStrategySignalState so the next compute sees a
-    change instead of a first-write."""
+    change instead of a first-write.
+
+    STAMPED WITH THE CURRENT READER VERSION, and that is load-bearing now.
+    `signal_cron` treats a stored signal written by an older reader as
+    pre-migration state and overwrites it SILENTLY — otherwise the first run
+    after `_extract_signal` was corrected would flip nearly every strategy at
+    once and email every subscriber about arithmetic we fixed.
+
+    These tests are about dispatch on a genuine change, not about that
+    migration, so their prior state has to look like something the current
+    reader wrote. `test_current_weights_signal.py` covers the legacy path.
+    """
     state = SavedStrategySignalState(
         saved_strategy_id=strategy.id,
-        current_signal=signal,
+        current_signal={"v": SIGNAL_READER_VERSION, **signal},
         current_signal_display="CASH",
         as_of_date=date.today() - timedelta(days=1),
     )
@@ -276,8 +288,12 @@ def test_per_strategy_throttle_blocks_second_same_day_dispatch(
     assert send_count[0] == 1
 
     # Flip the state back to cash so the 2nd tick detects another change.
+    # Version-stamped for the same reason as `_seed_prior_state`: an unstamped
+    # payload reads as pre-migration state and is overwritten silently, which
+    # would skip the dispatch entirely instead of throttling it — and this
+    # test is about the throttle.
     state = db.get(SavedStrategySignalState, strategy.id)
-    state.current_signal = {"position": "cash"}
+    state.current_signal = {"v": SIGNAL_READER_VERSION, "position": "cash"}
     db.commit()
 
     # Second tick same day — throttled.

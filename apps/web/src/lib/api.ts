@@ -41,6 +41,7 @@ import type {
   BrokerPosition,
   OrderPreview,
   OrderResult,
+  BrokerAccount,
   SaveStrategyResult,
   ExitTier,
   UserSavedStrategy,
@@ -1594,12 +1595,25 @@ export async function listBrokerPositions(
 }
 
 /** Price an order WITHOUT sending it. Nothing is transmitted to the broker. */
+/** The user's connected brokerage accounts. Needed to BUY: a sell takes its
+ *  account from the position, a buy has nothing to take it from. */
+export async function listBrokerAccounts(
+  backendToken: string,
+): Promise<BrokerAccount[]> {
+  return fetchApi<BrokerAccount[]>("/api/snaptrade/accounts", {
+    headers: { Authorization: `Bearer ${backendToken}` },
+  });
+}
+
 export async function previewOrder(
   body: {
     account_id: string;
     symbol: string;
     action: string;
-    units: number;
+    /** EXACTLY ONE of these. Shares to sell, or dollars to buy — the backend
+     *  refuses both, because the ticket would show one and send the other. */
+    units?: number;
+    notional?: number;
     order_type?: string;
     time_in_force?: string;
     price?: number | null;

@@ -93,3 +93,17 @@ class BacktestResult(BaseModel):
     # stored payloads without the key would then claim to be current, which
     # is the one thing this field exists to prevent.
     engine_version: Optional[str] = None
+    # Today's target allocation — the last row of the engine's weights matrix.
+    # {"NVDA": 1.0} means the strategy says hold NVDA right now; {"NVDA": 0.0}
+    # means be in cash.
+    #
+    # Every "what does my strategy say today" surface has been INFERRING this
+    # from `trade_log`, because the matrix never left the engine. The signal
+    # cron's single-asset branch reads the last CLOSED trade and calls you
+    # long if it had duration and non-zero P&L — so a strategy that went to
+    # cash two months ago still reports LONG. This field is the real answer.
+    #
+    # None for results computed before this field existed, and for an empty
+    # frame. An all-zero row is a meaningful answer (fully in cash) and is
+    # returned as-is rather than collapsed to None.
+    current_weights: Optional[dict[str, float]] = None

@@ -1635,9 +1635,22 @@ class BacktestEngine:
             (1.0 + portfolio_returns).resample("M").prod() - 1.0
         )
 
+        # Today's target allocation. `weights` is the matrix every branch of
+        # `_generate_weights` has been building all along; its last row IS
+        # what the strategy says to hold right now. Nothing outside this
+        # method could see it until here, which is why the signal cron
+        # resorted to inferring the current position from closed trades.
+        current_weights: Optional[dict] = None
+        if not weights.empty:
+            current_weights = {
+                str(sym): (0.0 if pd.isna(w) else float(w))
+                for sym, w in weights.iloc[-1].items()
+            }
+
         result = BacktestResult(
             backtest_id=str(uuid4()),
             strategy_json=strategy,
+            current_weights=current_weights,
             metrics=metrics,
             equity_curve=[CurvePoint(date=dt.date(), value=float(value)) for dt, value in equity_curve.items()],
             benchmark_curve=[CurvePoint(date=dt.date(), value=float(value)) for dt, value in benchmark_curve.items()],

@@ -20,6 +20,19 @@ vi.mock("@/lib/api", () => ({
   getStrategyPositions: vi.fn(),
   getStrategyTradeLog: vi.fn(),
   confirmPositionExit: vi.fn(),
+  // <StrategySignalPanel> composes in here and fetches its own card, which
+  // in turn mounts <PlaceOrder>. This file's mock has to grow every time a
+  // fetching brick is added to the dashboard — the coupling is the cost of
+  // mocking the api module rather than the child component.
+  getSignalCard: vi.fn(async () => ({ state: "pending", display: "—" })),
+  getSnapTradeStatus: vi.fn(async () => ({
+    configured: false, registered: false, connected_accounts: 0,
+    trading_enabled: false, last_synced_at: null,
+  })),
+  listBrokerPositions: vi.fn(async () => []),
+  listBrokerAccounts: vi.fn(async () => []),
+  previewOrder: vi.fn(),
+  placeOrder: vi.fn(),
 }));
 
 const useSessionMock = vi.fn(() => ({

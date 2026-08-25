@@ -84,9 +84,12 @@ CALLS = [
     # the first preview any user runs.
     ("reference_data", "symbol_search_user_account",
      {"user_id", "user_secret", "account_id", "substring"}),
+    # `units` for a sell, `notional_value` for a buy — the service sends
+    # exactly one. Both are pinned: a buy that reached production with a
+    # renamed notional kwarg would fail on the first purchase anyone makes.
     ("trading", "get_order_impact",
      {"user_id", "user_secret", "account_id", "action", "universal_symbol_id",
-      "order_type", "time_in_force", "units", "price"}),
+      "order_type", "time_in_force", "units", "notional_value", "price"}),
     ("trading", "place_order", {"user_id", "user_secret", "trade_id"}),
 ]
 
