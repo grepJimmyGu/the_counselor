@@ -3392,6 +3392,43 @@ export interface BrokerPosition {
   open_pnl?: number | null;
 }
 
+/** PRD-28 Step 4 — one rung of a tracked position's ladder, priced.
+ *
+ *  `trigger_pct` is measured from ENTRY (it is the ladder's own number).
+ *  `distance_pct` is measured from the CURRENT price — how far the stock
+ *  must move from here to reach the rung. They are different numbers and
+ *  the second is the one a holder is actually asking for. */
+export interface TierMarker {
+  label?: string | null;
+  trigger_pct: number;
+  price: number;
+  distance_pct?: number | null;
+}
+
+/** An open position the user tracks, with its live rungs.
+ *
+ *  `price_source` matters: a daily strategy is evaluated on the CLOSE, so an
+ *  intraday quote is worth showing but is not what the ladder will be
+ *  measured against. The UI has to be able to say which one it has. */
+export interface TrackedPosition {
+  strategy_id: string;
+  strategy_title: string;
+  position_id: string;
+  symbol: string;
+  entered_at: string;
+  entry_price: number;
+  shares_initial: number;
+  shares_remaining: number;
+  latest_price?: number | null;
+  price_source: "intraday" | "daily_close" | "none";
+  price_at?: string | null;
+  pct_change_from_entry?: number | null;
+  stop?: TierMarker | null;
+  next_target?: TierMarker | null;
+  unresolved_count: number;
+  bar_resolution: string;
+}
+
 /** A priced order the user has not yet sent. `trade_id` is the ONLY way to
  *  place one, which is what makes the preview impossible to skip. */
 export interface OrderPreview {

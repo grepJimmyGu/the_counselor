@@ -44,6 +44,7 @@ import type {
   SaveStrategyResult,
   ExitTier,
   UserSavedStrategy,
+  TrackedPosition,
 } from "@/lib/contracts";
 import { dispatchUpgrade } from "@/lib/upgrade-modal-event-bus";
 
@@ -864,6 +865,20 @@ export async function attachExitLadder(
       body: JSON.stringify({ exit_ladder: exitLadder }),
     },
   );
+}
+
+/** PRD-28 Step 4 — every open position the user tracks, across every
+ *  strategy, with its live stop and next target.
+ *
+ *  The per-strategy dashboard answers "how is THIS strategy doing"; this
+ *  answers "what am I holding, and what happens next" without needing to
+ *  know which strategy to open first. */
+export async function listOpenPositions(
+  backendToken: string,
+): Promise<TrackedPosition[]> {
+  return fetchApi<TrackedPosition[]>("/api/saved-strategies/open-positions", {
+    headers: { Authorization: `Bearer ${backendToken}` },
+  });
 }
 
 export async function declarePosition(

@@ -61,6 +61,17 @@ export default function MyStrategiesPage() {
           Open any strategy to see its live dashboard — positions, exit
           ladder, and trade log.
         </p>
+        {/* The sibling question. This page is organised by STRATEGY; someone
+            who wants "what am I actually holding" has to open each one to
+            find out. PRD-28 Step 4 built the other view — it needs a door,
+            or it is another merged feature nobody can reach. */}
+        <Link
+          href={"/account/positions" as Route}
+          data-testid="my-strategies-positions-link"
+          className="mt-2 inline-flex items-center gap-1 text-[13px] font-medium text-primary underline-offset-2 hover:underline"
+        >
+          See what you&rsquo;re holding <ArrowRight className="h-3.5 w-3.5" />
+        </Link>
       </header>
 
       {status !== "loading" && !backendToken ? (

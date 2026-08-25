@@ -1,7 +1,8 @@
 # PRD-28 — Execution entry points
 
-**Status:** Steps 0–3 shipped (#337, #338, #339, #340, and the `track`
-PR). Step 4 (`/account/positions`) and the four §7 decisions remain.
+**Status:** COMPLETE. Steps 0–4 shipped (#337, #338, #339, #340, #341,
+and the positions PR). The four §7 decisions remain open; the guard work
+the build surfaced is on `docs/PROJECT_BACKLOG.md` §5b.
 **Date:** 2026-08-21
 **Companions:** `build_specs/execution_integration_plan.md` (engineering
 plan), `build_specs/DRAFT_pm_execution_user_path.md` (PM design)
@@ -221,10 +222,22 @@ seeder rather than write a second one was right, and it is what
 surfaced the unit bug. A fresh implementation would have been
 correct in isolation and left the promote path broken.
 
-### Step 4 — `/account/positions`
+### Step 4 — `/account/positions` ✅
 Unresolved exits first, tracked positions with their next tier, untracked
 broker holdings third. Under `/account`, not top-level — a permanent
 trading advertisement to signed-out visitors is a different product.
+
+**Surfaced a fifth reachability break**: the positions grid read only
+`IntradayBar`, so a daily position had no current price and no
+distance-to-tier — the same shape as the gates #331/#337/#340 removed.
+Both the new endpoint and the per-strategy grid now share one price
+resolver (intraday, then daily close) so neither can drift back.
+
+**Deviation from the spec, deliberately**: §5 says "tracked positions
+with their next tier" (singular). It reports BOTH the live stop and the
+next target — a position has both at once and picking one would be
+arbitrary. The stop is the one that can hurt you; the target is the one
+you are waiting for.
 
 ---
 

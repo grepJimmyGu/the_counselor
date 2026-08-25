@@ -196,12 +196,24 @@ export function SavedStrategiesTile() {
           </h2>
         </Link>
         {rows && rows.length > 0 && (
-          <Link
-            href={"/account/strategies" as Route}
-            className="text-xs font-medium text-primary transition-colors hover:underline"
-          >
-            View all →
-          </Link>
+          <div className="flex items-center gap-3">
+            {/* PRD-28 Step 4. Someone with saved strategies is exactly who
+                wants "what am I holding" — and this tile is the highest-
+                traffic place they already look. */}
+            <Link
+              href={"/account/positions" as Route}
+              data-testid="saved-strategies-tile-positions"
+              className="text-xs font-medium text-primary transition-colors hover:underline"
+            >
+              Positions
+            </Link>
+            <Link
+              href={"/account/strategies" as Route}
+              className="text-xs font-medium text-primary transition-colors hover:underline"
+            >
+              View all →
+            </Link>
+          </div>
         )}
       </div>
 

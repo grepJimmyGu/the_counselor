@@ -172,6 +172,206 @@ def list_unresolved_exits(
     return out
 
 
+# ── PRD-28 Step 4: every tracked position, across every strategy ────────────
+#
+# DECLARED BEFORE `/{strategy_id}` — FastAPI matches in declaration order, so
+# below that route this path would be swallowed as a strategy id and 404.
+
+
+class TierMarker(BaseModel):
+    """One rung, priced. `distance_pct` is how far the price must move FROM
+    HERE to reach it — which is the number a holder actually wants, and is
+    not the same as the tier's trigger (that one is measured from entry)."""
+    label: Optional[str] = None
+    trigger_pct: float
+    price: float
+    distance_pct: Optional[float] = None
+
+
+class TrackedPosition(BaseModel):
+    strategy_id: str
+    strategy_title: str
+    position_id: str
+    symbol: str
+    entered_at: datetime
+    entry_price: float
+    shares_initial: float
+    shares_remaining: float
+    latest_price: Optional[float] = None
+    # Which price this is. A daily strategy is monitored on the CLOSE, so a
+    # fresher intraday quote is worth showing but is not what the ladder will
+    # be evaluated against — the UI needs to be able to say which it has.
+    price_source: str = "none"          # "intraday" | "daily_close" | "none"
+    price_at: Optional[str] = None
+    pct_change_from_entry: Optional[float] = None
+    # BOTH directions, deliberately. PRD-28 says "next tier", but a position
+    # has a live stop AND a live target at the same time and picking one
+    # would be arbitrary — the stop is the one that can hurt you, the target
+    # is the one you are waiting for.
+    stop: Optional[TierMarker] = None
+    next_target: Optional[TierMarker] = None
+    # Tiers that fired and the user has neither acted on nor declined. Shown
+    # so a position with an open decision cannot look settled.
+    unresolved_count: int = 0
+    bar_resolution: str = "daily"
+
+
+def _latest_prices(db: Session, symbols) -> dict:
+    """Most recent price per symbol: intraday cache first, daily close after.
+
+    THE FALLBACK IS THE POINT. `get_strategy_positions` read only
+    `IntradayBar`, and a daily strategy has no intraday bars — so
+    `latest_price` and `pct_change_from_entry` came back None for every
+    daily position, on the one configuration the product supports. The
+    dashboard's distance-to-tier bars had nothing to render.
+
+    Returns {symbol: (price, iso_timestamp, source)}.
+    """
+    from sqlalchemy import select, desc
+    from app.models.intraday_bar import IntradayBar
+    from app.models.price_bar import PriceBar
+
+    out = {}
+    for sym in symbols:
+        bar = db.execute(
+            select(IntradayBar)
+            .where(IntradayBar.symbol == sym)
+            .order_by(desc(IntradayBar.bar_time))
+            .limit(1)
+        ).scalar_one_or_none()
+        if bar is not None:
+            out[sym] = (float(bar.close), bar.bar_time.isoformat(), "intraday")
+            continue
+        daily = db.execute(
+            select(PriceBar)
+            .where(PriceBar.symbol == sym)
+            .order_by(desc(PriceBar.trading_date))
+            .limit(1)
+        ).scalar_one_or_none()
+        if daily is not None:
+            out[sym] = (
+                float(daily.close), daily.trading_date.isoformat(), "daily_close",
+            )
+    return out
+
+
+def _tier_markers(ladder, *, entry_price: float, latest_price, fired):
+    """The live stop and the next live target, priced.
+
+    Fired tiers are excluded using the SAME `trigger_type_for` indexing the
+    monitor and the backtester use. Re-deriving "has this rung gone yet"
+    with a local rule is exactly the divergence `exit_ladder.py` exists to
+    prevent — a stop that shows as live here after firing would tell a user
+    they are protected when they are not.
+    """
+    from app.services.exit_ladder import trigger_type_for
+
+    stop = None
+    target = None
+    for index, tier in enumerate(ladder or []):
+        try:
+            trigger = float(tier.get("trigger_pct"))
+        except (TypeError, ValueError):
+            continue
+        if trigger_type_for(index) in fired:
+            continue
+        price = entry_price * (1.0 + trigger)
+        distance = (
+            (price - latest_price) / latest_price
+            if latest_price else None
+        )
+        marker = TierMarker(
+            label=tier.get("label"), trigger_pct=trigger,
+            price=round(price, 4),
+            distance_pct=distance,
+        )
+        # Ladder order is ascending, so the first unfired negative tier is the
+        # nearest stop and the first unfired positive one is the next target.
+        if trigger < 0 and stop is None:
+            stop = marker
+        elif trigger > 0 and target is None:
+            target = marker
+    return stop, target
+
+
+@router.get("/open-positions", response_model=list[TrackedPosition])
+def list_open_positions(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[TrackedPosition]:
+    """Every open position the user tracks, across every strategy.
+
+    The per-strategy dashboard answers "how is THIS strategy doing". Nothing
+    answered "what am I holding, and what happens next" without knowing
+    which strategy to open first — which is the question someone actually
+    has when they sit down.
+    """
+    from sqlalchemy import select
+    from app.models.position_state import PositionState
+
+    rows = saved_strategy_service.list_user_strategies(db, current_user.id)
+    by_id = {r.id: r for r in rows}
+    if not by_id:
+        return []
+
+    positions = db.execute(
+        select(PositionState)
+        .where(PositionState.saved_strategy_id.in_(list(by_id.keys())))
+        .where(PositionState.is_open == True)  # noqa: E712
+    ).scalars().all()
+    if not positions:
+        return []
+
+    prices = _latest_prices(db, {p.symbol for p in positions})
+
+    out: list[TrackedPosition] = []
+    for pos in positions:
+        strategy = by_id.get(pos.saved_strategy_id)
+        sj = (strategy.strategy_json or {}) if strategy else {}
+        ladder = (sj.get("risk_management") or {}).get("exit_ladder") or []
+
+        price_row = prices.get(pos.symbol)
+        latest = price_row[0] if price_row else None
+        pct = (
+            (latest - pos.entry_price) / pos.entry_price
+            if latest is not None and pos.entry_price else None
+        )
+
+        log = pos.trade_log or []
+        fired = {e.get("event") for e in log if e.get("event")}
+        stop, target = _tier_markers(
+            ladder, entry_price=pos.entry_price, latest_price=latest, fired=fired,
+        )
+
+        out.append(TrackedPosition(
+            strategy_id=pos.saved_strategy_id,
+            strategy_title=(strategy.title if strategy else None) or "Your strategy",
+            position_id=pos.id,
+            symbol=pos.symbol,
+            entered_at=pos.entered_at,
+            entry_price=pos.entry_price,
+            shares_initial=pos.shares_initial,
+            shares_remaining=pos.shares_remaining,
+            latest_price=latest,
+            price_source=price_row[2] if price_row else "none",
+            price_at=price_row[1] if price_row else None,
+            pct_change_from_entry=pct,
+            stop=stop,
+            next_target=target,
+            unresolved_count=sum(
+                1 for e in log if e.get("status") == "pending_confirmation"
+            ),
+            bar_resolution=sj.get("bar_resolution") or "daily",
+        ))
+
+    # Positions with an open decision first, then the ones closest to a stop.
+    out.sort(key=lambda p: (
+        -p.unresolved_count,
+        abs(p.stop.distance_pct) if p.stop and p.stop.distance_pct is not None else 9e9,
+    ))
+    return out
+
+
 @router.get("/{strategy_id}", response_model=SavedStrategyResponse)
 def get_saved_strategy(
     strategy_id: str,
@@ -593,7 +793,6 @@ def get_strategy_positions(
     dashboard. Includes `latest_price` + `pct_change_from_entry` so the
     UI can render distance-to-tier bars without a second request."""
     from sqlalchemy import select, desc
-    from app.models.intraday_bar import IntradayBar
     from app.models.position_state import PositionState
 
     _ = _resolve_owned_strategy(db, strategy_id, current_user)
@@ -604,21 +803,15 @@ def get_strategy_positions(
         .order_by(desc(PositionState.is_open), desc(PositionState.updated_at))
     ).scalars().all()
 
-    # Latest price per symbol — read from the intraday cache. The query
-    # picks the most recent bar across all resolutions; the dashboard
-    # cares about "most recent price we have," not which resolution.
-    sym_to_price: dict[str, tuple[float, datetime]] = {}
-    if rows:
-        symbols = {pos.symbol for pos in rows}
-        for sym in symbols:
-            latest = db.execute(
-                select(IntradayBar)
-                .where(IntradayBar.symbol == sym)
-                .order_by(desc(IntradayBar.bar_time))
-                .limit(1)
-            ).scalar_one_or_none()
-            if latest:
-                sym_to_price[sym] = (float(latest.close), latest.bar_time)
+    # Latest price per symbol: intraday cache first, daily close after.
+    #
+    # This used to read ONLY `IntradayBar`. A daily strategy has no intraday
+    # bars, so every daily position came back with `latest_price=None` and
+    # `pct_change_from_entry=None`, and the dashboard's distance-to-tier bars
+    # had nothing to render — on the only configuration the product supports.
+    # Same shape as the daily gates #331/#337/#340 removed: the code was
+    # correct when active execution meant intraday, and nobody revisited it.
+    sym_to_price = _latest_prices(db, {pos.symbol for pos in rows}) if rows else {}
 
     positions: list[PositionView] = []
     open_count = 0

@@ -231,6 +231,79 @@ Phase 1 is essentially done — only 1g and the LLM prompt rewrite remain.
 
 ---
 
+## 5b. Reachability guards — the "shipped but nobody can reach it" class
+
+**Raised by Jimmy 2026-08-23**, after the same failure landed five times in
+one week's execution work. Agreed as backlog rather than in-line work.
+
+### The pattern, stated precisely
+
+Not "we forgot to build the UI" — in every case the UI existed. It is a
+**reachability break: a merged capability whose entry condition is false for
+every real user.**
+
+| # | PR | what shipped | why nobody could reach it |
+|---|---|---|---|
+| 1 | #327 → fixed #331 | daily position monitor | dashboard gated on `bar_resolution !== "daily"` |
+| 2 | #331 missed one → #337 | same gate, second copy | `/account/strategies/[id]:44`, where every SignalCard lands |
+| 3 | #334 + #336 → #338 | brokerage connect + order placement | `connectBrokerage()` had **zero callers**, so `registered` was false for everyone, so `<PlaceOrder>` never rendered |
+| 4 | — → fixed #340 | daily strategies | `_link_saved_strategy` refused the row, so "My strategies" was empty |
+| 5 | — → fixed in the Step 4 PR | positions grid | read only `IntradayBar`; a daily position had no price and no distance-to-tier |
+
+**Why tests never caught any of them.** Every test constructs its own
+preconditions — backend tests call the endpoint directly, component tests
+mount with props that satisfy the gate. Nothing asserts that a real code path
+*produces* those props. The bug lives in the gap between what a test builds
+and what production builds, which is precisely where no test looks.
+
+### Two guards, because there are two sub-classes
+
+**A. Zero callers** (case 3). Mechanical and cheap:
+
+```bash
+for fn in $(grep -o "^export async function [a-zA-Z0-9_]*" src/lib/api.ts | awk '{print $4}'); do
+  n=$(grep -rl "\b${fn}\b" src | grep -v "^src/lib/api.ts$" | grep -vE "__tests__|\.test\." | wc -l)
+  [ "$n" = "0" ] && echo "unreachable: $fn"
+done
+```
+
+Run 2026-08-23: **15 hits.** Most are legacy; three are live gaps, listed
+below. Needs an allowlist for genuinely-retired helpers before it can gate CI.
+
+**B. A product decision inlined as a literal** (cases 1, 2, 4, 5). The real
+culprit: `bar_resolution !== "daily"` was used as a proxy for "is this
+strategy live?" in five-plus places. When the product inverted, all of them
+had to flip and nobody could find them all.
+
+Fix shape: **name the decision, define it once, ban the literal** — the same
+shape as `test_snaptrade_readonly_guard.py` and
+`test_exit_ladder_signoff_guard.py`, both of which demonstrably bite when a
+violation is planted.
+
+**C. The human backstop.** One line in the PR checklist: *"What does a user
+click to reach this, and what makes that control appear?"* If the answer is
+"nothing yet," the PR says so. That question was never asked on #334 or #336.
+
+| Item | Effort | Trigger |
+|---|---|---|
+| Guard A — caller check + allowlist, wired into CI | ~30 min | Before the next slice that adds an API helper |
+| Guard B — `isTracked()` named predicate, raw `"daily"` comparison banned outside it | ~30 min | Same |
+| Guard C — PR checklist line | 5 min | Any time |
+
+### Live reachability gaps found by the 2026-08-23 sweep
+
+| Helper | Consequence | Effort |
+|---|---|---|
+| **`deleteSavedStrategy`** | **No delete control exists anywhere in the UI.** Scout's cap is 10 saved strategies, so a Scout user hits the wall with no way out but upgrading. Worse: the cap counts `BacktestRecord` rows with a slug while delete removes a `SavedStrategy` row — **different tables**, so even with a button it would not free a slot. Decide whether the wall is intended monetization before building anything. | ~1h + a product decision |
+| `listTickerAlerts` | Users can subscribe to ticker alerts (`subscribeTickerAlert` is wired) but no surface lists or manages what they are subscribed to. Subscribe-only. | ~1h |
+| `getSavedStrategySignal` | The read side of "Watch it" — shipped in the `track` step (#341). A user subscribes to signal alerts and nothing in-app shows the signal state. | ~1h |
+
+Twelve further zero-caller helpers look like genuine legacy (`parseStrategy`,
+`getFundamentalProfile`, `getAnonymousEntitlements`, …) and want deletion
+rather than wiring — but that is a read-through, not an assumption.
+
+---
+
 ## 6. Pending external dependencies
 
 | Item | Blocking on | Effort once unblocked |
