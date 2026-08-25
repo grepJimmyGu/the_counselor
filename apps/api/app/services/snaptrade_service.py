@@ -362,12 +362,25 @@ def resolve_symbol_id(
     is scoped to the account's brokerage — the same ticker can differ
     between brokers. Resolving per account rather than globally is why this
     takes `account_id`.
+
+    ON `reference_data`, NOT `trading`. It reads as a trading call and it is
+    the first step of placing an order, so it was written as
+    `api.trading.symbol_search_user_account` — which does not exist. That is
+    an AttributeError on the first preview a user ever runs, i.e. the first
+    time anyone presses Place.
+
+    Invisible to the whole suite, because every test here injects a
+    `MagicMock` client and a mock answers to any attribute you ask it for.
+    Third instance of trap #14 in this integration, after
+    `get_user_account_positions` and the `SnapTrade(client_id=...)`
+    constructor. `tests/test_snaptrade_sdk_contract.py` now checks every
+    call against the installed SDK instead of against memory.
     """
     reg = get_registration(db, user_id)
     if reg is None:
         return None
     api = client or _client()
-    resp = api.trading.symbol_search_user_account(
+    resp = api.reference_data.symbol_search_user_account(
         user_id=reg.user_id,
         user_secret=decrypt_secret(reg.user_secret_encrypted),
         account_id=account_id,
