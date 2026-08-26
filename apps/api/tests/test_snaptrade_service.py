@@ -947,3 +947,94 @@ def test_a_bare_list_response_still_works(
 
     out = st.list_activities(db, user.id, client=api)
     assert len(out) == 2
+
+
+def test_the_behavior_route_actually_reads_through_the_ledger(
+    make_user, db: Session, configured,
+) -> None:
+    """REACHABILITY, not arithmetic. `portfolio_ledger_service` is covered by
+    its own suite; what this pins is that the shipped endpoint CALLS it.
+
+    Five times now a capability has landed in a service and no surface has
+    reached it. The ledger tests all construct their own preconditions, so
+    none of them would notice if this route went on matching raw units — and
+    the symptom would be a 90% loss on a user's screen, which reads exactly
+    like a real finding.
+    """
+    from datetime import date as _date, datetime as _dt
+    from unittest.mock import patch as _patch
+
+    from app.api.routes.snaptrade import snaptrade_behavior
+    from app.models.price_bar import PriceBar
+
+    user = make_user(email="behav-split@test.com")
+
+    # NVDA splits 10:1 on 2026-03-02.
+    db.add(PriceBar(
+        symbol="NVDA", trading_date=_date(2026, 3, 2),
+        open=100.0, high=101.0, low=99.0, close=100.0, adjusted_close=100.0,
+        volume=1_000_000, dividend_amount=0.0, split_coefficient=10.0,
+        source="alpha_vantage", fetched_at=_dt.utcnow(),
+    ))
+    db.commit()
+
+    api = _api()
+    # Bought 10 at $1,000 before the split, sold 100 at $100 after it.
+    # $10,000 in, $10,000 out — the money never moved.
+    api.account_information.get_account_activities.return_value = {"data": [
+        {"id": "1", "type": "BUY", "symbol": {"symbol": {"symbol": "NVDA"}},
+         "units": 10, "price": 1000.0, "trade_date": "2026-01-05"},
+        {"id": "2", "type": "SELL", "symbol": {"symbol": {"symbol": "NVDA"}},
+         "units": 100, "price": 100.0, "trade_date": "2026-06-05"},
+    ]}
+    st.register_user(db, user.id, client=api)
+
+    with _patch.object(st, "_client", return_value=api):
+        out = snaptrade_behavior(current_user=user, db=db)
+
+    # Matched raw, this reports one round trip at −$9,000 and 90 orphaned
+    # shares. Through the ledger it is one flat round trip.
+    assert out.round_trips == 1
+    assert abs(out.realised_pnl) < 0.01
+    assert out.unmatched_sells == 0
+    assert out.splits_seen == 1
+    assert out.splits_adjusted == 1
+    assert out.symbols_included == 1
+    assert out.excluded == []
+
+
+def test_the_behavior_route_reports_a_symbol_it_could_not_reconcile(
+    make_user, db: Session, configured,
+) -> None:
+    """The other half: when neither matching reconciles, the endpoint names
+    the symbol rather than publishing the smaller wrong number."""
+    from datetime import date as _date, datetime as _dt
+    from unittest.mock import patch as _patch
+
+    from app.api.routes.snaptrade import snaptrade_behavior
+    from app.models.price_bar import PriceBar
+
+    user = make_user(email="behav-unrec@test.com")
+    db.add(PriceBar(
+        symbol="NVDA", trading_date=_date(2026, 3, 2),
+        open=100.0, high=101.0, low=99.0, close=100.0, adjusted_close=100.0,
+        volume=1_000_000, dividend_amount=0.0, split_coefficient=10.0,
+        source="alpha_vantage", fetched_at=_dt.utcnow(),
+    ))
+    db.commit()
+
+    api = _api()
+    # A sell of a position opened before the window, on a symbol that split.
+    api.account_information.get_account_activities.return_value = {"data": [
+        {"id": "1", "type": "SELL", "symbol": {"symbol": {"symbol": "NVDA"}},
+         "units": 50, "price": 100.0, "trade_date": "2026-06-05"},
+    ]}
+    st.register_user(db, user.id, client=api)
+
+    with _patch.object(st, "_client", return_value=api):
+        out = snaptrade_behavior(current_user=user, db=db)
+
+    assert out.excluded == [["NVDA", "split_unreconciled"]]
+    assert out.symbols_included == 0
+    assert out.symbols_total == 1
+    assert out.round_trips == 0
