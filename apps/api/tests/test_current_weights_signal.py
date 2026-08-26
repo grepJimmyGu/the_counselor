@@ -295,3 +295,42 @@ def test_a_holding_falling_out_is_reported_as_a_change():
     after = _p(("NVDA", "long"), ("MSFT", "cash"))
     assert not signals_equal(before, after)
     assert classify_change(before, after) in {"rotation", "rebalance", "flip_to_cash"}
+
+
+# ── a one-name strategy is one-name whatever its type ───────────────────────
+
+
+def test_REGRESSION_custom_build_with_one_name_is_not_a_basket():
+    """Found in production, on a real account.
+
+    The single-asset branch keyed on a hardcoded list of five legacy
+    strategy_types. `custom_build` — what the composer AND promote-a-screen
+    both produce — was not on it, so a one-symbol strategy got a `holdings`
+    payload, the card bucketed it BASKET, `symbol` came back null, and no buy
+    was ever offered.
+
+    Two of one user's four strategies were in exactly this state.
+    """
+    for stype in ("custom_build", "single_stock", "breakout"):
+        sig = _extract_signal(
+            _result({"PLD": 1.0}), _sj(stype, ["PLD"]),
+        )
+        assert sig.get("position") == "long", f"{stype} produced {sig}"
+        assert sig.get("ticker") == "PLD"
+
+
+def test_a_multi_name_custom_build_is_still_a_basket():
+    sig = _extract_signal(
+        _result({"NVDA": 0.5, "MSFT": 0.5}), _sj("custom_build", ["NVDA", "MSFT"]),
+    )
+    assert "holdings" in sig
+
+
+def test_a_one_holding_overlay_keeps_the_per_holding_shape():
+    """Shrinking an overlay to a single-name payload would lose WHICH holding
+    the rule fired on — the only thing that overlay reports."""
+    sig = _extract_signal(
+        _result({"NVDA": 0.0}), _sj("portfolio_defensive_overlay", ["NVDA"]),
+    )
+    assert "holdings" in sig
+    assert sig["holdings"][0]["position"] == "cash"

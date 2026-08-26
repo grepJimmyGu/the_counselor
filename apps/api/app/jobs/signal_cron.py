@@ -389,16 +389,27 @@ def _extract_signal(result, sj) -> dict:
     strategy_type = sj.strategy_type
     weights = getattr(result, "current_weights", None)
 
-    single_asset = strategy_type in {
-        "moving_average_filter", "moving_average_crossover",
-        "rsi_mean_reversion", "breakout", "time_series_momentum",
-    }
+    # A ONE-NAME STRATEGY IS A ONE-NAME STRATEGY, whatever its type.
+    #
+    # This used to be a hardcoded list of five legacy strategy_types, so
+    # `custom_build` — what the composer AND promote-a-screen both produce —
+    # fell through to the basket branch. A single-symbol strategy then got a
+    # `holdings` payload, the card bucketed it as BASKET, `symbol` came back
+    # null, and no buy was ever offered for it. Verified against production:
+    # two of one user's four strategies, both `custom_build` with
+    # `universe` length 1, were classified as baskets.
+    #
+    # Portfolio overlays stay per-holding even at one name: the per-holding
+    # shape is the whole point of them, and shrinking to a single-name
+    # payload would lose which holding the rule fired on.
+    universe = list(getattr(sj, "universe", None) or [])
+    single_asset = len(universe) == 1 and not str(strategy_type).startswith("portfolio_")
 
     if weights is None:
         return _extract_signal_legacy(result, sj)
 
     if single_asset:
-        ticker = sj.universe[0] if sj.universe else None
+        ticker = universe[0]
         if ticker is None:
             return {"v": SIGNAL_READER_VERSION, "position": "cash"}
         held = float(weights.get(ticker, 0.0)) > 0
