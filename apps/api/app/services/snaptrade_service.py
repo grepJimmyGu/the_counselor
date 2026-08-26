@@ -625,11 +625,16 @@ def preview_order(
     trade_id = trade.get("id") or body.get("id")
     if not trade_id:
         raise RuntimeError("SnapTrade returned no trade id for this preview.")
+    # The broker's own count wins over ours. On a dollar-sized buy `units`
+    # is None — the whole point is that we did not pick a share count — and
+    # SnapTrade prices the notional and reports back what it will actually
+    # buy. That number is what belongs on the ticket.
+    filled_units = _maybe_float(trade.get("units"))
     return {
         "trade_id": str(trade_id),
         "symbol": ticker.strip().upper(),
         "action": action.upper(),
-        "units": units,
+        "units": filled_units if filled_units is not None else units,
         "estimated_commission": _maybe_float(body.get("estimated_commission")),
         "remaining_cash": _maybe_float(body.get("remaining_cash")),
         "raw": body,

@@ -3508,8 +3508,6 @@ export interface TrackedPosition {
   bar_resolution: string;
 }
 
-/** A priced order the user has not yet sent. `trade_id` is the ONLY way to
- *  place one, which is what makes the preview impossible to skip. */
 /** A connected brokerage account. A SELL learns its account from the position
  *  being sold; a BUY has to be told, because you do not own the thing yet. */
 export interface BrokerAccount {
@@ -3519,11 +3517,16 @@ export interface BrokerAccount {
   institution_name?: string | null;
 }
 
+/** A priced order the user has not yet sent. `trade_id` is the ONLY way to
+ *  place one, which is what makes the preview impossible to skip. */
 export interface OrderPreview {
   trade_id: string;
   symbol: string;
   action: string;
-  units: number;
+  /** OPTIONAL. A buy is sized in dollars, so there is no share count to send
+   *  — the broker computes one and may report none. Typing this `number`
+   *  encoded the same assumption that 500'd every dollar-sized buy. */
+  units?: number | null;
   estimated_commission?: number | null;
   remaining_cash?: number | null;
 }
