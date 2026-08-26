@@ -12,6 +12,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const getSignalCard = vi.fn();
+// Flipped per test. False is the production default today.
+const tradingEnabled = { value: true };
 
 vi.mock("next-auth/react", () => ({
   useSession: () => ({
@@ -27,7 +29,7 @@ vi.mock("@/lib/api", () => ({
   // silently hidden.
   getSnapTradeStatus: async () => ({
     configured: true, registered: true, connected_accounts: 1,
-    trading_enabled: true, last_synced_at: null,
+    trading_enabled: tradingEnabled.value, last_synced_at: null,
   }),
   listBrokerPositions: async () => [],
   listBrokerAccounts: async () => [
@@ -40,7 +42,7 @@ vi.mock("@/lib/api", () => ({
   placeOrder: async () => ({ status: "ACCEPTED" }),
 }));
 
-import { StrategySignalPanel, entrySymbol } from "../strategy-signal-panel";
+import { StrategySignalPanel, entrySymbol, entryTicketText } from "../strategy-signal-panel";
 import type { SignalCard } from "@/lib/contracts";
 
 const LONG: SignalCard = {
@@ -59,6 +61,7 @@ const LONG: SignalCard = {
 beforeEach(() => {
   vi.clearAllMocks();
   getSignalCard.mockResolvedValue(LONG);
+  tradingEnabled.value = true;
 });
 
 describe("entrySymbol", () => {
@@ -93,6 +96,39 @@ describe("what the strategy says", () => {
     render(<StrategySignalPanel strategyId="s1" />);
     await screen.findByTestId("signal-panel");
     expect(screen.queryByTestId("signal-panel-amount")).toBeNull();
+  });
+});
+
+describe("with order placement OFF — the production state today", () => {
+  /* SNAPTRADE_TRADING_ENABLED defaults false, so `<PlaceOrder>` renders
+   * nothing. The first version of this panel showed a dollar field anyway:
+   * you typed $2,000 and nothing happened — an input promising an action the
+   * product could not perform. <ExitTicket> had this right from the start
+   * (Copy always works); the entry side has to match. */
+  beforeEach(() => {
+    tradingEnabled.value = false;
+  });
+
+  it("REGRESSION: offers a ticket you can carry, never a dead input", async () => {
+    render(<StrategySignalPanel strategyId="s1" />);
+    expect(await screen.findByTestId("signal-panel-ticket")).toBeTruthy();
+    expect(screen.getByTestId("signal-panel-copy")).toBeTruthy();
+    // The thing that did nothing.
+    expect(screen.queryByTestId("signal-panel-amount")).toBeNull();
+  });
+});
+
+describe("the ticket text", () => {
+  it("is three lines: the order, where it came from, what it is not", () => {
+    const lines = entryTicketText(LONG, "NVDA", 2000).split("\n");
+    expect(lines).toHaveLength(3);
+    expect(lines[0]).toBe("BUY $2,000 of NVDA");
+    expect(lines[1]).toContain("Trend Leader");
+    expect(lines[2]).toMatch(/not a live quote/i);
+  });
+
+  it("omits a size when none was chosen", () => {
+    expect(entryTicketText(LONG, "NVDA", null).split("\n")[0]).toBe("BUY NVDA");
   });
 });
 

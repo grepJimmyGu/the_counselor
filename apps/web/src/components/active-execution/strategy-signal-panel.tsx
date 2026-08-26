@@ -9,14 +9,17 @@
  * wants in" — had no surface at all, so the only way to act on an entry was
  * to notice it yourself.
  *
- * WHY THE SIGNAL CARD AND NOT THE SIGNAL STATE. `/api/saved-strategies/{id}/signal`
- * is 404 in production on purpose: `main.py` gates the whole signals router
- * on `signal_alerts_enabled`, held until the disclaimer copy clears legal
- * review. `/api/signals/card` (PRD-25) is deliberately always mounted for
- * exactly this reason — "a read-only re-presentation of existing signal
- * state… must exist regardless of signal_alerts_enabled." So this reads the
- * card. Reaching around the gate to the state endpoint would be routing
- * around a legal hold, which is not ours to do.
+ * WHY THE SIGNAL CARD AND NOT THE SIGNAL STATE. `/api/signals/card` (PRD-25)
+ * is the cross-surface brick, "a read-only re-presentation of existing signal
+ * state… must exist regardless of signal_alerts_enabled," and it is mounted
+ * unconditionally. `/api/saved-strategies/{id}/signal` is gated in `main.py`
+ * on `signal_alerts_enabled` and can vanish under us.
+ *
+ * (An earlier version of this comment claimed that endpoint is "404 in
+ * production." Checked against Railway 2026-08-25: it answers 401, so the
+ * flag is ON there. The choice of the card was right for a different reason
+ * than stated — it is the purpose-built, always-present surface, not merely
+ * the one that happens to be reachable.)
  *
  * SIZED IN DOLLARS. A sell is sized in shares because you sell what you
  * hold. A buy answers "how much of my money," and SnapTrade takes a notional
@@ -25,14 +28,38 @@
  *
  * NOTHING AUTOMATIC. The card is a read. The dollar field does nothing until
  * you type in it, and `<PlaceOrder>` still costs a preview and two taps.
+ *
+ * AND IT HAS TO BE USEFUL WITH PLACEMENT OFF, which is the state production
+ * is in right now. `SNAPTRADE_TRADING_ENABLED` defaults false, so
+ * `<PlaceOrder>` renders nothing — and the first version of this panel showed
+ * a dollar field anyway. You typed $2,000 and nothing happened: an input that
+ * promised an action the product could not perform. `<ExitTicket>` had this
+ * right from the start (Copy always works), and the entry side has to match:
+ * when we cannot place the order, hand over a ticket you can carry to any
+ * broker instead of a control that does nothing.
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { useSession } from "next-auth/react";
 
-import { getSignalCard } from "@/lib/api";
+import { getSignalCard, getSnapTradeStatus } from "@/lib/api";
 import type { SignalCard } from "@/lib/contracts";
 import { PlaceOrder } from "@/components/execution/place-order";
+
+/** Three lines: the order, where it came from, and what it is not.
+ *  Mirrors `ticketText` on the exit side — the same artefact, opposite side. */
+export function entryTicketText(
+  card: SignalCard, symbol: string, dollars: number | null,
+): string {
+  const size = dollars && dollars > 0 ? `${"$"}${dollars.toLocaleString()} of ` : "";
+  return [
+    `BUY ${size}${symbol}`,
+    `${card.strategy_title ?? "Your strategy"} signalled an entry${
+      card.as_of ? ` on the ${card.as_of} close` : ""
+    }.`,
+    "Signal price is a completed session's close, not a live quote.",
+  ].join("\n");
+}
 
 /** A card whose state names one ticker the strategy wants to be long. */
 export function entrySymbol(card: SignalCard | null): string | null {
@@ -47,6 +74,13 @@ export function StrategySignalPanel({ strategyId }: { strategyId: string }) {
 
   const [card, setCard] = useState<SignalCard | null>(null);
   const [amount, setAmount] = useState("");
+  // Whether we can actually transmit an order. False in production today.
+  const [canPlace, setCanPlace] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const symbol = entrySymbol(card);
+  const dollars = Number(amount);
+  const validAmount = Number.isFinite(dollars) && dollars > 0;
 
   useEffect(() => {
     if (sessionStatus === "loading" || !backendToken) return;
@@ -58,14 +92,25 @@ export function StrategySignalPanel({ strategyId }: { strategyId: string }) {
       .catch(() => {
         /* show nothing rather than a wrong reading */
       });
+    getSnapTradeStatus(backendToken)
+      .then((st) => {
+        if (live) setCanPlace(Boolean(st.trading_enabled && st.registered));
+      })
+      .catch(() => {
+        /* treat unknown as "cannot place" — offer the ticket, not a button */
+      });
     return () => {
       live = false;
     };
   }, [sessionStatus, backendToken, strategyId]);
 
-  const symbol = entrySymbol(card);
-  const dollars = Number(amount);
-  const validAmount = Number.isFinite(dollars) && dollars > 0;
+  const copyTicket = useCallback(async () => {
+    if (!card || !symbol) return;
+    await navigator.clipboard.writeText(
+      entryTicketText(card, symbol, validAmount ? dollars : null),
+    );
+    setCopied(true);
+  }, [card, symbol, dollars, validAmount]);
 
   if (!card) return null;
 
@@ -117,29 +162,55 @@ export function StrategySignalPanel({ strategyId }: { strategyId: string }) {
 
       {symbol && (
         <div className="mt-3 border-t border-border pt-3">
-          <label className="flex flex-wrap items-center gap-2">
-            <span className="text-[12px] text-foreground">
-              Buy {symbol} with
-            </span>
-            <span className="inline-flex items-center rounded-md border border-input bg-background px-2 py-1">
-              <span className="text-[13px] text-muted-foreground">$</span>
-              <input
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-                inputMode="decimal"
-                placeholder="2,000"
-                data-testid="signal-panel-amount"
-                className="w-24 bg-transparent px-1 font-mono text-[13px] outline-none"
-              />
-            </span>
-          </label>
-          <p className="mt-1 text-[11px] text-muted-foreground">
-            Your broker converts this to shares at the fill — we don&rsquo;t
-            round it for you.
-          </p>
-
-          {validAmount && (
-            <PlaceOrder symbol={symbol} notional={dollars} action="BUY" />
+          {canPlace ? (
+            <>
+              <label className="flex flex-wrap items-center gap-2">
+                <span className="text-[12px] text-foreground">
+                  Buy {symbol} with
+                </span>
+                <span className="inline-flex items-center rounded-md border border-input bg-background px-2 py-1">
+                  <span className="text-[13px] text-muted-foreground">$</span>
+                  <input
+                    value={amount}
+                    onChange={(e) => setAmount(e.target.value)}
+                    inputMode="decimal"
+                    placeholder="2,000"
+                    data-testid="signal-panel-amount"
+                    className="w-24 bg-transparent px-1 font-mono text-[13px] outline-none"
+                  />
+                </span>
+              </label>
+              <p className="mt-1 text-[11px] text-muted-foreground">
+                Your broker converts this to shares at the fill — we
+                don&rsquo;t round it for you.
+              </p>
+              {validAmount && (
+                <PlaceOrder symbol={symbol} notional={dollars} action="BUY" />
+              )}
+            </>
+          ) : (
+            /* Cannot transmit an order — hand over one you can carry to any
+               broker rather than an input that does nothing. */
+            <>
+              <p
+                data-testid="signal-panel-ticket"
+                className="font-mono text-sm font-semibold text-foreground"
+              >
+                BUY {symbol}
+              </p>
+              <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+                Take this to your broker — you choose the size. Signal price is
+                a completed session&rsquo;s close, not a live quote.
+              </p>
+              <button
+                type="button"
+                onClick={copyTicket}
+                data-testid="signal-panel-copy"
+                className="mt-2 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[13px] font-medium text-slate-900 transition hover:bg-slate-50"
+              >
+                {copied ? "Copied" : "Copy ticket"}
+              </button>
+            </>
           )}
         </div>
       )}
