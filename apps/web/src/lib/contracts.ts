@@ -3411,6 +3411,66 @@ export interface BrokerActivity {
   description?: string | null;
 }
 
+/** One symbol inside the trading summary. */
+export interface SymbolSummary {
+  symbol: string;
+  trades: number;
+  buys: number;
+  sells: number;
+  realised_pnl: number;
+  win_rate?: number | null;
+  avg_holding_days?: number | null;
+  gross_bought: number;
+}
+
+/** What the user's own transaction log says about how they trade.
+ *
+ *  Every field is a count of something they DID — nothing here forecasts, and
+ *  nothing scores them. Three fields exist purely so the numbers can be read
+ *  honestly:
+ *
+ *  - `unmatched_sells` — sells of positions opened before the window. Their
+ *    P/L is unknowable from this data and is excluded rather than guessed.
+ *  - `holds_losers_longer` — NULL when the history has no wins or no losses.
+ *    A one-sided record cannot support the claim, so the UI must not render
+ *    one from it.
+ *  - `win_loss_ratio` — average win over average loss. A 70% win rate with a
+ *    0.25 ratio is a losing method, which is the whole point of showing both.
+ */
+export interface TradingBehavior {
+  window_start?: string | null;
+  window_end?: string | null;
+  total_buys: number;
+  total_sells: number;
+  symbols_traded: number;
+
+  round_trips: number;
+  realised_pnl: number;
+  fees_paid: number;
+  wins: number;
+  losses: number;
+  win_rate?: number | null;
+  avg_win?: number | null;
+  avg_loss?: number | null;
+  win_loss_ratio?: number | null;
+  largest_win?: number | null;
+  largest_loss?: number | null;
+
+  avg_holding_days?: number | null;
+  median_holding_days?: number | null;
+  avg_holding_days_winners?: number | null;
+  avg_holding_days_losers?: number | null;
+  holds_losers_longer?: boolean | null;
+
+  top_symbols_by_trades: SymbolSummary[];
+  top_symbols_by_pnl: SymbolSummary[];
+  worst_symbols_by_pnl: SymbolSummary[];
+
+  unmatched_sells: number;
+  unmatched_sell_symbols: string[];
+  open_lots: number;
+}
+
 /** PRD-28 Step 4 — one rung of a tracked position's ladder, priced.
  *
  *  `trigger_pct` is measured from ENTRY (it is the ladder's own number).
