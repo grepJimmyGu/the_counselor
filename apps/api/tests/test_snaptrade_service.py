@@ -715,3 +715,94 @@ def test_behavior_endpoint_reads_the_record_back(
     assert out.avg_holding_days_losers == 90
     assert out.holds_losers_longer is True
     assert {s.symbol for s in out.top_symbols_by_trades} == {"NVDA", "MSFT"}
+
+
+def test_REGRESSION_a_dollar_sized_buy_previews_without_a_500(
+    make_user, db: Session, configured, trading,
+) -> None:
+    """PRODUCTION BUG, 2026-08-26. Every dollar-sized buy 500'd here.
+
+    SYMPTOM: `POST /api/snaptrade/orders/preview` returned 500 for every BUY
+    the moment `SNAPTRADE_TRADING_ENABLED` was turned on. Sells were fine.
+
+    CAUSE: `place-order.tsx` sizes a BUY in dollars and sends `notional`.
+    `preview_order` echoed back the *input* `units`, which is None on that
+    path, and `PreviewOrderResponse.units` was a required `float`. Pydantic
+    rejected the response and the `return` sat outside the try/except, so it
+    surfaced as a bare 500 rather than the route's own 502.
+
+    WHY NO TEST CAUGHT IT: every `notional` test above calls the SERVICE,
+    which returns its dict happily. The response model is the route's, and
+    nothing exercised the route. This test does — through the real handler.
+    """
+    from app.api.routes.snaptrade import PreviewOrderRequest, preview_order
+
+    user = make_user(email="st-notional-500@test.com")
+    api = _trading_api()
+    # The broker prices the dollar amount and reports the share count back.
+    api.trading.get_order_impact.return_value = {
+        "trade": {"id": "trade-1", "units": 16.4},
+        "estimated_commission": 0.0,
+        "remaining_cash": 4200.0,
+    }
+    st.register_user(db, user.id, client=api)
+
+    with patch.object(st, "_client", return_value=api):
+        out = preview_order(
+            payload=PreviewOrderRequest(
+                account_id="acct-1", symbol="NVDA", action="BUY",
+                notional=2000.0,
+            ),
+            current_user=user, db=db,
+        )
+
+    # The broker's own share count, not the None we sent it.
+    assert out.units == 16.4
+    assert out.trade_id == "trade-1"
+
+
+def test_a_dollar_buy_still_previews_when_the_broker_reports_no_units(
+    make_user, db: Session, configured, trading,
+) -> None:
+    """SnapTrade's own schema types `ManualTrade.units` as `UnitsNullable`,
+    so a required float was never right. A ticket with no share count is
+    honest — the user sized this order in dollars — and the frontend already
+    guards on it. A 500 is not."""
+    from app.api.routes.snaptrade import PreviewOrderRequest, preview_order
+
+    user = make_user(email="st-no-units@test.com")
+    api = _trading_api()          # trade carries no `units` at all
+    st.register_user(db, user.id, client=api)
+
+    with patch.object(st, "_client", return_value=api):
+        out = preview_order(
+            payload=PreviewOrderRequest(
+                account_id="acct-1", symbol="NVDA", action="BUY",
+                notional=2000.0,
+            ),
+            current_user=user, db=db,
+        )
+
+    assert out.units is None
+    assert out.symbol == "NVDA"
+
+
+def test_a_share_sized_sell_still_reports_the_shares_it_was_given(
+    make_user, db: Session, configured, trading,
+) -> None:
+    """The fix must not quietly drop the number on the path that worked."""
+    from app.api.routes.snaptrade import PreviewOrderRequest, preview_order
+
+    user = make_user(email="st-sell-units@test.com")
+    api = _trading_api()
+    st.register_user(db, user.id, client=api)
+
+    with patch.object(st, "_client", return_value=api):
+        out = preview_order(
+            payload=PreviewOrderRequest(
+                account_id="acct-1", symbol="NVDA", action="SELL", units=25,
+            ),
+            current_user=user, db=db,
+        )
+
+    assert out.units == 25

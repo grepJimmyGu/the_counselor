@@ -502,7 +502,11 @@ class PreviewOrderResponse(BaseModel):
     trade_id: str
     symbol: str
     action: str
-    units: float
+    # OPTIONAL, and it has to be. A buy is sized in dollars, so there is no
+    # share count to send — the broker computes one, and SnapTrade's own
+    # `ManualTrade` types it `UnitsNullable`. Requiring it here 500'd every
+    # dollar-sized buy for as long as trading was enabled.
+    units: Optional[float] = None
     estimated_commission: Optional[float] = None
     remaining_cash: Optional[float] = None
 
@@ -548,6 +552,12 @@ def preview_order(
             time_in_force=payload.time_in_force,
             price=payload.price,
         )
+        # Serialised INSIDE the try on purpose. When this raised outside it,
+        # a response the model rejected surfaced as a bare 500 with no log
+        # line — which is how the dollar-sized buy stayed invisible.
+        return PreviewOrderResponse(**{
+            k: out[k] for k in PreviewOrderResponse.model_fields if k in out
+        })
     except st.TradingDisabled:
         raise HTTPException(status_code=503, detail="Order placement isn't enabled.")
     except ValueError as exc:
@@ -555,9 +565,6 @@ def preview_order(
     except Exception as exc:  # noqa: BLE001
         _log.exception("snaptrade: preview failed user=%s", current_user.id)
         raise HTTPException(status_code=502, detail=str(exc)) from exc
-    return PreviewOrderResponse(**{
-        k: out[k] for k in PreviewOrderResponse.model_fields if k in out
-    })
 
 
 @router.post("/orders/place", response_model=PlaceOrderResponse)
