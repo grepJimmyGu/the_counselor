@@ -680,3 +680,38 @@ def test_an_unregistered_user_reads_empty_rather_than_erroring(
     assert st.list_activities(db, user.id, client=api) == []
     assert st.get_return_rates(db, user.id, client=api) == []
     assert st.get_balance_history(db, user.id, client=api) == []
+
+
+def test_behavior_endpoint_reads_the_record_back(
+    make_user, db: Session, configured,
+) -> None:
+    """End to end through the route: activities -> FIFO -> the summary a user
+    reads. Two round trips, one win and one loss, held for very different
+    lengths — the shape the disposition-effect line is about."""
+    from unittest.mock import patch as _patch
+    from app.api.routes.snaptrade import snaptrade_behavior
+
+    user = make_user(email="behav@test.com")
+    api = _api()
+    api.account_information.get_account_activities.return_value = {"data": [
+        {"id": "1", "type": "BUY", "symbol": {"symbol": {"symbol": "NVDA"}},
+         "units": 10, "price": 100.0, "trade_date": "2026-01-01"},
+        {"id": "2", "type": "SELL", "symbol": {"symbol": {"symbol": "NVDA"}},
+         "units": 10, "price": 110.0, "trade_date": "2026-01-06"},
+        {"id": "3", "type": "BUY", "symbol": {"symbol": {"symbol": "MSFT"}},
+         "units": 10, "price": 100.0, "trade_date": "2026-01-01"},
+        {"id": "4", "type": "SELL", "symbol": {"symbol": {"symbol": "MSFT"}},
+         "units": 10, "price": 90.0, "trade_date": "2026-04-01"},
+    ]}
+    st.register_user(db, user.id, client=api)
+
+    with _patch.object(st, "_client", return_value=api):
+        out = snaptrade_behavior(current_user=user, db=db)
+
+    assert out.round_trips == 2
+    assert out.wins == 1 and out.losses == 1
+    assert out.realised_pnl == 0.0
+    assert out.avg_holding_days_winners == 5
+    assert out.avg_holding_days_losers == 90
+    assert out.holds_losers_longer is True
+    assert {s.symbol for s in out.top_symbols_by_trades} == {"NVDA", "MSFT"}

@@ -43,6 +43,7 @@ import type {
   OrderResult,
   BrokerAccount,
   BrokerActivity,
+  TradingBehavior,
   SaveStrategyResult,
   ExitTier,
   UserSavedStrategy,
@@ -1637,6 +1638,23 @@ export async function getBrokerBalanceHistory(
   backendToken: string,
 ): Promise<Array<Record<string, unknown>>> {
   return fetchApi(`/api/snaptrade/balance-history`, {
+    headers: { Authorization: `Bearer ${backendToken}` },
+  });
+}
+
+/** The user's own trading record, matched into completed round trips.
+ *
+ *  Server-side because FIFO lot matching is real logic that deserves tests,
+ *  and because the same summary will feed strategy recommendations later. */
+export async function getTradingBehavior(
+  backendToken: string,
+  opts: { startDate?: string; endDate?: string } = {},
+): Promise<TradingBehavior> {
+  const q = new URLSearchParams();
+  if (opts.startDate) q.set("start_date", opts.startDate);
+  if (opts.endDate) q.set("end_date", opts.endDate);
+  const suffix = q.toString() ? `?${q}` : "";
+  return fetchApi<TradingBehavior>(`/api/snaptrade/behavior${suffix}`, {
     headers: { Authorization: `Bearer ${backendToken}` },
   });
 }

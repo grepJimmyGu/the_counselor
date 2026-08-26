@@ -39,6 +39,7 @@ import {
 } from "@/lib/api";
 import type { BrokerActivity, BrokerPosition } from "@/lib/contracts";
 import { ConnectBrokerage } from "@/components/execution/connect-brokerage";
+import { TradingBehaviorPanel } from "@/components/brokerage/trading-behavior-panel";
 
 type Row = Record<string, unknown>;
 type Window = "1M" | "6M" | "1Y";
@@ -87,6 +88,9 @@ export default function BrokeragePage() {
   const [balances, setBalances] = useState<Row[]>([]);
   const [orders, setOrders] = useState<Row[]>([]);
   const [window, setWindow] = useState<Window>("1Y");
+  // Computed once per window so the trade list and the summary above it can
+  // never be a day apart across a midnight rollover.
+  const windowStart = useMemo(() => isoDaysAgo(WINDOW_DAYS[window]), [window]);
 
   // Each read is independent — a failure costs that section, not the page.
   const load = useCallback(() => {
@@ -114,9 +118,7 @@ export default function BrokeragePage() {
     if (!backendToken || !connected) return;
     let live = true;
     setActivities(null);
-    listBrokerActivities(backendToken, {
-      startDate: isoDaysAgo(WINDOW_DAYS[window]), limit: 500,
-    })
+    listBrokerActivities(backendToken, { startDate: windowStart, limit: 500 })
       .then((rows) => {
         if (live) setActivities(rows);
       })
@@ -126,7 +128,7 @@ export default function BrokeragePage() {
     return () => {
       live = false;
     };
-  }, [backendToken, connected, window]);
+  }, [backendToken, connected, windowStart]);
 
   const marketValue = useMemo(
     () => positions.reduce(
@@ -281,10 +283,13 @@ export default function BrokeragePage() {
             </section>
           )}
 
-          {/* ── trade history ────────────────────────────────────── */}
+          {/* ── how you trade ────────────────────────────────────────
+              The interpretation, directly above the record it interprets, and
+              sharing its window — so the summary can never describe a
+              different period than the trades listed below it. */}
           <section>
             <div className="mb-2 flex flex-wrap items-baseline justify-between gap-3">
-              <h2 className="text-sm font-semibold">Buys and sells</h2>
+              <h2 className="text-sm font-semibold">How you trade</h2>
               <div className="flex gap-1" role="group" aria-label="History window">
                 {(["1M", "6M", "1Y"] as Window[]).map((w) => (
                   <button
@@ -305,6 +310,22 @@ export default function BrokeragePage() {
                 ))}
               </div>
             </div>
+            {backendToken && (
+              <TradingBehaviorPanel
+                backendToken={backendToken}
+                startDate={windowStart}
+              />
+            )}
+          </section>
+
+          {/* ── trade history ────────────────────────────────────── */}
+          <section>
+            <h2 className="mb-2 text-sm font-semibold">
+              Buys and sells{" "}
+              <span className="font-normal text-muted-foreground">
+                &middot; last {window}
+              </span>
+            </h2>
 
             {activities === null ? (
               <div className="flex justify-center py-8">

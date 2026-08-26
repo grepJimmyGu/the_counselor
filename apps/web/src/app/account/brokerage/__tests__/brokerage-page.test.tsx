@@ -18,6 +18,8 @@ const listBrokerActivities = vi.fn();
 const getBrokerPerformance = vi.fn();
 const getBrokerBalanceHistory = vi.fn();
 const listBrokerOrders = vi.fn();
+// The page now mounts <TradingBehaviorPanel>, which fetches on its own.
+const getTradingBehavior = vi.fn();
 
 vi.mock("next-auth/react", () => ({
   useSession: () => ({
@@ -33,6 +35,7 @@ vi.mock("@/lib/api", () => ({
   getBrokerPerformance: (...a: unknown[]) => getBrokerPerformance(...(a as [])),
   getBrokerBalanceHistory: (...a: unknown[]) => getBrokerBalanceHistory(...(a as [])),
   listBrokerOrders: (...a: unknown[]) => listBrokerOrders(...(a as [])),
+  getTradingBehavior: (...a: unknown[]) => getTradingBehavior(...(a as [])),
   // <ConnectBrokerage> renders when not connected and fetches its own state.
   connectBrokerage: async () => ({ redirect_uri: "https://example.test" }),
 }));
@@ -65,6 +68,13 @@ beforeEach(() => {
     { date: "2026-08-01", value: 41200 },
   ]);
   listBrokerOrders.mockResolvedValue([]);
+  // Its own suite covers the summary; here it only needs to not explode.
+  getTradingBehavior.mockResolvedValue({
+    total_buys: 0, total_sells: 0, symbols_traded: 0, round_trips: 0,
+    realised_pnl: 0, fees_paid: 0, wins: 0, losses: 0,
+    top_symbols_by_trades: [], top_symbols_by_pnl: [], worst_symbols_by_pnl: [],
+    unmatched_sells: 0, unmatched_sell_symbols: [], open_lots: 0,
+  });
 });
 
 describe("before connecting", () => {
@@ -112,6 +122,17 @@ describe("trade history", () => {
     const rows = await screen.findByTestId("brokerage-trades");
     expect(rows.textContent).toMatch(/2026-08-20/);
     expect(rows.textContent).not.toMatch(/2026-08-22/);
+  });
+
+  it("summarises the same window it lists", async () => {
+    /* The summary sits directly above the trades it interprets. If the two
+     * asked for different start dates, the panel would describe a period the
+     * list below it doesn't show. */
+    render(<BrokeragePage />);
+    await screen.findByTestId("brokerage-trades");
+    const listed = (listBrokerActivities.mock.calls.at(-1)![1] as { startDate: string }).startDate;
+    const summarised = (getTradingBehavior.mock.calls.at(-1)![1] as { startDate: string }).startDate;
+    expect(summarised).toBe(listed);
   });
 
   it("asks the broker for the window instead of filtering locally", async () => {

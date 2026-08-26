@@ -21,6 +21,7 @@ const listSavedStrategiesMock = vi.fn();
 vi.mock("@/lib/api", () => ({
   listSavedStrategies: (...a: unknown[]) => listSavedStrategiesMock(...a),
   // `<ActiveExecutionDashboard>`'s children fetch; keep them inert.
+  getSignalCard: async () => ({ state: "pending", display: "\u2014" }),
   getSnapTradeStatus: async () => ({
     configured: false, registered: false, connected_accounts: 0,
     trading_enabled: false, last_synced_at: null,

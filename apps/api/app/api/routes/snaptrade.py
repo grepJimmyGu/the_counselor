@@ -291,6 +291,126 @@ def snaptrade_balance_history(
         raise HTTPException(status_code=502, detail="Couldn't read your balance history.") from exc
 
 
+class SymbolSummaryView(BaseModel):
+    symbol: str
+    trades: int
+    buys: int
+    sells: int
+    realised_pnl: float
+    win_rate: Optional[float] = None
+    avg_holding_days: Optional[float] = None
+    gross_bought: float = 0.0
+
+
+class TradingBehaviorView(BaseModel):
+    """What the user's own record says about how they trade.
+
+    Every field is a count of something they did. Nothing here predicts, and
+    nothing scores them.
+    """
+    window_start: Optional[str] = None
+    window_end: Optional[str] = None
+    total_buys: int
+    total_sells: int
+    symbols_traded: int
+
+    round_trips: int
+    realised_pnl: float
+    fees_paid: float
+    wins: int
+    losses: int
+    win_rate: Optional[float] = None
+    avg_win: Optional[float] = None
+    avg_loss: Optional[float] = None
+    # What you make when right over what you lose when wrong. The number that
+    # decides whether a method survives, and the one nobody knows.
+    win_loss_ratio: Optional[float] = None
+    largest_win: Optional[float] = None
+    largest_loss: Optional[float] = None
+
+    avg_holding_days: Optional[float] = None
+    median_holding_days: Optional[float] = None
+    avg_holding_days_winners: Optional[float] = None
+    avg_holding_days_losers: Optional[float] = None
+    # The disposition effect, as a yes or no. NULL when either side has no
+    # completed trades — a two-trade history cannot support the claim.
+    holds_losers_longer: Optional[bool] = None
+
+    top_symbols_by_trades: List[SymbolSummaryView] = []
+    top_symbols_by_pnl: List[SymbolSummaryView] = []
+    worst_symbols_by_pnl: List[SymbolSummaryView] = []
+
+    # Why the numbers are what they are.
+    unmatched_sells: int = 0
+    unmatched_sell_symbols: List[str] = []
+    open_lots: int = 0
+
+
+@router.get("/behavior", response_model=TradingBehaviorView)
+def snaptrade_behavior(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> TradingBehaviorView:
+    """Read the user's own trading record back to them.
+
+    Computed here rather than in the browser: FIFO lot matching is real logic
+    that deserves tests, and the same summary will feed strategy
+    recommendations later. Two consumers, one implementation.
+    """
+    _require_configured()
+    from app.services.trading_behavior import summarize
+
+    try:
+        activities = st.list_activities(
+            db, current_user.id,
+            start_date=start_date, end_date=end_date, limit=1000,
+        )
+    except st.SnapTradeNotConfigured:
+        raise HTTPException(status_code=503, detail="Brokerage connections aren't available right now.")
+    except Exception as exc:  # noqa: BLE001
+        _log.exception("snaptrade: behavior read failed user=%s", current_user.id)
+        raise HTTPException(status_code=502, detail="Couldn't read your trading history.") from exc
+
+    b = summarize([vars(a) for a in activities])
+
+    def _sym(s) -> SymbolSummaryView:
+        return SymbolSummaryView(
+            symbol=s.symbol, trades=s.trades, buys=s.buys, sells=s.sells,
+            realised_pnl=round(s.realised_pnl, 2), win_rate=s.win_rate,
+            avg_holding_days=s.avg_holding_days,
+            gross_bought=round(s.gross_bought, 2),
+        )
+
+    return TradingBehaviorView(
+        window_start=b.window_start.isoformat() if b.window_start else None,
+        window_end=b.window_end.isoformat() if b.window_end else None,
+        total_buys=b.total_buys, total_sells=b.total_sells,
+        symbols_traded=b.symbols_traded,
+        round_trips=b.round_trips,
+        realised_pnl=round(b.realised_pnl, 2),
+        fees_paid=round(b.fees_paid, 2),
+        wins=b.wins, losses=b.losses, win_rate=b.win_rate,
+        avg_win=round(b.avg_win, 2) if b.avg_win is not None else None,
+        avg_loss=round(b.avg_loss, 2) if b.avg_loss is not None else None,
+        win_loss_ratio=b.win_loss_ratio,
+        largest_win=round(b.largest_win, 2) if b.largest_win is not None else None,
+        largest_loss=round(b.largest_loss, 2) if b.largest_loss is not None else None,
+        avg_holding_days=b.avg_holding_days,
+        median_holding_days=b.median_holding_days,
+        avg_holding_days_winners=b.avg_holding_days_winners,
+        avg_holding_days_losers=b.avg_holding_days_losers,
+        holds_losers_longer=b.holds_losers_longer,
+        top_symbols_by_trades=[_sym(s) for s in b.top_symbols_by_trades],
+        top_symbols_by_pnl=[_sym(s) for s in b.top_symbols_by_pnl],
+        worst_symbols_by_pnl=[_sym(s) for s in b.worst_symbols_by_pnl],
+        unmatched_sells=b.unmatched_sells,
+        unmatched_sell_symbols=b.unmatched_sell_symbols,
+        open_lots=b.open_lots,
+    )
+
+
 # ── order placement (slice 4c) ──────────────────────────────────────────────
 #
 # Two endpoints, and the split is the safety property rather than a style
