@@ -3392,6 +3392,25 @@ export interface BrokerPosition {
   open_pnl?: number | null;
 }
 
+/** One thing that happened in a brokerage account: a buy, a sell, a dividend.
+ *
+ *  `trade_date` is when it happened; `settlement_date` is when it cleared,
+ *  days later. Only the first is what a person means by "when I bought it". */
+export interface BrokerActivity {
+  account_id: string;
+  activity_id?: string | null;
+  type?: string | null;          // BUY | SELL | DIVIDEND | FEE | …
+  symbol?: string | null;
+  units?: number | null;
+  price?: number | null;
+  amount?: number | null;
+  fee?: number | null;
+  currency?: string | null;
+  trade_date?: string | null;
+  settlement_date?: string | null;
+  description?: string | null;
+}
+
 /** PRD-28 Step 4 — one rung of a tracked position's ladder, priced.
  *
  *  `trigger_pct` is measured from ENTRY (it is the ladder's own number).

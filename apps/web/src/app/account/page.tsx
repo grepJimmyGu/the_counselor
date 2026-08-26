@@ -193,7 +193,19 @@ export default function AccountPage() {
         <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
           Brokerage
         </h2>
-        <ConnectBrokerage returnPath="/account?connected=1" />
+        <ConnectBrokerage returnPath="/account/brokerage" />
+        {/* The reason to connect. Without a door to it, the connection is a
+            setting rather than a feature. */}
+        <div className="mt-3">
+          <Button asChild variant="outline" size="sm">
+            <Link
+              href={"/account/brokerage" as Route}
+              data-testid="account-brokerage-link"
+            >
+              View my brokerage →
+            </Link>
+          </Button>
+        </div>
       </section>
 
       <section className="rounded-xl border border-border bg-card p-6">

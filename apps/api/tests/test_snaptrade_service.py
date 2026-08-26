@@ -540,3 +540,143 @@ def test_accounts_are_listed_so_a_buy_can_choose_one(
     assert len(rows) == 1, "an account with no id is not an option we can offer"
     assert rows[0].id == "acct-1"
     assert rows[0].institution_name == "Schwab"
+
+
+# ── the account as the broker sees it (PRD-42) ──────────────────────────────
+
+
+def _account_api() -> MagicMock:
+    api = _api()
+    api.account_information.get_account_activities.return_value = {"data": [
+        {"id": "a1", "type": "BUY", "symbol": {"symbol": {"symbol": "NVDA"}},
+         "units": 10, "price": 118.40, "amount": -1184.0, "fee": 0.0,
+         "currency": {"code": "USD"}, "trade_date": "2026-08-20",
+         "settlement_date": "2026-08-22", "description": "Bought 10 NVDA"},
+        {"id": "a2", "type": "DIVIDEND", "symbol": {"symbol": {"symbol": "KO"}},
+         "amount": 42.10, "trade_date": "2026-07-15"},
+    ]}
+    api.account_information.get_user_account_orders.return_value = [
+        {"brokerage_order_id": "o1", "status": "EXECUTED", "symbol": "NVDA"},
+    ]
+    api.account_information.get_user_account_return_rates.return_value = {
+        "data": [{"timeframe": "1Y", "rate_of_return": 0.184}]}
+    api.account_information.get_account_balance_history.return_value = {
+        "data": [{"date": "2026-08-01", "value": 41200.0}]}
+    return api
+
+
+def test_activities_carry_what_a_person_means_by_when_i_bought_it(
+    make_user, db: Session, configured,
+) -> None:
+    """`trade_date` is when it happened. `settlement_date` is days later and
+    is not the answer to "when did I buy this" — both are kept, and the
+    consumer picks."""
+    user = make_user(email="acct-act@test.com")
+    api = _account_api()
+    st.register_user(db, user.id, client=api)
+
+    rows = st.list_activities(db, user.id, client=api)
+    buy = next(r for r in rows if r.type == "BUY")
+    assert buy.symbol == "NVDA"
+    assert buy.units == 10 and buy.price == 118.40
+    assert buy.trade_date == "2026-08-20"
+    assert buy.settlement_date == "2026-08-22"
+    assert buy.currency == "USD"
+
+
+def test_activities_come_back_newest_first(make_user, db: Session, configured):
+    user = make_user(email="acct-order@test.com")
+    api = _account_api()
+    st.register_user(db, user.id, client=api)
+    dates = [r.trade_date for r in st.list_activities(db, user.id, client=api)]
+    assert dates == sorted(dates, reverse=True)
+
+
+def test_a_date_window_is_passed_through_not_filtered_here(
+    make_user, db: Session, configured,
+) -> None:
+    """The broker does the filtering. Pulling everything and slicing locally
+    would page through years to show a month."""
+    user = make_user(email="acct-window@test.com")
+    api = _account_api()
+    st.register_user(db, user.id, client=api)
+
+    st.list_activities(
+        db, user.id, start_date="2026-08-01", end_date="2026-08-31", client=api,
+    )
+    kwargs = api.account_information.get_account_activities.call_args.kwargs
+    assert kwargs["start_date"] == "2026-08-01"
+    assert kwargs["end_date"] == "2026-08-31"
+
+
+def test_a_bare_list_body_is_accepted_as_well_as_a_paginated_one(
+    make_user, db: Session, configured,
+) -> None:
+    """SnapTrade returns {"data": [...]} on the paginated endpoints and a
+    bare list on others. Handling only one shape would silently return
+    nothing for the other."""
+    user = make_user(email="acct-shape@test.com")
+    api = _account_api()
+    api.account_information.get_account_activities.return_value = [
+        {"id": "b1", "type": "SELL", "symbol": {"symbol": {"symbol": "MSFT"}},
+         "units": 5, "trade_date": "2026-08-19"},
+    ]
+    st.register_user(db, user.id, client=api)
+    rows = st.list_activities(db, user.id, client=api)
+    assert len(rows) == 1 and rows[0].type == "SELL"
+
+
+def test_one_bad_account_does_not_lose_the_others_history(
+    make_user, db: Session, configured,
+) -> None:
+    """Same rule as positions: three brokers connected, one having a bad
+    morning, and the user still sees the other two."""
+    user = make_user(email="acct-partial@test.com")
+    api = _account_api()
+    api.account_information.list_user_accounts.return_value = [
+        {"id": "bad"}, {"id": "good"},
+    ]
+
+    def _flaky(**kw):
+        if kw.get("account_id") == "bad":
+            raise RuntimeError("upstream 500")
+        return {"data": [{"id": "x", "type": "BUY",
+                          "symbol": {"symbol": {"symbol": "AAPL"}},
+                          "trade_date": "2026-08-18"}]}
+
+    api.account_information.get_account_activities.side_effect = _flaky
+    st.register_user(db, user.id, client=api)
+    rows = st.list_activities(db, user.id, client=api)
+    assert [r.symbol for r in rows] == ["AAPL"]
+
+
+def test_performance_is_the_brokers_number_not_ours(
+    make_user, db: Session, configured,
+) -> None:
+    """We do not see deposits and withdrawals, and a return computed without
+    them would be worse than one passed through."""
+    user = make_user(email="acct-perf@test.com")
+    api = _account_api()
+    st.register_user(db, user.id, client=api)
+    rows = st.get_return_rates(db, user.id, client=api)
+    assert rows[0]["timeframe"] == "1Y"
+    assert rows[0]["rate_of_return"] == 0.184
+    assert rows[0]["account_id"] == "acct-1"
+
+
+def test_orders_and_balance_history_read(make_user, db: Session, configured):
+    user = make_user(email="acct-misc@test.com")
+    api = _account_api()
+    st.register_user(db, user.id, client=api)
+    assert st.list_recent_orders(db, user.id, client=api)[0]["status"] == "EXECUTED"
+    assert st.get_balance_history(db, user.id, client=api)[0]["value"] == 41200.0
+
+
+def test_an_unregistered_user_reads_empty_rather_than_erroring(
+    make_user, db: Session, configured,
+) -> None:
+    user = make_user(email="acct-unreg@test.com")
+    api = _account_api()
+    assert st.list_activities(db, user.id, client=api) == []
+    assert st.get_return_rates(db, user.id, client=api) == []
+    assert st.get_balance_history(db, user.id, client=api) == []

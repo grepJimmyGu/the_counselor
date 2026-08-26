@@ -91,6 +91,16 @@ CALLS = [
      {"user_id", "user_secret", "account_id", "action", "universal_symbol_id",
       "order_type", "time_in_force", "units", "notional_value", "price"}),
     ("trading", "place_order", {"user_id", "user_secret", "trade_id"}),
+    # The account reads. Same discipline: these were written from the SDK's
+    # own surface, and this asserts they still match it.
+    ("account_information", "get_account_activities",
+     {"user_id", "user_secret", "account_id", "start_date", "end_date", "limit"}),
+    ("account_information", "get_user_account_orders",
+     {"user_id", "user_secret", "account_id", "days"}),
+    ("account_information", "get_user_account_return_rates",
+     {"user_id", "user_secret", "account_id"}),
+    ("account_information", "get_account_balance_history",
+     {"user_id", "user_secret", "account_id"}),
 ]
 
 

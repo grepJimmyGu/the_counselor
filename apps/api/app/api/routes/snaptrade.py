@@ -179,6 +179,118 @@ def snaptrade_positions(
     ]
 
 
+# ── the account, as the broker sees it ──────────────────────────────────────
+#
+# Four reads that mirror what the brokerage already knows. None of them maps
+# a trade onto a Livermore strategy: a user's history is worth seeing on its
+# own terms, and a strategy lens would hide every trade that doesn't fit one.
+
+
+class BrokerActivityView(BaseModel):
+    account_id: str
+    activity_id: Optional[str] = None
+    type: Optional[str] = None          # BUY | SELL | DIVIDEND | FEE | …
+    symbol: Optional[str] = None
+    units: Optional[float] = None
+    price: Optional[float] = None
+    amount: Optional[float] = None
+    fee: Optional[float] = None
+    currency: Optional[str] = None
+    # When it HAPPENED. `settlement_date` is when it cleared, days later —
+    # only the first is what a person means by "when I bought it".
+    trade_date: Optional[str] = None
+    settlement_date: Optional[str] = None
+    description: Optional[str] = None
+
+
+@router.get("/activities", response_model=List[BrokerActivityView])
+def snaptrade_activities(
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    limit: int = 250,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> List[BrokerActivityView]:
+    """Buys, sells and dividends across every connected account, newest first.
+
+    `start_date` / `end_date` are ISO dates and are passed straight through —
+    "the last year" is a caller decision, not a server default, because the
+    right window differs between a page load and a one-off backfill.
+    """
+    _require_configured()
+    try:
+        rows = st.list_activities(
+            db, current_user.id,
+            start_date=start_date, end_date=end_date, limit=limit,
+        )
+    except st.SnapTradeNotConfigured:
+        raise HTTPException(status_code=503, detail="Brokerage connections aren't available right now.")
+    except Exception as exc:  # noqa: BLE001
+        _log.exception("snaptrade: activities failed user=%s", current_user.id)
+        raise HTTPException(status_code=502, detail="Couldn't read your transaction history.") from exc
+    return [BrokerActivityView(**vars(r)) for r in rows]
+
+
+@router.get("/orders", response_model=List[dict])
+def snaptrade_orders(
+    days: int = 30,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> List[dict]:
+    """Orders the broker has on file — including ones placed elsewhere.
+
+    Passed through rather than reshaped: order payloads differ by brokerage
+    and inventing a common shape would drop the fields that differ, which are
+    usually the ones a user is looking for.
+    """
+    _require_configured()
+    try:
+        return st.list_recent_orders(db, current_user.id, days=days)
+    except st.SnapTradeNotConfigured:
+        raise HTTPException(status_code=503, detail="Brokerage connections aren't available right now.")
+    except Exception as exc:  # noqa: BLE001
+        _log.exception("snaptrade: orders failed user=%s", current_user.id)
+        raise HTTPException(status_code=502, detail="Couldn't read your recent orders.") from exc
+
+
+@router.get("/performance", response_model=List[dict])
+def snaptrade_performance(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> List[dict]:
+    """The BROKER's own return rates, per account and timeframe.
+
+    Deliberately theirs and not ours. A return figure is only meaningful
+    against the deposits and withdrawals that produced it, and we do not see
+    those — a number computed here from an incomplete picture would be worse
+    than one passed through.
+    """
+    _require_configured()
+    try:
+        return st.get_return_rates(db, current_user.id)
+    except st.SnapTradeNotConfigured:
+        raise HTTPException(status_code=503, detail="Brokerage connections aren't available right now.")
+    except Exception as exc:  # noqa: BLE001
+        _log.exception("snaptrade: performance failed user=%s", current_user.id)
+        raise HTTPException(status_code=502, detail="Couldn't read your performance.") from exc
+
+
+@router.get("/balance-history", response_model=List[dict])
+def snaptrade_balance_history(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> List[dict]:
+    """Account value over time — the equity curve the broker keeps."""
+    _require_configured()
+    try:
+        return st.get_balance_history(db, current_user.id)
+    except st.SnapTradeNotConfigured:
+        raise HTTPException(status_code=503, detail="Brokerage connections aren't available right now.")
+    except Exception as exc:  # noqa: BLE001
+        _log.exception("snaptrade: balance history failed user=%s", current_user.id)
+        raise HTTPException(status_code=502, detail="Couldn't read your balance history.") from exc
+
+
 # ── order placement (slice 4c) ──────────────────────────────────────────────
 #
 # Two endpoints, and the split is the safety property rather than a style
