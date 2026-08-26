@@ -42,6 +42,7 @@ import type {
   OrderPreview,
   OrderResult,
   BrokerAccount,
+  BrokerActivity,
   SaveStrategyResult,
   ExitTier,
   UserSavedStrategy,
@@ -1601,6 +1602,51 @@ export async function listBrokerAccounts(
   backendToken: string,
 ): Promise<BrokerAccount[]> {
   return fetchApi<BrokerAccount[]>("/api/snaptrade/accounts", {
+    headers: { Authorization: `Bearer ${backendToken}` },
+  });
+}
+
+/** Buys, sells and dividends the broker reports, newest first.
+ *  Dates are ISO; the window is the caller's choice, not a server default. */
+export async function listBrokerActivities(
+  backendToken: string,
+  opts: { startDate?: string; endDate?: string; limit?: number } = {},
+): Promise<BrokerActivity[]> {
+  const q = new URLSearchParams();
+  if (opts.startDate) q.set("start_date", opts.startDate);
+  if (opts.endDate) q.set("end_date", opts.endDate);
+  if (opts.limit) q.set("limit", String(opts.limit));
+  const suffix = q.toString() ? `?${q}` : "";
+  return fetchApi<BrokerActivity[]>(`/api/snaptrade/activities${suffix}`, {
+    headers: { Authorization: `Bearer ${backendToken}` },
+  });
+}
+
+/** The BROKER's own return rates, per account and timeframe. Theirs, not
+ *  ours — we don't see the deposits that make a return figure mean anything. */
+export async function getBrokerPerformance(
+  backendToken: string,
+): Promise<Array<Record<string, unknown>>> {
+  return fetchApi(`/api/snaptrade/performance`, {
+    headers: { Authorization: `Bearer ${backendToken}` },
+  });
+}
+
+/** Account value over time, as the broker keeps it. */
+export async function getBrokerBalanceHistory(
+  backendToken: string,
+): Promise<Array<Record<string, unknown>>> {
+  return fetchApi(`/api/snaptrade/balance-history`, {
+    headers: { Authorization: `Bearer ${backendToken}` },
+  });
+}
+
+/** Orders the broker has on file — including ones placed elsewhere. */
+export async function listBrokerOrders(
+  backendToken: string,
+  days = 30,
+): Promise<Array<Record<string, unknown>>> {
+  return fetchApi(`/api/snaptrade/orders?days=${days}`, {
     headers: { Authorization: `Bearer ${backendToken}` },
   });
 }

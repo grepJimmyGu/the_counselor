@@ -288,6 +288,176 @@ def list_positions(
     return out
 
 
+# ── the account, as the broker sees it ──────────────────────────────────────
+#
+# Everything below is a READ. None of it maps a trade onto a Livermore
+# strategy — the user's brokerage history is worth seeing on its own terms,
+# and forcing it through a strategy lens would hide the trades that don't fit
+# one, which is most of them.
+
+
+@dataclass(frozen=True)
+class BrokerActivity:
+    """One thing that happened in the account: a buy, a sell, a dividend.
+
+    `trade_date` is when it happened; `settlement_date` is when it cleared.
+    They differ by days and only the first is what a person means by "when
+    I bought it."
+    """
+
+    account_id: str
+    activity_id: Optional[str]
+    type: Optional[str]          # BUY | SELL | DIVIDEND | FEE | …
+    symbol: Optional[str]
+    units: Optional[float]
+    price: Optional[float]
+    amount: Optional[float]
+    fee: Optional[float]
+    currency: Optional[str]
+    trade_date: Optional[str]
+    settlement_date: Optional[str]
+    description: Optional[str]
+
+
+def _each_account(db: Session, user_id: str, client: Any):
+    """Yield (api, secret, account_id) for every connected account.
+
+    Shared by every read below so a failure on one broker skips that broker
+    rather than the whole page — a user with three connected should not lose
+    all three because one is having a bad morning.
+    """
+    reg = get_registration(db, user_id)
+    if reg is None:
+        return
+    api = client or _client()
+    secret = decrypt_secret(reg.user_secret_encrypted)
+    for account in list_accounts(db, user_id, client=api):
+        account_id = str(account.get("id") or "")
+        if account_id:
+            yield api, reg.user_id, secret, account_id
+
+
+def list_activities(
+    db: Session, user_id: str, *, start_date: Optional[str] = None,
+    end_date: Optional[str] = None, limit: int = 250, client: Any = None,
+) -> List[BrokerActivity]:
+    """Transactions across every connected account, newest first.
+
+    `start_date`/`end_date` are ISO dates. SnapTrade paginates; `limit` is
+    per account, and the default is deliberately generous — a year of a
+    normal retail account is well under it, and asking twice for the same
+    window is worse than asking once for slightly too much.
+    """
+    out: List[BrokerActivity] = []
+    for api, st_user, secret, account_id in _each_account(db, user_id, client):
+        try:
+            kwargs: Dict[str, Any] = {
+                "user_id": st_user, "user_secret": secret,
+                "account_id": account_id, "limit": limit,
+            }
+            if start_date:
+                kwargs["start_date"] = start_date
+            if end_date:
+                kwargs["end_date"] = end_date
+            resp = api.account_information.get_account_activities(**kwargs)
+            body = _body(resp) or {}
+            # Paginated shape is {"data": [...]}; some builds return a bare list.
+            rows = body.get("data") if isinstance(body, dict) else body
+            for a in rows or []:
+                out.append(BrokerActivity(
+                    account_id=account_id,
+                    activity_id=str(a.get("id")) if a.get("id") else None,
+                    type=a.get("type"),
+                    symbol=_symbol_of(a),
+                    units=_maybe_float(a.get("units")),
+                    price=_maybe_float(a.get("price")),
+                    amount=_maybe_float(a.get("amount")),
+                    fee=_maybe_float(a.get("fee")),
+                    currency=(a.get("currency") or {}).get("code")
+                    if isinstance(a.get("currency"), dict) else a.get("currency"),
+                    trade_date=a.get("trade_date"),
+                    settlement_date=a.get("settlement_date"),
+                    description=a.get("description"),
+                ))
+        except Exception:  # noqa: BLE001
+            _log.exception("snaptrade: activities read failed for %s", account_id)
+
+    out.sort(key=lambda a: a.trade_date or "", reverse=True)
+    return out
+
+
+def list_recent_orders(
+    db: Session, user_id: str, *, days: int = 30, client: Any = None,
+) -> List[Dict[str, Any]]:
+    """Orders the broker has on file — including ones placed elsewhere.
+
+    This is how a placed order learns whether it filled: the broker is the
+    only party that knows.
+    """
+    out: List[Dict[str, Any]] = []
+    for api, st_user, secret, account_id in _each_account(db, user_id, client):
+        try:
+            resp = api.account_information.get_user_account_orders(
+                user_id=st_user, user_secret=secret,
+                account_id=account_id, days=days,
+            )
+            for o in _body(resp) or []:
+                row = dict(o)
+                row["account_id"] = account_id
+                out.append(row)
+        except Exception:  # noqa: BLE001
+            _log.exception("snaptrade: orders read failed for %s", account_id)
+    return out
+
+
+def get_return_rates(
+    db: Session, user_id: str, *, client: Any = None,
+) -> List[Dict[str, Any]]:
+    """The broker's own performance numbers, per account.
+
+    Deliberately the BROKER's calculation rather than ours. We do not know
+    the deposits and withdrawals that make a return figure meaningful, and a
+    number we computed from an incomplete picture would be worse than one we
+    simply passed through.
+    """
+    out: List[Dict[str, Any]] = []
+    for api, st_user, secret, account_id in _each_account(db, user_id, client):
+        try:
+            resp = api.account_information.get_user_account_return_rates(
+                user_id=st_user, user_secret=secret, account_id=account_id,
+            )
+            body = _body(resp) or {}
+            rows = body.get("data") if isinstance(body, dict) else body
+            for r in rows or []:
+                row = dict(r)
+                row["account_id"] = account_id
+                out.append(row)
+        except Exception:  # noqa: BLE001
+            _log.exception("snaptrade: return rates failed for %s", account_id)
+    return out
+
+
+def get_balance_history(
+    db: Session, user_id: str, *, client: Any = None,
+) -> List[Dict[str, Any]]:
+    """Account value over time — the equity curve the broker keeps."""
+    out: List[Dict[str, Any]] = []
+    for api, st_user, secret, account_id in _each_account(db, user_id, client):
+        try:
+            resp = api.account_information.get_account_balance_history(
+                user_id=st_user, user_secret=secret, account_id=account_id,
+            )
+            body = _body(resp) or {}
+            rows = body.get("data") if isinstance(body, dict) else body
+            for r in rows or []:
+                row = dict(r)
+                row["account_id"] = account_id
+                out.append(row)
+        except Exception:  # noqa: BLE001
+            _log.exception("snaptrade: balance history failed for %s", account_id)
+    return out
+
+
 # ── helpers ─────────────────────────────────────────────────────────────────
 
 
