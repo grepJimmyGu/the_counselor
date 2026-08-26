@@ -9,14 +9,17 @@
  * wants in" — had no surface at all, so the only way to act on an entry was
  * to notice it yourself.
  *
- * WHY THE SIGNAL CARD AND NOT THE SIGNAL STATE. `/api/saved-strategies/{id}/signal`
- * is 404 in production on purpose: `main.py` gates the whole signals router
- * on `signal_alerts_enabled`, held until the disclaimer copy clears legal
- * review. `/api/signals/card` (PRD-25) is deliberately always mounted for
- * exactly this reason — "a read-only re-presentation of existing signal
- * state… must exist regardless of signal_alerts_enabled." So this reads the
- * card. Reaching around the gate to the state endpoint would be routing
- * around a legal hold, which is not ours to do.
+ * WHY THE SIGNAL CARD AND NOT THE SIGNAL STATE. `/api/signals/card` (PRD-25)
+ * is the cross-surface brick, "a read-only re-presentation of existing signal
+ * state… must exist regardless of signal_alerts_enabled," and it is mounted
+ * unconditionally. `/api/saved-strategies/{id}/signal` is gated in `main.py`
+ * on `signal_alerts_enabled` and can vanish under us.
+ *
+ * (An earlier version of this comment claimed that endpoint is "404 in
+ * production." Checked against Railway 2026-08-25: it answers 401, so the
+ * flag is ON there. The choice of the card was right for a different reason
+ * than stated — it is the purpose-built, always-present surface, not merely
+ * the one that happens to be reachable.)
  *
  * SIZED IN DOLLARS. A sell is sized in shares because you sell what you
  * hold. A buy answers "how much of my money," and SnapTrade takes a notional
