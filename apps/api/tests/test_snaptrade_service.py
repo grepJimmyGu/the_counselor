@@ -806,3 +806,144 @@ def test_a_share_sized_sell_still_reports_the_shares_it_was_given(
         )
 
     assert out.units == 25
+
+# ── activities pagination (PRD-43a slice 1) ─────────────────────────────────
+
+
+def _activity(i: int, day: str, symbol: str = "NVDA") -> dict:
+    return {
+        "id": f"act-{i}", "type": "BUY",
+        "symbol": {"symbol": {"symbol": symbol}},
+        "units": 1, "price": 100.0 + i, "trade_date": day,
+    }
+
+
+def _paged_api(pages: list) -> MagicMock:
+    """A broker that answers `offset` honestly, the way the real one does.
+
+    The response envelope is `{data: [...], pagination: {offset, limit,
+    total}}` — verified against `PaginatedUniversalActivity` in
+    snaptrade-python-sdk 13.0.3, not assumed.
+    """
+    api = _api()
+    flat = [row for page in pages for row in page]
+
+    def _get(**kwargs):
+        off = int(kwargs.get("offset") or 0)
+        lim = int(kwargs.get("limit") or 250)
+        return {
+            "data": flat[off:off + lim],
+            "pagination": {"offset": off, "limit": lim, "total": len(flat)},
+        }
+
+    api.account_information.get_account_activities.side_effect = _get
+    return api
+
+
+def test_REGRESSION_a_multi_year_history_is_not_silently_truncated(
+    make_user, db: Session, configured,
+) -> None:
+    """PRD-43a slice 1. `list_activities` made ONE call per account with no
+    loop, so an active trader's window returned whatever single page the
+    broker chose and the rest vanished without a log line.
+
+    Fails on the pre-fix code: it returns 2 of 5.
+    """
+    user = make_user(email="st-page@test.com")
+    pages = [
+        [_activity(0, "2026-08-01"), _activity(1, "2026-07-01")],
+        [_activity(2, "2026-06-01"), _activity(3, "2026-05-01")],
+        [_activity(4, "2026-04-01")],
+    ]
+    api = _paged_api(pages)
+    st.register_user(db, user.id, client=api)
+
+    out = st.list_activities(db, user.id, limit=2, client=api)
+
+    assert len(out) == 5
+    assert [a.activity_id for a in out] == [f"act-{i}" for i in range(5)]
+
+
+def test_ordering_holds_across_a_page_boundary(
+    make_user, db: Session, configured,
+) -> None:
+    """The broker is under no obligation to return newest-first, and the
+    pages arrive in its order. Sorting after accumulating everything is what
+    makes "newest first" a promise rather than a coincidence."""
+    user = make_user(email="st-page-order@test.com")
+    pages = [
+        [_activity(0, "2026-01-05"), _activity(1, "2026-03-05")],   # oldest first
+        [_activity(2, "2026-02-05"), _activity(3, "2026-08-05")],
+    ]
+    api = _paged_api(pages)
+    st.register_user(db, user.id, client=api)
+
+    out = st.list_activities(db, user.id, limit=2, client=api)
+
+    assert [a.trade_date for a in out] == [
+        "2026-08-05", "2026-03-05", "2026-02-05", "2026-01-05",
+    ]
+
+
+def test_a_row_repeated_across_pages_is_counted_once(
+    make_user, db: Session, configured,
+) -> None:
+    """Offset pagination over a feed that is still being written can hand
+    back the same row twice. Counting it twice would double a buy, and every
+    measurement downstream reads these rows as decisions."""
+    user = make_user(email="st-page-dupe@test.com")
+    api = _api()
+    calls = {"n": 0}
+
+    def _get(**kwargs):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return {"data": [_activity(0, "2026-08-01"), _activity(1, "2026-07-01")],
+                    "pagination": {"offset": 0, "limit": 2, "total": 3}}
+        return {"data": [_activity(1, "2026-07-01"), _activity(2, "2026-06-01")],
+                "pagination": {"offset": 2, "limit": 2, "total": 3}}
+
+    api.account_information.get_account_activities.side_effect = _get
+    st.register_user(db, user.id, client=api)
+
+    out = st.list_activities(db, user.id, limit=2, client=api)
+
+    assert [a.activity_id for a in out] == ["act-0", "act-1", "act-2"]
+
+
+def test_a_runaway_feed_stops_and_says_so(
+    make_user, db: Session, configured, caplog,
+) -> None:
+    """A broker that never reports a total and never returns a short page
+    would loop forever. The cap is not the interesting part — the log line
+    is, because a truncated history that nobody knows about is exactly the
+    failure this slice exists to remove."""
+    user = make_user(email="st-page-runaway@test.com")
+    api = _api()
+    api.account_information.get_account_activities.side_effect = (
+        lambda **kw: {"data": [_activity(int(kw.get("offset") or 0), "2026-08-01")]}
+    )
+    st.register_user(db, user.id, client=api)
+
+    with caplog.at_level("WARNING"):
+        out = st.list_activities(db, user.id, limit=1, client=api)
+
+    assert len(out) == st._MAX_ACTIVITY_PAGES
+    assert any("_MAX_ACTIVITY_PAGES" in r.message or "truncat" in r.message.lower()
+               for r in caplog.records), "a truncated history must not be silent"
+
+
+def test_a_bare_list_response_still_works(
+    make_user, db: Session, configured,
+) -> None:
+    """Some SDK builds return a bare list rather than the paginated
+    envelope. One page, no pagination block, no crash."""
+    user = make_user(email="st-page-bare@test.com")
+    api = _api()
+    api.account_information.get_account_activities.return_value = [
+        _activity(0, "2026-08-01"), _activity(1, "2026-07-01"),
+    ]
+    st.register_user(db, user.id, client=api)
+
+    out = st.list_activities(db, user.id, client=api)
+    assert len(out) == 2

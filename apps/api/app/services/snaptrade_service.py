@@ -337,48 +337,114 @@ def _each_account(db: Session, user_id: str, client: Any):
             yield api, reg.user_id, secret, account_id
 
 
+# A hard stop on the page loop below. 40 pages at the default 250 is 10,000
+# transactions per account — past any retail history, and low enough that a
+# broker looping on us costs one slow request rather than an outage. Hitting
+# it is logged, never silent.
+_MAX_ACTIVITY_PAGES = 40
+
+
+def _activities_page(
+    api: Any, st_user: str, secret: str, account_id: str, *,
+    start_date: Optional[str], end_date: Optional[str],
+    limit: int, offset: int,
+) -> "tuple[List[Dict[str, Any]], Optional[int]]":
+    """One page. Returns its rows and the broker's `total` when it gives one.
+
+    The envelope is `PaginatedUniversalActivity` — `{data: [...],
+    pagination: {offset, limit, total}}` — but some SDK builds hand back a
+    bare list with no pagination block at all, so `total` is optional and
+    the caller falls back to the short-page rule.
+    """
+    kwargs: Dict[str, Any] = {
+        "user_id": st_user, "user_secret": secret,
+        "account_id": account_id, "limit": limit, "offset": offset,
+    }
+    if start_date:
+        kwargs["start_date"] = start_date
+    if end_date:
+        kwargs["end_date"] = end_date
+    body = _body(api.account_information.get_account_activities(**kwargs)) or {}
+    if not isinstance(body, dict):
+        return list(body or []), None
+    rows = list(body.get("data") or [])
+    total = None
+    pag = body.get("pagination")
+    if isinstance(pag, dict):
+        total = _maybe_int(pag.get("total"))
+    return rows, total
+
+
 def list_activities(
     db: Session, user_id: str, *, start_date: Optional[str] = None,
     end_date: Optional[str] = None, limit: int = 250, client: Any = None,
 ) -> List[BrokerActivity]:
-    """Transactions across every connected account, newest first.
+    """Every transaction across every connected account, newest first.
 
-    `start_date`/`end_date` are ISO dates. SnapTrade paginates; `limit` is
-    per account, and the default is deliberately generous — a year of a
-    normal retail account is well under it, and asking twice for the same
-    window is worse than asking once for slightly too much.
+    PAGINATED, AND THAT IS THE POINT. This used to make one call per account
+    and keep whatever single page came back. The broker is under no
+    obligation to return newest-first, so an active trader asking for three
+    years got some arbitrary 250 rows and no indication the rest existed —
+    and every number computed from this feed was wrong for exactly the
+    people with the most history.
+
+    `limit` is the PAGE size now, not a budget. `start_date`/`end_date` are
+    ISO dates and still do the real narrowing.
+
+    Sorting happens once, at the end, over everything from every account —
+    which is what makes "newest first" a promise instead of a coincidence.
     """
     out: List[BrokerActivity] = []
     for api, st_user, secret, account_id in _each_account(db, user_id, client):
+        seen: set = set()
         try:
-            kwargs: Dict[str, Any] = {
-                "user_id": st_user, "user_secret": secret,
-                "account_id": account_id, "limit": limit,
-            }
-            if start_date:
-                kwargs["start_date"] = start_date
-            if end_date:
-                kwargs["end_date"] = end_date
-            resp = api.account_information.get_account_activities(**kwargs)
-            body = _body(resp) or {}
-            # Paginated shape is {"data": [...]}; some builds return a bare list.
-            rows = body.get("data") if isinstance(body, dict) else body
-            for a in rows or []:
-                out.append(BrokerActivity(
-                    account_id=account_id,
-                    activity_id=str(a.get("id")) if a.get("id") else None,
-                    type=a.get("type"),
-                    symbol=_symbol_of(a),
-                    units=_maybe_float(a.get("units")),
-                    price=_maybe_float(a.get("price")),
-                    amount=_maybe_float(a.get("amount")),
-                    fee=_maybe_float(a.get("fee")),
-                    currency=(a.get("currency") or {}).get("code")
-                    if isinstance(a.get("currency"), dict) else a.get("currency"),
-                    trade_date=a.get("trade_date"),
-                    settlement_date=a.get("settlement_date"),
-                    description=a.get("description"),
-                ))
+            offset = 0
+            for page_no in range(_MAX_ACTIVITY_PAGES):
+                rows, total = _activities_page(
+                    api, st_user, secret, account_id,
+                    start_date=start_date, end_date=end_date,
+                    limit=limit, offset=offset,
+                )
+                for a in rows:
+                    act_id = str(a.get("id")) if a.get("id") else None
+                    # Offset paging over a feed still being written can hand
+                    # the same row back twice. Counting it twice would double
+                    # a buy, and everything downstream reads these as
+                    # decisions the user made.
+                    if act_id is not None:
+                        if act_id in seen:
+                            continue
+                        seen.add(act_id)
+                    out.append(BrokerActivity(
+                        account_id=account_id,
+                        activity_id=act_id,
+                        type=a.get("type"),
+                        symbol=_symbol_of(a),
+                        units=_maybe_float(a.get("units")),
+                        price=_maybe_float(a.get("price")),
+                        amount=_maybe_float(a.get("amount")),
+                        fee=_maybe_float(a.get("fee")),
+                        currency=(a.get("currency") or {}).get("code")
+                        if isinstance(a.get("currency"), dict) else a.get("currency"),
+                        trade_date=a.get("trade_date"),
+                        settlement_date=a.get("settlement_date"),
+                        description=a.get("description"),
+                    ))
+                offset += len(rows)
+                # Three ways to be finished, in order of how much we trust
+                # them: the broker told us the total, the page came back
+                # short, or the page was empty.
+                if total is not None and offset >= total:
+                    break
+                if len(rows) < limit:
+                    break
+            else:
+                _log.warning(
+                    "snaptrade: activities hit _MAX_ACTIVITY_PAGES (%s) for "
+                    "account=%s — history is TRUNCATED at %s rows and any "
+                    "figure derived from it understates the account",
+                    _MAX_ACTIVITY_PAGES, account_id, len(out),
+                )
         except Exception:  # noqa: BLE001
             _log.exception("snaptrade: activities read failed for %s", account_id)
 
@@ -482,6 +548,13 @@ def _symbol_of(pos: Dict[str, Any]) -> Optional[str]:
             continue
         return None
     return None
+
+
+def _maybe_int(v: Any) -> Optional[int]:
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
 
 
 def _maybe_float(v: Any) -> Optional[float]:
