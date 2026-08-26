@@ -46,6 +46,7 @@ const BASE: TradingBehavior = {
   unmatched_sells: 0, unmatched_sell_symbols: [], open_lots: 2,
   symbols_total: 4, symbols_included: 4, excluded: [],
   splits_seen: 0, splits_adjusted: 0,
+  exit_gap: null, execution: null, recoverable: null, remedies: [],
 };
 
 const render_ = (over: Partial<TradingBehavior> = {}) => {
@@ -138,6 +139,136 @@ describe("what the numbers leave out", () => {
     render_();
     const panel = await screen.findByTestId("behavior-panel");
     expect(panel.textContent).toMatch(/Fees are deducted: \$18\.00/);
+  });
+});
+
+describe("the roll-up", () => {
+  const ROLL = {
+    dollars: 6100, exit_gap: 5000, fees: 300, execution: 800,
+    components: ["exit_gap", "fees", "execution"],
+  };
+
+  it("states the ceiling in the sentence, not a tooltip", async () => {
+    /* §0.1. Every part of this number assumes a different decision went
+     * perfectly, and they cannot all be taken at once. A reader who takes it
+     * as an expectation has been misled by us, not by themselves. */
+    render_({ recoverable: ROLL });
+    const box = await screen.findByTestId("behavior-recoverable");
+    expect(box.textContent).toMatch(/up to \$6,100\.00/);
+    expect(box.textContent).toMatch(/ceiling, not an expectation/);
+    expect(box.textContent).toMatch(/could not have taken all of them at once/);
+  });
+
+  it("names the parts it is made of", async () => {
+    render_({ recoverable: ROLL });
+    const box = await screen.findByTestId("behavior-recoverable");
+    expect(box.textContent).toMatch(/when you sold/);
+    expect(box.textContent).toMatch(/fees/);
+  });
+
+  it("shows no headline when there is nothing to recover", async () => {
+    /* "$0 recoverable" as a headline reads as a verdict on the person. */
+    render_({ recoverable: { dollars: 0, exit_gap: 0, fees: 0, execution: 0, components: [] } });
+    await screen.findByTestId("behavior-panel");
+    expect(screen.queryByTestId("behavior-recoverable")).toBeNull();
+  });
+});
+
+describe("the exit gap", () => {
+  it("prices what selling gave up, and dates the price", async () => {
+    render_({
+      exit_gap: {
+        dollars: 4000, is_material: true, sells_measured: 3, sells_total: 3,
+        symbols_measured: 2, largest_symbol: "NVDA", largest_dollars: 3200,
+        as_of: "2026-08-26", excluded: [],
+      },
+    });
+    const line = await screen.findByTestId("behavior-exit-gap");
+    expect(line.textContent).toMatch(/\$4,000\.00 more/);
+    expect(line.textContent).toMatch(/most of it NVDA/);
+    expect(line.textContent).toMatch(/exits only/);
+    expect(line.textContent).toMatch(/Priced at 2026-08-26/);
+  });
+
+  it("says so when the exits SAVED money", async () => {
+    /* THE HONESTY TEST. Reporting this number only when it flatters the
+     * thesis would make the panel a measurement of us, not of the user. */
+    render_({
+      exit_gap: {
+        dollars: -2500, is_material: false, sells_measured: 3, sells_total: 3,
+        symbols_measured: 2, as_of: "2026-08-26", excluded: [],
+      },
+    });
+    const line = await screen.findByTestId("behavior-exit-gap");
+    expect(line.textContent).toMatch(/saved you \$2,500\.00/);
+    expect(line.textContent).not.toMatch(/more today/);
+  });
+
+  it("stays silent when nothing was sold", async () => {
+    render_({
+      exit_gap: {
+        dollars: 0, is_material: false, sells_measured: 0, sells_total: 0,
+        symbols_measured: 0, excluded: [],
+      },
+    });
+    await screen.findByTestId("behavior-panel");
+    expect(screen.queryByTestId("behavior-exit-gap")).toBeNull();
+  });
+});
+
+describe("execution quality", () => {
+  const XQ = {
+    dollars: 2140, buy_dollars: 1800, sell_dollars: 340,
+    fills_measured: 38, fills_total: 40,
+    buy_percentile: 0.71, sell_percentile: 0.28, in_worst_tercile: true,
+  };
+
+  it("reports where fills landed and what the midpoint was worth", async () => {
+    render_({ execution: XQ });
+    const line = await screen.findByTestId("behavior-execution");
+    expect(line.textContent).toMatch(/71th percentile/);
+    expect(line.textContent).toMatch(/midpoint instead would have been worth \$2,140\.00/);
+    expect(line.textContent).toMatch(/38 of 40 fills/);
+  });
+
+  it("credits fills that beat the midpoint", async () => {
+    render_({ execution: { ...XQ, dollars: -500, in_worst_tercile: false } });
+    const line = await screen.findByTestId("behavior-execution");
+    expect(line.textContent).toMatch(/beat the day.s midpoint by \$500\.00/);
+  });
+});
+
+describe("remedies", () => {
+  it("names what would answer each finding", async () => {
+    /* A diagnosis with no remedy is a verdict. */
+    render_({ remedies: ["exit_rule", "price_band"] });
+    const box = await screen.findByTestId("behavior-remedies");
+    expect(box.textContent).toMatch(/decided in advance/);
+    expect(box.textContent).toMatch(/a range to buy and sell inside/);
+  });
+
+  it("admits neither tool exists yet rather than offering a dead link", async () => {
+    /* Stripe is built and unconfigured, so a tier-gated upgrade prompt would
+     * route someone to a wall. Naming the fix plainly is the honest version
+     * until 43b and 43d ship. */
+    render_({ remedies: ["exit_rule"] });
+    const box = await screen.findByTestId("behavior-remedies");
+    expect(box.textContent).toMatch(/Neither is built yet/);
+    expect(box.querySelector("a")).toBeNull();
+  });
+
+  it("renders an unknown remedy key rather than dropping it", async () => {
+    /* A key added on the backend must show as its slug, not vanish — a
+     * silently missing remedy is the reachability bug in miniature. */
+    render_({ remedies: ["some_new_remedy"] });
+    expect((await screen.findByTestId("behavior-remedy-some_new_remedy")).textContent)
+      .toBe("some_new_remedy");
+  });
+
+  it("shows nothing when there is nothing to fix", async () => {
+    render_();
+    await screen.findByTestId("behavior-panel");
+    expect(screen.queryByTestId("behavior-remedies")).toBeNull();
   });
 });
 
