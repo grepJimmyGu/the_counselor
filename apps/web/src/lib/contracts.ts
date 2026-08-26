@@ -3411,6 +3411,55 @@ export interface BrokerActivity {
   description?: string | null;
 }
 
+/** M1 — what the user's exits were worth, measured against still holding.
+ *
+ *  Positive dollars mean selling cost them; negative means the exits ADDED
+ *  value, and the UI reports that just as plainly. An upper bound: it assumes
+ *  every exit was wrong and that the proceeds did nothing afterwards. */
+export interface ExitGap {
+  dollars: number;
+  is_material: boolean;
+  sells_measured: number;
+  sells_total: number;
+  symbols_measured: number;
+  largest_symbol?: string | null;
+  largest_dollars?: number | null;
+  /** The bar the counterfactual was priced against. Rendered, because
+   *  "worth $N today" over a stale bar is a different claim. */
+  as_of?: string | null;
+  excluded: string[][];
+}
+
+/** M4 — where each fill landed inside its own day's high-low range.
+ *
+ *  Priced against that day's MIDPOINT rather than its low, because the
+ *  midpoint is a fill you could plausibly have got. Split by side: a buy
+ *  wants to be low in the range and a sell wants to be high. */
+export interface ExecutionQuality {
+  dollars: number;
+  buy_dollars: number;
+  sell_dollars: number;
+  fills_measured: number;
+  fills_total: number;
+  buy_percentile?: number | null;
+  sell_percentile?: number | null;
+  in_worst_tercile: boolean;
+}
+
+/** The one-sentence roll-up. A CEILING, and the copy must say so.
+ *
+ *  Two things are deliberately absent. The disposition effect is the pattern
+ *  behind the exit gap rather than a separate loss. And M4's SELL half is an
+ *  alternative to the exit gap, not an addition — you cannot both keep the
+ *  shares and sell them well, so only the BUY half composes. */
+export interface RollUp {
+  dollars: number;
+  exit_gap: number;
+  fees: number;
+  execution: number;
+  components: string[];
+}
+
 /** One symbol inside the trading summary. */
 export interface SymbolSummary {
   symbol: string;
@@ -3483,6 +3532,15 @@ export interface TradingBehavior {
   excluded: string[][];
   splits_seen: number;
   splits_adjusted: number;
+
+  /** What changing it would have been worth. Optional because a user with no
+   *  price coverage still gets a valid description of what they did. */
+  exit_gap?: ExitGap | null;
+  execution?: ExecutionQuality | null;
+  recoverable?: RollUp | null;
+  /** Remedy keys — `exit_rule`, `price_band` — in the order to offer them.
+   *  A finding that names no remedy is a verdict, and we don't ship those. */
+  remedies: string[];
 }
 
 /** PRD-28 Step 4 — one rung of a tracked position's ladder, priced.

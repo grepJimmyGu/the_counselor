@@ -54,6 +54,20 @@ function days(v: number | null | undefined): string {
   return v === 1 ? "1 day" : `${Math.round(v)} days`;
 }
 
+/** Copy for the roll-up's parts and the remedies. Kept next to the render so
+ *  a new key added on the backend shows as its raw slug rather than silently
+ *  vanishing from the sentence. */
+const COMPONENT_LABEL: Record<string, string> = {
+  exit_gap: "when you sold",
+  fees: "fees",
+  execution: "the prices you bought at",
+};
+
+const REMEDY_LABEL: Record<string, string> = {
+  exit_rule: "An exit rule — decided in advance, so the sell isn't a judgement call in the moment.",
+  price_band: "A price band — a range to buy and sell inside, instead of taking whatever the moment offers.",
+};
+
 function Stat({
   label,
   value,
@@ -200,6 +214,10 @@ export function TradingBehaviorPanel({
     .filter(([, reason]) => reason === "split_unreconciled")
     .map(([symbol]) => symbol);
 
+  const roll = data.recoverable;
+  const gap = data.exit_gap;
+  const xq = data.execution;
+
   const ratio = data.win_loss_ratio;
   // The sentence a person can act on. Ratio under 1 means the losses are
   // bigger than the wins, which is the finding regardless of win rate.
@@ -212,6 +230,35 @@ export function TradingBehaviorPanel({
 
   return (
     <div className="space-y-5" data-testid="behavior-panel">
+      {/* THE HEADLINE, and the only number on this page that is not something
+          that happened. It is a ceiling built from counterfactuals, and the
+          bound is stated in the sentence itself — not a tooltip, not a
+          footnote (§0.1). Rendered only when there is something to recover:
+          "$0 recoverable" as a headline reads as a verdict on the user. */}
+      {roll && roll.dollars > 0 && (
+        <div
+          data-testid="behavior-recoverable"
+          className="rounded-lg border border-border bg-card px-4 py-3.5"
+        >
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Worth changing
+          </div>
+          <div className="mt-1 font-mono text-2xl font-semibold tabular-nums text-foreground">
+            up to {money(roll.dollars)}
+          </div>
+          <p className="mt-1.5 text-[13px] text-muted-foreground">
+            over this window, across {roll.components.length}{" "}
+            {roll.components.length === 1 ? "thing" : "things"}:{" "}
+            {roll.components.map((c) => COMPONENT_LABEL[c] ?? c).join(", ")}.{" "}
+            <strong className="font-medium text-foreground">
+              That is a ceiling, not an expectation
+            </strong>{" "}
+            — each part assumes a different decision went perfectly, and you
+            could not have taken all of them at once.
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <Stat
           label="Realised P/L"
@@ -284,6 +331,93 @@ export function TradingBehaviorPanel({
             </p>
           </div>
         )}
+
+      {/* M1 — reported in BOTH directions. An exit that saved money is the
+          same finding with the sign flipped, and showing it only when it
+          flatters the thesis would be measuring ourselves, not the user. */}
+      {gap && gap.sells_measured > 0 && (
+        <p
+          data-testid="behavior-exit-gap"
+          className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-[13px] text-foreground"
+        >
+          {gap.dollars > 0 ? (
+            <>
+              What you sold is worth{" "}
+              <strong className="font-medium">{money(gap.dollars)} more</strong>{" "}
+              today than what you sold it for
+              {gap.largest_symbol && <> — most of it {gap.largest_symbol}</>}.
+              This measures exits only, and assumes you would have held every
+              one of them to today.
+            </>
+          ) : (
+            <>
+              Your exits{" "}
+              <strong className="font-medium">
+                saved you {money(-gap.dollars)}
+              </strong>{" "}
+              — what you sold is worth less now than what you got for it.
+            </>
+          )}
+          {gap.as_of && (
+            <span className="text-muted-foreground"> Priced at {gap.as_of}.</span>
+          )}
+        </p>
+      )}
+
+      {/* M4 */}
+      {xq && xq.fills_measured > 0 && (
+        <p
+          data-testid="behavior-execution"
+          className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-[13px] text-foreground"
+        >
+          {xq.buy_percentile !== null && xq.buy_percentile !== undefined && (
+            <>
+              Your buys filled at the{" "}
+              <strong className="font-medium">
+                {(xq.buy_percentile * 100).toFixed(0)}th percentile
+              </strong>{" "}
+              of the day&rsquo;s range on average
+              {xq.sell_percentile !== null &&
+                xq.sell_percentile !== undefined && (
+                  <>, your sells at the {(xq.sell_percentile * 100).toFixed(0)}th</>
+                )}
+              .{" "}
+            </>
+          )}
+          {xq.dollars > 0
+            ? `Filling at each day's midpoint instead would have been worth ${money(xq.dollars)}.`
+            : `You beat the day's midpoint by ${money(-xq.dollars)} overall.`}{" "}
+          <span className="text-muted-foreground">
+            Measured on {xq.fills_measured} of {xq.fills_total} fills.
+          </span>
+        </p>
+      )}
+
+      {/* Every finding names what would answer it. A diagnosis with no
+          remedy is a verdict, and we do not ship verdicts. No tier chip and
+          no link: neither tool is built, and offering an upgrade for
+          something that does not exist is worse than naming it plainly. */}
+      {data.remedies.length > 0 && (
+        <div
+          data-testid="behavior-remedies"
+          className="rounded-lg border border-dashed border-border px-4 py-3"
+        >
+          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            What would answer this
+          </div>
+          <ul className="mt-1.5 space-y-1">
+            {data.remedies.map((r) => (
+              <li key={r} data-testid={`behavior-remedy-${r}`} className="text-[13px]">
+                {REMEDY_LABEL[r] ?? r}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1.5 text-[11px] text-muted-foreground">
+            Neither is built yet. They&rsquo;re named here because the number
+            above is only useful if something can be done about it.
+          </p>
+        </div>
+      )}
 
       <div className="grid gap-4 sm:grid-cols-2">
         <SymbolTable

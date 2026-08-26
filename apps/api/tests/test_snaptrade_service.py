@@ -1038,3 +1038,92 @@ def test_the_behavior_route_reports_a_symbol_it_could_not_reconcile(
     assert out.symbols_included == 0
     assert out.symbols_total == 1
     assert out.round_trips == 0
+
+
+def test_the_behavior_route_prices_the_exit_gap_and_the_fills(
+    make_user, db: Session, configured,
+) -> None:
+    """REACHABILITY for M1 and M4. Both are covered by their own suite; this
+    pins that the shipped endpoint calls them and that the numbers reach the
+    response — the failure mode this codebase keeps repeating."""
+    from datetime import date as _date, datetime as _dt
+    from unittest.mock import patch as _patch
+
+    from app.api.routes.snaptrade import snaptrade_behavior
+    from app.models.price_bar import PriceBar
+
+    user = make_user(email="behav-m1m4@test.com")
+
+    # Traded on 2026-02-01 with a $90-$110 range; NVDA is $150 now.
+    for day, hi, lo, close in [
+        ("2026-02-01", 110.0, 90.0, 100.0),
+        ("2026-08-26", 152.0, 148.0, 150.0),
+    ]:
+        db.add(PriceBar(
+            symbol="NVDA", trading_date=_date.fromisoformat(day),
+            open=100.0, high=hi, low=lo, close=close, adjusted_close=close,
+            volume=1_000_000, dividend_amount=0.0, split_coefficient=1.0,
+            source="alpha_vantage", fetched_at=_dt.utcnow(),
+        ))
+    db.commit()
+
+    api = _api()
+    api.account_information.get_account_activities.return_value = {"data": [
+        {"id": "1", "type": "BUY", "symbol": {"symbol": {"symbol": "NVDA"}},
+         "units": 100, "price": 110.0, "trade_date": "2026-02-01", "fee": 5.0},
+        {"id": "2", "type": "SELL", "symbol": {"symbol": {"symbol": "NVDA"}},
+         "units": 100, "price": 110.0, "trade_date": "2026-02-01", "fee": 5.0},
+    ]}
+    st.register_user(db, user.id, client=api)
+
+    with _patch.object(st, "_client", return_value=api):
+        out = snaptrade_behavior(current_user=user, db=db)
+
+    # M1: sold 100 at $110, now $150 -> holding was worth $4,000 more.
+    assert out.exit_gap is not None
+    assert out.exit_gap.dollars == 4000.0
+    assert out.exit_gap.is_material is True
+    assert out.exit_gap.as_of == "2026-08-26"
+
+    # M4: both fills at $110 on a $90-$110 day -> the top of the range.
+    assert out.execution is not None
+    assert out.execution.buy_percentile == 1.0
+    assert out.execution.buy_dollars == 1000.0      # 100 x (110 - 100)
+    assert out.execution.sell_dollars == -1000.0    # sold ABOVE the midpoint
+
+    # Roll-up: exit gap + fees + the BUY half only. The sell half is an
+    # alternative to M1, not an addition — see `recoverable()`.
+    assert out.recoverable is not None
+    assert out.recoverable.dollars == 4000.0 + 10.0 + 1000.0
+    assert out.recoverable.components == ["exit_gap", "fees", "execution"]
+
+    assert "exit_rule" in out.remedies
+
+
+def test_the_behavior_route_survives_having_no_price_data_at_all(
+    make_user, db: Session, configured,
+) -> None:
+    """The description of what someone did stands on its own. Losing the
+    pricing must cost the headline, not the page — and it must not 500."""
+    from unittest.mock import patch as _patch
+    from app.api.routes.snaptrade import snaptrade_behavior
+
+    user = make_user(email="behav-nobars@test.com")
+    api = _api()
+    api.account_information.get_account_activities.return_value = {"data": [
+        {"id": "1", "type": "BUY", "symbol": {"symbol": {"symbol": "ZZZZ"}},
+         "units": 10, "price": 100.0, "trade_date": "2026-01-05"},
+        {"id": "2", "type": "SELL", "symbol": {"symbol": {"symbol": "ZZZZ"}},
+         "units": 10, "price": 130.0, "trade_date": "2026-06-05"},
+    ]}
+    st.register_user(db, user.id, client=api)
+
+    with _patch.object(st, "_client", return_value=api):
+        out = snaptrade_behavior(current_user=user, db=db)
+
+    assert out.round_trips == 1
+    assert out.realised_pnl == 300.0
+    assert out.exit_gap.dollars == 0.0
+    assert out.exit_gap.excluded == [["ZZZZ", "no_price_history"]]
+    assert out.recoverable.dollars == 0.0
+    assert out.remedies == []

@@ -302,6 +302,46 @@ class SymbolSummaryView(BaseModel):
     gross_bought: float = 0.0
 
 
+class ExitGapView(BaseModel):
+    """M1. Positive = holding would have been worth more. Negative = the
+    exits added value, which is reported just as plainly."""
+    dollars: float
+    is_material: bool
+    sells_measured: int
+    sells_total: int
+    symbols_measured: int
+    largest_symbol: Optional[str] = None
+    largest_dollars: Optional[float] = None
+    # The bar we priced the counterfactual against. `price_bars` is a cache;
+    # "worth $N today" over a stale bar is a different claim, so the date is
+    # rendered (the date-stamp product invariant).
+    as_of: Optional[str] = None
+    excluded: List[List[str]] = []
+
+
+class ExecutionQualityView(BaseModel):
+    """M4. Where each fill landed in its own day's range, priced against that
+    day's midpoint — a fill you could plausibly have got, unlike the low."""
+    dollars: float
+    buy_dollars: float
+    sell_dollars: float
+    fills_measured: int
+    fills_total: int
+    buy_percentile: Optional[float] = None
+    sell_percentile: Optional[float] = None
+    in_worst_tercile: bool = False
+
+
+class RollUpView(BaseModel):
+    """The one sentence. A CEILING — every part is a counterfactual, and the
+    rendered copy has to say so rather than hiding it in a tooltip."""
+    dollars: float
+    exit_gap: float
+    fees: float
+    execution: float
+    components: List[str] = []
+
+
 class TradingBehaviorView(BaseModel):
     """What the user's own record says about how they trade.
 
@@ -353,6 +393,14 @@ class TradingBehaviorView(BaseModel):
     excluded: List[List[str]] = []      # [symbol, reason] pairs
     splits_seen: int = 0
     splits_adjusted: int = 0
+
+    # What changing it would have been worth (PRD-43a M1/M4 + the roll-up).
+    exit_gap: Optional[ExitGapView] = None
+    execution: Optional[ExecutionQualityView] = None
+    recoverable: Optional[RollUpView] = None
+    # Remedy keys, in the order the surface should offer them. A finding that
+    # names no remedy is a verdict, and we do not ship verdicts.
+    remedies: List[str] = []
 
 
 @router.get("/behavior", response_model=TradingBehaviorView)
@@ -421,6 +469,41 @@ def snaptrade_behavior(
 
     b = summarize(ledger.transactions)
 
+    # M1 and M4. Two more bounded reads on the same session — the symbols the
+    # user traded, never the universe.
+    from app.services.mirror.measurements import (
+        exit_gap, execution_quality, load_bars_on, load_latest_closes, recoverable,
+    )
+    from app.services.trading_behavior import _parse_date, _side
+
+    skip = {sym for sym, _ in ledger.coverage.excluded}
+    gap = exit_gap(ledger.transactions, {}, skip_symbols=skip)
+    xq = execution_quality(ledger.transactions, {})
+    try:
+        if symbols:
+            gap = exit_gap(
+                ledger.transactions,
+                load_latest_closes(db, symbols),
+                skip_symbols=skip,
+            )
+        pairs = [
+            (str(t.get("symbol") or "").upper(), _parse_date(t.get("trade_date")))
+            for t in ledger.transactions
+            if _side(t) in ("BUY", "SELL")
+        ]
+        pairs = [(sym, when) for sym, when in pairs if sym and when]
+        if pairs:
+            xq = execution_quality(ledger.transactions, load_bars_on(db, pairs))
+    except Exception:  # noqa: BLE001
+        # Same posture as the split lookup: the description of what they did
+        # still stands without the pricing of it. Logged with a traceback
+        # (trap #20) — a silently missing headline looks identical to a user
+        # who simply has nothing to recover.
+        _log.exception("snaptrade: measurement read failed user=%s", user_id)
+
+    roll = recoverable(gap, b.fees_paid, xq)
+    remedies = [r for r in (gap.remedy, xq.remedy) if r]
+
     def _sym(s) -> SymbolSummaryView:
         return SymbolSummaryView(
             symbol=s.symbol, trades=s.trades, buys=s.buys, sells=s.sells,
@@ -459,6 +542,38 @@ def snaptrade_behavior(
         excluded=[[sym, reason] for sym, reason in ledger.coverage.excluded],
         splits_seen=ledger.coverage.splits_seen,
         splits_adjusted=ledger.coverage.splits_adjusted,
+        exit_gap=ExitGapView(
+            dollars=round(gap.dollars, 2),
+            is_material=gap.is_material,
+            sells_measured=gap.sells_measured,
+            sells_total=gap.sells_total,
+            symbols_measured=gap.symbols_measured,
+            largest_symbol=gap.largest_symbol,
+            largest_dollars=(
+                round(gap.largest_dollars, 2)
+                if gap.largest_dollars is not None else None
+            ),
+            as_of=gap.as_of.isoformat() if gap.as_of else None,
+            excluded=[[sym, reason] for sym, reason in gap.excluded],
+        ),
+        execution=ExecutionQualityView(
+            dollars=round(xq.dollars, 2),
+            buy_dollars=round(xq.buy_dollars, 2),
+            sell_dollars=round(xq.sell_dollars, 2),
+            fills_measured=xq.fills_measured,
+            fills_total=xq.fills_total,
+            buy_percentile=xq.buy_percentile,
+            sell_percentile=xq.sell_percentile,
+            in_worst_tercile=xq.in_worst_tercile,
+        ),
+        recoverable=RollUpView(
+            dollars=round(roll.dollars, 2),
+            exit_gap=round(roll.exit_gap, 2),
+            fees=round(roll.fees, 2),
+            execution=round(roll.execution, 2),
+            components=roll.components,
+        ),
+        remedies=remedies,
     )
 
 
