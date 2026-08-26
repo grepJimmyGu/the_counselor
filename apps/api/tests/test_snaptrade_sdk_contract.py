@@ -93,8 +93,12 @@ CALLS = [
     ("trading", "place_order", {"user_id", "user_secret", "trade_id"}),
     # The account reads. Same discipline: these were written from the SDK's
     # own surface, and this asserts they still match it.
+    # `offset` added PRD-43a slice 1. It is the whole pagination fix, so it
+    # is pinned here against the real SDK rather than only against a mock —
+    # a MagicMock would have agreed with any name I invented.
     ("account_information", "get_account_activities",
-     {"user_id", "user_secret", "account_id", "start_date", "end_date", "limit"}),
+     {"user_id", "user_secret", "account_id", "start_date", "end_date",
+      "limit", "offset"}),
     ("account_information", "get_user_account_orders",
      {"user_id", "user_secret", "account_id", "days"}),
     ("account_information", "get_user_account_return_rates",
