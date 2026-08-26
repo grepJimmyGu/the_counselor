@@ -194,6 +194,12 @@ export function TradingBehaviorPanel({
     );
   }
 
+  // Only `split_unreconciled` exists today; reading the reason rather than
+  // assuming it keeps the copy honest when a second reason is added.
+  const excluded = (data.excluded ?? [])
+    .filter(([, reason]) => reason === "split_unreconciled")
+    .map(([symbol]) => symbol);
+
   const ratio = data.win_loss_ratio;
   // The sentence a person can act on. Ratio under 1 means the losses are
   // bigger than the wins, which is the finding regardless of win rate.
@@ -298,10 +304,46 @@ export function TradingBehaviorPanel({
 
       {/* Rule 3 — say what the numbers leave out. */}
       <div className="space-y-1 text-[11px] text-muted-foreground">
+        {/* A dropped symbol is the most consequential omission on this panel
+            and gets the strongest treatment: named, with the reason, above
+            the ordinary footnotes rather than inside them. */}
+        {excluded.length > 0 && (
+          <p
+            data-testid="behavior-excluded"
+            className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900"
+          >
+            <strong className="font-medium">
+              {excluded.join(", ")} {excluded.length === 1 ? "is" : "are"} left
+              out of everything above.
+            </strong>{" "}
+            {excluded.length === 1 ? "It" : "They"} split during this window,
+            and the buy and sell records don&rsquo;t line up either as your
+            broker reported them or once adjusted for the split — so any
+            profit or loss we showed you would be invented rather than
+            measured.
+          </p>
+        )}
         <p>
-          Matched oldest-lot-first within each account. Fees are deducted:{" "}
-          {money(data.fees_paid)} paid over this window.
+          Matched oldest-lot-first within each account
+          {data.symbols_total > 0 &&
+            data.symbols_included < data.symbols_total && (
+              <span data-testid="behavior-coverage">
+                , across {data.symbols_included} of {data.symbols_total}{" "}
+                symbols you traded
+              </span>
+            )}
+          . Fees are deducted: {money(data.fees_paid)} paid over this window.
         </p>
+        {data.splits_adjusted > 0 && (
+          <p data-testid="behavior-splits">
+            {data.splits_adjusted === 1
+              ? "One stock split was"
+              : `${data.splits_adjusted} stock splits were`}{" "}
+            accounted for so the share counts line up. This changes no
+            dollars — it only lets a position held through a split match to
+            the buy that opened it.
+          </p>
+        )}
         {data.unmatched_sells > 0 && (
           <p data-testid="behavior-unmatched">
             {data.unmatched_sells === 1 ? "One sale" : `${data.unmatched_sells} sales`}{" "}

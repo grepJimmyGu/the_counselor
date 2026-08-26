@@ -3469,6 +3469,20 @@ export interface TradingBehavior {
   unmatched_sells: number;
   unmatched_sell_symbols: string[];
   open_lots: number;
+
+  /** What the figures above are computed ON.
+   *
+   *  `excluded` is `[symbol, reason]` pairs. The only reason today is
+   *  `split_unreconciled`: the symbol split inside the window and the buy and
+   *  sell records don't reconcile either as reported or as adjusted, so no
+   *  P/L is published for it. Matching a split position on raw units yields a
+   *  ~90% loss that never happened — and a fabricated loss reads exactly like
+   *  a real finding, which is why the symbol is dropped rather than flagged. */
+  symbols_total: number;
+  symbols_included: number;
+  excluded: string[][];
+  splits_seen: number;
+  splits_adjusted: number;
 }
 
 /** PRD-28 Step 4 — one rung of a tracked position's ladder, priced.

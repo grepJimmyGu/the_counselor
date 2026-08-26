@@ -44,6 +44,8 @@ const BASE: TradingBehavior = {
       win_rate: 0, avg_holding_days: 90, gross_bought: 5000 },
   ],
   unmatched_sells: 0, unmatched_sell_symbols: [], open_lots: 2,
+  symbols_total: 4, symbols_included: 4, excluded: [],
+  splits_seen: 0, splits_adjusted: 0,
 };
 
 const render_ = (over: Partial<TradingBehavior> = {}) => {
@@ -136,6 +138,63 @@ describe("what the numbers leave out", () => {
     render_();
     const panel = await screen.findByTestId("behavior-panel");
     expect(panel.textContent).toMatch(/Fees are deducted: \$18\.00/);
+  });
+});
+
+describe("coverage", () => {
+  it("names a symbol it dropped, and says why, before any other footnote", async () => {
+    /* THE HONESTY TEST for this slice. A position held through a 10:1 split
+     * matched on raw units reports a ~90% loss that never happened — and a
+     * fabricated loss reads exactly like a real finding. Dropping the symbol
+     * is only defensible if the user is told which one and why. */
+    render_({
+      symbols_total: 4, symbols_included: 3,
+      excluded: [["NVDA", "split_unreconciled"]],
+      splits_seen: 1, splits_adjusted: 0,
+    });
+    const note = await screen.findByTestId("behavior-excluded");
+    expect(note.textContent).toMatch(/NVDA is left out/);
+    expect(note.textContent).toMatch(/split during this window/);
+    expect(note.textContent).toMatch(/invented rather than measured/);
+  });
+
+  it("says what fraction of your symbols the numbers cover", async () => {
+    render_({ symbols_total: 4, symbols_included: 3,
+              excluded: [["NVDA", "split_unreconciled"]] });
+    expect((await screen.findByTestId("behavior-coverage")).textContent)
+      .toMatch(/3 of 4 symbols/);
+  });
+
+  it("stays quiet about coverage when nothing was left out", async () => {
+    /* "4 of 4 symbols" is noise. The absence of an exclusion is not news. */
+    render_();
+    await screen.findByTestId("behavior-panel");
+    expect(screen.queryByTestId("behavior-coverage")).toBeNull();
+    expect(screen.queryByTestId("behavior-excluded")).toBeNull();
+  });
+
+  it("mentions an adjusted split and says it moved no dollars", async () => {
+    /* A user comparing this to their broker's own P/L deserves to know why
+     * the share counts differ — and to know the money didn't change. */
+    render_({ splits_seen: 1, splits_adjusted: 1 });
+    const note = await screen.findByTestId("behavior-splits");
+    expect(note.textContent).toMatch(/One stock split was accounted for/);
+    expect(note.textContent).toMatch(/changes no dollars/);
+  });
+
+  it("says nothing about splits when there were none", async () => {
+    render_();
+    await screen.findByTestId("behavior-panel");
+    expect(screen.queryByTestId("behavior-splits")).toBeNull();
+  });
+
+  it("ignores an exclusion reason it doesn't have copy for", async () => {
+    /* Only `split_unreconciled` exists today. A future reason rendered with
+     * the split sentence would be a confident lie about a different problem. */
+    render_({ symbols_total: 4, symbols_included: 3,
+              excluded: [["KO", "some_future_reason"]] });
+    await screen.findByTestId("behavior-panel");
+    expect(screen.queryByTestId("behavior-excluded")).toBeNull();
   });
 });
 

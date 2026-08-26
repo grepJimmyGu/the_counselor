@@ -345,6 +345,15 @@ class TradingBehaviorView(BaseModel):
     unmatched_sell_symbols: List[str] = []
     open_lots: int = 0
 
+    # What the figures above are computed ON. A number over 9 of 10 symbols
+    # is a different claim from one over all 10, and the difference belongs
+    # on screen rather than in a docstring.
+    symbols_total: int = 0
+    symbols_included: int = 0
+    excluded: List[List[str]] = []      # [symbol, reason] pairs
+    splits_seen: int = 0
+    splits_adjusted: int = 0
+
 
 @router.get("/behavior", response_model=TradingBehaviorView)
 def snaptrade_behavior(
@@ -360,20 +369,57 @@ def snaptrade_behavior(
     recommendations later. Two consumers, one implementation.
     """
     _require_configured()
+    from app.services.mirror.portfolio_ledger_service import build_ledger, load_splits
     from app.services.trading_behavior import summarize
+
+    # Trap #17: snapshot before anything can commit and expire the instance.
+    user_id: str = current_user.id
 
     try:
         activities = st.list_activities(
-            db, current_user.id,
-            start_date=start_date, end_date=end_date, limit=1000,
+            db, user_id,
+            start_date=start_date, end_date=end_date, limit=250,
         )
     except st.SnapTradeNotConfigured:
         raise HTTPException(status_code=503, detail="Brokerage connections aren't available right now.")
     except Exception as exc:  # noqa: BLE001
-        _log.exception("snaptrade: behavior read failed user=%s", current_user.id)
+        _log.exception("snaptrade: behavior read failed user=%s", user_id)
         raise HTTPException(status_code=502, detail="Couldn't read your trading history.") from exc
 
-    b = summarize([vars(a) for a in activities])
+    rows = [vars(a) for a in activities]
+
+    # The broker round-trip above is the slow part of this request, and it is
+    # a BLOCKING SDK call — this handler is `def` on purpose so FastAPI runs
+    # it in a worker thread rather than on the event loop. `close()` hands the
+    # pool connection back now instead of at the end of the request; the
+    # session is still usable and checks out a fresh one for the price read
+    # below. That is the #126 lesson in its synchronous form: never hold a
+    # pool slot across a third party.
+    db.close()
+
+    symbols = {str(r.get("symbol") or "").upper() for r in rows}
+    symbols.discard("")
+    ledger = build_ledger(rows, {})
+    if symbols:
+        try:
+            # NOT bounded on the start side, deliberately. A user's window
+            # routinely begins after a position was opened, and the split
+            # that makes their sell unmatchable happened before the first row
+            # we can see. Bounding by `window_start` hides exactly the split
+            # that explains the problem. Loading earlier ones is free —
+            # `_apply_splits` only applies splits AFTER a trade date, so a
+            # split nobody traded across changes nothing.
+            splits = load_splits(db, symbols, end=ledger.coverage.window_end)
+            ledger = build_ledger(rows, splits)
+        except Exception:  # noqa: BLE001
+            # Losing the split data degrades honesty, not availability: we
+            # fall back to raw matching, which is what shipped before this.
+            # Logged loudly (trap #20) rather than warned, because a silent
+            # fallback here means a split position reports a loss that never
+            # happened — and that reads exactly like a real finding.
+            _log.exception("snaptrade: split lookup failed user=%s", user_id)
+
+    b = summarize(ledger.transactions)
 
     def _sym(s) -> SymbolSummaryView:
         return SymbolSummaryView(
@@ -408,6 +454,11 @@ def snaptrade_behavior(
         unmatched_sells=b.unmatched_sells,
         unmatched_sell_symbols=b.unmatched_sell_symbols,
         open_lots=b.open_lots,
+        symbols_total=ledger.coverage.symbols_total,
+        symbols_included=ledger.coverage.symbols_included,
+        excluded=[[sym, reason] for sym, reason in ledger.coverage.excluded],
+        splits_seen=ledger.coverage.splits_seen,
+        splits_adjusted=ledger.coverage.splits_adjusted,
     )
 
 
