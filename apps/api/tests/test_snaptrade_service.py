@@ -1127,3 +1127,142 @@ def test_the_behavior_route_survives_having_no_price_data_at_all(
     assert out.exit_gap.excluded == [["ZZZZ", "no_price_history"]]
     assert out.recoverable.dollars == 0.0
     assert out.remedies == []
+
+
+# ── positions parsing (production shape) ────────────────────────────────────
+
+
+def _REAL_POSITIONS_BODY() -> dict:
+    """The shape SnapTrade actually returns, captured from production
+    2026-08-27 against a live Schwab account.
+
+    Two things in here broke `list_positions`, and neither is visible from a
+    mock built out of the same assumption the code was written from:
+
+      1. The payload is an ENVELOPE — `{"results": [...], "data_freshness":
+         {...}}` — not a bare list. Iterating it yields the two KEY STRINGS.
+      2. The ticker lives at `instrument.symbol`, not `symbol`; the cost basis
+         is `cost_basis`, not `average_purchase_price`; there is no `open_pnl`
+         at all; and `units`/`price` arrive as STRINGS.
+    """
+    return {
+        "results": [
+            {
+                "instrument": {
+                    "kind": "equity", "symbol": "NVDA", "raw_symbol": "NVDA",
+                    "description": "NVIDIA Corp", "currency": "USD",
+                },
+                "units": "120", "price": "121.05", "cost_basis": "118.40",
+                "currency": "USD", "cash_equivalent": False,
+            },
+            {
+                "instrument": {
+                    "kind": "mutualfund", "symbol": "SWVXX",
+                    "description": "Schwab Value Advantage Money Fund",
+                },
+                "units": "20125.11", "price": "1", "cost_basis": "1",
+                "currency": "USD", "cash_equivalent": True,
+            },
+        ],
+        "data_freshness": {"as_of": "2026-08-27T10:00:05Z"},
+    }
+
+
+def test_REGRESSION_positions_parse_the_envelope_the_broker_actually_sends(
+    make_user, db: Session, configured,
+) -> None:
+    """PRODUCTION BUG, found 2026-08-27 by trying to read a real book.
+
+    SYMPTOM: `/account/brokerage`'s holdings table was empty for every user,
+    and `/account/positions`' "At your brokerage" section showed the connect
+    prompt as though no broker were attached.
+
+    CAUSE: `for pos in _body(resp) or []` iterated an envelope DICT, so `pos`
+    was the string "results". `_symbol_of("results")` raised AttributeError,
+    the per-account `except Exception` swallowed it, and the account was
+    skipped — leaving `list_positions` returning [] with a log line and no
+    user-visible error.
+
+    WHY THE SUITE WAS GREEN: every existing test mocks
+    `get_all_account_positions` with a bare list of flat dicts — the shape the
+    code was written to expect. The mock agreed with the mistake. This fixture
+    is the real payload instead. Trap #14's exact shape.
+    """
+    user = make_user(email="pos-envelope@test.com")
+    api = _api()
+    api.account_information.get_all_account_positions.return_value = (
+        _REAL_POSITIONS_BODY()
+    )
+    st.register_user(db, user.id, client=api)
+
+    out = st.list_positions(db, user.id, client=api)
+
+    assert [p.symbol for p in out] == ["NVDA", "SWVXX"]
+    nvda = out[0]
+    assert nvda.units == 120.0                    # from the STRING "120"
+    assert nvda.average_purchase_price == 118.40  # from `cost_basis`
+    assert nvda.last_price == 121.05
+    assert nvda.cash_equivalent is False
+
+
+def test_positions_carry_the_brokers_own_cash_equivalent_flag(
+    make_user, db: Session, configured,
+) -> None:
+    """A money-market fund is where cash sits, not a position someone sized.
+
+    The broker tells us directly — `cash_equivalent: true` — which is better
+    than any ticker list we could maintain. Surfaced rather than filtered:
+    the holdings table SHOULD show a $20k sweep balance, while every
+    behavioural analytic must exclude it (PRD-43a §3.8.4).
+    """
+    user = make_user(email="pos-cash@test.com")
+    api = _api()
+    api.account_information.get_all_account_positions.return_value = (
+        _REAL_POSITIONS_BODY()
+    )
+    st.register_user(db, user.id, client=api)
+
+    out = st.list_positions(db, user.id, client=api)
+    by_sym = {p.symbol: p for p in out}
+    assert by_sym["SWVXX"].cash_equivalent is True
+    assert by_sym["NVDA"].cash_equivalent is False
+    assert [p.symbol for p in out if not p.cash_equivalent] == ["NVDA"]
+
+
+def test_positions_still_accept_a_bare_list_body(
+    make_user, db: Session, configured,
+) -> None:
+    """Some SDK builds return a bare list with no envelope. The envelope fix
+    must not break the shape that was already working."""
+    user = make_user(email="pos-bare@test.com")
+    api = _api()
+    api.account_information.get_all_account_positions.return_value = [
+        {"symbol": {"symbol": {"symbol": "MSFT"}}, "units": 10,
+         "average_purchase_price": 400.0, "price": 410.0, "open_pnl": 100.0},
+    ]
+    st.register_user(db, user.id, client=api)
+
+    out = st.list_positions(db, user.id, client=api)
+    assert [p.symbol for p in out] == ["MSFT"]
+    assert out[0].average_purchase_price == 400.0
+    assert out[0].open_pnl == 100.0
+
+
+def test_a_position_with_no_resolvable_ticker_is_skipped_not_raised(
+    make_user, db: Session, configured,
+) -> None:
+    """A shape change should drop ONE position, not take the account down —
+    which is what `_symbol_of`'s docstring already promised and what the
+    envelope bug turned into an account-wide failure."""
+    user = make_user(email="pos-noticker@test.com")
+    api = _api()
+    api.account_information.get_all_account_positions.return_value = {
+        "results": [
+            {"instrument": {"description": "no symbol here"}, "units": "5"},
+            {"instrument": {"symbol": "AAPL"}, "units": "3", "price": "200"},
+        ],
+    }
+    st.register_user(db, user.id, client=api)
+
+    out = st.list_positions(db, user.id, client=api)
+    assert [p.symbol for p in out] == ["AAPL"]
