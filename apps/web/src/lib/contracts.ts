@@ -3390,6 +3390,11 @@ export interface BrokerPosition {
   average_purchase_price?: number | null;
   last_price?: number | null;
   open_pnl?: number | null;
+  /** The broker's own classification. A money-market fund (SWVXX and friends)
+   *  is where cash sits, not a position someone sized. Shown in the holdings
+   *  table — a $20k sweep balance is real and worth seeing — but excluded from
+   *  anything that reads holdings as decisions. */
+  cash_equivalent?: boolean;
 }
 
 /** One thing that happened in a brokerage account: a buy, a sell, a dividend.

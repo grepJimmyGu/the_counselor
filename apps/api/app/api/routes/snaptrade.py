@@ -65,6 +65,10 @@ class BrokerPositionView(BaseModel):
     average_purchase_price: Optional[float] = None
     last_price: Optional[float] = None
     open_pnl: Optional[float] = None
+    # The broker's own classification (PRD-43a §3.8.4). A sweep fund belongs
+    # in the holdings table — it is real money — but never in an analytic
+    # that reads holdings as decisions someone made.
+    cash_equivalent: bool = False
 
 
 def _require_configured() -> None:
@@ -174,6 +178,7 @@ def snaptrade_positions(
             average_purchase_price=r.average_purchase_price,
             last_price=r.last_price,
             open_pnl=r.open_pnl,
+            cash_equivalent=r.cash_equivalent,
         )
         for r in rows
     ]

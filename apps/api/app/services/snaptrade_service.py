@@ -62,6 +62,12 @@ class BrokerPosition:
     average_purchase_price: Optional[float]
     last_price: Optional[float]
     open_pnl: Optional[float]
+    # The broker's own classification. A money-market fund is where cash
+    # sits, not a position someone sized — and SnapTrade says so directly,
+    # which beats any ticker list we could maintain. Surfaced rather than
+    # filtered: the holdings table SHOULD show a sweep balance, while every
+    # behavioural analytic must exclude it (PRD-43a §3.8.4).
+    cash_equivalent: bool = False
 
 
 def is_configured() -> bool:
@@ -264,19 +270,34 @@ def list_positions(
             resp = api.account_information.get_all_account_positions(
                 user_id=reg.user_id, user_secret=secret, account_id=account_id,
             )
-            for pos in _body(resp) or []:
+            body = _body(resp)
+            # ENVELOPE. Production returns `{"results": [...],
+            # "data_freshness": {...}}`; some builds return a bare list.
+            # Iterating the envelope yields its KEY STRINGS, which is how
+            # every position read failed silently — `list_activities` has
+            # had this guard since day one and this path never got it.
+            rows = body.get("results") if isinstance(body, dict) else body
+            for pos in rows or []:
                 symbol = _symbol_of(pos)
-                if not symbol:
+                if not symbol or not isinstance(pos, dict):
                     continue
                 out.append(BrokerPosition(
                     account_id=account_id,
                     symbol=symbol,
-                    units=float(pos.get("units") or 0.0),
+                    # Numeric fields arrive as STRINGS on the live shape.
+                    units=_maybe_float(pos.get("units")) or 0.0,
+                    # `cost_basis` is what the live shape calls it; the
+                    # older flat shape used `average_purchase_price`.
                     average_purchase_price=_maybe_float(
                         pos.get("average_purchase_price")
+                        if pos.get("average_purchase_price") is not None
+                        else pos.get("cost_basis")
                     ),
                     last_price=_maybe_float(pos.get("price")),
+                    # Absent from the live shape — None, never a fabricated
+                    # zero, which would render as "flat" on a real gain.
                     open_pnl=_maybe_float(pos.get("open_pnl")),
+                    cash_equivalent=bool(pos.get("cash_equivalent") or False),
                 ))
         except Exception:  # noqa: BLE001
             _log.exception(
@@ -534,11 +555,27 @@ def _body(resp: Any) -> Any:
     return getattr(resp, "body", resp)
 
 
-def _symbol_of(pos: Dict[str, Any]) -> Optional[str]:
-    """SnapTrade nests the ticker under `symbol.symbol.symbol` — the outer
-    is the position's symbol record, the middle its universal symbol, the
-    inner the actual ticker string. Walk it defensively; a shape change
-    should drop one position, not raise."""
+def _symbol_of(pos: Any) -> Optional[str]:
+    """Find the ticker in whichever shape this endpoint returned.
+
+    TWO shapes are live and both must work. The one this code was written
+    for nests `symbol.symbol.symbol` — position record, universal symbol,
+    ticker string. The one production actually returns puts it at
+    `instrument.symbol` (verified against a live Schwab account 2026-08-27).
+
+    Defensive by contract: a shape change should drop ONE position, not
+    raise. The `isinstance(pos, dict)` guard is load-bearing — when the
+    caller accidentally iterated an envelope dict, `pos` arrived as a KEY
+    STRING and the AttributeError took the whole account down.
+    """
+    if not isinstance(pos, dict):
+        return None
+    inst = pos.get("instrument")
+    if isinstance(inst, dict):
+        for key in ("symbol", "raw_symbol"):
+            v = inst.get(key)
+            if isinstance(v, str) and v.strip():
+                return v.strip().upper()
     node: Any = pos.get("symbol")
     for _ in range(3):
         if isinstance(node, str):
