@@ -15,74 +15,76 @@
 
 ---
 
-## Current state — 2026-08-13 (end of day)
+## Current state — 2026-08-28
 
-**Seven PRs merged today**, #313 → #319. Two open.
+**Five PRs merged**, #355 → #359. Nothing open, nothing in flight on a branch.
 
-The daily share card went from built-but-unreachable to live. The screener's
-fundamental filters went from silently empty to working. The home page became a
-2×2. And the fundamentals backfill ran end to end for the first time in weeks.
+The Quant Engine packet went from "43a shipped, both lenses blocked" to
+**level 0, 1 and 2 of the maturity ladder live end to end**: the Mirror
+measures your record, the Timing Engine measures your entries and exits
+against it, and a finding can now be saved as a rule that outlives the tab.
 
-### Open
+| PR | What it did |
+|---|---|
+| [#355](https://github.com/grepJimmyGu/the_counselor/pull/355) | 43a §3.8 — `TradeEpisode` + `PortfolioSnapshot`, the reconstruction both lenses read. Unblocked 43b and 43c |
+| [#356](https://github.com/grepJimmyGu/the_counselor/pull/356) | 43b P0 — markouts, excursions, catalog snapshot, the two classifications, `GET /api/mirror/timing` |
+| [#357](https://github.com/grepJimmyGu/the_counselor/pull/357) | Mirror v2 four zones + the WHEN section rendering 43b's numbers |
+| [#359](https://github.com/grepJimmyGu/the_counselor/pull/359) | 43e Rules P0 — `Rule` object, `/api/rules`, `/account/rules`, and Save-as-a-rule on the WHEN section |
 
-| PR | State | Note |
-|---|---|---|
-| [#320](https://github.com/grepJimmyGu/the_counselor/pull/320) | CLEAN | backlog salvage from the closed #308 + what the backfill measured |
-| [#321](https://github.com/grepJimmyGu/the_counselor/pull/321) | CI running | home 2×2: Traders ask folds into Hot Market Picks, sector board |
+### Next, in order
 
-#308 is **closed** — superseded by the doc restructure, with its
-`PROJECT_BACKLOG.md` half salvaged into #320 rather than lost.
+1. **43c P0 — Allocation Lens.** Unblocked since #355. Slots into the
+   HOW MUCH section of the frame #357 built. ~1.5 wk.
+2. **43b P0's trade page** — the per-episode drill-down (chart with entry/exit
+   markers plus that episode's numbers). The last open item on P0's DoD; the
+   aggregate view shipped without it, deliberately.
+3. **43d**, before 43b P1 rather than after.
+4. **43b P1**, then **43c P1** (43c P1 never waits on 43d).
+5. **43e Playbooks** — needs 43d for the `validated` state.
 
-### Data: fixed today, measured not assumed
+Jimmy owns three: the 43f blueprint (unblocked now that 43b P0 exists), the
+free/paid tier boundary, and Stripe.
 
-Seeded 400-name sample of the Russell 3000, before/after Jimmy's backfill run
-(2,542 updated / 728 genuinely unprofitable / 26 failed, **3h27m**):
+### ⚠ Stripe is the decision that compounds
 
-| column | before | after |
-|---|---|---|
-| `sector` | 100% | 100% |
-| `pe_ratio` | 70.5% | 70.8% |
-| `dividend_yield` | 63.2% | 63.0% |
-| **`market_cap`** | **1.8%** | **99.2%** |
+43b shipped **ungated** on 2026-08-28 — correct, since a tier gate today
+enforces against a paywall nobody can pass (four price IDs and the
+secret/webhook keys sit on Railway in test mode). But 43c, 43d and the paid
+half of 43e all queue behind the same question, and every surface shipped
+ungated is one somebody has to gate retroactively.
 
-`min_market_cap=2e9`: 99 names → 1,677. Four presets and both market-cap
-filters were reading a column almost nothing populated.
+### Coverage gap worth knowing before reading any 43b output
 
-Also fixed: dollars-per-share stored as dividend yields (#317 — write guard,
-read guard, and 0 bad rows remaining) and the empty-rules scan that discarded
-564 already-matched names (#318).
+`price_bars` holds **no ETFs or ADRs**. On the live account that cost 24 of 57
+episodes — UVXY alone carried 15 — so the WHEN section measured 58% of that
+record and omitted its most-traded symbol. The engine names every exclusion
+and the surface states the measured share, so this is coverage rather than
+correctness. Deferred by Jimmy; see `docs/PROJECT_BACKLOG.md` §5.
 
-### Next actions, in order
+### Three defects the live runs caught that fixtures did not
 
-1. **Merge #320 and #321** once CI settles. Both are low-risk; #320 is
-   docs-only.
-2. **Design the lazy-refresh mechanism.** This is the largest *engineering*
-   item and now has its governing number: a full sweep is ~5,100 FMP calls at
-   ~5s/symbol = **3.5 hours**, which rules out a nightly full refresh and
-   argues for refresh driven by traffic, with a cron only as a floor. Blocked
-   on one input: **the FMP plan's rate ceiling** — Jimmy's to supply. Brief is
-   in `docs/PROJECT_BACKLOG.md` §5.
-3. **Stripe.** Fully built, unconfigured — paywalls are live with no pay path.
-   Turn-on is 4 price IDs + secret/webhook keys on Railway, test-mode first.
-   This is the largest *product* item on the board and has been quiet for
-   weeks; it surfaced only because the doc restructure nearly deleted the note.
+Worth repeating because the pattern held all session: **this packet's failure
+mode is not a broken page, it is a plausible number.**
 
-### Known and deliberately not fixed
-
-- **Chinese share card** refuses on Linux by design until a CJK font (~4-5 MB)
-  is bundled — Jimmy's call. `can_render` hides the option, so nothing breaks.
-- **26 failed calls** in the backfill, unexamined. Class-share tickers
-  (BRK.B → BRK-B, trap #15) are the usual suspect; the log would say.
-- **Blocks 5+6** (今天炒什麼 theme+catalyst read) still blocked on the Alpha
-  Vantage tier. **Not** the same as the `Catalysts` block shipped in #319 —
-  see the warning in `PROJECT_BACKLOG.md`.
-- `scripts/fix_dividend_yield_units.py --apply` is available but unnecessary:
-  the #317 read guard already stops bad rows being reported.
+- **§3.8 same-day netting.** BHP and UVXY netted to exactly zero units against
+  a broker holding zero and were still excluded — a same-day buy and sell were
+  judged in feed order. Day deltas are now netted per symbol first.
+- **Giveback priced on the wrong units.** It used the episode's total units,
+  assuming the whole position was on at the high. Priced on units actually
+  held at the MFE date it fell $10,535 → $4,349, collapsing its lead over
+  `panic_exit` from 3.2× to 1.3×. A slightly different record would have named
+  the wrong thing as the user's biggest problem.
+- **A mock that had drifted from its contract.**
+  `strategy-dashboard-page.test.tsx` mocked two endpoints as `[]` when both
+  return objects, throwing during render about one run in five. I "fixed" it
+  first by hardening the components, re-sampled, and it still failed — which
+  is what sent me to the mock. `vi.mock` is untyped, so it drifted: the same
+  schema-drift class the types-first rule exists to catch, one layer down.
 
 ### Don't touch without coordinating
 
-Nothing is in flight on a branch. #320 and #321 are pushed and awaiting merge;
-both touch docs and `apps/web/src/components/home/` respectively.
+Nothing. All five PRs are merged and every branch is landed.
+
 
 ---
 
