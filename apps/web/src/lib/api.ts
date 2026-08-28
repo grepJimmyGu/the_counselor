@@ -44,6 +44,8 @@ import type {
   BrokerAccount,
   BrokerActivity,
   TimingView,
+  Rule,
+  CreateRuleRequest,
   TradingBehavior,
   SaveStrategyResult,
   ExitTier,
@@ -1647,6 +1649,50 @@ export async function getBrokerBalanceHistory(
  *
  *  Server-side because FIFO lot matching is real logic that deserves tests,
  *  and because the same summary will feed strategy recommendations later. */
+/** PRD-43e §3.3 — My Rules. The user's first visible systematic framework;
+ *  for many people it is the destination, not a waypoint. */
+export async function listRules(backendToken: string): Promise<Rule[]> {
+  return fetchApi<Rule[]>("/api/rules", {
+    headers: { Authorization: `Bearer ${backendToken}` },
+  });
+}
+
+export async function createRule(
+  backendToken: string,
+  payload: CreateRuleRequest,
+): Promise<Rule> {
+  return fetchApi<Rule>("/api/rules", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${backendToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
+export async function deleteRule(
+  backendToken: string,
+  ruleId: string,
+): Promise<void> {
+  await fetchApi<unknown>(`/api/rules/${ruleId}`, {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${backendToken}` },
+  });
+}
+
+/** behavioural -> mechanical. RESTARTS the evidence rather than inheriting
+ *  it: nothing measured about one's own record transfers to a universe. */
+export async function promoteRule(
+  backendToken: string,
+  ruleId: string,
+): Promise<Rule> {
+  return fetchApi<Rule>(`/api/rules/${ruleId}/promote`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${backendToken}` },
+  });
+}
+
 export async function getTradingBehavior(
   backendToken: string,
   opts: { startDate?: string; endDate?: string } = {},

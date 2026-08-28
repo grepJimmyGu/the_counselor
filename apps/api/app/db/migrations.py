@@ -1667,6 +1667,61 @@ def run_startup_migrations(engine: Engine) -> None:
                 "ON notification_banner_entries (user_id, acknowledged_at)"
             ))
 
+        # PRD-43e §3.1 — Rules. The rung between a lens finding and a
+        # strategy: without it, a finding's only next step is the composer and
+        # the insight evaporates when the tab closes.
+        #
+        # `status` deliberately has no 'validated' value — validation belongs
+        # to a Playbook, and a rule inside a validated one might be inert,
+        # doing all the work, or actively harmful and outvoted. No FK on
+        # user_id (trap #1); JSON not JSONB so one DDL serves both dialects.
+        if is_sqlite:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS rules (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    rule_type VARCHAR(16) NOT NULL,
+                    scope VARCHAR(16) NOT NULL DEFAULT 'mechanical',
+                    name VARCHAR(160) NOT NULL,
+                    conditions JSON NOT NULL,
+                    source VARCHAR(32) NOT NULL DEFAULT 'user',
+                    source_analysis_id VARCHAR(64),
+                    sample_size INTEGER,
+                    historical_effect VARCHAR(200),
+                    confidence VARCHAR(16),
+                    status VARCHAR(16) NOT NULL DEFAULT 'saved',
+                    evidence VARCHAR(40),
+                    included_in_validated_playbook JSON NOT NULL,
+                    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+                    updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
+                )
+            """))
+        else:
+            conn.execute(text("""
+                CREATE TABLE IF NOT EXISTS rules (
+                    id VARCHAR(36) PRIMARY KEY,
+                    user_id VARCHAR(36) NOT NULL,
+                    rule_type VARCHAR(16) NOT NULL,
+                    scope VARCHAR(16) NOT NULL DEFAULT 'mechanical',
+                    name VARCHAR(160) NOT NULL,
+                    conditions JSON NOT NULL,
+                    source VARCHAR(32) NOT NULL DEFAULT 'user',
+                    source_analysis_id VARCHAR(64),
+                    sample_size INTEGER,
+                    historical_effect VARCHAR(200),
+                    confidence VARCHAR(16),
+                    status VARCHAR(16) NOT NULL DEFAULT 'saved',
+                    evidence VARCHAR(40),
+                    included_in_validated_playbook JSON NOT NULL,
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+                    updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+                )
+            """))
+        conn.execute(text(
+            "CREATE INDEX IF NOT EXISTS idx_rules_user_type "
+            "ON rules (user_id, rule_type)"
+        ))
+
         # Slice 3 — SnapTrade read-only brokerage connection.
         # `user_secret_encrypted` holds a Fernet token, never plaintext:
         # SnapTrade's per-user secret cannot be re-derived, so it must be

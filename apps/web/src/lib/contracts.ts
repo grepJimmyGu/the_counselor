@@ -3655,6 +3655,58 @@ export interface TimingView {
   coverage: TimingCoverage;
 }
 
+/** PRD-43e §3.1 — a Rule: the smallest systematic decision a user can hold.
+ *
+ *  ⚠ TWO FIELDS DECIDE HOW A CARD RENDERS, and getting them wrong produces a
+ *  false claim rather than a broken layout:
+ *
+ *  `scope` — a `behavioural` rule is a claim about what this user has been
+ *  doing ("stop entering oversold", 0 winners in 8). Its evidence is their own
+ *  record and it is COMPLETE at `saved`. Never show it a "validate this"
+ *  prompt and never render an empty validated chip on it — an unfilled state
+ *  reads as a deficiency in something already finished.
+ *
+ *  `status` — `discovered | saved | tested`, and deliberately NO `validated`.
+ *  Validation belongs to a Playbook: it is a conjunction, and when it passes
+ *  the evidence attaches to the combination, not to each member. */
+export interface Rule {
+  id: string;
+  rule_type: "selection" | "entry" | "sizing" | "exit" | "portfolio";
+  scope: "behavioural" | "mechanical";
+  name: string;
+  conditions: Record<string, unknown>;
+  source: "user" | "trade_analysis" | "stock_analysis" | "allocation_analysis";
+  source_analysis_id?: string | null;
+  sample_size?: number | null;
+  historical_effect?: string | null;
+  confidence?: "low" | "medium" | "high" | null;
+  status: "discovered" | "saved" | "tested";
+  /** "tested_on_personal_record" or null. Never a market-validation claim —
+   *  this names a POPULATION, and the two must never read as one number. */
+  evidence?: string | null;
+  /** ⚠ PROVENANCE ONLY. "Used in a Playbook that validated" is a true
+   *  statement about where a rule has been. It must never render as a
+   *  checkmark on the rule, sort as if it were a validation, or gate
+   *  anything. */
+  included_in_validated_playbook: string[];
+  created_at?: string | null;
+  /** Derived server-side so the surface never re-implements the ladder. */
+  is_terminal: boolean;
+  can_be_tested: boolean;
+}
+
+export interface CreateRuleRequest {
+  rule_type: Rule["rule_type"];
+  name: string;
+  conditions?: Record<string, unknown>;
+  scope?: Rule["scope"];
+  source?: Rule["source"];
+  source_analysis_id?: string | null;
+  sample_size?: number | null;
+  historical_effect?: string | null;
+  confidence?: string | null;
+}
+
 /** PRD-28 Step 4 — one rung of a tracked position's ladder, priced.
  *
  *  `trigger_pct` is measured from ENTRY (it is the ladder's own number).
