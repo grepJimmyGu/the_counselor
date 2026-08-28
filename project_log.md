@@ -8,6 +8,56 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-08-28 — The Quant Engine gets its middle: reconstruction, the Timing Engine, and rules that outlive the tab (#355 → #359)
+
+Five PRs. The packet went from "43a shipped, both lenses blocked" to **levels 0, 1 and 2 of the maturity ladder live end to end** — the Mirror measures your record, the Timing Engine measures your entries and exits against it, and a finding can be saved as a rule that survives the tab closing.
+
+| PR | Scope |
+|---|---|
+| #355 | 43a §3.8 — `TradeEpisode` + `PortfolioSnapshot`, the reconstruction both lenses read. Unblocked 43b and 43c |
+| #356 | 43b P0 — markouts, MAE/MFE, catalog snapshot, the two classifications, `GET /api/mirror/timing` |
+| #357 | Mirror v2 four zones + the WHEN section rendering 43b's numbers |
+| #358 | closed — went DIRTY when #357 merged; superseded by #359 |
+| #359 | 43e Rules P0 — `Rule` object, `/api/rules`, `/account/rules`, Save-as-a-rule on the WHEN section |
+
+### Backwards, not forwards — and the live data settled it
+
+43a §3.8 reconstructs daily holdings **backwards from `/positions`** rather than forwards from the first transaction. The argument was theoretical until the account decided it: a forward walk over the same 416 activity rows produces **five phantom open positions** against a broker holding no equities. Backwards produced **zero negative holdings across 731 daily snapshots** and matched `/positions` exactly, because it starts from the fact the phantoms contradict.
+
+### The entry profile came back as noise, and the product had to be able to say so
+
+The first real run: entry markout medians of +0.09 / −1.45 / −1.50 / −0.65 / +0.85%, with interquartile ranges of ±5–10% — **quartiles straddling zero at every horizon**. `has_consistent_pattern` is false and the section renders *"no consistent timing pattern"* rather than narrating the medians. That was the v1 exploratory script's worst defect, and it is now structurally impossible: the surface draws box plots, not a table of middles, so the dispersion is visible rather than asserted.
+
+Every named setup lost money — `trend_continuation` 1/7, `oversold` 0/4, `extended_momentum` 0/3, `pullback` 0/3 — while **`unclassified` went 5/16**, a better win rate than anything the taxonomy names, at 48.5% of entries. Reported as unclassified, never absorbed into an `other` bucket.
+
+### Three defects the live runs caught that fixtures did not
+
+The pattern held all session: **this packet's failure mode is not a broken page, it is a plausible number.**
+
+**Same-day netting (§3.8).** BHP and UVXY netted to *exactly zero* units against a broker holding zero and were still excluded as unreconcilable — a same-day buy and sell were judged in feed order, so undoing the buy first dipped the holding below zero. Holdings are end-of-day quantities and a daily feed carries no intraday sequence; netting day deltas per symbol cleared four false exclusions of ten.
+
+**Giveback priced on the wrong units.** It used the episode's *total* units, assuming the whole position was on at the high. This account scales out before peaks. Priced on units actually held at the MFE date it fell **$10,535 → $4,349**, collapsing its lead over `panic_exit` from 3.2× to 1.3×. A slightly different record would have named the wrong thing as the user's biggest problem.
+
+**A mock that had drifted from its contract.** Adding a test file made the frontend suite throw about one run in five. I "fixed" it by hardening the two components that were throwing, re-sampled, and it *still failed* — which is what sent me to look at the mock. `strategy-dashboard-page.test.tsx` mocked two endpoints as `[]` when both return objects; an empty array is truthy, so it sailed past the `!state` guards and threw during render. The components were always right. `vi.mock` is untyped, so it drifted — the same schema-drift class the types-first rule exists to catch, one layer down.
+
+### A Guard A miss, caught by being asked
+
+#359's body claimed "every new `api.ts` export has a caller here." False — `createRule` had **zero**. The Rules feature shipped read-only: you could reach `/account/rules`, see the empty state, and have no way to create anything. Fixed in the same PR with the Save-as-a-rule CTA, and the claim rechecked mechanically rather than asserted.
+
+### The leakage boundary, enforced by shape
+
+43b §3.6 separates `setup_type` (decision-time, **may** compile into a rule) from `timing_outcome` (retrospective, **never** may). Convention would not hold that, so: `setup_type`'s signature admits only a `TechnicalSnapshot`, `classify.py` imports no markout or excursion symbol, and nothing under `app/services/timing/**` may emit DSR/PBO/market-validation vocabulary. All three are static assertions, and each was verified to fail when a violation is introduced — a guard that cannot fail is decoration. Both started as raw text scans and both flagged their own explanatory prose; they were made AST-precise rather than having the documentation deleted to keep them green.
+
+### Known coverage hole
+
+`price_bars` holds **no ETFs or ADRs** — confirmed by direct query, not inferred. On the live account that cost **24 of 57 episodes**; UVXY alone carried 15. The WHEN section measured 58% of that record and omitted its most-traded symbol. Every exclusion is named and the surface states the measured share, so it is coverage rather than correctness. Deferred by Jimmy; recorded in `docs/PROJECT_BACKLOG.md` §5.
+
+### Shipped ungated, deliberately
+
+43b gates at Strategist+ in the PRD. Stripe is fully built and unconfigured, so a tier gate today enforces against a paywall nobody can pass. Shipped ungated on Jimmy's call. The consequence to watch: 43c, 43d and the paid half of 43e all queue behind the same question, and every surface shipped ungated is one somebody has to gate retroactively.
+
+---
+
 ## 2026-06-25 — Russell 3000: the broad market becomes screenable, and the Sector tab gets un-broken (#247 → #252)
 
 Added the **Russell 3000** (~2,550 names — essentially the whole US market) as a second standing screener universe alongside the S&P 500, then fixed a silently-broken Sector filter that the expansion exposed.
