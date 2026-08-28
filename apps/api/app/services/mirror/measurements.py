@@ -327,7 +327,12 @@ def execution_quality(
     if sell_pcts:
         out.sell_percentile = sum(sell_pcts) / len(sell_pcts)
     if out.in_worst_tercile and out.dollars > 0:
-        out.remedy = "price_band"
+        # Was `price_band` until PRD-43b P0. The band as originally specified
+        # is not a tool the packet plans any more (43b §3.8 demotes it to a
+        # ticket reference), and offering a user a remedy that does not exist
+        # is worse than offering none. Fill quality is an entry-side finding,
+        # so it routes to the Timing Engine, which does exist.
+        out.remedy = "entry_timing"
     return out
 
 

@@ -65,7 +65,7 @@ const COMPONENT_LABEL: Record<string, string> = {
 
 const REMEDY_LABEL: Record<string, string> = {
   exit_rule: "An exit rule — decided in advance, so the sell isn't a judgement call in the moment.",
-  price_band: "A price band — a range to buy and sell inside, instead of taking whatever the moment offers.",
+  entry_timing: "Entry timing — what the days after your buys actually did, so you can see whether the price or the week was the problem.",
 };
 
 function Stat({

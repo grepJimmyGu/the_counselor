@@ -3543,7 +3543,7 @@ export interface TradingBehavior {
   exit_gap?: ExitGap | null;
   execution?: ExecutionQuality | null;
   recoverable?: RollUp | null;
-  /** Remedy keys — `exit_rule`, `price_band` — in the order to offer them.
+  /** Remedy keys — `exit_rule`, `entry_timing` — in the order to offer them.
    *  A finding that names no remedy is a verdict, and we don't ship those. */
   remedies: string[];
 }

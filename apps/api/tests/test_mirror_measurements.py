@@ -169,7 +169,7 @@ def test_a_fill_at_the_top_of_the_range_is_priced_against_the_midpoint():
     )
     assert out.buy_percentile == 1.0
     assert out.dollars == 1000.0
-    assert out.remedy == "price_band"
+    assert out.remedy == "entry_timing"
 
 
 def test_a_good_buy_is_credited_not_penalised():
@@ -189,7 +189,7 @@ def test_a_sell_is_scored_the_other_way_round():
     )
     assert out.sell_percentile == 0.0
     assert out.dollars == 1000.0         # sold below the middle: it cost you
-    assert out.remedy == "price_band"
+    assert out.remedy == "entry_timing"
 
 
 def test_a_day_with_no_range_does_not_divide_by_zero():
@@ -257,7 +257,7 @@ def test_bad_buys_alone_are_enough_to_route():
     assert out.buy_percentile == 0.9
     assert out.sell_percentile == 0.5
     assert out.in_worst_tercile is True
-    assert out.remedy == "price_band"
+    assert out.remedy == "entry_timing"
 
 
 def test_a_costly_pattern_with_no_net_dollars_does_not_route():
@@ -272,7 +272,7 @@ def test_a_costly_pattern_with_no_net_dollars_does_not_route():
     )
     assert out.in_worst_tercile is True
     assert out.dollars == 10.0
-    assert out.remedy == "price_band"
+    assert out.remedy == "entry_timing"
 
 
 # ── the loaders ─────────────────────────────────────────────────────────────
