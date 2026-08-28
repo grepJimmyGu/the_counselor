@@ -240,11 +240,18 @@ describe("execution quality", () => {
 
 describe("remedies", () => {
   it("names what would answer each finding", async () => {
-    /* A diagnosis with no remedy is a verdict. */
-    render_({ remedies: ["exit_rule", "price_band"] });
+    /* A diagnosis with no remedy is a verdict.
+     *
+     * CONTRACT CHANGE (PRD-43b §3.7): this asserted the `price_band` copy
+     * until the Timing Engine landed. The band as specified is not a tool the
+     * packet plans any more (§3.8 demotes it to a ticket reference), so fill
+     * quality now routes to `entry_timing` — a surface that actually exists.
+     * Offering a remedy that does not is worse than offering none. */
+    render_({ remedies: ["exit_rule", "entry_timing"] });
     const box = await screen.findByTestId("behavior-remedies");
     expect(box.textContent).toMatch(/decided in advance/);
-    expect(box.textContent).toMatch(/a range to buy and sell inside/);
+    expect(box.textContent).toMatch(/what the days after your buys actually did/);
+    expect(box.textContent).not.toMatch(/a range to buy and sell inside/);
   });
 
   it("admits neither tool exists yet rather than offering a dead link", async () => {
