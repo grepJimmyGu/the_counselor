@@ -33,6 +33,7 @@ import { useEffect, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { getTradingBehavior } from "@/lib/api";
+import { MirrorWhenSection } from "@/components/brokerage/mirror-when-section";
 import type { SymbolSummary, TradingBehavior } from "@/lib/contracts";
 
 function money(v: number | null | undefined): string {
@@ -230,36 +231,10 @@ export function TradingBehaviorPanel({
 
   return (
     <div className="space-y-5" data-testid="behavior-panel">
-      {/* THE HEADLINE, and the only number on this page that is not something
-          that happened. It is a ceiling built from counterfactuals, and the
-          bound is stated in the sentence itself — not a tooltip, not a
-          footnote (§0.1). Rendered only when there is something to recover:
-          "$0 recoverable" as a headline reads as a verdict on the user. */}
-      {roll && roll.dollars > 0 && (
-        <div
-          data-testid="behavior-recoverable"
-          className="rounded-lg border border-border bg-card px-4 py-3.5"
-        >
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Worth changing
-          </div>
-          <div className="mt-1 font-mono text-2xl font-semibold tabular-nums text-foreground">
-            up to {money(roll.dollars)}
-          </div>
-          <p className="mt-1.5 text-[13px] text-muted-foreground">
-            over this window, across {roll.components.length}{" "}
-            {roll.components.length === 1 ? "thing" : "things"}:{" "}
-            {roll.components.map((c) => COMPONENT_LABEL[c] ?? c).join(", ")}.{" "}
-            <strong className="font-medium text-foreground">
-              That is a ceiling, not an expectation
-            </strong>{" "}
-            — each part assumes a different decision went perfectly, and you
-            could not have taken all of them at once.
-          </p>
-        </div>
-      )}
-
+      {/* ZONE 1 — the record. What happened, no counterfactual anywhere.
+          Complete on its own, and what a Level-0 user came for. */}
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+
         <Stat
           label="Realised P/L"
           value={money(data.realised_pnl)}
@@ -332,92 +307,163 @@ export function TradingBehaviorPanel({
           </div>
         )}
 
-      {/* M1 — reported in BOTH directions. An exit that saved money is the
-          same finding with the sign flipped, and showing it only when it
-          flatters the thesis would be measuring ourselves, not the user. */}
-      {gap && gap.sells_measured > 0 && (
-        <p
-          data-testid="behavior-exit-gap"
-          className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-[13px] text-foreground"
-        >
-          {gap.dollars > 0 ? (
-            <>
-              What you sold is worth{" "}
-              <strong className="font-medium">{money(gap.dollars)} more</strong>{" "}
-              today than what you sold it for
-              {gap.largest_symbol && <> — most of it {gap.largest_symbol}</>}.
-              This measures exits only, and assumes you would have held every
-              one of them to today.
-            </>
-          ) : (
-            <>
-              Your exits{" "}
-              <strong className="font-medium">
-                saved you {money(-gap.dollars)}
-              </strong>{" "}
-              — what you sold is worth less now than what you got for it.
-            </>
-          )}
-          {gap.as_of && (
-            <span className="text-muted-foreground"> Priced at {gap.as_of}.</span>
-          )}
-        </p>
-      )}
-
-      {/* M4 */}
-      {xq && xq.fills_measured > 0 && (
-        <p
-          data-testid="behavior-execution"
-          className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-[13px] text-foreground"
-        >
-          {xq.buy_percentile !== null && xq.buy_percentile !== undefined && (
-            <>
-              Your buys filled at the{" "}
-              <strong className="font-medium">
-                {(xq.buy_percentile * 100).toFixed(0)}th percentile
-              </strong>{" "}
-              of the day&rsquo;s range on average
-              {xq.sell_percentile !== null &&
-                xq.sell_percentile !== undefined && (
-                  <>, your sells at the {(xq.sell_percentile * 100).toFixed(0)}th</>
-                )}
-              .{" "}
-            </>
-          )}
-          {xq.dollars > 0
-            ? `Filling at each day's midpoint instead would have been worth ${money(xq.dollars)}.`
-            : `You beat the day's midpoint by ${money(-xq.dollars)} overall.`}{" "}
-          <span className="text-muted-foreground">
-            Measured on {xq.fills_measured} of {xq.fills_total} fills.
-          </span>
-        </p>
-      )}
-
-      {/* Every finding names what would answer it. A diagnosis with no
-          remedy is a verdict, and we do not ship verdicts. No tier chip and
-          no link: neither tool is built, and offering an upgrade for
-          something that does not exist is worse than naming it plainly. */}
-      {data.remedies.length > 0 && (
+      {/* THE HEADLINE, and the only number on this page that is not something
+          that happened. It is a ceiling built from counterfactuals, and the
+          bound is stated in the sentence itself — not a tooltip, not a
+          footnote (§0.1). Rendered only when there is something to recover:
+          "$0 recoverable" as a headline reads as a verdict on the user. */}
+      {roll && roll.dollars > 0 && (
         <div
-          data-testid="behavior-remedies"
-          className="rounded-lg border border-dashed border-border px-4 py-3"
+          data-testid="behavior-recoverable"
+          className="rounded-lg border border-border bg-card px-4 py-3.5"
         >
           <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            What would answer this
+            Worth changing
           </div>
-          <ul className="mt-1.5 space-y-1">
-            {data.remedies.map((r) => (
-              <li key={r} data-testid={`behavior-remedy-${r}`} className="text-[13px]">
-                {REMEDY_LABEL[r] ?? r}
-              </li>
-            ))}
-          </ul>
-          <p className="mt-1.5 text-[11px] text-muted-foreground">
-            Neither is built yet. They&rsquo;re named here because the number
-            above is only useful if something can be done about it.
+          <div className="mt-1 font-mono text-2xl font-semibold tabular-nums text-foreground">
+            up to {money(roll.dollars)}
+          </div>
+          <p className="mt-1.5 text-[13px] text-muted-foreground">
+            over this window, across {roll.components.length}{" "}
+            {roll.components.length === 1 ? "thing" : "things"}:{" "}
+            {roll.components.map((c) => COMPONENT_LABEL[c] ?? c).join(", ")}.{" "}
+            <strong className="font-medium text-foreground">
+              That is a ceiling, not an expectation
+            </strong>{" "}
+            — each part assumes a different decision went perfectly, and you
+            could not have taken all of them at once.
           </p>
         </div>
       )}
+
+      {/* ZONE 3 — the lenses (§3.7.1).
+          A section renders only once its lens has shipped; an empty section
+          is noise. WHEN is the only one live, so the trichotomy is explained
+          in one line rather than held open with placeholder slots. */}
+      <div className="space-y-3" data-testid="mirror-lenses">
+        <p className="text-[12px] text-muted-foreground">
+          Three things decide how this goes: <strong className="font-medium text-foreground">what</strong>{" "}
+          you buy, <strong className="font-medium text-foreground">when</strong> you buy and sell it, and{" "}
+          <strong className="font-medium text-foreground">how much</strong> you put in each. Only the
+          middle one is measured so far.
+        </p>
+
+        <div
+          className="rounded-lg border border-border bg-card px-4 py-3.5"
+          data-testid="lens-when"
+        >
+          <div className="text-[14px] font-semibold text-foreground">
+            Did I buy and sell at the right time?
+          </div>
+          {/* THE FIGURE SLOT. Three states, and collapsing the third into the
+              second is the failure mode: a dollar, a measured $0, or no figure
+              WITH the reason there isn't one. Today every recoverable dollar
+              in the product lives in this section, so its figure is the whole
+              ceiling above — and saying that is the design, not a caveat. */}
+          {roll && roll.dollars > 0 ? (
+            <p className="mt-1 text-[13px] text-muted-foreground" data-testid="lens-when-figure">
+              All <span className="font-mono tabular-nums text-foreground">{money(roll.dollars)}</span>{" "}
+              of that ceiling sits here — the other two aren&rsquo;t measured yet, and neither is
+              carrying a hidden number.
+            </p>
+          ) : (
+            <p className="mt-1 text-[13px] text-muted-foreground" data-testid="lens-when-figure">
+              Nothing recoverable turned up in your timing over this window.
+            </p>
+          )}
+
+          <div className="mt-3 space-y-3">
+            {/* M1 — reported in BOTH directions. An exit that saved money is the
+                same finding with the sign flipped, and showing it only when it
+                flatters the thesis would be measuring ourselves, not the user. */}
+            {gap && gap.sells_measured > 0 && (
+              <p
+                data-testid="behavior-exit-gap"
+                className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-[13px] text-foreground"
+              >
+                {gap.dollars > 0 ? (
+                  <>
+                    What you sold is worth{" "}
+                    <strong className="font-medium">{money(gap.dollars)} more</strong>{" "}
+                    today than what you sold it for
+                    {gap.largest_symbol && <> — most of it {gap.largest_symbol}</>}.
+                    This measures exits only, and assumes you would have held every
+                    one of them to today.
+                  </>
+                ) : (
+                  <>
+                    Your exits{" "}
+                    <strong className="font-medium">
+                      saved you {money(-gap.dollars)}
+                    </strong>{" "}
+                    — what you sold is worth less now than what you got for it.
+                  </>
+                )}
+                {gap.as_of && (
+                  <span className="text-muted-foreground"> Priced at {gap.as_of}.</span>
+                )}
+              </p>
+            )}
+
+            {/* M4 */}
+            {xq && xq.fills_measured > 0 && (
+              <p
+                data-testid="behavior-execution"
+                className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-[13px] text-foreground"
+              >
+                {xq.buy_percentile !== null && xq.buy_percentile !== undefined && (
+                  <>
+                    Your buys filled at the{" "}
+                    <strong className="font-medium">
+                      {(xq.buy_percentile * 100).toFixed(0)}th percentile
+                    </strong>{" "}
+                    of the day&rsquo;s range on average
+                    {xq.sell_percentile !== null &&
+                      xq.sell_percentile !== undefined && (
+                        <>, your sells at the {(xq.sell_percentile * 100).toFixed(0)}th</>
+                      )}
+                    .{" "}
+                  </>
+                )}
+                {xq.dollars > 0
+                  ? `Filling at each day's midpoint instead would have been worth ${money(xq.dollars)}.`
+                  : `You beat the day's midpoint by ${money(-xq.dollars)} overall.`}{" "}
+                <span className="text-muted-foreground">
+                  Measured on {xq.fills_measured} of {xq.fills_total} fills.
+                </span>
+              </p>
+            )}
+
+            {/* Every finding names what would answer it. A diagnosis with no
+                remedy is a verdict, and we do not ship verdicts. No tier chip and
+                no link: neither tool is built, and offering an upgrade for
+                something that does not exist is worse than naming it plainly. */}
+            {data.remedies.length > 0 && (
+              <div
+                data-testid="behavior-remedies"
+                className="rounded-lg border border-dashed border-border px-4 py-3"
+              >
+                <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                  What would answer this
+                </div>
+                <ul className="mt-1.5 space-y-1">
+                  {data.remedies.map((r) => (
+                    <li key={r} data-testid={`behavior-remedy-${r}`} className="text-[13px]">
+                      {REMEDY_LABEL[r] ?? r}
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-1.5 text-[11px] text-muted-foreground">
+                  Neither is built yet. They&rsquo;re named here because the number
+                  above is only useful if something can be done about it.
+                </p>
+              </div>
+            )}
+
+            <MirrorWhenSection backendToken={backendToken} />
+          </div>
+        </div>
+      </div>
 
       <div className="grid gap-4 sm:grid-cols-2">
         <SymbolTable

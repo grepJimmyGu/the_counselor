@@ -3548,6 +3548,113 @@ export interface TradingBehavior {
   remedies: string[];
 }
 
+/** PRD-43b P0 — the Mirror's WHEN section, deepened.
+ *
+ *  `GET /api/mirror/timing`. Everything here is measured against the user's
+ *  OWN record — their symbols, their dates, their sample. The strongest claim
+ *  available to it is "tested on your record"; nothing here is market
+ *  evidence, and the copy must never let the two read as one number. */
+
+/** One markout horizon. `n` is PER HORIZON and genuinely differs across the
+ *  table: a fill six days before the window ends contributes to 1/3/5 and not
+ *  to 10/20, so one N across the row would overstate the long horizons exactly
+ *  where the sample thins out.
+ *
+ *  `straddles_zero` is the honesty flag — the interquartile range contains
+ *  zero, so the sign of the median is not supported by the distribution. */
+export interface MarkoutHorizon {
+  horizon: number;
+  n: number;
+  median?: number | null;
+  q1?: number | null;
+  q3?: number | null;
+  straddles_zero: boolean;
+}
+
+/** ⚠ `has_consistent_pattern` is false when EVERY horizon straddles zero.
+ *  Render that as "no consistent timing pattern" — a real finding — never as
+ *  a diagnosis read out of the medians. A noise profile reading as a finding
+ *  was the v1 exploratory script's worst defect. */
+export interface MarkoutProfile {
+  horizons: MarkoutHorizon[];
+  excluded_beyond_window: number;
+  has_consistent_pattern: boolean;
+}
+
+/** Winner vs loser drawdown — the paired statistic that teaches the most.
+ *
+ *  ⚠ `same_day_excluded` must render wherever the gap does. Same-day round
+ *  trips have NO excursion (we know the day's range, not where inside it the
+ *  user was), and a reader who doesn't know they were dropped will read the
+ *  gap as covering the whole record. */
+export interface TimingExcursions {
+  winner_mae?: number | null;
+  winner_n: number;
+  loser_mae?: number | null;
+  loser_n: number;
+  median_capture?: number | null;
+  capture_n: number;
+  same_day_excluded: number;
+  approximate_boundary: number;
+}
+
+/** A decision-time category with its consequences measured. `setup` is
+ *  "unclassified" when the entry matched no category — never "other". An
+ *  unnamed condition is not a category, and roughly 40% of a real record
+ *  matches nothing by design. */
+export interface TimingSetup {
+  setup: string;
+  n: number;
+  wins: number;
+  win_rate?: number | null;
+  median_return?: number | null;
+  median_mae?: number | null;
+  median_capture?: number | null;
+}
+
+/** A diagnosis priced in dollars. Ranked by `dollars`, deterministically —
+ *  a frequent cheap leak must not outrank a rare expensive one. */
+export interface TimingLeak {
+  key: string;
+  n: number;
+  dollars: number;
+}
+
+/** ⚠ The share this section actually measured.
+ *
+ *  `price_bars` holds no ETFs or ADRs, so a user who trades them gets a
+ *  profile computed on a SUBSET of their record. On the first live account
+ *  that was 33 of 57 episodes, omitting the single most-traded symbol. The
+ *  surface states the measured share; it must never imply the whole record.
+ *  Backlog §5. */
+export interface TimingCoverage {
+  episodes_total: number;
+  episodes_analysed: number;
+  symbols_measured: number;
+  /** `[symbol, reason]` pairs — `no_price_history`, `cash_equivalent`,
+   *  `units_moved_off_market`, `sell_without_open_position`. */
+  excluded: string[][];
+  unclassified_entries: number;
+  classified_entries: number;
+  unclassified_share?: number | null;
+  window_start?: string | null;
+  window_end?: string | null;
+}
+
+export interface TimingView {
+  opening_entry_profile: MarkoutProfile;
+  add_on_profile: MarkoutProfile;
+  final_exit_profile: MarkoutProfile;
+  partial_exit_profile: MarkoutProfile;
+  excursions: TimingExcursions;
+  setups: TimingSetup[];
+  /** Retrospective diagnoses by count. These are DIAGNOSES, never trading
+   *  conditions — nothing here may become a rule (PRD-43b §3.6.2). */
+  outcomes: Record<string, number>;
+  leaks: TimingLeak[];
+  coverage: TimingCoverage;
+}
+
 /** PRD-28 Step 4 — one rung of a tracked position's ladder, priced.
  *
  *  `trigger_pct` is measured from ENTRY (it is the ladder's own number).
