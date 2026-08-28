@@ -43,6 +43,7 @@ import type {
   OrderResult,
   BrokerAccount,
   BrokerActivity,
+  TimingView,
   TradingBehavior,
   SaveStrategyResult,
   ExitTier,
@@ -1655,6 +1656,18 @@ export async function getTradingBehavior(
   if (opts.endDate) q.set("end_date", opts.endDate);
   const suffix = q.toString() ? `?${q}` : "";
   return fetchApi<TradingBehavior>(`/api/snaptrade/behavior${suffix}`, {
+    headers: { Authorization: `Bearer ${backendToken}` },
+  });
+}
+
+/** PRD-43b P0 — the WHEN section's deep view.
+ *
+ *  Separate from `getTradingBehavior` on purpose: the Mirror's SUMMARY stays
+ *  on `/api/snaptrade/behavior` (43a §3.6 — never a second behavior route),
+ *  and this is the deeper per-episode read the section expands into. It is
+ *  slower and it fails independently, so the summary never waits on it. */
+export async function getMirrorTiming(backendToken: string): Promise<TimingView> {
+  return fetchApi<TimingView>("/api/mirror/timing", {
     headers: { Authorization: `Bearer ${backendToken}` },
   });
 }

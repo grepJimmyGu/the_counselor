@@ -16,6 +16,11 @@ const getTradingBehavior = vi.fn();
 
 vi.mock("@/lib/api", () => ({
   getTradingBehavior: (...a: unknown[]) => getTradingBehavior(...(a as [])),
+  // PRD-43b P0. The deep WHEN view loads from its own endpoint and is allowed
+  // to fail without taking the summary with it, so these tests reject it —
+  // which also pins that independence. `mirror-when-section.test.tsx` covers
+  // the rendering itself.
+  getMirrorTiming: () => Promise.reject(new Error("not under test here")),
 }));
 
 import { TradingBehaviorPanel } from "../trading-behavior-panel";
