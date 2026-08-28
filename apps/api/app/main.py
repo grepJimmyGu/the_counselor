@@ -16,6 +16,7 @@ from app.api.routes.company_overview import router as company_overview_router
 from app.api.routes.fundamental import router as fundamental_router
 from app.api.routes.insights import router as insights_router
 from app.api.routes.mirror import router as mirror_router
+from app.api.routes.rules import router as rules_router
 from app.api.routes.screener import router as screener_router
 from app.api.routes.screen import router as screen_router
 from app.api.routes.market_data import router as market_data_router
@@ -748,6 +749,7 @@ app.include_router(screen_router)
 app.include_router(company_overview_router)
 app.include_router(insights_router)
 app.include_router(mirror_router)
+app.include_router(rules_router)
 app.include_router(market_data_router)
 app.include_router(robustness_router)
 app.include_router(qa_router)
