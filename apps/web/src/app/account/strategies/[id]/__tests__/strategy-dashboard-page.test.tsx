@@ -27,8 +27,21 @@ vi.mock("@/lib/api", () => ({
     trading_enabled: false, last_synced_at: null,
   }),
   listBrokerPositions: async () => [],
-  getStrategyPositions: async () => [],
-  getStrategyTradeLog: async () => [],
+  // ⚠ These return OBJECTS, not arrays — `PositionsResponse` and
+  // `TradeLogResponse`. Mocking them as `[]` passed the components' `!state`
+  // guards (an empty array is truthy) and then threw on `state.positions
+  // .length` / `events.length` during render, tearing down the tree.
+  //
+  // It surfaced as an intermittent uncaught TypeError roughly one run in
+  // five, blamed on whichever file Vitest happened to be running. The mock
+  // had drifted from the contract because `vi.mock` is untyped — the same
+  // schema-drift class the types-first rule exists to catch, one layer down.
+  getStrategyPositions: async () => ({
+    strategy_id: "strat_1", positions: [], open_count: 0, closed_count: 0,
+  }),
+  getStrategyTradeLog: async () => ({
+    strategy_id: "strat_1", events: [], total: 0, next_before: null,
+  }),
   getUniverseState: async () => ({ symbols: [] }),
 }));
 

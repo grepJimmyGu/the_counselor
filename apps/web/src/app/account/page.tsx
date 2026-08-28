@@ -208,6 +208,27 @@ export default function AccountPage() {
         </div>
       </section>
 
+      {/* Guard C — the door to My Rules. A surface nobody can reach is a
+          surface that did not ship, and rules are where a finding survives
+          the tab closing. */}
+      <section className="rounded-xl border border-border bg-card p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-sm font-semibold uppercase tracking-widest text-muted-foreground">
+              My rules
+            </h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              What you&rsquo;ve decided about how you trade.
+            </p>
+          </div>
+          <Button asChild variant="outline" size="sm">
+            <Link href={"/account/rules" as Route} data-testid="account-rules-link">
+              View
+            </Link>
+          </Button>
+        </div>
+      </section>
+
       <section className="rounded-xl border border-border bg-card p-6">
         <div className="flex items-center justify-between">
           <div>
