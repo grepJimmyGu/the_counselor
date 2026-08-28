@@ -11,11 +11,13 @@
  */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 const getMirrorTiming = vi.fn();
+const createRule = vi.fn();
 vi.mock("@/lib/api", () => ({
   getMirrorTiming: (...a: unknown[]) => getMirrorTiming(...(a as [])),
+  createRule: (...a: unknown[]) => createRule(...(a as [])),
 }));
 
 import { MirrorWhenSection } from "../mirror-when-section";
@@ -210,5 +212,89 @@ describe("failure", () => {
     await waitFor(() =>
       expect(screen.queryByTestId("when-deep")).toBeNull(),
     );
+  });
+});
+
+
+describe("saving a finding as a rule", () => {
+  /* PRD-43e §3.2 — the step that closes the loop. Without it a finding is a
+     sentence you read once, and the Rules object has nothing to hold. */
+
+  it("saves a losing setup as a BEHAVIOURAL rule, carrying its provenance", async () => {
+    createRule.mockResolvedValue({ id: "r9" });
+    render_();
+    fireEvent.click(await screen.findByTestId("when-save-setup-oversold"));
+
+    await waitFor(() => expect(createRule).toHaveBeenCalledTimes(1));
+    const [token, payload] = createRule.mock.calls[0];
+    expect(token).toBe("t");
+    expect(payload.scope).toBe("behavioural");
+    expect(payload.source).toBe("trade_analysis");
+    expect(payload.sample_size).toBe(4);
+    expect(payload.historical_effect).toMatch(/0 of 4 worked/);
+    /* A behavioural rule enters a Playbook as an EXCLUSION, never as an edge
+       — so what is stored is the setup to avoid, not a market condition it
+       never earned the right to assert. */
+    expect(payload.conditions).toEqual({ exclude_setup: "oversold" });
+  });
+
+  it("never labels a P0 finding as a market claim", async () => {
+    /* 43b P0 is measurement. The counterfactual rules that could honestly be
+       `mechanical` arrive with P1; calling these that now would claim a market
+       edge from a description of one person's record. */
+    createRule.mockResolvedValue({ id: "r9" });
+    render_();
+    fireEvent.click(await screen.findByTestId("when-save-setup-oversold"));
+    await waitFor(() => expect(createRule).toHaveBeenCalled());
+    expect(createRule.mock.calls[0][1].scope).not.toBe("mechanical");
+  });
+
+  it("offers no rule for the unclassified bucket", async () => {
+    /* "Matched no setup" is not a category, so there is nothing to make a rule
+       about — offering one would invent the category the taxonomy withholds. */
+    render_();
+    await screen.findByTestId("when-setups");
+    expect(screen.queryByTestId("when-save-setup-unclassified")).toBeNull();
+  });
+
+  it("offers a rule with NO sample floor, because behavioural rules have none", async () => {
+    /* §3.1.1 and the §7 DoD: a fact about one's own trades needs no
+       significance test. The floor is a `mechanical` concept. The N renders
+       beside it either way, so the user decides. */
+    createRule.mockResolvedValue({ id: "r9" });
+    render_({
+      setups: [{ setup: "breakout", n: 2, wins: 0, win_rate: 0,
+                 median_return: -0.05, median_mae: -0.08, median_capture: null }],
+    });
+    expect(await screen.findByTestId("when-save-setup-breakout")).toBeTruthy();
+  });
+
+  it("confirms the save rather than leaving the button ambiguous", async () => {
+    createRule.mockResolvedValue({ id: "r9" });
+    render_();
+    fireEvent.click(await screen.findByTestId("when-save-setup-oversold"));
+    expect(await screen.findByTestId("when-save-setup-oversold-saved")).toBeTruthy();
+  });
+
+  it("does not claim success when the save failed", async () => {
+    /* A failed save that looks successful is worse than a visible failure —
+       the user walks away believing a rule exists that does not. */
+    createRule.mockRejectedValue(new Error("500"));
+    render_();
+    const btn = await screen.findByTestId("when-save-setup-oversold");
+    fireEvent.click(btn);
+    await waitFor(() => expect(btn.textContent).toMatch(/try again/));
+    expect(screen.queryByTestId("when-save-setup-oversold-saved")).toBeNull();
+  });
+
+  it("saves the costliest habit as an exit-side rule", async () => {
+    createRule.mockResolvedValue({ id: "r9" });
+    render_();
+    fireEvent.click(await screen.findByTestId("when-save-leak"));
+    await waitFor(() => expect(createRule).toHaveBeenCalled());
+    const payload = createRule.mock.calls[0][1];
+    expect(payload.rule_type).toBe("exit");
+    expect(payload.conditions).toEqual({ avoid_outcome: "giveback" });
+    expect(payload.historical_effect).toMatch(/\$4,349/);
   });
 });

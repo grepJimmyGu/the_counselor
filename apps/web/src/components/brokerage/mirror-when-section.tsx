@@ -36,6 +36,7 @@ import { useEffect, useState } from "react";
 
 import { getMirrorTiming } from "@/lib/api";
 import type { MarkoutProfile, TimingView } from "@/lib/contracts";
+import { SaveRuleButton } from "@/components/rules/save-rule-button";
 
 function money(v: number | null | undefined): string {
   if (v === null || v === undefined || !Number.isFinite(v)) return "—";
@@ -292,6 +293,7 @@ export function MirrorWhenSection({ backendToken }: { backendToken: string }) {
                   <th className="pb-1 text-right font-medium">Trades</th>
                   <th className="pb-1 text-right font-medium">Worked</th>
                   <th className="pb-1 text-right font-medium">Median</th>
+                  <th className="pb-1" />
                 </tr>
               </thead>
               <tbody>
@@ -312,6 +314,37 @@ export function MirrorWhenSection({ backendToken }: { backendToken: string }) {
                     </td>
                     <td className="py-1.5 text-right font-mono tabular-nums text-foreground">
                       {signedPct(s.median_return)}
+                    </td>
+                    <td className="py-1.5 pl-3 text-right">
+                      {/* Only for a NAMED setup. "Matched no setup" is not a
+                          category (43b §3.6.1), so there is nothing to make a
+                          rule about — offering one would invent the category
+                          the taxonomy deliberately withholds. */}
+                      {s.setup !== "unclassified" && (
+                        <SaveRuleButton
+                          backendToken={backendToken}
+                          testid={`when-save-setup-${s.setup}`}
+                          label="Save a rule"
+                          rule={{
+                            rule_type: "entry",
+                            scope: "behavioural",
+                            source: "trade_analysis",
+                            name: `Think twice about ${(SETUP_LABEL[s.setup] ?? s.setup).toLowerCase()} entries`,
+                            // A behavioural rule enters a Playbook as an
+                            // EXCLUSION, never as an edge (§3.1.1) — so what
+                            // is stored is the setup to avoid, not a market
+                            // condition it never earned the right to assert.
+                            conditions: { exclude_setup: s.setup },
+                            sample_size: s.n,
+                            historical_effect: `${s.wins} of ${s.n} worked${
+                              s.median_return !== null && s.median_return !== undefined
+                                ? `, ${signedPct(s.median_return)} median`
+                                : ""
+                            }`,
+                            confidence: s.n >= 10 ? "medium" : "low",
+                          }}
+                        />
+                      )}
                     </td>
                   </tr>
                 ))}
@@ -347,6 +380,24 @@ export function MirrorWhenSection({ backendToken }: { backendToken: string }) {
             across {leak.n} {leak.n === 1 ? "trade" : "trades"} —{" "}
             {LEAK_LABEL[leak.key] ?? leak.key.replace(/_/g, " ")}.
           </p>
+          <div className="mt-2">
+            <SaveRuleButton
+              backendToken={backendToken}
+              testid="when-save-leak"
+              rule={{
+                rule_type: "exit",
+                scope: "behavioural",
+                source: "trade_analysis",
+                name: `Watch for ${LEAK_LABEL[leak.key] ?? leak.key.replace(/_/g, " ")}`,
+                conditions: { avoid_outcome: leak.key },
+                sample_size: leak.n,
+                historical_effect: `${money(leak.dollars)} across ${leak.n} ${
+                  leak.n === 1 ? "trade" : "trades"
+                }`,
+                confidence: leak.n >= 10 ? "medium" : "low",
+              }}
+            />
+          </div>
         </div>
       )}
 
