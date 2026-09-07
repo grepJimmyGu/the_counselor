@@ -375,3 +375,38 @@ describe("nothing to say", () => {
     await waitFor(() => expect(container.textContent).toBe(""));
   });
 });
+
+describe("the exit gap is a net", () => {
+  it("names both sides when both exist", async () => {
+    /* ⚠ The single most misleading number on the old panel. On the live
+       account $35,816 is +$73,770 of sales that look early against −$37,954
+       that look well-timed. A user with as many good exits as bad was being
+       shown one accusatory figure. */
+    render_({
+      exit_gap: {
+        dollars: 35816, sold_early_dollars: 73770, sold_well_dollars: -37954,
+        sells_measured: 73, sells_total: 73, symbols_measured: 24,
+        gross_sold: 500000, excluded: [], largest_symbol: "NVDA",
+        largest_dollars: 17100, as_of: "2026-09-04", remedy: null,
+      },
+    });
+    const line = await screen.findByTestId("behavior-exit-gap-split");
+    expect(line.textContent).toMatch(/That is a net/);
+    expect(line.textContent).toMatch(/\$73,770\.00/);
+    expect(line.textContent).toMatch(/\$37,954\.00/);
+  });
+
+  it("stays silent when every sale falls the same way", async () => {
+    /* "A net of one thing" is not a clarification, it is noise. */
+    render_({
+      exit_gap: {
+        dollars: 1000, sold_early_dollars: 1000, sold_well_dollars: 0,
+        sells_measured: 2, sells_total: 2, symbols_measured: 1,
+        gross_sold: 5000, excluded: [], largest_symbol: "AAA",
+        largest_dollars: 1000, as_of: "2026-09-04", remedy: null,
+      },
+    });
+    await screen.findByTestId("behavior-exit-gap");
+    expect(screen.queryByTestId("behavior-exit-gap-split")).toBeNull();
+  });
+});

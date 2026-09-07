@@ -22,7 +22,7 @@ from datetime import date
 from typing import Any, Dict, List, Optional, Tuple
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -279,3 +279,167 @@ def mirror_timing(
     )
     _cache_put(f"timing:{user_id}", view)
     return view
+
+
+# ── the exit plan — PRD-43a v3 §B ───────────────────────────────────────────
+
+
+class ExitPlanRequest(BaseModel):
+    """The ladder the user just filled in, in full.
+
+    ⚠ `stop_pct` has NO server-side default and never will. PRD-43e §4.2
+    forbids deriving a stop from descriptive statistics, and on the first live
+    account every fixed stop tested negative because a quarter of the winners
+    dip further than the median loser. The attach endpoint made the same call
+    for the same reason: *"'sensible' chosen by the server is exactly the stop
+    a user will not believe when it fires."*
+
+    So the take-profit rung is suggested from the user's own peaks and the
+    stop is theirs. What fixes the sell-into-drawdown habit is not the number
+    — it is having chosen one before the position was open.
+    """
+
+    take_profit_pct: float = Field(gt=0, le=5.0)
+    take_profit_fraction: float = Field(gt=0, lt=1)
+    stop_pct: float = Field(lt=0, ge=-1.0)
+    # Holdings to start watching. Empty is valid — the plan exists and picks
+    # up the next position instead.
+    symbols: List[str] = []
+
+
+class ExitPlanResponse(BaseModel):
+    rule_id: str
+    strategy_id: str
+    tracked: List[str] = []
+    # (symbol, reason) — never silently dropped.
+    skipped: List[Tuple[str, str]] = []
+
+
+@router.post("/exit-plan", response_model=ExitPlanResponse, status_code=201)
+def create_exit_plan(
+    payload: ExitPlanRequest,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> ExitPlanResponse:
+    """Turn the two exit habits into something that watches for them.
+
+    Both findings — giving back gains and selling into drawdowns — are the
+    same missing discipline from either side: no exit decided before the
+    trade. So they converge on one artifact rather than a rule each.
+
+    The ladder is set at CREATE time, which the sign-off guard deliberately
+    permits: the request body *is* the ladder, so what lands is what the
+    client rendered and the user saw. Nothing here invents a tier.
+    """
+    from datetime import date as _date, timedelta
+
+    from app.api.routes.saved_strategies import (
+        DeclarePositionRequest, declare_position,
+    )
+    from app.schemas.strategy import RiskManagement
+    from app.services import rules_service
+    from app.services.saved_strategy_service import (
+        SaveStrategyRequest, save_strategy,
+    )
+
+    user_id: str = current_user.id          # trap #17
+
+    ladder = [
+        # Ascending trigger order, so the stop is evaluated first on each bar.
+        {"trigger_pct": payload.stop_pct, "action": "sell_all", "label": "Stop"},
+        {"trigger_pct": payload.take_profit_pct, "action": "sell_fraction",
+         "fraction": payload.take_profit_fraction, "label": "TP1"},
+    ]
+    try:
+        # The real validator — it enforces "at least one stop tier", which is
+        # why the form cannot omit one.
+        RiskManagement(exit_ladder=ladder)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    try:
+        positions = st.list_positions(db, user_id)
+    except st.SnapTradeNotConfigured:
+        raise HTTPException(
+            status_code=503,
+            detail="Brokerage connections aren't available right now.",
+        )
+    except Exception as exc:  # noqa: BLE001
+        _log.exception("mirror: exit-plan positions read failed user=%s", user_id)
+        raise HTTPException(
+            status_code=502, detail="Couldn't read your holdings.",
+        ) from exc
+
+    held = {p.symbol.upper(): p for p in positions}
+    wanted = [s.strip().upper() for s in payload.symbols if s and s.strip()]
+    universe = wanted or sorted(held) or ["SPY"]
+
+    today = _date.today()
+    strategy_json = {
+        "strategy_name": "My exit plan",
+        "strategy_type": "custom_build",
+        "universe": universe,
+        "benchmark": "SPY",
+        "start_date": (today - timedelta(days=365)).isoformat(),
+        "end_date": today.isoformat(),
+        "initial_capital": 100000.0,
+        "rebalance_frequency": "monthly",
+        "bar_resolution": "daily",
+        # Create-time, carrying exactly what the client rendered.
+        "risk_management": {"exit_ladder": ladder},
+    }
+    try:
+        strategy = save_strategy(db, current_user, SaveStrategyRequest(
+            title="My exit plan", strategy_json=strategy_json,
+        ))
+    except Exception as exc:  # noqa: BLE001
+        _log.exception("mirror: exit-plan strategy save failed user=%s", user_id)
+        raise HTTPException(
+            status_code=400, detail="Couldn't save your exit plan.",
+        ) from exc
+
+    tp = round(payload.take_profit_pct * 100)
+    stop = round(abs(payload.stop_pct) * 100)
+    rule = rules_service.create_rule(
+        db, user_id,
+        rule_type="exit",
+        # A market condition that compiles and runs, so `mechanical` — but it
+        # is saved untested, and no surface claims otherwise.
+        scope="mechanical",
+        source="trade_analysis",
+        name=f"Take {int(payload.take_profit_fraction * 100)}% off at +{tp}%, stop at −{stop}%",
+        conditions={"exit_ladder": ladder},
+        historical_effect="Set from your own record, not yet tested",
+    )
+
+    tracked: List[str] = []
+    skipped: List[Tuple[str, str]] = []
+    for symbol in universe:
+        pos = held.get(symbol)
+        if pos is None:
+            skipped.append((symbol, "not_held"))
+            continue
+        if pos.cash_equivalent:
+            skipped.append((symbol, "cash_equivalent"))
+            continue
+        if not pos.units or pos.average_purchase_price is None:
+            # No cost basis means no percentage from entry, so no ladder.
+            skipped.append((symbol, "no_cost_basis"))
+            continue
+        try:
+            declare_position(
+                strategy.id,
+                DeclarePositionRequest(
+                    symbol=symbol, shares=pos.units,
+                    entry_price=pos.average_purchase_price,
+                ),
+                current_user=current_user, db=db,
+            )
+            tracked.append(symbol)
+        except HTTPException as exc:
+            skipped.append((symbol, f"declare_failed_{exc.status_code}"))
+
+    return ExitPlanResponse(
+        rule_id=rule.id, strategy_id=strategy.id,
+        tracked=tracked, skipped=skipped,
+    )

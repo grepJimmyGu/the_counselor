@@ -399,3 +399,49 @@ def test_nothing_wrong_produces_zero_rather_than_a_small_reassuring_number():
     out = recoverable(_gap(-1000.0), 0.0, _xq(buy=-50.0, sell=-50.0))
     assert out.dollars == 0.0
     assert out.components == []
+
+
+# ── the net hides two opposing flows ────────────────────────────────────────
+
+
+def test_exit_gap_reports_the_two_SIDES_not_only_their_net():
+    """PRD-43a §3.7.1 (v3). `dollars` is a residual, and on the live account a
+    badly misleading one: +$73,770 of sales that look early against −$37,954
+    of sales that look well-timed, netting to $35,816.
+
+    Reporting only the net hands an accusatory figure to someone who has
+    roughly as many good exits as bad. Both sides are now returned so the
+    surface can show what the number is made of.
+    """
+    txns = [
+        # Sold at 10, worth 20 now — looks early by $1,000.
+        {"account_id": "a", "type": "BUY", "symbol": "AAA", "units": 100,
+         "price": 5.0, "trade_date": "2026-01-05"},
+        {"account_id": "a", "type": "SELL", "symbol": "AAA", "units": 100,
+         "price": 10.0, "trade_date": "2026-02-05"},
+        # Sold at 50, worth 20 now — a good exit, worth −$3,000.
+        {"account_id": "a", "type": "BUY", "symbol": "BBB", "units": 100,
+         "price": 40.0, "trade_date": "2026-01-05"},
+        {"account_id": "a", "type": "SELL", "symbol": "BBB", "units": 100,
+         "price": 50.0, "trade_date": "2026-02-05"},
+    ]
+    out = exit_gap(txns, {"AAA": (date(2026, 3, 1), 20.0),
+                          "BBB": (date(2026, 3, 1), 20.0)})
+
+    assert round(out.sold_early_dollars, 2) == 1000.0
+    assert round(out.sold_well_dollars, 2) == -3000.0
+    # The net is what it always was, and it is now visibly a residual.
+    assert round(out.dollars, 2) == -2000.0
+    assert round(out.sold_early_dollars + out.sold_well_dollars, 2) == round(out.dollars, 2)
+
+
+def test_the_two_sides_are_zero_when_every_sale_falls_one_way():
+    txns = [
+        {"account_id": "a", "type": "BUY", "symbol": "AAA", "units": 10,
+         "price": 5.0, "trade_date": "2026-01-05"},
+        {"account_id": "a", "type": "SELL", "symbol": "AAA", "units": 10,
+         "price": 10.0, "trade_date": "2026-02-05"},
+    ]
+    out = exit_gap(txns, {"AAA": (date(2026, 3, 1), 20.0)})
+    assert out.sold_early_dollars > 0
+    assert out.sold_well_dollars == 0.0

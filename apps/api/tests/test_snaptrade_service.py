@@ -1266,3 +1266,90 @@ def test_a_position_with_no_resolvable_ticker_is_skipped_not_raised(
 
     out = st.list_positions(db, user.id, client=api)
     assert [p.symbol for p in out] == ["AAPL"]
+
+
+# ── an empty read and a failed read are different claims ────────────────────
+
+
+def _reg(db: Session, configured, user):
+    """Register the user so `_each_account` yields. Uses the service's own
+    `register_user` so the row is built the way production builds it."""
+    return st.register_user(db, user.id, client=_api())
+
+
+def test_activities_RAISE_when_every_account_fails_rather_than_look_empty(
+    db: Session, make_user, configured,
+):
+    """The bug, 2026-09-07. SnapTrade returned `401 Invalid timestamp`; the
+    per-account handler logged it and moved on; `out` stayed empty; the route
+    computed `round_trips == 0`; and the panel told the user
+
+        "No trades in this window."
+
+    A transient auth failure was rendered as a confident statement about
+    their account. `[]` has to mean "we looked and there is nothing" — if it
+    can also mean "we could not look", every number downstream is unfalsifiable.
+    """
+    user = make_user()
+    _reg(db, configured, user)
+    api = _api()
+    api.account_information.get_user_account_activities.side_effect = RuntimeError("401")
+    api.account_information.get_account_activities.side_effect = RuntimeError("401")
+
+    with pytest.raises(st.SnapTradeReadFailed):
+        st.list_activities(db, user.id, client=api)
+
+
+def test_positions_RAISE_when_every_account_fails(db: Session, make_user, configured):
+    """Same hole, same consequence: an empty holdings list reads as "you own
+    nothing", which is a worse thing to say wrongly than "we couldn't load"."""
+    user = make_user()
+    _reg(db, configured, user)
+    api = _api()
+    api.account_information.get_all_account_positions.side_effect = RuntimeError("401")
+
+    with pytest.raises(st.SnapTradeReadFailed):
+        st.list_positions(db, user.id, client=api)
+
+
+def test_ONE_bad_broker_does_not_lose_the_others(db: Session, make_user, configured):
+    """The deliberate design this fix must not undo: someone with two brokers
+    connected should not lose sight of both because one is having a bad
+    morning. Partial data is returned — and the failure is logged."""
+    user = make_user()
+    _reg(db, configured, user)
+    api = _api()
+    api.account_information.list_user_accounts.return_value = [
+        {"id": "acct-good"}, {"id": "acct-bad"},
+    ]
+
+    def positions(*_a, account_id=None, **_k):
+        if account_id == "acct-bad":
+            raise RuntimeError("broker down")
+        return [{"symbol": {"symbol": {"symbol": "NVDA"}}, "units": 10}]
+
+    api.account_information.get_all_account_positions.side_effect = positions
+    rows = st.list_positions(db, user.id, client=api)
+    assert [r.symbol for r in rows] == ["NVDA"]
+
+
+def test_a_user_with_no_connected_accounts_still_gets_an_empty_list(
+    db: Session, make_user, configured,
+):
+    """`[]` keeps its honest meaning. Nothing failed here — there is genuinely
+    nothing to read — so this must NOT raise."""
+    user = make_user()
+    _reg(db, configured, user)
+    api = _api()
+    api.account_information.list_user_accounts.return_value = []
+    assert st.list_positions(db, user.id, client=api) == []
+    assert st.list_activities(db, user.id, client=api) == []
+
+
+def test_a_genuinely_empty_account_is_not_an_error(db: Session, make_user, configured):
+    """An account that returns zero rows is a real answer, not a failure."""
+    user = make_user()
+    _reg(db, configured, user)
+    api = _api()
+    api.account_information.get_all_account_positions.return_value = []
+    assert st.list_positions(db, user.id, client=api) == []

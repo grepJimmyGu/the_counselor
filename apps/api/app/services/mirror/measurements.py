@@ -88,6 +88,13 @@ _WORST_TERCILE = 2.0 / 3.0
 class ExitGap:
     """M1. Positive dollars = selling cost you; negative = selling saved you."""
     dollars: float = 0.0
+    # ⚠ `dollars` is a NET, and on a real record a misleading one: the live
+    # account nets +$73,770 of sales that look early against −$37,954 that
+    # look well-timed. Showing only the residual hands an accusatory figure
+    # to someone with roughly as many good exits as bad, so both sides are
+    # reported and the surface renders what the number is made of.
+    sold_early_dollars: float = 0.0
+    sold_well_dollars: float = 0.0
     sells_measured: int = 0
     sells_total: int = 0
     symbols_measured: int = 0
@@ -252,6 +259,8 @@ def exit_gap(
         measured_symbols.add(sym)
 
     out.dollars = sum(per_symbol.values())
+    out.sold_early_dollars = sum(v for v in per_symbol.values() if v > 0)
+    out.sold_well_dollars = sum(v for v in per_symbol.values() if v < 0)
     out.symbols_measured = len(measured_symbols)
     out.excluded = sorted(missing.items())
     out.as_of = max(as_of) if as_of else None

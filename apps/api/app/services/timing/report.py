@@ -24,7 +24,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import date
 from statistics import median
-from typing import Dict, List, Optional, Sequence
+from typing import Dict, List, Optional, Sequence, Tuple
 
 from app.services.timing.analytics import (
     ADD_ON, EpisodeAnalytics, FINAL_EXIT, OPENING_ENTRY, PARTIAL_EXIT,
@@ -34,7 +34,7 @@ from app.services.timing.markout import (
 )
 
 __all__ = [
-    "SetupRow", "ExcursionSummary", "Leak", "TimingCoverage", "TimingReport",
+    "SetupRow", "ExcursionSummary", "Leak", "LeakTrade", "TimingCoverage", "TimingReport",
     "build_report",
 ]
 
@@ -91,11 +91,40 @@ class ExcursionSummary:
 
 
 @dataclass
+class LeakTrade:
+    """One position behind a finding.
+
+    A four-trade claim is only believable if you can see the four trades, and
+    on a record this size every finding rests on a handful of positions. It is
+    also the only way someone recognises their own trade in a row that
+    compressed seven entries into one.
+    """
+
+    symbol: str
+    opened_on: date
+    closed_on: Optional[date] = None
+    units: float = 0.0
+    entry_price: float = 0.0
+    exit_price: Optional[float] = None
+    realised_return: Optional[float] = None
+    mae: Optional[float] = None
+    mfe: Optional[float] = None
+    # What the STOCK did after the exit — the negation already undone, so a
+    # positive number means it went up after the user sold.
+    after_exit_5d: Optional[float] = None
+    after_exit_20d: Optional[float] = None
+    dollars: float = 0.0
+
+
+@dataclass
 class Leak:
     key: str
     n: int
     dollars: float
     detail: str = ""
+    # Most expensive first, so "worst case" holds inside a finding as well as
+    # between findings.
+    trades: List[LeakTrade] = field(default_factory=list)
 
 
 @dataclass
@@ -167,23 +196,37 @@ def _units_held_on(a: EpisodeAnalytics, when: Optional[date]) -> float:
     return max(0.0, held)
 
 
+def _leak_trade(a: EpisodeAnalytics, dollars: float) -> LeakTrade:
+    ep = a.episode
+    return LeakTrade(
+        symbol=ep.symbol, opened_on=ep.opened_on, closed_on=ep.closed_on,
+        units=ep.units_total, entry_price=ep.avg_entry_price,
+        exit_price=ep.avg_exit_price, realised_return=ep.realised_return,
+        mae=a.mae, mfe=a.mfe,
+        after_exit_5d=_after_exit(a, 5), after_exit_20d=_after_exit(a, 20),
+        dollars=dollars,
+    )
+
+
 def _leak_dollars(rows: Sequence[EpisodeAnalytics]) -> Dict[str, List[float]]:
     """Price each diagnosis in dollars, deterministically.
 
     Every figure is `units × price × the gap the label names` — so the ranking
     is a fact about the record, not a judgement about which finding reads best.
     """
-    buckets: Dict[str, List[float]] = {}
+    buckets: Dict[str, List[Tuple[float, EpisodeAnalytics]]] = {}
+    current: Dict[str, EpisodeAnalytics] = {}
 
     def add(key: str, amount: Optional[float]) -> None:
         if amount is None or amount <= _MIN_LEAK_DOLLARS:
             return
-        buckets.setdefault(key, []).append(amount)
+        buckets.setdefault(key, []).append((amount, current["episode"]))
 
     for a in rows:
         label = a.timing_outcome
         if not label:
             continue
+        current["episode"] = a
         final = a.final_exit
         opening = a.opening_entry
 
@@ -269,8 +312,12 @@ def build_report(rows: Sequence[EpisodeAnalytics]) -> TimingReport:
             rep.outcomes[a.timing_outcome] = rep.outcomes.get(a.timing_outcome, 0) + 1
 
     # ── leaks, ranked by dollars ────────────────────────────────────────────
-    for key, amounts in _leak_dollars(rows).items():
-        rep.leaks.append(Leak(key=key, n=len(amounts), dollars=sum(amounts)))
+    for key, entries in _leak_dollars(rows).items():
+        entries.sort(key=lambda t: -t[0])
+        rep.leaks.append(Leak(
+            key=key, n=len(entries), dollars=sum(a for a, _ in entries),
+            trades=[_leak_trade(ep, amount) for amount, ep in entries],
+        ))
     rep.leaks.sort(key=lambda l: (-l.dollars, l.key))
 
     # ── coverage ────────────────────────────────────────────────────────────
