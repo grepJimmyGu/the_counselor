@@ -21,7 +21,7 @@ vi.mock("@/lib/api", () => ({
 }));
 
 import { MirrorWhenSection } from "../mirror-when-section";
-import type { MarkoutProfile, TimingView } from "@/lib/contracts";
+import type { LeakTrade, MarkoutProfile, TimingView } from "@/lib/contracts";
 
 const FLAT: MarkoutProfile = {
   horizons: [],
@@ -57,6 +57,15 @@ const SIGNAL: MarkoutProfile = {
   has_consistent_pattern: true,
 };
 
+function t(symbol: string, units: number, over: Partial<LeakTrade> = {}): LeakTrade {
+  return {
+    symbol, units, opened_on: "2025-10-01", closed_on: "2025-11-01",
+    entry_price: 100, exit_price: 100, realised_return: 0,
+    mae: -0.05, mfe: 0.05, after_exit_5d: 0, after_exit_20d: 0, dollars: 0,
+    ...over,
+  };
+}
+
 const BASE: TimingView = {
   opening_entry_profile: NOISE,
   add_on_profile: FLAT,
@@ -74,9 +83,26 @@ const BASE: TimingView = {
     { setup: "unclassified", n: 16, wins: 5, win_rate: 0.312, median_return: -0.0215, median_mae: -0.0546, median_capture: null },
   ],
   outcomes: { giveback: 4, panic_exit: 4 },
+  // Real trades from the connected account, 7 Sep 2026.
   leaks: [
-    { key: "giveback", n: 4, dollars: 4349.33 },
-    { key: "panic_exit", n: 4, dollars: 3310.23 },
+    {
+      key: "giveback", n: 4, dollars: 4349.33,
+      trades: [
+        t("NVDA", 70, { mfe: 0.138, realised_return: -0.0039, after_exit_20d: 0.3439, dollars: 2000 }),
+        t("LLY", 29, { mfe: 0.1631, realised_return: -0.0243, after_exit_20d: 0.0996, dollars: 1400 }),
+        t("SATS", 86, { mfe: 0.1383, realised_return: -0.0685, after_exit_20d: -0.1128, dollars: 700 }),
+        t("KLAC", 29, { mfe: 0.162, realised_return: 0.0602, after_exit_20d: 0.0087, dollars: 249 }),
+      ],
+    },
+    {
+      key: "panic_exit", n: 4, dollars: 3310.23,
+      trades: [
+        t("AA", 300, { realised_return: -0.0364, after_exit_5d: 0.1172, after_exit_20d: 0.2283, dollars: 1300 }),
+        t("ADBE", 18, { realised_return: -0.0334, after_exit_5d: 0.0786, after_exit_20d: 0.231, dollars: 900 }),
+        t("META", 70, { realised_return: -0.0504, after_exit_5d: 0.0859, after_exit_20d: 0.1086, dollars: 700 }),
+        t("NVDA", 35, { realised_return: -0.0931, after_exit_5d: 0.0419, after_exit_20d: 0.0166, dollars: 410 }),
+      ],
+    },
   ],
   coverage: {
     episodes_total: 57, episodes_analysed: 33, symbols_measured: 23,
@@ -188,13 +214,74 @@ describe("coverage", () => {
   });
 });
 
-describe("the costliest habit", () => {
-  it("names the biggest leak in dollars, with its count", async () => {
+describe("the two habits", () => {
+  it("names both, most expensive first, with their dollars and counts", async () => {
     render_();
-    const leak = await screen.findByTestId("when-leak");
-    expect(leak.textContent).toMatch(/\$4,349/);
-    expect(leak.textContent).toMatch(/across 4 trades/);
-    expect(leak.textContent).toMatch(/letting a gain come back/);
+    const box = await screen.findByTestId("when-habits");
+    expect(box.textContent).toMatch(/\$4,349/);
+    expect(box.textContent).toMatch(/\$3,310/);
+    const order = box.textContent ?? "";
+    expect(order.indexOf("$4,349")).toBeLessThan(order.indexOf("$3,310"));
+  });
+
+  it("shows the trades each claim is made of", async () => {
+    /* A four-trade claim is only believable if you can see the four trades.
+       On a 33-position record every finding rests on a handful of them. */
+    render_();
+    const row = await screen.findByTestId("when-trade-giveback-NVDA");
+    expect(row.textContent).toMatch(/70 sh/);
+    expect(row.textContent).toMatch(/\+13\.8%/);   // best
+    expect(row.textContent).toMatch(/−0\.4%/);      // kept
+    expect(row.textContent).toMatch(/\+34\.4%/);   // after
+  });
+
+  it("frames the two habits as sharing one fix", async () => {
+    /* They are the same missing discipline from either side. */
+    render_();
+    const box = await screen.findByTestId("when-habits");
+    expect(box.textContent).toMatch(/share one fix/);
+  });
+});
+
+describe("the exit plan", () => {
+  it("offers the ladder when an exit-side habit is present", async () => {
+    render_();
+    expect(await screen.findByTestId("exit-plan")).toBeTruthy();
+  });
+
+  it("pre-fills the take-profit and cites the user's own peaks", async () => {
+    render_();
+    const tp = (await screen.findByTestId("exit-plan-tp")) as HTMLInputElement;
+    expect(tp.value).toBe("10");
+    const card = await screen.findByTestId("exit-plan");
+    expect(card.textContent).toMatch(/peaked between/);
+    expect(card.textContent).toMatch(/13\.8% and 16\.3%/);
+  });
+
+  it("leaves the stop EMPTY and says why", async () => {
+    /* THE POINT OF THE WHOLE CARD. A stop the user did not choose is one they
+       will not believe when it fires, and §4.2 forbids deriving one from
+       descriptive stats — every fixed stop tested negative on this record. */
+    render_();
+    const stop = (await screen.findByTestId("exit-plan-stop")) as HTMLInputElement;
+    expect(stop.value).toBe("");
+    const card = await screen.findByTestId("exit-plan");
+    expect(card.textContent).toMatch(/won.t pick this for you/);
+  });
+
+  it("cannot be saved until the user has chosen a stop", async () => {
+    render_();
+    const btn = (await screen.findByTestId("exit-plan-save")) as HTMLButtonElement;
+    expect(btn.disabled).toBe(true);
+  });
+
+  it("is not offered when no exit-side habit was found", async () => {
+    /* An entry-side finding is not something a ladder answers. */
+    render_({
+      leaks: [{ key: "chased", n: 2, dollars: 1402, trades: [t("MP", 50, {})] }],
+    });
+    await screen.findByTestId("when-habits");
+    expect(screen.queryByTestId("exit-plan")).toBeNull();
   });
 });
 
@@ -287,14 +374,65 @@ describe("saving a finding as a rule", () => {
     expect(screen.queryByTestId("when-save-setup-oversold-saved")).toBeNull();
   });
 
-  it("saves the costliest habit as an exit-side rule", async () => {
+  it("no longer offers a per-leak rule button — the ladder replaced it", async () => {
+    /* CONTRACT CHANGE, stated openly. The costliest-habit card used to carry
+       its own "save as a rule" that stored `{avoid_outcome: "giveback"}` — a
+       marker, not something anyone could follow. The two exit habits now
+       converge on one exit ladder that the product can actually track, so the
+       per-leak button is gone rather than duplicated beside it. */
+    render_();
+    await screen.findByTestId("when-habits");
+    expect(screen.queryByTestId("when-save-leak")).toBeNull();
+    expect(await screen.findByTestId("exit-plan")).toBeTruthy();
+  });
+
+  it("never labels a P0 finding as a market claim", async () => {
+    /* 43b P0 is measurement. The counterfactual rules that could honestly be
+       `mechanical` arrive with P1; calling these that now would claim a market
+       edge from a description of one person's record. */
     createRule.mockResolvedValue({ id: "r9" });
     render_();
-    fireEvent.click(await screen.findByTestId("when-save-leak"));
+    fireEvent.click(await screen.findByTestId("when-save-setup-oversold"));
     await waitFor(() => expect(createRule).toHaveBeenCalled());
-    const payload = createRule.mock.calls[0][1];
-    expect(payload.rule_type).toBe("exit");
-    expect(payload.conditions).toEqual({ avoid_outcome: "giveback" });
-    expect(payload.historical_effect).toMatch(/\$4,349/);
+    expect(createRule.mock.calls[0][1].scope).not.toBe("mechanical");
   });
+
+  it("offers no rule for the unclassified bucket", async () => {
+    /* "Matched no setup" is not a category, so there is nothing to make a rule
+       about — offering one would invent the category the taxonomy withholds. */
+    render_();
+    await screen.findByTestId("when-setups");
+    expect(screen.queryByTestId("when-save-setup-unclassified")).toBeNull();
+  });
+
+  it("offers a rule with NO sample floor, because behavioural rules have none", async () => {
+    /* §3.1.1 and the §7 DoD: a fact about one's own trades needs no
+       significance test. The floor is a `mechanical` concept. The N renders
+       beside it either way, so the user decides. */
+    createRule.mockResolvedValue({ id: "r9" });
+    render_({
+      setups: [{ setup: "breakout", n: 2, wins: 0, win_rate: 0,
+                 median_return: -0.05, median_mae: -0.08, median_capture: null }],
+    });
+    expect(await screen.findByTestId("when-save-setup-breakout")).toBeTruthy();
+  });
+
+  it("confirms the save rather than leaving the button ambiguous", async () => {
+    createRule.mockResolvedValue({ id: "r9" });
+    render_();
+    fireEvent.click(await screen.findByTestId("when-save-setup-oversold"));
+    expect(await screen.findByTestId("when-save-setup-oversold-saved")).toBeTruthy();
+  });
+
+  it("does not claim success when the save failed", async () => {
+    /* A failed save that looks successful is worse than a visible failure —
+       the user walks away believing a rule exists that does not. */
+    createRule.mockRejectedValue(new Error("500"));
+    render_();
+    const btn = await screen.findByTestId("when-save-setup-oversold");
+    fireEvent.click(btn);
+    await waitFor(() => expect(btn.textContent).toMatch(/try again/));
+    expect(screen.queryByTestId("when-save-setup-oversold-saved")).toBeNull();
+  });
+
 });

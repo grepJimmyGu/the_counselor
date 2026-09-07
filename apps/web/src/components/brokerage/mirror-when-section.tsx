@@ -37,6 +37,7 @@ import { useEffect, useState } from "react";
 import { getMirrorTiming } from "@/lib/api";
 import type { MarkoutProfile, TimingView } from "@/lib/contracts";
 import { SaveRuleButton } from "@/components/rules/save-rule-button";
+import { ExitPlanCard } from "@/components/brokerage/exit-plan-card";
 
 function money(v: number | null | undefined): string {
   if (v === null || v === undefined || !Number.isFinite(v)) return "—";
@@ -62,6 +63,20 @@ const LEAK_LABEL: Record<string, string> = {
   efficient_stop: "cutting a loser that kept falling",
   trend_exhaustion_exit: "exiting as momentum faded",
 };
+
+/** The habit, in the user's words — what they did, not what we call it. */
+const HABIT_TITLE: Record<string, string> = {
+  giveback: "You get well ahead, then close at breakeven",
+  panic_exit: "You sell into drawdowns that then recover",
+  premature_exit: "You sell before the move has finished",
+  early_entry: "You buy a good idea a week early",
+  chased: "You buy after the move has already stretched",
+  efficient_stop: "You cut losers that keep falling",
+  trend_exhaustion_exit: "You exit as momentum fades",
+};
+
+/** Habits an exit ladder can actually answer. */
+const EXIT_SIDED = new Set(["giveback", "panic_exit", "premature_exit"]);
 
 const SETUP_LABEL: Record<string, string> = {
   extended_momentum: "Extended momentum",
@@ -209,7 +224,23 @@ export function MirrorWhenSection({ backendToken }: { backendToken: string }) {
   if (cov.episodes_analysed === 0) return null;
 
   const ex = data.excursions;
-  const leak = data.leaks[0];
+  // Top two, most expensive first — the ranking is already deterministic.
+  const habits = data.leaks.filter((l) => l.dollars > 0).slice(0, 2);
+  const exitSided = habits.some((h) => EXIT_SIDED.has(h.key));
+  // Cite the user's OWN peaks beside the suggested rung — and ONLY from the
+  // give-back trades, which are what a take-profit rung addresses. Pooling
+  // every habit's excursions would quote a range the suggestion isn't drawn
+  // from, which is the kind of number that looks sourced and isn't.
+  const mfes = (habits.find((h) => h.key === "giveback")?.trades ?? [])
+    .map((t) => t.mfe)
+    .filter((v): v is number => v !== null && v !== undefined && v > 0);
+  const peaks = {
+    low: mfes.length ? Math.min(...mfes) : null,
+    high: mfes.length ? Math.max(...mfes) : null,
+  };
+  const habitSymbols = Array.from(
+    new Set(habits.flatMap((h) => h.trades.map((t) => t.symbol))),
+  );
   const setups = data.setups.filter((s) => s.n > 0);
   const partial = cov.episodes_analysed < cov.episodes_total;
 
@@ -365,39 +396,108 @@ export function MirrorWhenSection({ backendToken }: { backendToken: string }) {
         </div>
       )}
 
-      {leak && leak.dollars > 0 && (
-        <div
-          className="rounded-md border border-border bg-muted/30 px-3 py-2.5"
-          data-testid="when-leak"
-        >
+      {/* THE TWO HABITS, and the one thing that fixes both.
+
+          Giving back a gain and selling into a drawdown are the same missing
+          discipline from either side — no exit decided before the trade — so
+          they converge on a single ladder rather than getting a CTA each.
+
+          Each carries its own trades. A four-trade claim is only believable
+          if you can see the four trades, and on a record this size every
+          finding rests on a handful of positions. */}
+      {habits.length > 0 && (
+        <div data-testid="when-habits">
           <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            Costliest habit
+            {exitSided ? "Two habits, and they share one fix" : "Costliest habits"}
           </div>
-          <p className="mt-1 text-[13px] text-foreground">
-            <span className="font-mono font-semibold tabular-nums">
-              {money(leak.dollars)}
-            </span>{" "}
-            across {leak.n} {leak.n === 1 ? "trade" : "trades"} —{" "}
-            {LEAK_LABEL[leak.key] ?? leak.key.replace(/_/g, " ")}.
-          </p>
-          <div className="mt-2">
-            <SaveRuleButton
-              backendToken={backendToken}
-              testid="when-save-leak"
-              rule={{
-                rule_type: "exit",
-                scope: "behavioural",
-                source: "trade_analysis",
-                name: `Watch for ${LEAK_LABEL[leak.key] ?? leak.key.replace(/_/g, " ")}`,
-                conditions: { avoid_outcome: leak.key },
-                sample_size: leak.n,
-                historical_effect: `${money(leak.dollars)} across ${leak.n} ${
-                  leak.n === 1 ? "trade" : "trades"
-                }`,
-                confidence: leak.n >= 10 ? "medium" : "low",
-              }}
-            />
-          </div>
+
+          {habits.map((h, i) => (
+            <div
+              key={h.key}
+              className="mt-2 grid grid-cols-[auto_1fr_auto] items-start gap-3 rounded-md border border-border px-3.5 py-3"
+              data-testid={`when-habit-${h.key}`}
+            >
+              <span className="rounded bg-muted/50 px-1.5 py-0.5 font-mono text-[11px] font-semibold text-muted-foreground">
+                {i + 1}
+              </span>
+              <div className="min-w-0">
+                <p className="text-[13.5px] font-semibold text-foreground">
+                  {HABIT_TITLE[h.key] ?? LEAK_LABEL[h.key] ?? h.key.replace(/_/g, " ")}
+                </p>
+                {h.trades.length > 0 && (
+                  <div className="mt-1.5 overflow-x-auto">
+                    <table className="w-full text-[11.5px]">
+                      <thead>
+                        <tr className="text-left text-[9.5px] uppercase tracking-wider text-muted-foreground">
+                          <th className="pb-1 font-medium">Trade</th>
+                          <th className="pb-1 text-right font-medium">
+                            {h.key === "giveback" ? "Best" : "Sold at"}
+                          </th>
+                          <th className="pb-1 text-right font-medium">
+                            {h.key === "giveback" ? "Kept" : "+5d"}
+                          </th>
+                          <th className="pb-1 text-right font-medium">
+                            {h.key === "giveback" ? "After" : "+20d"}
+                          </th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {h.trades.slice(0, 5).map((t) => (
+                          <tr
+                            key={`${t.symbol}-${t.opened_on}`}
+                            className="border-t border-border"
+                            data-testid={`when-trade-${h.key}-${t.symbol}`}
+                          >
+                            <td className="py-1 text-foreground">
+                              {t.symbol}
+                              <span className="text-muted-foreground">
+                                {" "}
+                                · {Math.round(t.units)} sh
+                              </span>
+                            </td>
+                            <td className="py-1 text-right font-mono tabular-nums">
+                              {h.key === "giveback"
+                                ? signedPct(t.mfe)
+                                : signedPct(t.realised_return)}
+                            </td>
+                            <td className="py-1 text-right font-mono tabular-nums">
+                              {h.key === "giveback"
+                                ? signedPct(t.realised_return)
+                                : signedPct(t.after_exit_5d)}
+                            </td>
+                            <td className="py-1 text-right font-mono tabular-nums">
+                              {signedPct(t.after_exit_20d)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+              <div className="text-right">
+                <div className="font-mono text-[15px] font-semibold tabular-nums text-foreground">
+                  {money(h.dollars)}
+                </div>
+                <div className="font-mono text-[11px] text-muted-foreground">
+                  {h.n} {h.n === 1 ? "trade" : "trades"}
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {exitSided && (
+            <div className="mt-3">
+              <ExitPlanCard
+                backendToken={backendToken}
+                peakLow={peaks.low}
+                peakHigh={peaks.high}
+                winnerMae={ex.winner_mae}
+                loserMae={ex.loser_mae}
+                symbols={habitSymbols}
+              />
+            </div>
+          )}
         </div>
       )}
 

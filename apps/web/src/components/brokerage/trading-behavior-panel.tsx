@@ -382,24 +382,48 @@ export function TradingBehaviorPanel({
                 className="rounded-lg border border-border bg-muted/30 px-4 py-3 text-[13px] text-foreground"
               >
                 {gap.dollars > 0 ? (
-                  <>
-                    What you sold is worth{" "}
-                    <strong className="font-medium">{money(gap.dollars)} more</strong>{" "}
-                    today than what you sold it for
-                    {gap.largest_symbol && <> — most of it {gap.largest_symbol}</>}.
-                    This measures exits only, and assumes you would have held every
-                    one of them to today.
-                  </>
-                ) : (
-                  <>
-                    Your exits{" "}
-                    <strong className="font-medium">
-                      saved you {money(-gap.dollars)}
-                    </strong>{" "}
-                    — what you sold is worth less now than what you got for it.
-                  </>
-                )}
-                {gap.as_of && (
+              <>
+                What you sold is worth{" "}
+                <strong className="font-medium">{money(gap.dollars)} more</strong>{" "}
+                today than what you sold it for
+                {gap.largest_symbol && <> — most of it {gap.largest_symbol}</>}.
+                This measures exits only, and assumes you would have held every
+                one of them to today.
+              </>
+            ) : (
+              <>
+                Your exits{" "}
+                <strong className="font-medium">
+                  saved you {money(-gap.dollars)}
+                </strong>{" "}
+                — what you sold is worth less now than what you got for it.
+              </>
+            )}
+            {/* ⚠ THE NET IS TWO NUMBERS. On the live account it is +$73,770 of
+                sales that look early against −$37,954 that look well-timed.
+                Showing only the residual hands an accusatory figure to someone
+                with roughly as many good exits as bad — so when both sides
+                exist, both are named. */}
+            {gap.sold_early_dollars !== null &&
+              gap.sold_early_dollars !== undefined &&
+              gap.sold_well_dollars !== null &&
+              gap.sold_well_dollars !== undefined &&
+              gap.sold_early_dollars > 0 &&
+              gap.sold_well_dollars < 0 && (
+                <span data-testid="behavior-exit-gap-split">
+                  {" "}
+                  That is a net:{" "}
+                  <strong className="font-medium">
+                    {money(gap.sold_early_dollars)}
+                  </strong>{" "}
+                  of sales that look early against{" "}
+                  <strong className="font-medium">
+                    {money(-gap.sold_well_dollars)}
+                  </strong>{" "}
+                  that look well-timed.
+                </span>
+              )}{" "}
+            {gap.as_of && (
                   <span className="text-muted-foreground"> Priced at {gap.as_of}.</span>
                 )}
               </p>

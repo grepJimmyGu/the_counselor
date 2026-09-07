@@ -46,6 +46,8 @@ import type {
   TimingView,
   Rule,
   CreateRuleRequest,
+  ExitPlanRequest,
+  ExitPlanResponse,
   TradingBehavior,
   SaveStrategyResult,
   ExitTier,
@@ -1649,6 +1651,24 @@ export async function getBrokerBalanceHistory(
  *
  *  Server-side because FIFO lot matching is real logic that deserves tests,
  *  and because the same summary will feed strategy recommendations later. */
+/** PRD-43a v3 — save the exit ladder the user just filled in.
+ *
+ *  The body IS the ladder, which is what makes the sign-off structural: what
+ *  lands on the strategy is what the client rendered and the user saw. */
+export async function createExitPlan(
+  backendToken: string,
+  payload: ExitPlanRequest,
+): Promise<ExitPlanResponse> {
+  return fetchApi<ExitPlanResponse>("/api/mirror/exit-plan", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${backendToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+}
+
 /** PRD-43e §3.3 — My Rules. The user's first visible systematic framework;
  *  for many people it is the destination, not a waypoint. */
 export async function listRules(backendToken: string): Promise<Rule[]> {

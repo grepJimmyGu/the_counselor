@@ -40,6 +40,31 @@ from app.models.snaptrade_user import SnapTradeUser
 _log = logging.getLogger("livermore.snaptrade")
 
 
+class SnapTradeReadFailed(RuntimeError):
+    """Every connected account's read failed — so we know nothing, rather than
+    knowing the account is empty.
+
+    ⚠ The distinction this exists to preserve: `[]` must mean *we looked and
+    there is nothing there*. When it can also mean *we could not look*, every
+    figure downstream becomes unfalsifiable — and the surface says so out loud.
+
+    Found 2026-09-07. SnapTrade returned `401 Invalid timestamp`; the
+    per-account handler logged it and moved on; the list stayed empty; the
+    route computed `round_trips == 0`; and the Mirror told the user
+
+        "No trades in this window."
+
+    A transient auth failure rendered as a confident claim about their own
+    account. Same shape as #354, where a parse bug made every user's holdings
+    look empty and the test account's true answer was also empty, so nobody
+    saw it for weeks.
+
+    Partial failure is deliberately NOT this: someone with three brokers
+    connected should not lose all three because one is having a bad morning.
+    That case returns what it has and logs the rest.
+    """
+
+
 class SnapTradeNotConfigured(RuntimeError):
     """Raised when the env vars are absent. Callers turn this into a 503 —
     it is an operator state, not a user error."""
@@ -258,10 +283,12 @@ def list_positions(
     secret = decrypt_secret(reg.user_secret_encrypted)
 
     out: List[BrokerPosition] = []
+    attempted = failed = 0
     for account in list_accounts(db, user_id, client=api):
         account_id = str(account.get("id") or "")
         if not account_id:
             continue
+        attempted += 1
         try:
             # `get_all_account_positions` -> GET /accounts/{accountId}/positions/all.
             # Verified against the SDK's own path module, not recalled:
@@ -300,9 +327,16 @@ def list_positions(
                     cash_equivalent=bool(pos.get("cash_equivalent") or False),
                 ))
         except Exception:  # noqa: BLE001
+            failed += 1
             _log.exception(
                 "snaptrade: positions read failed for account %s", account_id
             )
+
+    if attempted and failed == attempted:
+        # Not "you hold nothing" — which is a worse thing to say wrongly.
+        raise SnapTradeReadFailed(
+            f"all {attempted} account position read(s) failed"
+        )
 
     reg.last_synced_at = datetime.utcnow()
     db.commit()
@@ -416,8 +450,10 @@ def list_activities(
     which is what makes "newest first" a promise instead of a coincidence.
     """
     out: List[BrokerActivity] = []
+    attempted = failed = 0
     for api, st_user, secret, account_id in _each_account(db, user_id, client):
         seen: set = set()
+        attempted += 1
         try:
             offset = 0
             for page_no in range(_MAX_ACTIVITY_PAGES):
@@ -467,7 +503,14 @@ def list_activities(
                     _MAX_ACTIVITY_PAGES, account_id, len(out),
                 )
         except Exception:  # noqa: BLE001
+            failed += 1
             _log.exception("snaptrade: activities read failed for %s", account_id)
+
+    if attempted and failed == attempted:
+        # Not "you have no trades" — we could not read any of them.
+        raise SnapTradeReadFailed(
+            f"all {attempted} account activity read(s) failed"
+        )
 
     out.sort(key=lambda a: a.trade_date or "", reverse=True)
     return out

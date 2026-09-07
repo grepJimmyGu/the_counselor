@@ -3422,6 +3422,12 @@ export interface BrokerActivity {
  *  value, and the UI reports that just as plainly. An upper bound: it assumes
  *  every exit was wrong and that the proceeds did nothing afterwards. */
 export interface ExitGap {
+  /** ⚠ `dollars` is a NET and on a real record a misleading one: the live
+   *  account nets +$73,770 of sales that look early against −$37,954 that
+   *  look well-timed. Render both sides — showing only the residual hands an
+   *  accusatory figure to someone with as many good exits as bad. */
+  sold_early_dollars?: number | null;
+  sold_well_dollars?: number | null;
   dollars: number;
   is_material: boolean;
   sells_measured: number;
@@ -3614,10 +3620,31 @@ export interface TimingSetup {
 
 /** A diagnosis priced in dollars. Ranked by `dollars`, deterministically —
  *  a frequent cheap leak must not outrank a rare expensive one. */
+/** One position behind a finding. A four-trade claim is only believable if
+ *  you can see the four trades. */
+export interface LeakTrade {
+  symbol: string;
+  opened_on: string;
+  closed_on?: string | null;
+  units: number;
+  entry_price: number;
+  exit_price?: number | null;
+  realised_return?: number | null;
+  mae?: number | null;
+  mfe?: number | null;
+  /** What the STOCK did after the exit — negation already undone, so positive
+   *  means it rose after the user sold. */
+  after_exit_5d?: number | null;
+  after_exit_20d?: number | null;
+  dollars: number;
+}
+
 export interface TimingLeak {
   key: string;
   n: number;
   dollars: number;
+  /** Most expensive first. */
+  trades: LeakTrade[];
 }
 
 /** ⚠ The share this section actually measured.
@@ -3770,4 +3797,27 @@ export interface OrderPreview {
 export interface OrderResult {
   status?: string | null;
   brokerage_order_id?: string | null;
+}
+
+
+/** PRD-43a v3 — the exit plan the two habits converge on.
+ *
+ *  ⚠ `stop_pct` has no default and never will. A stop the user did not choose
+ *  is one they will not believe when it fires, and PRD-43e §4.2 forbids
+ *  deriving one from descriptive statistics — on the first live account every
+ *  fixed stop tested negative. The take-profit rung is suggested from the
+ *  user's own peaks; the stop is theirs. */
+export interface ExitPlanRequest {
+  take_profit_pct: number;
+  take_profit_fraction: number;
+  stop_pct: number;
+  symbols?: string[];
+}
+
+export interface ExitPlanResponse {
+  rule_id: string;
+  strategy_id: string;
+  tracked: string[];
+  /** [symbol, reason] — never silently dropped. */
+  skipped: string[][];
 }

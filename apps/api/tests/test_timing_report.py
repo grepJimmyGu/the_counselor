@@ -198,3 +198,54 @@ def test_giveback_dollars_use_the_units_actually_HELD_at_the_peak():
     assert leak.dollars < naive / 4
     assert round(leak.dollars, 2) == round(
         20 * 100.0 * (a.mfe - a.episode.realised_return), 2)
+
+
+def test_a_leak_carries_the_TRADES_it_is_made_of():
+    """A four-trade claim is only believable if you can see the four trades.
+
+    On a 33-position record every finding rests on a handful of positions, so
+    the aggregate alone is not something a reader can check — and it is the
+    only way someone recognises their own trade in a row that compressed
+    seven entries into one.
+    """
+    rich = _series([100.0, 105.0, 110.0, 115.0, 118.0, 120.0] + [130.0] * 22,
+                   highs=[100.0, 105.0, 110.0, 115.0, 118.0, 120.0] + [130.0] * 22,
+                   lows=[100.0] * 28)
+    rows = _analysed([
+        _t("BUY", 100, 100.0, rich.dates[0].isoformat()),
+        _t("SELL", 100, 108.0, rich.dates[5].isoformat()),
+    ], rich)
+    rep = build_report(rows)
+
+    leak = rep.biggest_leak
+    assert leak.key == "premature_exit"
+    assert len(leak.trades) == leak.n == 1
+
+    tr = leak.trades[0]
+    assert tr.symbol == "NVDA"
+    assert tr.units == 100
+    assert tr.opened_on == rich.dates[0]
+    assert tr.closed_on == rich.dates[5]
+    # The three figures the copy actually reads.
+    assert round(tr.mfe, 4) == 0.20
+    assert round(tr.realised_return, 4) == 0.08
+    assert tr.after_exit_20d is not None
+
+
+def test_leak_trades_are_ordered_by_their_own_dollar_cost():
+    """So "most expensive first" holds inside a finding as well as between
+    findings — a reader scanning the first row should be reading the worst
+    case, not an arbitrary one."""
+    series = _series([100.0] * 8 + [130.0] * 20,
+                     highs=[100.0] * 8 + [130.0] * 20, lows=[100.0] * 28)
+    rows = _analysed([
+        _t("BUY", 10, 100.0, series.dates[0].isoformat()),
+        _t("SELL", 10, 104.0, series.dates[3].isoformat()),
+    ], series) + _analysed([
+        _t("BUY", 500, 100.0, series.dates[0].isoformat()),
+        _t("SELL", 500, 104.0, series.dates[3].isoformat()),
+    ], series)
+    rep = build_report(rows)
+    for leak in rep.leaks:
+        costs = [t.dollars for t in leak.trades]
+        assert costs == sorted(costs, reverse=True), leak.key
