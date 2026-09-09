@@ -25,7 +25,7 @@ import { StrategyCard } from "@/components/strategy-picker/strategy-card";
 import { OVERLAY_METADATA, OVERLAY_DISPLAY_ORDER } from "@/lib/overlay-metadata";
 import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
-import { listBrokerPositions } from "@/lib/api";
+import { getSnapTradeStatus, listBrokerPositions } from "@/lib/api";
 import { Input } from "@/components/ui/input";
 import { searchSymbols } from "@/lib/api";
 import type { Holding, SymbolSearchItem } from "@/lib/contracts";
@@ -171,9 +171,49 @@ export function PortfolioUpload({
     ?.backendToken;
   const justConnected = searchParams?.get("connected") === "1";
 
+  // ── is a broker connected AT ALL ─────────────────────────────────────────
+  //
+  // Distinct from `brokerCount`, and the distinction is the bug this fixes.
+  // `brokerCount` means "positions arrived from the portal round-trip"; it is
+  // 0 for everyone who connected in an earlier session and simply opened this
+  // page. Gating the Mirror on it hid the Mirror from every returning user —
+  // which is nearly all of them.
+  //
+  // It was wrong in principle too: the Mirror reads CLOSED-TRADE history, not
+  // holdings. Someone who sold everything holds zero positions and has the
+  // most to learn from it, and `brokerCount > 0` would have shown them
+  // nothing. Connection status is the honest gate.
+  const [connected, setConnected] = React.useState(false);
+
   React.useEffect(() => {
-    if (!justConnected) return;
     if (sessionStatus === "loading" || !backendToken) return;
+    let live = true;
+    getSnapTradeStatus(backendToken)
+      .then((st) => {
+        if (live) setConnected(Boolean(st.registered && st.connected_accounts > 0));
+      })
+      .catch(() => {
+        // A failed status read is not evidence of no account, but it is all we
+        // have; the connect card beside this renders its own error.
+        if (live) setConnected(false);
+      });
+    return () => {
+      live = false;
+    };
+  }, [sessionStatus, backendToken]);
+
+  // Runs once per mount. Without it the effect below would re-add a broker row
+  // the user had deliberately deleted, every time `connected` resolved.
+  const loadedPositions = React.useRef(false);
+
+  React.useEffect(() => {
+    // WIDENED from `justConnected` alone. The card above says "holdings up to
+    // date" — for a returning connected user the form underneath it was empty,
+    // so the page contradicted its own copy. Same root cause as the Mirror.
+    if (!justConnected && !connected) return;
+    if (sessionStatus === "loading" || !backendToken) return;
+    if (loadedPositions.current) return;
+    loadedPositions.current = true;
     let live = true;
     listBrokerPositions(backendToken)
       .then((positions) => {
@@ -205,7 +245,7 @@ export function PortfolioUpload({
     return () => {
       live = false;
     };
-  }, [justConnected, sessionStatus, backendToken]);
+  }, [justConnected, connected, sessionStatus, backendToken]);
 
   // ── Symbol-search typeahead (the primary add path) ──────────────────────
   const [query, setQuery] = React.useState("");
@@ -348,7 +388,7 @@ export function PortfolioUpload({
           1M/6M/1Y selector, so its repeated "this window" pointed at
           something visible. Here there is no selector, so the period is
           stated — also the date-stamp product invariant. */}
-      {brokerCount > 0 && backendToken && (
+      {connected && backendToken && (
         <section data-testid="portfolio-upload-mirror">
           <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-2">
             <h2 className="text-sm font-semibold">{mirrorTitle}</h2>
