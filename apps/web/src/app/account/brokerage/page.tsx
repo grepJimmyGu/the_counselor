@@ -7,6 +7,11 @@
  * buy and sell, how the account has actually done, its value over time, and
  * the orders on file.
  *
+ * THE MIRROR IS NOT HERE ANY MORE. "How you trade" — the interpretation of
+ * this record — moved to the portfolio upload step, beside the holdings a
+ * rule would actually be put over. This page is the raw record again, which
+ * is what the next paragraph always said it was.
+ *
  * NO STRATEGY LENS, DELIBERATELY. Nothing here is matched to a Livermore
  * strategy. Most of a person's trades predate any strategy they built here,
  * and a strategy lens would hide exactly those — which are the majority, and
@@ -39,7 +44,6 @@ import {
 } from "@/lib/api";
 import type { BrokerActivity, BrokerPosition } from "@/lib/contracts";
 import { ConnectBrokerage } from "@/components/execution/connect-brokerage";
-import { TradingBehaviorPanel } from "@/components/brokerage/trading-behavior-panel";
 
 type Row = Record<string, unknown>;
 type Window = "1M" | "6M" | "1Y";
@@ -283,13 +287,19 @@ export default function BrokeragePage() {
             </section>
           )}
 
-          {/* ── how you trade ────────────────────────────────────────
-              The interpretation, directly above the record it interprets, and
-              sharing its window — so the summary can never describe a
-              different period than the trades listed below it. */}
+          {/* ── trade history ────────────────────────────────────────
+              The window selector lives here now. It used to sit in a "How you
+              trade" header above, shared with the Mirror; the Mirror moved to
+              the portfolio upload step, and a control has to sit with the
+              thing it controls. */}
           <section>
             <div className="mb-2 flex flex-wrap items-baseline justify-between gap-3">
-              <h2 className="text-sm font-semibold">How you trade</h2>
+              <h2 className="text-sm font-semibold">
+                Buys and sells{" "}
+                <span className="font-normal text-muted-foreground">
+                  &middot; last {window}
+                </span>
+              </h2>
               <div className="flex gap-1" role="group" aria-label="History window">
                 {(["1M", "6M", "1Y"] as Window[]).map((w) => (
                   <button
@@ -310,22 +320,6 @@ export default function BrokeragePage() {
                 ))}
               </div>
             </div>
-            {backendToken && (
-              <TradingBehaviorPanel
-                backendToken={backendToken}
-                startDate={windowStart}
-              />
-            )}
-          </section>
-
-          {/* ── trade history ────────────────────────────────────── */}
-          <section>
-            <h2 className="mb-2 text-sm font-semibold">
-              Buys and sells{" "}
-              <span className="font-normal text-muted-foreground">
-                &middot; last {window}
-              </span>
-            </h2>
 
             {activities === null ? (
               <div className="flex justify-center py-8">

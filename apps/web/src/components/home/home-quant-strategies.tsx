@@ -3,65 +3,81 @@
 /**
  * Home block 3 — **Quant Rules**.
  *
- * Three sections, each answering a different question:
- *   Templates    — a complete strategy that picks the names for you
- *   Overlays     — rules over a book you already hold
- *   Build your own
+ * Two rows, and the split is by who you are, not by what the feature is:
  *
- * "Try a Template", "Upload Portfolio" and the composer entry all moved here
- * from the old `home-focus-sections` block, which was deleted on 2026-08-14:
- * once the 2x2 carried this content, that section was a second copy of it
- * further down the page.
+ *   Start a strategy   — guided (entry) | composer (expert)
+ *   Start from your    — connect a brokerage, and the product reads the
+ *   own book             record you already have
  *
- * OVERLAYS ARE READ-ONLY HERE. The picker chooses an overlay FOR a portfolio
- * already uploaded, so offering the choice with no holdings dead-ends. These
- * cards describe; the CTA beside them is Upload Portfolio, which is the real
- * next step. Rendered through the SAME `<StrategyCard>` the picker uses, so the
- * overview and the picker cannot drift apart.
+ * WHY THE EXAMPLE TEMPLATES ARE GONE. This block used to show "Try a Template"
+ * beside three named templates (Trend Following, Cross-Sectional, ETF
+ * Rotation) at four columns. Three examples of a thing are not a third entry
+ * point — they competed for the eye with the two paths that actually differ,
+ * and a reader who clicked one still landed in the same wizard. The templates
+ * are unchanged and still back the wizard; they simply stop advertising.
  *
- * NO PERFORMANCE NUMBERS. Templates carry a `perfContext` field that reads like
- * backtested returns but is hand-written prose, and there is no store of real
- * per-template performance (checked: `strategy_live_performance` is slug-keyed
- * and lacks the columns; `BacktestRecord` has the metrics but never persists
- * `template_id`). Showing a return here would be inventing one.
+ * TIER BADGES ARE SIGNPOSTS, NOT GATES. Nothing stops an expert taking the
+ * guided path or a beginner opening the composer, so the badges read "Entry
+ * level" and "Expert" rather than "only" — a restriction the product does not
+ * enforce should not be claimed on the surface.
  *
- * What IS shown instead is `evidenceTier` — A = strong academic support,
- * B = mixed, C = practitioner-only. That's a real, sourced claim about how well
- * the idea is supported, which is the honest version of "how good is this?".
+ * EVERY NUMBER HERE IS CHECKED. Five questions is `WIZARD_QUESTIONS.length`;
+ * twelve is `researchTemplates` minus the unavailable ones; 110 is the live
+ * primitive catalog. They are asserted in the tests against their real
+ * sources, so a number cannot rot into a claim nobody re-checked.
+ *
+ * NO PERFORMANCE NUMBERS. Templates carry a `perfContext` field that reads
+ * like backtested returns but is hand-written prose, and there is no store of
+ * real per-template performance. Showing a return here would be inventing one.
+ *
+ * THE OVERLAY OVERVIEW MOVED. It described rules for a portfolio you have not
+ * uploaded yet; it now lives on the upload step, beside the holdings it
+ * applies to. Same for the Mirror.
  */
 
-import { useState } from "react";
-import { Layers, Plus, Sparkles, Upload } from "lucide-react";
-import { researchTemplates, type OverlayKind, type ResearchTemplate } from "@/lib/contracts";
-import { OVERLAY_METADATA, OVERLAY_DISPLAY_ORDER } from "@/lib/overlay-metadata";
-import { StrategyCard } from "@/components/strategy-picker/strategy-card";
+import { Link2, ShieldCheck, SlidersHorizontal, Sparkles } from "lucide-react";
 import { startFlow } from "@/lib/flows/runtime";
 import { INITIAL_CUSTOM_BUILD_CONTEXT } from "@/lib/flows/custom-build-mode-context";
+import { researchTemplates } from "@/lib/contracts";
+import {
+  WIZARD_QUESTIONS,
+  WIZARD_STRATEGIES,
+} from "@/components/strategy-builder/wizard/strategy-wizard-data";
 
-/** Unavailable templates are hidden — a card you can't run is an advert. */
-/** Three, not five: the row is "Try a Template" plus three, at four columns. */
-const SHOWN = researchTemplates.filter((t) => t.availability !== "unavailable").slice(0, 3);
+/** Derived, not typed in — a hand-written number is a claim that rots the
+ *  first time the wizard or the template list changes underneath it. */
+export const QUESTION_COUNT = WIZARD_QUESTIONS.length;
 
-const TIER_LABEL: Record<string, string> = {
-  A: "Strong academic support",
-  B: "Mixed evidence",
-  C: "Practitioner convention",
-};
+/** ⚠ THE INTERSECTION, and it is smaller than either side.
+ *
+ *  This said `researchTemplates.filter(t => t.availability !== "unavailable")`
+ *  and rendered 12. That counted the wrong set twice over:
+ *
+ *    - The wizard's gate is `availability === "ready"`, not "not unavailable".
+ *      A `proxy` template is LOCKED in the picker (strategy-wizard.tsx:139,
+ *      :324), so it is not something the wizard can fit anyone to. 11 ready.
+ *    - Five templates the wizard maps to are not ready, and three ready ones
+ *      have no wizard mapping at all — reachable and runnable are different
+ *      sets, and the card claims the overlap.
+ *
+ *  Ready ∧ reachable is 9. The number a card promises has to be the number of
+ *  outcomes actually reachable from the button under it. */
+const READY_TEMPLATE_IDS = new Set(
+  researchTemplates.filter((t) => t.availability === "ready").map((t) => t.id),
+);
+export const TEMPLATE_COUNT = new Set(
+  WIZARD_STRATEGIES.map((s) => s.templateId).filter(
+    (id): id is string => Boolean(id) && READY_TEMPLATE_IDS.has(id as string),
+  ),
+).size;
 
-function TierBadge({ tier }: { tier?: string }) {
-  if (!tier) return null;
-  const key = tier.trim().charAt(0).toUpperCase();
-  const label = TIER_LABEL[key];
-  if (!label) return null;
-  return (
-    <span
-      title={label}
-      className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[11px] font-medium text-muted-foreground"
-    >
-      Evidence {key}
-    </span>
-  );
-}
+/** The one number that CANNOT be derived here: the primitive catalog is
+ *  served by `GET /api/signal-primitives`, not bundled. 110 as of 2026-09-09
+ *  (8 categories, trend 30 / mean_reversion 23 / momentum 18 / …). If the
+ *  catalog grows, this is the line to update — re-check with:
+ *    curl -s <api>/api/signal-primitives | python3 -c "import json,sys;print(len(json.load(sys.stdin)))"
+ */
+export const PRIMITIVE_COUNT = 110;
 
 function GroupLabel({ children }: { children: React.ReactNode }) {
   return (
@@ -71,72 +87,62 @@ function GroupLabel({ children }: { children: React.ReactNode }) {
   );
 }
 
-function TemplateCard({
-  t,
-  onOpen,
+function TierBadge({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10.5px] font-medium uppercase tracking-wide text-muted-foreground">
+      {children}
+    </span>
+  );
+}
+
+/** The two row-1 entry points. One component so they cannot drift in style —
+ *  they are a pair, and a pair that looks mismatched reads as a hierarchy. */
+function EntryCard({
+  icon: Icon,
+  tier,
+  title,
+  children,
+  onClick,
+  testid,
 }: {
-  t: ResearchTemplate;
-  onOpen: (t: ResearchTemplate) => void;
+  icon: typeof Sparkles;
+  tier: string;
+  title: string;
+  children: React.ReactNode;
+  onClick: () => void;
+  testid: string;
 }) {
   return (
     <button
       type="button"
-      onClick={() => onOpen(t)}
-      data-testid="quant-strategy"
-      className="rounded-lg border border-border p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/30"
+      onClick={onClick}
+      data-testid={testid}
+      className="flex cursor-pointer flex-col items-start rounded-lg border border-border p-3.5 text-left transition-colors hover:border-primary/40 hover:bg-muted/30"
     >
-      <div className="flex items-baseline justify-between gap-2">
-        <span className="truncate text-sm font-semibold">{t.name}</span>
-        <TierBadge tier={t.evidenceTier} />
+      <div className="flex w-full items-center justify-between gap-2">
+        <Icon className="h-4 w-4 text-primary" aria-hidden="true" />
+        <TierBadge>{tier}</TierBadge>
       </div>
-      <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
-        {t.whatItCaptures || t.whatItTests || t.description}
-      </p>
-      <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-muted-foreground/80">
-        <span>{t.category}</span>
-        {t.horizonBadge && (
-          <>
-            <span aria-hidden="true">·</span>
-            <span>{t.horizonBadge}</span>
-          </>
-        )}
-        {t.availability === "proxy" && (
-          <>
-            <span aria-hidden="true">·</span>
-            {/* Say it on the card, not in a modal after they've committed. */}
-            <span className="text-amber-700">ETF proxy</span>
-          </>
-        )}
-      </div>
+      <span className="mt-2 text-sm font-semibold">{title}</span>
+      <span className="mt-1 text-[11.5px] leading-relaxed text-muted-foreground">
+        {children}
+      </span>
     </button>
   );
 }
 
-export function HomeQuantStrategies({
-  onOpenTemplate,
-}: {
-  onOpenTemplate: (t: ResearchTemplate) => void;
-}) {
-  // Collapsed by default: six overlay cards would dominate a block that has
-  // two other sections to show.
-  const [showOverlays, setShowOverlays] = useState(false);
-
-  // These launch flows directly rather than arriving as props. The page owns
-  // the template MODAL's state (hence `onOpenTemplate`), but a flow is
-  // self-contained — `startFlow` navigates — so routing them through the page
+export function HomeQuantStrategies() {
+  // These launch flows directly rather than arriving as props — a flow is
+  // self-contained (`startFlow` navigates), so routing them through the page
   // would add a prop that only forwards.
-  const onTryTemplate = () =>
+  const onGuided = () =>
     startFlow("one_asset_mode", { initialContext: { fromTrigger: "home/pick_asset" } });
-  const onUploadPortfolio = () =>
-    startFlow("portfolio_mode", { initialContext: { fromTrigger: "home/upload_portfolio" } });
-  // Straight into the composer, the same landing the old "Build from scratch"
-  // card used — a full-page universe picker + primitive catalog + rule canvas.
-  // It previously opened the small builder MODAL, which is a different and much
-  // narrower surface for the same intent.
   const onBuild = () =>
     startFlow("custom_build_mode", {
       initialContext: { ...INITIAL_CUSTOM_BUILD_CONTEXT, fromTrigger: "home/custom_build" },
     });
+  const onPortfolio = () =>
+    startFlow("portfolio_mode", { initialContext: { fromTrigger: "home/upload_portfolio" } });
 
   return (
     <section
@@ -148,93 +154,58 @@ export function HomeQuantStrategies({
         <span className="text-xs text-muted-foreground">Backtest before you commit</span>
       </div>
 
-      {/* ── Templates — complete strategies that pick the names ───────────── */}
-      <GroupLabel>Templates — they pick the names for you</GroupLabel>
-      <div className="grid grid-cols-2 gap-1.5 sm:grid-cols-4">
-        <button
-          type="button"
-          onClick={onTryTemplate}
-          data-testid="quant-try-template"
-          className="flex cursor-pointer flex-col items-start justify-center rounded-lg border border-dashed border-border p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/30"
-        >
-          <span className="flex items-center gap-1.5 text-sm font-semibold">
-            <Sparkles className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
-            Try a Template
-          </span>
-          <span className="mt-1 text-[11px] leading-snug text-muted-foreground">
-            Guided, one stock at a time
-          </span>
-        </button>
-        {SHOWN.map((t) => (
-          <TemplateCard key={t.id} t={t} onOpen={onOpenTemplate} />
-        ))}
-      </div>
-
-      {/* ── Overlays — rules over a book you already hold ─────────────────── */}
-      <GroupLabel>Overlays — for a portfolio you already hold</GroupLabel>
+      {/* ── Row 1 — the two ways in ───────────────────────────────────────── */}
+      <GroupLabel>Start a strategy</GroupLabel>
       <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-        <button
-          type="button"
-          onClick={() => setShowOverlays((v) => !v)}
-          aria-expanded={showOverlays}
-          data-testid="quant-overlay-overview"
-          className="flex cursor-pointer flex-col items-start rounded-lg border border-border p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/30"
+        <EntryCard
+          icon={Sparkles}
+          tier="Entry level"
+          title="Start with a Proven Strategy"
+          onClick={onGuided}
+          testid="quant-guided-start"
         >
-          <span className="flex items-center gap-1.5 text-sm font-semibold">
-            <Layers className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
-            Overlay overview
-          </span>
-          <span className="mt-1 text-[11px] leading-snug text-muted-foreground">
-            {showOverlays ? "Hide the six" : "See all six, and what each is for"}
-          </span>
-        </button>
-        <button
-          type="button"
-          onClick={onUploadPortfolio}
-          data-testid="quant-upload-portfolio"
-          className="flex cursor-pointer flex-col items-start rounded-lg border border-border p-3 text-left transition-colors hover:border-primary/40 hover:bg-muted/30"
+          {QUESTION_COUNT} plain questions, and we fit one of {TEMPLATE_COUNT}{" "}
+          published strategies to your stock — ruling out the ones your answers
+          disqualify.
+        </EntryCard>
+
+        <EntryCard
+          icon={SlidersHorizontal}
+          tier="Expert"
+          title="Write Your Own Rules"
+          onClick={onBuild}
+          testid="quant-build-from-scratch"
         >
-          <span className="flex items-center gap-1.5 text-sm font-semibold">
-            <Upload className="h-3.5 w-3.5 text-primary" aria-hidden="true" />
-            Upload Portfolio
-          </span>
-          <span className="mt-1 text-[11px] leading-snug text-muted-foreground">
-            Then pick an overlay for it
-          </span>
-        </button>
+          Compose from {PRIMITIVE_COUNT} primitives — your own entry rules and
+          exit ladder, over the S&P 500, the Russell 3000, a sector, or your
+          own list.
+        </EntryCard>
       </div>
 
-      {showOverlays && (
-        <div
-          className="mt-1.5 grid grid-cols-1 gap-1.5 sm:grid-cols-2"
-          data-testid="quant-overlay-cards"
-        >
-          {OVERLAY_DISPLAY_ORDER.map((kind) => (
-            <StrategyCard
-              key={kind}
-              meta={OVERLAY_METADATA[kind]}
-              ticker="AAPL"
-              examplePrice={180}
-              // Read-only, so the qualifying badge is informational: it tells
-              // the reader what the overlay will need BEFORE they upload.
-              holdingsCount={0}
-              isSelected={false}
-              readOnly
-            />
-          ))}
-        </div>
-      )}
-
-      {/* ── Build your own ────────────────────────────────────────────────── */}
-      <GroupLabel>Or start from nothing</GroupLabel>
+      {/* ── Row 2 — the book they already have ────────────────────────────── */}
+      <GroupLabel>Or start from your own book</GroupLabel>
       <button
         type="button"
-        onClick={onBuild}
-        data-testid="quant-build-from-scratch"
-        className="flex w-full cursor-pointer items-center justify-center gap-2 rounded-lg border border-dashed border-border p-2.5 text-sm font-medium text-muted-foreground transition-colors hover:border-primary/40 hover:bg-muted/30 hover:text-foreground"
+        onClick={onPortfolio}
+        data-testid="quant-connect-brokerage"
+        className="flex w-full cursor-pointer flex-col items-start rounded-lg border border-primary/30 bg-primary/[0.03] p-3.5 text-left transition-colors hover:border-primary/50 hover:bg-primary/[0.06]"
       >
-        <Plus className="h-4 w-4" aria-hidden="true" />
-        Build your own signals
+        <span className="flex items-center gap-1.5 text-sm font-semibold">
+          <Link2 className="h-4 w-4 text-primary" aria-hidden="true" />
+          Connect your brokerage
+        </span>
+        <span className="mt-1 text-[11.5px] leading-relaxed text-muted-foreground">
+          We read the record you already have: what your trading habits cost
+          you, and which rules are worth putting over the positions you hold.
+          Or add holdings by hand on the next screen.
+        </span>
+        {/* The honest version of the reassurance. "Read-only" is no longer
+            true — order placement exists — but the guarantee that replaced it
+            is stronger, so say that one. See test_snaptrade_readonly_guard. */}
+        <span className="mt-2 flex items-center gap-1.5 text-[11px] text-muted-foreground">
+          <ShieldCheck className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          No order is ever placed without you approving a priced preview.
+        </span>
       </button>
     </section>
   );

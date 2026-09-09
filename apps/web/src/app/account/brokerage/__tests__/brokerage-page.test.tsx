@@ -124,15 +124,39 @@ describe("trade history", () => {
     expect(rows.textContent).not.toMatch(/2026-08-22/);
   });
 
-  it("summarises the same window it lists", async () => {
-    /* The summary sits directly above the trades it interprets. If the two
-     * asked for different start dates, the panel would describe a period the
-     * list below it doesn't show. */
+  it("no longer interprets the record, only reports it", async () => {
+    /* CONTRACT CHANGE, stated openly per CLAUDE.md.
+     *
+     * This test used to be "summarises the same window it lists": the Mirror
+     * sat directly above the trade list and the two had to agree on a start
+     * date, or the summary would describe a period the list didn't show.
+     *
+     * The Mirror has moved to the portfolio upload step, beside the holdings
+     * a rule would be put over. So the invariant did not weaken — it moved
+     * with the panel, and is now "the window is NAMED", asserted in
+     * portfolio-upload's own suite, because there is no trade list there to
+     * anchor "this window" to.
+     *
+     * What this page must now guarantee is the negative: it fetches no
+     * interpretation at all. If a future change re-mounts the panel here
+     * without restoring a shared window, this fails. */
     render(<BrokeragePage />);
     await screen.findByTestId("brokerage-trades");
-    const listed = (listBrokerActivities.mock.calls.at(-1)![1] as { startDate: string }).startDate;
-    const summarised = (getTradingBehavior.mock.calls.at(-1)![1] as { startDate: string }).startDate;
-    expect(summarised).toBe(listed);
+    expect(getTradingBehavior).not.toHaveBeenCalled();
+  });
+
+  it("keeps the window control with the list it controls", async () => {
+    /* The selector used to live in the "How you trade" header it shared with
+     * the Mirror. That header is gone; the control has to sit with the thing
+     * it still governs. */
+    render(<BrokeragePage />);
+    await screen.findByTestId("brokerage-trades");
+    fireEvent.click(screen.getByTestId("brokerage-window-1M"));
+    await waitFor(() => {
+      const last = listBrokerActivities.mock.calls.at(-1)![1] as { startDate: string };
+      const first = listBrokerActivities.mock.calls[0][1] as { startDate: string };
+      expect(last.startDate > first.startDate).toBe(true);
+    });
   });
 
   it("asks the broker for the window instead of filtering locally", async () => {

@@ -1,46 +1,66 @@
 /** @vitest-environment jsdom */
+
+/**
+ * Home block 3 — Quant Rules.
+ *
+ * RESTRUCTURED 2026-09-09, and this suite with it. The block used to be
+ * "Try a Template" beside three named templates, an overlay section with a
+ * six-card expander, and "Build your own signals" at the bottom. It is now
+ * two tier-badged entry points and one brokerage row.
+ *
+ * The tests that covered the overlay cards did NOT go away — the overlay
+ * overview moved to the portfolio upload step, and its invariants moved with
+ * it (see `lib/flows/bricks/__tests__/portfolio-upload.test.tsx`): how many
+ * holdings each needs, no performance figure without its basis, and no claim
+ * of portfolio fit. Deleting them here without re-homing them would have
+ * quietly dropped three product guarantees.
+ */
+
 import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 
 vi.mock("@/lib/flows/runtime", () => ({ startFlow: vi.fn() }));
 
 import { researchTemplates } from "@/lib/contracts";
-import { OVERLAY_METADATA, OVERLAY_DISPLAY_ORDER } from "@/lib/overlay-metadata";
+import {
+  WIZARD_QUESTIONS,
+  WIZARD_STRATEGIES,
+} from "@/components/strategy-builder/wizard/strategy-wizard-data";
 import { startFlow } from "@/lib/flows/runtime";
-import { HomeQuantStrategies } from "../home-quant-strategies";
+import {
+  HomeQuantStrategies,
+  PRIMITIVE_COUNT,
+  QUESTION_COUNT,
+  TEMPLATE_COUNT,
+} from "../home-quant-strategies";
 
-function renderBlock() {
-  const onOpenTemplate = vi.fn();
-  render(<HomeQuantStrategies onOpenTemplate={onOpenTemplate} />);
-  return { onOpenTemplate };
-}
+const block = () => screen.getByTestId("home-quant-strategies").textContent ?? "";
 
-describe("HomeQuantStrategies", () => {
-  it("hides templates that cannot actually be run", () => {
-    renderBlock();
-    const unavailable = researchTemplates.filter((t) => t.availability === "unavailable");
-    expect(unavailable.length).toBeGreaterThan(0); // guard: the fixture still has some
-    for (const t of unavailable) {
-      // A card you can't run is an advert, not a strategy.
-      expect(screen.queryByText(t.name)).toBeNull();
-    }
+describe("the two ways in", () => {
+  it("offers exactly two entry points, tiered", () => {
+    render(<HomeQuantStrategies />);
+    expect(screen.getByTestId("quant-guided-start").textContent).toContain(
+      "Start with a Proven Strategy",
+    );
+    expect(screen.getByTestId("quant-guided-start").textContent).toContain("Entry level");
+    expect(screen.getByTestId("quant-build-from-scratch").textContent).toContain(
+      "Write Your Own Rules",
+    );
+    expect(screen.getByTestId("quant-build-from-scratch").textContent).toContain("Expert");
   });
 
-  it("opens the wizard with the chosen template", () => {
-    const { onOpenTemplate } = renderBlock();
-    const first = researchTemplates.find((t) => t.availability !== "unavailable")!;
-    fireEvent.click(screen.getByText(first.name));
-    expect(onOpenTemplate).toHaveBeenCalledWith(expect.objectContaining({ id: first.id }));
+  it("signposts the tiers rather than claiming to gate them", () => {
+    /* Nothing stops a beginner opening the composer, so "Expert only" would
+     * be a restriction the product does not enforce. */
+    render(<HomeQuantStrategies />);
+    expect(block()).not.toMatch(/only/i);
   });
 
-  it("opens the full composer, not the builder modal", () => {
-    // CHANGED 2026-08-14. This used to call an `onBuildFromScratch` prop that
-    // opened the small builder MODAL. It now starts `custom_build_mode` — the
-    // full-page universe picker + primitive catalog + rule canvas, the same
-    // landing the removed "Build from scratch" card used. Same intent, and the
-    // modal was a much narrower surface for it.
-    vi.mocked(startFlow).mockClear();
-    renderBlock();
+  it("sends the guided path to the wizard and the expert path to the composer", () => {
+    render(<HomeQuantStrategies />);
+    fireEvent.click(screen.getByTestId("quant-guided-start"));
+    expect(startFlow).toHaveBeenCalledWith("one_asset_mode", expect.anything());
+
     fireEvent.click(screen.getByTestId("quant-build-from-scratch"));
     expect(startFlow).toHaveBeenCalledWith(
       "custom_build_mode",
@@ -50,98 +70,110 @@ describe("HomeQuantStrategies", () => {
     );
   });
 
-  it("never presents a performance claim", () => {
-    renderBlock();
-    const text = screen.getByTestId("home-quant-strategies").textContent ?? "";
-
-    // Note this deliberately does NOT ban percentages: strategy descriptions
-    // legitimately contain PARAMETERS ("an 8% stop loss", "top 2 by 6-month
-    // return"). What must never appear is a claim about how the strategy has
-    // PERFORMED — `perfContext` is hand-written prose, and no per-template
-    // performance store exists to replace it with.
-    expect(text).not.toMatch(/CAGR|Sharpe|max drawdown|annualized|annualised/i);
-    // `up N%` is deliberately NOT banned: it appears in illustrative theses
-    // ("a stock that drifts up 10% is a smoother ride") and in parameters,
-    // neither of which is a claim about how the strategy performed. This
-    // over-fired twice before being narrowed — the invariant that actually
-    // matters is covered by the vocabulary check above and the perfContext /
-    // tagline / fitLabel checks below.
-    expect(text).not.toMatch(/(returned|gained|delivered)\s+\d+(\.\d+)?\s*%/i);
-
-    // And the field itself must not leak in verbatim.
-    for (const t of researchTemplates) {
-      const perf = (t as { perfContext?: string }).perfContext;
-      if (perf) expect(text).not.toContain(perf);
-    }
-  });
-
-  it("shows the evidence tier, which is a sourced claim", () => {
-    renderBlock();
-    // Scoped to the three the block SHOWS (it used to show five). A tier on a
-    // template that isn't rendered proves nothing.
-    const tiered = researchTemplates
-      .filter((t) => t.availability !== "unavailable")
-      .slice(0, 3)
-      .filter((t) => t.evidenceTier);
-    if (tiered.length === 0) return; // nothing to assert on this fixture
-    const text = screen.getByTestId("home-quant-strategies").textContent ?? "";
-    expect(text).toMatch(/Evidence [ABC]/);
-  });
-
-  it("flags an ETF-proxy template on the card, not after the click", () => {
-    renderBlock();
-    const proxies = researchTemplates
-      .filter((t) => t.availability !== "unavailable")
-      .slice(0, 3)
-      .filter((t) => t.availability === "proxy");
-    if (proxies.length === 0) return;
-    const text = screen.getByTestId("home-quant-strategies").textContent ?? "";
-    expect(text).toContain("ETF proxy");
+  it("no longer advertises three templates as if they were a third way in", () => {
+    /* They landed in the same wizard the guided card opens, so they competed
+     * for the eye without offering a different path. Still reachable from
+     * Home's "Popular templates" row. */
+    render(<HomeQuantStrategies />);
+    const runnable = researchTemplates.filter((t) => t.availability !== "unavailable");
+    const t = block();
+    for (const tmpl of runnable.slice(0, 3)) expect(t).not.toContain(tmpl.name);
   });
 });
 
-describe("the three offerings", () => {
-  it("explains how each one differs, since the cards alone don't", () => {
-    renderBlock();
-    const t = screen.getByTestId("home-quant-strategies").textContent ?? "";
-    // The distinction is WHAT each decides for you — the failure mode is a
-    // user backtesting an overlay expecting it to pick names.
-    expect(t).toMatch(/Templates/);
-    expect(t).toMatch(/pick the names for you/i);
-    expect(t).toMatch(/Overlays/);
-    expect(t).toMatch(/already hold/i);
-    expect(t).toMatch(/Build your own/);
+describe("the numbers it quotes", () => {
+  it("counts the questions the wizard actually asks", () => {
+    /* The copy promises five. If a question is added or removed, the copy
+     * follows rather than becoming a small lie nobody re-read. */
+    render(<HomeQuantStrategies />);
+    expect(QUESTION_COUNT).toBe(WIZARD_QUESTIONS.length);
+    expect(block()).toContain(`${QUESTION_COUNT} plain questions`);
   });
 
-  it('calls the last one "Build your own signals", not "Build from scratch"', () => {
-    renderBlock();
-    expect(screen.getByTestId("quant-build-from-scratch").textContent).toContain(
-      "Build your own signals",
+  it("counts only what the wizard can ACTUALLY land you on", () => {
+    /* CORRECTED. This asserted `TEMPLATE_COUNT === runnable.length` and
+     * rendered 12 — self-consistent, so it read as verified, while measuring
+     * the wrong set. The card promises outcomes reachable from the button
+     * under it, and that is ready ∧ wizard-reachable:
+     *
+     *   - the wizard locks anything not `availability === "ready"`, so the
+     *     one `proxy` template is not a fit it can offer;
+     *   - five templates it maps to are not ready, and three ready ones have
+     *     no wizard mapping at all.
+     *
+     * A number that counts a superset is a promise the button cannot keep. */
+    render(<HomeQuantStrategies />);
+
+    const ready = new Set(
+      researchTemplates.filter((t) => t.availability === "ready").map((t) => t.id),
     );
+    const reachable = new Set(
+      WIZARD_STRATEGIES.map((s) => s.templateId).filter(
+        (id): id is string => Boolean(id) && ready.has(id as string),
+      ),
+    );
+    expect(TEMPLATE_COUNT).toBe(reachable.size);
+    // The bug this replaces: the old count was strictly larger.
+    expect(TEMPLATE_COUNT).toBeLessThan(
+      researchTemplates.filter((t) => t.availability !== "unavailable").length,
+    );
+    expect(block()).toContain(`${TEMPLATE_COUNT} published strategies`);
+  });
+
+  it("promises nothing about evidence it does not have for every one", () => {
+    /* "each rated for how strong the evidence is" was false: 2 of the 9 the
+     * wizard can fit (trend-following, cross-sectional-momentum) carry no
+     * `evidenceTier` at all. The tier still renders per-card in the wizard,
+     * where it is true or absent; the card no longer claims it universally. */
+    render(<HomeQuantStrategies />);
+    expect(block()).not.toMatch(/each rated|every one is rated|all rated/i);
+  });
+
+  it("claims only the rules the composer actually lets you write", () => {
+    /* "your own entry, exit and ranking rules" overstated: the canvas has a
+     * primitive catalog (entry conditions) and an ExitLadderEditor, but the
+     * ranking on the screener path is built by the rank step per survivor —
+     * the user does not compose it. */
+    render(<HomeQuantStrategies />);
+    const t = screen.getByTestId("quant-build-from-scratch").textContent ?? "";
+    expect(t).not.toMatch(/ranking rules/i);
+    expect(t).toMatch(/exit ladder/i);
+  });
+
+  it("keeps the primitive count in one place, since it can't be derived", () => {
+    /* The catalog is served by GET /api/signal-primitives, not bundled, so
+     * this is the single line to update — never a literal in the copy. */
+    render(<HomeQuantStrategies />);
+    expect(block()).toContain(`${PRIMITIVE_COUNT} primitives`);
   });
 });
 
-describe("overlays", () => {
-  it("shows the six overlays only when asked, and read-only", () => {
-    // CHANGED 2026-08-13. These cards used to be clickable and seeded
-    // Portfolio Mode with the overlay pre-chosen. They are now descriptive:
-    // the picker chooses an overlay FOR a portfolio already uploaded, so
-    // offering the choice here with no holdings dead-ends. The CTA beside
-    // them is Upload Portfolio, which is the real next step.
-    renderBlock();
-    expect(screen.queryByTestId("quant-overlay-cards")).toBeNull();
-
-    fireEvent.click(screen.getByTestId("quant-overlay-overview"));
-    const cards = screen.getAllByTestId(/^strategy-card-/);
-    expect(cards.length).toBe(OVERLAY_DISPLAY_ORDER.length);
-    // Read-only: describes, does not offer.
-    for (const c of cards) expect(c.tagName).not.toBe("BUTTON");
+describe("what it promises about money", () => {
+  it("never presents a performance claim", () => {
+    render(<HomeQuantStrategies />);
+    const t = block();
+    expect(t).not.toMatch(/CAGR|Sharpe|max drawdown|annualized|annualised/i);
+    expect(t).not.toMatch(/(returned|gained|delivered)\s+\d+(\.\d+)?\s*%/i);
   });
 
-  it("routes the real next step to Upload Portfolio", () => {
-    vi.mocked(startFlow).mockClear();
-    renderBlock();
-    fireEvent.click(screen.getByTestId("quant-upload-portfolio"));
+  it("makes the guarantee it can keep, not the one that stopped being true", () => {
+    /* "Read only" was retired when order placement shipped. What replaced it
+     * is stronger and enforced: test_snaptrade_readonly_guard bans
+     * `place_force_order` outright and every trading call under `jobs/`, so
+     * no order exists that the user did not price and approve. */
+    render(<HomeQuantStrategies />);
+    const t = block();
+    expect(t).not.toMatch(/read[- ]only/i);
+    expect(t).toMatch(/without you approving a priced preview/i);
+  });
+});
+
+describe("the book you already have", () => {
+  it("promotes the connection and routes it to the portfolio flow", () => {
+    render(<HomeQuantStrategies />);
+    const row = screen.getByTestId("quant-connect-brokerage");
+    expect(row.textContent).toContain("Connect your brokerage");
+    fireEvent.click(row);
     expect(startFlow).toHaveBeenCalledWith(
       "portfolio_mode",
       expect.objectContaining({
@@ -150,50 +182,16 @@ describe("overlays", () => {
     );
   });
 
-  it("opens the guided wizard from Try a Template", () => {
-    vi.mocked(startFlow).mockClear();
-    renderBlock();
-    fireEvent.click(screen.getByTestId("quant-try-template"));
-    expect(startFlow).toHaveBeenCalledWith("one_asset_mode", expect.anything());
+  it("says the manual path still exists, so the connection reads as a choice", () => {
+    render(<HomeQuantStrategies />);
+    expect(block()).toMatch(/by hand/i);
   });
 
-  it("says up front how many holdings an overlay needs", () => {
-    renderBlock();
-    fireEvent.click(screen.getByTestId("quant-overlay-overview"));
-    const first = OVERLAY_DISPLAY_ORDER[0];
-    const card = screen.getByTestId(`strategy-card-${first}`);
-    expect(card.textContent).toMatch(
-      new RegExp(`Needs ${OVERLAY_METADATA[first].minHoldings}\\+ holding`),
-    );
-  });
-
-  it("never shows a performance figure without its basis", () => {
-    // CHANGED 2026-08-13. This asserted that overlay taglines — "worst loss
-    // −28% vs −55%" — must not appear at all, on the stated grounds that they
-    // had "no source in overlay-metadata.ts". That was wrong: the figures come
-    // from `historicalEstimate` ("backtests from 2000-2024 … -55% to -28%")
-    // and `researchSource` (Hurst, Ooi & Pedersen, 2013).
-    //
-    // So the rule worth holding is not "hide the number" but "a number never
-    // travels without what produced it" — which is the actual product
-    // integrity concern, and a stronger check than the one it replaces.
-    renderBlock();
-    fireEvent.click(screen.getByTestId("quant-overlay-overview"));
-    const t = screen.getByTestId("quant-overlay-cards").textContent ?? "";
-    for (const kind of OVERLAY_DISPLAY_ORDER) {
-      const meta = OVERLAY_METADATA[kind];
-      if (t.includes(meta.tagline)) {
-        expect(t).toContain(meta.historicalEstimate);
-      }
-    }
-  });
-
-  it("claims no portfolio fit before a portfolio exists", () => {
-    renderBlock();
-    const t = screen.getByTestId("home-quant-strategies").textContent ?? "";
-    // fitLabel comes from the diagnosis step; on home there is no portfolio.
-    for (const kind of OVERLAY_DISPLAY_ORDER) {
-      expect(t).not.toContain(OVERLAY_METADATA[kind].fitLabel);
-    }
+  it("does not describe overlays before a portfolio exists", () => {
+    /* The overlay overview moved to the upload step for exactly this reason:
+     * here it described rules for a book that had not been uploaded. */
+    render(<HomeQuantStrategies />);
+    expect(screen.queryByTestId("quant-overlay-cards")).toBeNull();
+    expect(screen.queryByTestId("quant-overlay-overview")).toBeNull();
   });
 });
