@@ -9,10 +9,7 @@ vi.mock("@/lib/api", () => ({
   // Reported unconfigured so it renders nothing — these tests are about the
   // manual add/CSV paths, which the connect card sits beside and does not
   // change.
-  getSnapTradeStatus: async () => ({
-    configured: false, registered: false, connected_accounts: 0,
-    trading_enabled: false, last_synced_at: null,
-  }),
+  getSnapTradeStatus: () => getSnapTradeStatusMock(),
   connectBrokerage: async () => ({ redirect_uri: "" }),
   listBrokerPositions: () => listBrokerPositionsMock(),
   // The Mirror mounts here when a broker is connected. Its own suites cover
@@ -32,6 +29,17 @@ type BrokerRow = {
 const listBrokerPositionsMock = vi.fn<() => Promise<BrokerRow[]>>(
   async () => [],
 );
+/** Default: nothing connected, so the connect card renders and the Mirror
+ *  stays away — which is what most of this file is about. */
+const DISCONNECTED = {
+  configured: false, registered: false, connected_accounts: 0,
+  trading_enabled: false, last_synced_at: null,
+};
+const CONNECTED = {
+  configured: true, registered: true, connected_accounts: 1,
+  trading_enabled: false, last_synced_at: null,
+};
+const getSnapTradeStatusMock = vi.fn(async () => DISCONNECTED);
 const getTradingBehaviorMock = vi.fn(async () => ({
   total_buys: 0, total_sells: 0, symbols_traded: 0, round_trips: 0,
   realised_pnl: 0, fees_paid: 0, wins: 0, losses: 0,
@@ -169,13 +177,48 @@ describe("PortfolioUpload — holdings from a connected broker", () => {
 
   beforeEach(() => {
     searchParamsMock.mockReturnValue(new URLSearchParams());
+    // mockResolvedValue sets the implementation but KEEPS call history, so a
+    // count assertion here would silently include the previous test's calls.
+    listBrokerPositionsMock.mockClear();
     listBrokerPositionsMock.mockResolvedValue([]);
+    getSnapTradeStatusMock.mockResolvedValue(DISCONNECTED);
   });
 
-  it("does not read the broker on a normal visit", async () => {
+  it("does not read the broker when there is no broker to read", async () => {
+    /* CONTRACT CHANGE, stated openly per CLAUDE.md.
+     *
+     * This was "does not read the broker on a normal visit", asserting that
+     * only `?connected=1` triggers a position read. That is no longer true and
+     * should not be: the card above the form says "holdings up to date", and
+     * for a user who connected in an EARLIER session the form underneath it
+     * was empty — the page contradicted its own copy.
+     *
+     * What survives is the half that still matters: an unconnected visitor
+     * costs the broker API nothing. */
     renderUpload();
     await waitFor(() => screen.getByTestId("portfolio-upload"));
     expect(listBrokerPositionsMock).not.toHaveBeenCalled();
+  });
+
+  it("reads holdings for someone who connected in an earlier session", async () => {
+    getSnapTradeStatusMock.mockResolvedValue(CONNECTED);
+    listBrokerPositionsMock.mockResolvedValue([
+      { account_id: "a1", symbol: "NVDA", units: 120, average_purchase_price: 118.4 },
+    ]);
+    renderUpload();                       // note: NO ?connected=1
+    expect(await screen.findByDisplayValue("NVDA")).toBeTruthy();
+  });
+
+  it("reads the broker once, not once per resolving effect", async () => {
+    /* `connected` arrives asynchronously, so without the ref guard this
+     * effect re-runs and re-adds broker rows the user has since deleted. */
+    getSnapTradeStatusMock.mockResolvedValue(CONNECTED);
+    listBrokerPositionsMock.mockResolvedValue([
+      { account_id: "a1", symbol: "NVDA", units: 120, average_purchase_price: 118.4 },
+    ]);
+    renderUpload();
+    await screen.findByDisplayValue("NVDA");
+    expect(listBrokerPositionsMock).toHaveBeenCalledTimes(1);
   });
 
   it("REGRESSION: loads holdings when returning from the portal", async () => {
@@ -283,20 +326,32 @@ describe("the Mirror", () => {
   beforeEach(() => {
     getTradingBehaviorMock.mockClear();
     listBrokerPositionsMock.mockResolvedValue([]);
+    getSnapTradeStatusMock.mockResolvedValue(CONNECTED);
   });
 
   it("stays away until there is a connected account to read", async () => {
-    listBrokerPositionsMock.mockResolvedValueOnce([]);
+    getSnapTradeStatusMock.mockResolvedValue(DISCONNECTED);
     renderUpload();
     await waitFor(() => expect(screen.getByTestId("portfolio-upload")).toBeTruthy());
     expect(screen.queryByTestId("portfolio-upload-mirror")).toBeNull();
     expect(getTradingBehaviorMock).not.toHaveBeenCalled();
   });
 
-  it("appears once a broker is connected", async () => {
-    listBrokerPositionsMock.mockResolvedValueOnce([
-      { account_id: "a1", symbol: "NVDA", units: 120, average_purchase_price: 118.4 },
-    ]);
+  it("REGRESSION: appears for someone who connected in an EARLIER session", async () => {
+    /* THE BUG. The gate was `brokerCount > 0`, and `brokerCount` is only set
+     * by the `?connected=1` portal round-trip. Every returning user — nearly
+     * all of them — opened a page whose own card said "1 brokerage account
+     * connected" above a Mirror that never rendered. */
+    renderUpload();                       // NO ?connected=1
+    expect(await screen.findByTestId("portfolio-upload-mirror")).toBeTruthy();
+  });
+
+  it("REGRESSION: appears for someone holding NOTHING", async () => {
+    /* The old gate was wrong in principle as well as in practice. The Mirror
+     * reads CLOSED-TRADE history, not holdings: someone who sold everything
+     * has zero positions and the most to learn from it. Gating on a position
+     * count showed them nothing. */
+    listBrokerPositionsMock.mockResolvedValue([]);
     renderUpload();
     expect(await screen.findByTestId("portfolio-upload-mirror")).toBeTruthy();
   });
@@ -307,9 +362,6 @@ describe("the Mirror", () => {
      * the reader could see. There is no trade list here to anchor it, so the
      * period is printed — and it must match the date the panel was actually
      * asked for, or the label describes a different span than the numbers. */
-    listBrokerPositionsMock.mockResolvedValueOnce([
-      { account_id: "a1", symbol: "NVDA", units: 120, average_purchase_price: 118.4 },
-    ]);
     renderUpload();
     const panel = await screen.findByTestId("portfolio-upload-mirror");
 
