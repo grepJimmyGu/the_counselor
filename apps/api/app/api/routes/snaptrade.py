@@ -311,6 +311,13 @@ class ExitGapView(BaseModel):
     """M1. Positive = holding would have been worth more. Negative = the
     exits added value, which is reported just as plainly."""
     dollars: float
+    # `dollars` is a NET, and on a real record a misleading one: the first
+    # live account nets +$73,770 of sales that look early against -$37,954
+    # that look well-timed. The surface renders both sides, so both must be
+    # serialised — the residual alone hands an accusatory figure to someone
+    # with roughly as many good exits as bad.
+    sold_early_dollars: float = 0.0
+    sold_well_dollars: float = 0.0
     is_material: bool
     sells_measured: int
     sells_total: int
@@ -549,6 +556,8 @@ def snaptrade_behavior(
         splits_adjusted=ledger.coverage.splits_adjusted,
         exit_gap=ExitGapView(
             dollars=round(gap.dollars, 2),
+            sold_early_dollars=round(gap.sold_early_dollars, 2),
+            sold_well_dollars=round(gap.sold_well_dollars, 2),
             is_material=gap.is_material,
             sells_measured=gap.sells_measured,
             sells_total=gap.sells_total,

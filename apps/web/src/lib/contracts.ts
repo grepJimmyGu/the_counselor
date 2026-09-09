@@ -3643,8 +3643,14 @@ export interface TimingLeak {
   key: string;
   n: number;
   dollars: number;
-  /** Most expensive first. */
-  trades: LeakTrade[];
+  /** Most expensive first.
+   *
+   *  ⚠ OPTIONAL ON PURPOSE. Declaring this required is what let the page ship
+   *  broken: the route's `LeakView` didn't serialise it, `h.trades.map(...)`
+   *  hit `undefined`, and Next's boundary replaced the whole brokerage page
+   *  with "This page couldn't load". Optional means `strict` makes every
+   *  unguarded read a compile error instead of a dead page. */
+  trades?: LeakTrade[];
 }
 
 /** ⚠ The share this section actually measured.

@@ -225,7 +225,12 @@ export function MirrorWhenSection({ backendToken }: { backendToken: string }) {
 
   const ex = data.excursions;
   // Top two, most expensive first — the ranking is already deterministic.
-  const habits = data.leaks.filter((l) => l.dollars > 0).slice(0, 2);
+  // Normalised once, here, so every read below is safe. A leak the server
+  // sent without its trades is a habit with no rows to show — never a throw.
+  const habits = data.leaks
+    .filter((l) => l.dollars > 0)
+    .slice(0, 2)
+    .map((l) => ({ ...l, trades: l.trades ?? [] }));
   const exitSided = habits.some((h) => EXIT_SIDED.has(h.key));
   // Cite the user's OWN peaks beside the suggested rung — and ONLY from the
   // give-back trades, which are what a take-profit rung addresses. Pooling
