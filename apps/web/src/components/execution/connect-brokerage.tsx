@@ -36,12 +36,21 @@ type Props = {
   returnPath?: string;
   /** Flow surfaces offer a dismissal; a settings page does not. */
   dismissible?: boolean;
+  /** One more reason to connect, specific to the surface asking.
+   *
+   *  It lives INSIDE the card deliberately. Rendered as a sibling by the
+   *  caller it becomes a dangling promise the moment this component returns
+   *  null — which it does when the operator has not configured SnapTrade, and
+   *  again the instant the user dismisses it. Copy that argues for a button
+   *  has to disappear with the button. */
+  extra?: React.ReactNode;
   className?: string;
 };
 
 export function ConnectBrokerage({
   returnPath,
   dismissible = false,
+  extra,
   className,
 }: Props) {
   const { data: session, status: sessionStatus } = useSession();
@@ -128,6 +137,14 @@ export function ConnectBrokerage({
         at your broker — Livermore never sees those credentials, and can read
         your holdings, not move your money.
       </p>
+      {extra && (
+        <p
+          data-testid="connect-brokerage-extra"
+          className="mt-1.5 text-[12px] leading-relaxed text-muted-foreground"
+        >
+          {extra}
+        </p>
+      )}
       <div className="mt-2.5 flex flex-wrap items-center gap-3">
         <button
           type="button"

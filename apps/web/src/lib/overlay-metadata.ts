@@ -11,6 +11,15 @@ export interface OverlayMeta {
   tier: "basic" | "advanced";
   /** One-sentence thesis — the bet this overlay makes. */
   idea: string;
+  /** ONE LINE, for the shortlist on the upload step — what the overlay DOES,
+   *  in the plainest words that stay true to `execution`.
+   *
+   *  ⚠ No performance figure may appear here. A collapsed row cannot carry the
+   *  basis a claim needs (`historicalEstimate` / `research`), so anything that
+   *  sounds like a result belongs on the full card and nowhere else. Mechanics
+   *  are fine and necessary — "200-day average" is what it does, not what it
+   *  earned. */
+  oneLine: string;
   /** One-line summary with key metric for condensed card view. */
   tagline: string;
   /** Multi-line execution description: signal + action + frequency. */
@@ -54,6 +63,8 @@ export const OVERLAY_METADATA: Record<OverlayKind, OverlayMeta> = {
   defensive: {
     kind: "defensive",
     label: "Defensive",
+    oneLine:
+      "Sells to cash when a holding drops below its 200-day average.",
     tier: "basic",
     idea:
       "Falling knives are more dangerous than missed rallies. Step aside when a stock is hurting, re-enter when it's healed.",
@@ -95,6 +106,8 @@ export const OVERLAY_METADATA: Record<OverlayKind, OverlayMeta> = {
   rotation: {
     kind: "rotation",
     label: "Rotation",
+    oneLine:
+      "Monthly, keeps only the strongest by 6-month return; the rest go to cash.",
     tier: "basic",
     idea:
       "Yesterday's winners tend to keep winning. Concentrate into what's working, drop what isn't, and don't get sentimental about either.",
@@ -137,6 +150,8 @@ export const OVERLAY_METADATA: Record<OverlayKind, OverlayMeta> = {
   rebalance: {
     kind: "rebalance",
     label: "Rebalance",
+    oneLine:
+      "Monthly, trims what grew and tops up what shrank, back to target weight.",
     tier: "basic",
     idea:
       "Your portfolio drifts over time — winners grow too big, losers shrink. A disciplined rebalance sells high and buys low without you having to decide when.",
@@ -179,6 +194,8 @@ export const OVERLAY_METADATA: Record<OverlayKind, OverlayMeta> = {
   dual_momentum: {
     kind: "dual_momentum",
     label: "Dual Momentum",
+    oneLine:
+      "Holds a winner only if it also rose over the past year — otherwise, cash.",
     tier: "advanced",
     idea:
       "A stock needs to do two things to earn your money — be stronger than its peers AND be going up in absolute terms. If nothing passes both tests, cash wins.",
@@ -221,6 +238,8 @@ export const OVERLAY_METADATA: Record<OverlayKind, OverlayMeta> = {
   defense_first: {
     kind: "defense_first",
     label: "Defense-First",
+    oneLine:
+      "Halves every position when fewer than half your holdings are trending up.",
     tier: "advanced",
     idea:
       "Before you worry about which holding to sell, ask whether the whole ship is tilting. If most of your positions look weak, reduce everything — not just one.",
@@ -263,6 +282,8 @@ export const OVERLAY_METADATA: Record<OverlayKind, OverlayMeta> = {
   stability_tilt: {
     kind: "stability_tilt",
     label: "Stability Tilt",
+    oneLine:
+      "Sizes each holding by its volatility — steadier names get more.",
     tier: "advanced",
     idea:
       "Not all returns are equal. A stock that drifts up 10% is a smoother ride than one that swings wildly to get there. Give the calm ones more weight.",
