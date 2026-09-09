@@ -20,6 +20,9 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { ConnectBrokerage } from "@/components/execution/connect-brokerage";
+import { TradingBehaviorPanel } from "@/components/brokerage/trading-behavior-panel";
+import { StrategyCard } from "@/components/strategy-picker/strategy-card";
+import { OVERLAY_METADATA, OVERLAY_DISPLAY_ORDER } from "@/lib/overlay-metadata";
 import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { listBrokerPositions } from "@/lib/api";
@@ -40,7 +43,23 @@ registerModeCopy("portfolio_mode", {
   upload_manual_label: "Add ticker",
   upload_csv_help: "One row per holding. Columns: ticker, weight (optional)",
   upload_continue: "Continue → Diagnose",
+  upload_mirror_title: "How you've been trading",
+  upload_overlays_title: "What you can put over it",
+  upload_overlays_sub:
+    "Six overlays, and what each is for. You'll choose one after we diagnose the book — this is so the choice isn't the first time you meet them.",
 });
+
+/** The Mirror's window. One year, matching /account/brokerage's default.
+ *  Fixed rather than chosen: this step's job is the holdings, and a second
+ *  window control here would be a control the trade list it used to sit
+ *  above is no longer here to justify. */
+const MIRROR_WINDOW_DAYS = 365;
+
+function isoDaysAgo(days: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
 
 interface ManualRow {
   ticker: string;
@@ -109,6 +128,13 @@ export function PortfolioUpload({
   const manualLabel = useFlowCopy("portfolio_mode", "upload_manual_label");
   const csvHelp = useFlowCopy("portfolio_mode", "upload_csv_help");
   const continueLabel = useFlowCopy("portfolio_mode", "upload_continue");
+  const mirrorTitle = useFlowCopy("portfolio_mode", "upload_mirror_title");
+  const overlaysTitle = useFlowCopy("portfolio_mode", "upload_overlays_title");
+  const overlaysSub = useFlowCopy("portfolio_mode", "upload_overlays_sub");
+  // Computed once per mount so the label and the panel can never disagree
+  // across a midnight rollover — the same reason the brokerage page memoises
+  // its window.
+  const mirrorStart = React.useMemo(() => isoDaysAgo(MIRROR_WINDOW_DAYS), []);
 
   const [rows, setRows] = React.useState<ManualRow[]>(() => {
     if (context.holdings && context.holdings.length > 0) {
@@ -309,6 +335,28 @@ export function PortfolioUpload({
         </p>
       )}
 
+      {/* ── The Mirror ──────────────────────────────────────────────────────
+          Moved here from /account/brokerage, which keeps the raw record.
+          It belongs beside the holdings: the same connection produced both,
+          and "what your trading costs you" is the argument for putting any
+          rule over the book at all.
+
+          THE WINDOW IS NAMED. On the brokerage page the panel sat under a
+          1M/6M/1Y selector, so its repeated "this window" pointed at
+          something visible. Here there is no selector, so the period is
+          stated — also the date-stamp product invariant. */}
+      {brokerCount > 0 && backendToken && (
+        <section data-testid="portfolio-upload-mirror">
+          <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-2">
+            <h2 className="text-sm font-semibold">{mirrorTitle}</h2>
+            <span className="font-mono text-[11px] text-muted-foreground">
+              last 12 months · since {mirrorStart}
+            </span>
+          </div>
+          <TradingBehaviorPanel backendToken={backendToken} startDate={mirrorStart} />
+        </section>
+      )}
+
       {/* Primary: search → add */}
       <div className="grid gap-2">
         <label className="text-xs font-medium text-muted-foreground">{searchLabel}</label>
@@ -450,6 +498,32 @@ export function PortfolioUpload({
           </div>
         </div>
       </details>
+
+      {/* ── Overlay overview ────────────────────────────────────────────────
+          Moved off Home, where it described rules for a portfolio that had
+          not been uploaded yet. Rendered through the SAME <StrategyCard> the
+          picker step uses, so the overview and the picker cannot drift apart;
+          read-only here, because the choice happens after the diagnosis. */}
+      <section data-testid="portfolio-upload-overlays">
+        <h2 className="text-sm font-semibold">{overlaysTitle}</h2>
+        <p className="mt-1 text-[13px] text-muted-foreground">{overlaysSub}</p>
+        <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+          {OVERLAY_DISPLAY_ORDER.map((kind) => (
+            <StrategyCard
+              key={kind}
+              meta={OVERLAY_METADATA[kind]}
+              ticker={validHoldings[0]?.ticker ?? "AAPL"}
+              examplePrice={180}
+              // Live count, unlike Home's hardcoded 0: the qualifying badge
+              // can now tell the reader which overlays their actual book
+              // already satisfies, before they commit to one.
+              holdingsCount={validHoldings.length}
+              isSelected={false}
+              readOnly
+            />
+          ))}
+        </div>
+      </section>
 
       <div>
         <Button

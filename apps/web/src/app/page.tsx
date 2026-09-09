@@ -138,7 +138,7 @@ export default function HomePage() {
           <HomeCuratedScreens />
           {/* Block 4 now fills the second cell, so block 3 no longer spans the
               row — the four blocks sit as a 2×2 grid. */}
-          <HomeQuantStrategies onOpenTemplate={openTemplate} />
+          <HomeQuantStrategies />
           <MarketCatalysts />
         </div>
 
