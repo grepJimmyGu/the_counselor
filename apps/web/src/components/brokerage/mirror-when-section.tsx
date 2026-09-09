@@ -251,156 +251,6 @@ export function MirrorWhenSection({ backendToken }: { backendToken: string }) {
 
   return (
     <div className="space-y-4 border-t border-border pt-4" data-testid="when-deep">
-      <MarkoutBlock
-        testid="when-entry-profile"
-        title="After you buy"
-        caption="What the stock did in the days after your opening purchases."
-        profile={data.opening_entry_profile}
-      />
-
-      <MarkoutBlock
-        testid="when-exit-profile"
-        title="After you sell"
-        caption="Scored so that a stock rising after you sell counts against the exit."
-        profile={data.final_exit_profile}
-      />
-
-      {/* The paired statistic that teaches the most — and the one that must
-          never be read alone. A stop set between these two numbers can still
-          kill a quarter of the winners, which is why the exclusion note and
-          the sample sizes sit right next to it. */}
-      {(ex.winner_n > 0 || ex.loser_n > 0) && (
-        <div data-testid="when-excursions">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            How far they went against you
-          </div>
-          <div className="mt-2 grid grid-cols-2 gap-3">
-            <div className="rounded-md border border-border px-3 py-2">
-              <div className="text-[11px] text-muted-foreground">
-                Trades that worked
-              </div>
-              <div className="font-mono text-lg font-semibold tabular-nums text-foreground">
-                {signedPct(ex.winner_mae)}
-              </div>
-              <div className="text-[11px] text-muted-foreground">
-                n={ex.winner_n}
-              </div>
-            </div>
-            <div className="rounded-md border border-border px-3 py-2">
-              <div className="text-[11px] text-muted-foreground">
-                Trades that didn&apos;t
-              </div>
-              <div className="font-mono text-lg font-semibold tabular-nums text-foreground">
-                {signedPct(ex.loser_mae)}
-              </div>
-              <div className="text-[11px] text-muted-foreground">
-                n={ex.loser_n}
-              </div>
-            </div>
-          </div>
-          <p className="mt-1.5 text-[11px] text-muted-foreground">
-            Deepest drawdown while you held.
-            {ex.same_day_excluded > 0 && (
-              <span data-testid="when-sameday-note">
-                {" "}
-                {ex.same_day_excluded}{" "}
-                {ex.same_day_excluded === 1 ? "position" : "positions"} opened and
-                closed the same day {ex.same_day_excluded === 1 ? "is" : "are"} left
-                out — we know the day&apos;s range, not where in it you were.
-              </span>
-            )}
-          </p>
-        </div>
-      )}
-
-      {/* setup_type CONDITIONING the outcome measures. Legitimate, and the
-          engine's most valuable output. What would not be legitimate is a
-          category defined by its own consequences. */}
-      {setups.length > 0 && (
-        <div data-testid="when-setups">
-          <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-            What you were buying into
-          </div>
-          <div className="mt-2 overflow-x-auto">
-            <table className="w-full text-[12px]">
-              <thead>
-                <tr className="text-left text-[11px] uppercase tracking-wider text-muted-foreground">
-                  <th className="pb-1 font-medium">Setup</th>
-                  <th className="pb-1 text-right font-medium">Trades</th>
-                  <th className="pb-1 text-right font-medium">Worked</th>
-                  <th className="pb-1 text-right font-medium">Median</th>
-                  <th className="pb-1" />
-                </tr>
-              </thead>
-              <tbody>
-                {setups.map((s) => (
-                  <tr
-                    key={s.setup}
-                    className="border-t border-border"
-                    data-testid={`when-setup-${s.setup}`}
-                  >
-                    <td className="py-1.5 text-foreground">
-                      {SETUP_LABEL[s.setup] ?? s.setup}
-                    </td>
-                    <td className="py-1.5 text-right font-mono tabular-nums text-muted-foreground">
-                      {s.n}
-                    </td>
-                    <td className="py-1.5 text-right font-mono tabular-nums text-foreground">
-                      {s.wins}
-                    </td>
-                    <td className="py-1.5 text-right font-mono tabular-nums text-foreground">
-                      {signedPct(s.median_return)}
-                    </td>
-                    <td className="py-1.5 pl-3 text-right">
-                      {/* Only for a NAMED setup. "Matched no setup" is not a
-                          category (43b §3.6.1), so there is nothing to make a
-                          rule about — offering one would invent the category
-                          the taxonomy deliberately withholds. */}
-                      {s.setup !== "unclassified" && (
-                        <SaveRuleButton
-                          backendToken={backendToken}
-                          testid={`when-save-setup-${s.setup}`}
-                          label="Save a rule"
-                          rule={{
-                            rule_type: "entry",
-                            scope: "behavioural",
-                            source: "trade_analysis",
-                            name: `Think twice about ${(SETUP_LABEL[s.setup] ?? s.setup).toLowerCase()} entries`,
-                            // A behavioural rule enters a Playbook as an
-                            // EXCLUSION, never as an edge (§3.1.1) — so what
-                            // is stored is the setup to avoid, not a market
-                            // condition it never earned the right to assert.
-                            conditions: { exclude_setup: s.setup },
-                            sample_size: s.n,
-                            historical_effect: `${s.wins} of ${s.n} worked${
-                              s.median_return !== null && s.median_return !== undefined
-                                ? `, ${signedPct(s.median_return)} median`
-                                : ""
-                            }`,
-                            confidence: s.n >= 10 ? "medium" : "low",
-                          }}
-                        />
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          {/* Named categories cover only part of a real record by design, and
-              the remainder is information rather than a gap to paper over. */}
-          {cov.unclassified_share !== null &&
-            cov.unclassified_share !== undefined &&
-            cov.unclassified_share > 0 && (
-              <p className="mt-1 text-[11px] text-muted-foreground" data-testid="when-unclassified">
-                {Math.round(cov.unclassified_share * 100)}% of your entries
-                matched none of these — they aren&apos;t a category, so they
-                aren&apos;t given one.
-              </p>
-            )}
-        </div>
-      )}
-
       {/* THE TWO HABITS, and the one thing that fixes both.
 
           Giving back a gain and selling into a drawdown are the same missing
@@ -506,6 +356,11 @@ export function MirrorWhenSection({ backendToken }: { backendToken: string }) {
         </div>
       )}
 
+      {/* ── the basis, which does NOT collapse ──────────────────────────────
+          Everything above this line is a dollar figure. Compaction takes
+          REASONING off the screen; it never takes away the caveat attached to
+          a number still on it, and "measured on N of M" is what stops the
+          figures above reading as the whole record. */}
       {/* What this was computed ON. `price_bars` carries no ETFs or ADRs, so
           for some users this is a large share and the number has to be visible
           rather than implied away. */}
@@ -515,6 +370,172 @@ export function MirrorWhenSection({ backendToken }: { backendToken: string }) {
         {cov.symbols_measured === 1 ? "symbol" : "symbols"}
         {partial && ". The rest are symbols we hold no price history for"}.
       </p>
+
+      {/* ── the evidence, which does ────────────────────────────────────────
+          Markout profiles, the excursion pair and the setup table are how the
+          findings above were reached. They are the reasoning, not the finding,
+          and they measured most of a page that ran to 9,831px. Reachable in
+          one click, which is not the same as hidden. */}
+      <details data-testid="when-evidence">
+        <summary className="flex cursor-pointer list-none items-baseline justify-between gap-3 border-t border-border pt-3 text-[12.5px] text-muted-foreground marker:hidden">
+          <span className="font-medium text-foreground">See the evidence</span>
+          <span className="text-[11px]">
+            markouts &middot; how far they went against you &middot; setups
+          </span>
+        </summary>
+        <div className="mt-3 space-y-4">
+          <MarkoutBlock
+            testid="when-entry-profile"
+            title="After you buy"
+            caption="What the stock did in the days after your opening purchases."
+            profile={data.opening_entry_profile}
+          />
+
+          <MarkoutBlock
+            testid="when-exit-profile"
+            title="After you sell"
+            caption="Scored so that a stock rising after you sell counts against the exit."
+            profile={data.final_exit_profile}
+          />
+
+          {/* The paired statistic that teaches the most — and the one that must
+              never be read alone. A stop set between these two numbers can still
+              kill a quarter of the winners, which is why the exclusion note and
+              the sample sizes sit right next to it. */}
+          {(ex.winner_n > 0 || ex.loser_n > 0) && (
+            <div data-testid="when-excursions">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                How far they went against you
+              </div>
+              <div className="mt-2 grid grid-cols-2 gap-3">
+                <div className="rounded-md border border-border px-3 py-2">
+                  <div className="text-[11px] text-muted-foreground">
+                    Trades that worked
+                  </div>
+                  <div className="font-mono text-lg font-semibold tabular-nums text-foreground">
+                    {signedPct(ex.winner_mae)}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    n={ex.winner_n}
+                  </div>
+                </div>
+                <div className="rounded-md border border-border px-3 py-2">
+                  <div className="text-[11px] text-muted-foreground">
+                    Trades that didn&apos;t
+                  </div>
+                  <div className="font-mono text-lg font-semibold tabular-nums text-foreground">
+                    {signedPct(ex.loser_mae)}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    n={ex.loser_n}
+                  </div>
+                </div>
+              </div>
+              <p className="mt-1.5 text-[11px] text-muted-foreground">
+                Deepest drawdown while you held.
+                {ex.same_day_excluded > 0 && (
+                  <span data-testid="when-sameday-note">
+                    {" "}
+                    {ex.same_day_excluded}{" "}
+                    {ex.same_day_excluded === 1 ? "position" : "positions"} opened and
+                    closed the same day {ex.same_day_excluded === 1 ? "is" : "are"} left
+                    out — we know the day&apos;s range, not where in it you were.
+                  </span>
+                )}
+              </p>
+            </div>
+          )}
+
+          {/* setup_type CONDITIONING the outcome measures. Legitimate, and the
+              engine's most valuable output. What would not be legitimate is a
+              category defined by its own consequences. */}
+          {setups.length > 0 && (
+            <div data-testid="when-setups">
+              <div className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                What you were buying into
+              </div>
+              <div className="mt-2 overflow-x-auto">
+                <table className="w-full text-[12px]">
+                  <thead>
+                    <tr className="text-left text-[11px] uppercase tracking-wider text-muted-foreground">
+                      <th className="pb-1 font-medium">Setup</th>
+                      <th className="pb-1 text-right font-medium">Trades</th>
+                      <th className="pb-1 text-right font-medium">Worked</th>
+                      <th className="pb-1 text-right font-medium">Median</th>
+                      <th className="pb-1" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {setups.map((s) => (
+                      <tr
+                        key={s.setup}
+                        className="border-t border-border"
+                        data-testid={`when-setup-${s.setup}`}
+                      >
+                        <td className="py-1.5 text-foreground">
+                          {SETUP_LABEL[s.setup] ?? s.setup}
+                        </td>
+                        <td className="py-1.5 text-right font-mono tabular-nums text-muted-foreground">
+                          {s.n}
+                        </td>
+                        <td className="py-1.5 text-right font-mono tabular-nums text-foreground">
+                          {s.wins}
+                        </td>
+                        <td className="py-1.5 text-right font-mono tabular-nums text-foreground">
+                          {signedPct(s.median_return)}
+                        </td>
+                        <td className="py-1.5 pl-3 text-right">
+                          {/* Only for a NAMED setup. "Matched no setup" is not a
+                              category (43b §3.6.1), so there is nothing to make a
+                              rule about — offering one would invent the category
+                              the taxonomy deliberately withholds. */}
+                          {s.setup !== "unclassified" && (
+                            <SaveRuleButton
+                              backendToken={backendToken}
+                              testid={`when-save-setup-${s.setup}`}
+                              label="Save a rule"
+                              rule={{
+                                rule_type: "entry",
+                                scope: "behavioural",
+                                source: "trade_analysis",
+                                name: `Think twice about ${(SETUP_LABEL[s.setup] ?? s.setup).toLowerCase()} entries`,
+                                // A behavioural rule enters a Playbook as an
+                                // EXCLUSION, never as an edge (§3.1.1) — so what
+                                // is stored is the setup to avoid, not a market
+                                // condition it never earned the right to assert.
+                                conditions: { exclude_setup: s.setup },
+                                sample_size: s.n,
+                                historical_effect: `${s.wins} of ${s.n} worked${
+                                  s.median_return !== null && s.median_return !== undefined
+                                    ? `, ${signedPct(s.median_return)} median`
+                                    : ""
+                                }`,
+                                confidence: s.n >= 10 ? "medium" : "low",
+                              }}
+                            />
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {/* Named categories cover only part of a real record by design, and
+                  the remainder is information rather than a gap to paper over. */}
+              {cov.unclassified_share !== null &&
+                cov.unclassified_share !== undefined &&
+                cov.unclassified_share > 0 && (
+                  <p className="mt-1 text-[11px] text-muted-foreground" data-testid="when-unclassified">
+                    {Math.round(cov.unclassified_share * 100)}% of your entries
+                    matched none of these — they aren&apos;t a category, so they
+                    aren&apos;t given one.
+                  </p>
+                )}
+            </div>
+          )}
+
+        </div>
+      </details>
     </div>
   );
 }

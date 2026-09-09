@@ -21,8 +21,7 @@ import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { ConnectBrokerage } from "@/components/execution/connect-brokerage";
 import { TradingBehaviorPanel } from "@/components/brokerage/trading-behavior-panel";
-import { StrategyCard } from "@/components/strategy-picker/strategy-card";
-import { OVERLAY_METADATA, OVERLAY_DISPLAY_ORDER } from "@/lib/overlay-metadata";
+import { OverlayShortlist } from "@/components/brokerage/overlay-shortlist";
 import { useSearchParams } from "next/navigation";
 import { useSession } from "next-auth/react";
 import { getSnapTradeStatus, listBrokerPositions } from "@/lib/api";
@@ -42,14 +41,24 @@ registerModeCopy("portfolio_mode", {
   upload_paste_label: "Paste CSV",
   upload_manual_label: "Add ticker",
   upload_csv_help: "One row per holding. Columns: ticker, weight (optional)",
-  upload_continue: "Continue → Diagnose",
+  // "Diagnose" is the flow's internal step id, not an outcome anyone wants.
+  upload_continue: "See what fits this book →",
+  upload_blocked: "Add at least one holding — or connect a brokerage — to continue.",
+  // The title has to change with the state: "Upload your portfolio" is what a
+  // page says when it has nothing, and a connected user's holdings are already
+  // here. Claiming otherwise makes the page contradict the card at the top.
+  upload_title_connected: "Your portfolio",
+  upload_subtitle_empty: "Three ways in — take whichever is fastest.",
+  upload_book_label: "Your book",
+  upload_book_edit: "Edit",
+  // The card already promises positions and cost basis with nothing to type.
+  // This is the part it cannot say for itself: what the connection unlocks
+  // HERE, and why typing can never substitute for it.
+  upload_connect_why:
+    "It is also the only way to see what your trading habits cost you — that reads your trade history, which cannot be typed in.",
+  upload_overlays_empty_hint: "add holdings to see which fit",
   upload_mirror_title: "How you've been trading",
-  upload_overlays_title: "What you can put over it",
-  // No count in the copy: the cards render from OVERLAY_DISPLAY_ORDER, so a
-  // written "six" would rot the moment a seventh overlay lands, and the
-  // reader can see how many there are anyway.
-  upload_overlays_sub:
-    "Every overlay we've built, and what each is for. You'll choose one after we diagnose the book — so the choice isn't the first time you meet them.",
+  upload_overlays_title: "What you'll choose from next",
 });
 
 /** The Mirror's window. One year, matching /account/brokerage's default.
@@ -133,7 +142,13 @@ export function PortfolioUpload({
   const continueLabel = useFlowCopy("portfolio_mode", "upload_continue");
   const mirrorTitle = useFlowCopy("portfolio_mode", "upload_mirror_title");
   const overlaysTitle = useFlowCopy("portfolio_mode", "upload_overlays_title");
-  const overlaysSub = useFlowCopy("portfolio_mode", "upload_overlays_sub");
+  const overlaysEmptyHint = useFlowCopy("portfolio_mode", "upload_overlays_empty_hint");
+  const titleConnected = useFlowCopy("portfolio_mode", "upload_title_connected");
+  const subtitleEmpty = useFlowCopy("portfolio_mode", "upload_subtitle_empty");
+  const bookLabel = useFlowCopy("portfolio_mode", "upload_book_label");
+  const bookEdit = useFlowCopy("portfolio_mode", "upload_book_edit");
+  const connectWhy = useFlowCopy("portfolio_mode", "upload_connect_why");
+  const blockedReason = useFlowCopy("portfolio_mode", "upload_blocked");
   // Computed once per mount so the label and the panel can never disagree
   // across a midnight rollover — the same reason the brokerage page memoises
   // its window.
@@ -339,9 +354,16 @@ export function PortfolioUpload({
 
   return (
     <section className="flex flex-col gap-6" data-testid="portfolio-upload">
+      {/* The page has two states and the title is the first thing that has to
+          admit it. "Upload your portfolio" above a book the broker already
+          filled in contradicts the card directly beneath it. */}
       <header>
-        <h1 className="font-heading text-3xl font-bold">{title}</h1>
-        <p className="mt-1 text-sm text-muted-foreground">{subtitle}</p>
+        <h1 className="font-heading text-3xl font-bold">
+          {connected ? titleConnected : title}
+        </h1>
+        <p className="mt-1 text-sm text-muted-foreground">
+          {connected ? subtitle : subtitleEmpty}
+        </p>
       </header>
 
       {/* Connect a broker — a PEER to the manual paths, never a gate.
@@ -352,9 +374,18 @@ export function PortfolioUpload({
           It returns the user here, to this step, because losing your place
           immediately after the most trust-demanding thing we ask is how a
           connection flow gets abandoned. */}
+      {/* The reason to connect goes THROUGH the card, not above it. Rendered
+          as a sibling it outlives the button — <ConnectBrokerage> returns null
+          when SnapTrade is unconfigured and again when the user dismisses it,
+          and copy arguing for a button that is not there is worse than no copy.
+
+          What it adds is the honest asymmetry: holdings can be typed, trade
+          history cannot, and the Mirror reads history. A fact about the data,
+          not a paywall — the manual paths below stay untouched. */}
       <ConnectBrokerage
         returnPath="/flow/portfolio_mode?connected=1"
         dismissible
+        extra={connectWhy}
       />
 
       {brokerCount > 0 && (
@@ -400,183 +431,214 @@ export function PortfolioUpload({
         </section>
       )}
 
-      {/* Primary: search → add */}
-      <div className="grid gap-2">
-        <label className="text-xs font-medium text-muted-foreground">{searchLabel}</label>
-        <Input
-          value={query}
-          onChange={(e) => setQuery(e.target.value.toUpperCase())}
-          placeholder={searchPlaceholder}
-          autoComplete="off"
-          spellCheck={false}
-          className="font-mono"
-          data-testid="portfolio-upload-search"
-        />
-        {searching && suggestions.length === 0 ? (
-          <p className="text-xs text-muted-foreground">Searching…</p>
-        ) : null}
-        {suggestions.length > 0 ? (
-          <ul
-            className="rounded-xl border border-border bg-card"
-            data-testid="portfolio-upload-suggestions"
-          >
-            {suggestions.map((s) => (
-              <li key={s.symbol} className="border-b border-border last:border-b-0">
-                <button
-                  type="button"
-                  onClick={() => addTicker(s.symbol)}
-                  className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-muted/30"
-                  data-testid={`portfolio-upload-suggestion-${s.symbol}`}
-                >
-                  <span className="font-mono text-sm font-semibold">{s.symbol}</span>
-                  <span className="truncate text-xs text-muted-foreground">{s.name}</span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
-
-      {/* The holdings being built (editable). */}
-      <div className="grid gap-2">
-        <div className="grid grid-cols-[1fr_140px_40px] gap-2 text-xs font-medium text-muted-foreground">
-          <span>Ticker</span>
-          <span>Weight (0–1, optional)</span>
-          <span></span>
-        </div>
-        {rows.map((r, i) => (
-          <div key={i} className="grid grid-cols-[1fr_140px_40px] gap-2">
-            <Input
-              value={r.ticker}
-              onChange={(e) =>
-                setRow(i, { ticker: e.target.value.toUpperCase() })
-              }
-              placeholder="AAPL"
-              className="font-mono"
-              data-testid={`portfolio-upload-ticker-${i}`}
-            />
-            <Input
-              value={r.weightText}
-              onChange={(e) => setRow(i, { weightText: e.target.value })}
-              placeholder="0.4"
-              className="font-mono"
-              data-testid={`portfolio-upload-weight-${i}`}
-            />
-            <button
-              type="button"
-              onClick={() => removeRow(i)}
-              aria-label={`Remove row ${i + 1}`}
-              className="text-muted-foreground hover:text-foreground"
-              data-testid={`portfolio-upload-remove-${i}`}
-            >
-              ×
-            </button>
-          </div>
-        ))}
-        <div>
-          <Button variant="outline" size="sm" onClick={addRow} data-testid="portfolio-upload-add">
-            + {manualLabel}
-          </Button>
-        </div>
-      </div>
-
-      {weightWarning ? (
-        <p className="text-xs text-amber-700">{weightWarning}</p>
-      ) : null}
-
-      {/* Demoted: bulk import (CSV drop + paste). */}
-      <details className="rounded-xl border border-border/60 bg-muted/10">
-        <summary className="cursor-pointer px-4 py-2.5 text-xs font-medium text-muted-foreground">
-          {bulkLabel}
+      {/* ── the book ────────────────────────────────────────────────────────
+          COLLAPSED ONCE IT IS FILLED. For a connected user this table is
+          confirmation, not input — and left open it pushes the reason they
+          are here below the fold. For someone with nothing it IS the task, so
+          it stays open and the search field leads. Same markup either way; the
+          only thing that changes is whether the disclosure starts open. */}
+      <details
+        open={brokerCount === 0}
+        className="rounded-lg border border-border bg-card px-3.5 py-2.5"
+        data-testid="portfolio-upload-book"
+      >
+        <summary className="flex cursor-pointer list-none items-baseline justify-between gap-3 text-[13px] marker:hidden">
+          <span>
+            <span className="font-semibold text-foreground">{bookLabel}</span>
+            {brokerCount > 0 && (
+              <span className="text-muted-foreground">
+                {" · "}
+                {brokerCount === 1
+                  ? "1 holding from your broker"
+                  : `${brokerCount} holdings from your broker`}
+                {" · "}
+                <span className="font-mono">
+                  {rows.filter((r) => r.ticker).slice(0, 3).map((r) => r.ticker).join(", ")}
+                  {rows.filter((r) => r.ticker).length > 3 && "…"}
+                </span>
+              </span>
+            )}
+          </span>
+          <span className="text-muted-foreground">{bookEdit}</span>
         </summary>
-        <div className="flex flex-col gap-4 px-4 pb-4 pt-1">
-          <div
-            className="rounded-xl border border-dashed border-border bg-muted/30 p-4 text-sm"
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={(e) => {
-              e.preventDefault();
-              const f = e.dataTransfer.files?.[0];
-              if (f) onCsvFile(f);
-            }}
-          >
-            <div className="flex items-center gap-2">
-              <label className="cursor-pointer text-primary underline underline-offset-2">
-                Drop a CSV here or click to pick
-                <input
-                  type="file"
-                  accept=".csv,text/csv,text/plain"
-                  className="hidden"
-                  data-testid="portfolio-upload-file"
-                  onChange={(e) => {
-                    const f = e.target.files?.[0];
-                    if (f) onCsvFile(f);
-                  }}
-                />
-              </label>
-            </div>
-            <p className="mt-1 text-xs text-muted-foreground">{csvHelp}</p>
-          </div>
 
-          <div className="grid gap-2">
-            <label className="text-xs font-medium text-muted-foreground">{pasteLabel}</label>
-            <textarea
-              value={pasteText}
-              onChange={(e) => setPasteText(e.target.value)}
-              placeholder={"AAPL,0.4\nMSFT,0.3\nNVDA,0.3"}
-              rows={3}
-              className="w-full rounded-xl border border-border bg-background px-3 py-2 font-mono text-xs leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-              data-testid="portfolio-upload-paste"
-            />
-            <div>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onPaste}
-                disabled={!pasteText.trim()}
-                data-testid="portfolio-upload-paste-apply"
+        <div className="mt-3 flex flex-col gap-5">
+        {/* Primary: search → add */}
+        <div className="grid gap-2">
+          <label className="text-xs font-medium text-muted-foreground">{searchLabel}</label>
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value.toUpperCase())}
+            placeholder={searchPlaceholder}
+            autoComplete="off"
+            spellCheck={false}
+            className="font-mono"
+            data-testid="portfolio-upload-search"
+          />
+          {searching && suggestions.length === 0 ? (
+            <p className="text-xs text-muted-foreground">Searching…</p>
+          ) : null}
+          {suggestions.length > 0 ? (
+            <ul
+              className="rounded-xl border border-border bg-card"
+              data-testid="portfolio-upload-suggestions"
+            >
+              {suggestions.map((s) => (
+                <li key={s.symbol} className="border-b border-border last:border-b-0">
+                  <button
+                    type="button"
+                    onClick={() => addTicker(s.symbol)}
+                    className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left hover:bg-muted/30"
+                    data-testid={`portfolio-upload-suggestion-${s.symbol}`}
+                  >
+                    <span className="font-mono text-sm font-semibold">{s.symbol}</span>
+                    <span className="truncate text-xs text-muted-foreground">{s.name}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+
+        {/* The holdings being built (editable). */}
+        <div className="grid gap-2">
+          <div className="grid grid-cols-[1fr_140px_40px] gap-2 text-xs font-medium text-muted-foreground">
+            <span>Ticker</span>
+            <span>Weight (0–1, optional)</span>
+            <span></span>
+          </div>
+          {rows.map((r, i) => (
+            <div key={i} className="grid grid-cols-[1fr_140px_40px] gap-2">
+              <Input
+                value={r.ticker}
+                onChange={(e) =>
+                  setRow(i, { ticker: e.target.value.toUpperCase() })
+                }
+                placeholder="AAPL"
+                className="font-mono"
+                data-testid={`portfolio-upload-ticker-${i}`}
+              />
+              <Input
+                value={r.weightText}
+                onChange={(e) => setRow(i, { weightText: e.target.value })}
+                placeholder="0.4"
+                className="font-mono"
+                data-testid={`portfolio-upload-weight-${i}`}
+              />
+              <button
+                type="button"
+                onClick={() => removeRow(i)}
+                aria-label={`Remove row ${i + 1}`}
+                className="text-muted-foreground hover:text-foreground"
+                data-testid={`portfolio-upload-remove-${i}`}
               >
-                Apply paste
-              </Button>
+                ×
+              </button>
+            </div>
+          ))}
+          <div>
+            <Button variant="outline" size="sm" onClick={addRow} data-testid="portfolio-upload-add">
+              + {manualLabel}
+            </Button>
+          </div>
+        </div>
+
+        {weightWarning ? (
+          <p className="text-xs text-amber-700">{weightWarning}</p>
+        ) : null}
+
+        {/* Demoted: bulk import (CSV drop + paste). */}
+        <details className="rounded-xl border border-border/60 bg-muted/10">
+          <summary className="cursor-pointer px-4 py-2.5 text-xs font-medium text-muted-foreground">
+            {bulkLabel}
+          </summary>
+          <div className="flex flex-col gap-4 px-4 pb-4 pt-1">
+            <div
+              className="rounded-xl border border-dashed border-border bg-muted/30 p-4 text-sm"
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={(e) => {
+                e.preventDefault();
+                const f = e.dataTransfer.files?.[0];
+                if (f) onCsvFile(f);
+              }}
+            >
+              <div className="flex items-center gap-2">
+                <label className="cursor-pointer text-primary underline underline-offset-2">
+                  Drop a CSV here or click to pick
+                  <input
+                    type="file"
+                    accept=".csv,text/csv,text/plain"
+                    className="hidden"
+                    data-testid="portfolio-upload-file"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) onCsvFile(f);
+                    }}
+                  />
+                </label>
+              </div>
+              <p className="mt-1 text-xs text-muted-foreground">{csvHelp}</p>
+            </div>
+
+            <div className="grid gap-2">
+              <label className="text-xs font-medium text-muted-foreground">{pasteLabel}</label>
+              <textarea
+                value={pasteText}
+                onChange={(e) => setPasteText(e.target.value)}
+                placeholder={"AAPL,0.4\nMSFT,0.3\nNVDA,0.3"}
+                rows={3}
+                className="w-full rounded-xl border border-border bg-background px-3 py-2 font-mono text-xs leading-relaxed placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                data-testid="portfolio-upload-paste"
+              />
+              <div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={onPaste}
+                  disabled={!pasteText.trim()}
+                  data-testid="portfolio-upload-paste-apply"
+                >
+                  Apply paste
+                </Button>
+              </div>
             </div>
           </div>
+        </details>
         </div>
       </details>
 
-      {/* ── Overlay overview ────────────────────────────────────────────────
-          Moved off Home, where it described rules for a portfolio that had
-          not been uploaded yet. Rendered through the SAME <StrategyCard> the
-          picker step uses, so the overview and the picker cannot drift apart;
-          read-only here, because the choice happens after the diagnosis. */}
-      <section data-testid="portfolio-upload-overlays">
-        <h2 className="text-sm font-semibold">{overlaysTitle}</h2>
-        <p className="mt-1 text-[13px] text-muted-foreground">{overlaysSub}</p>
-        <div className="mt-2 grid grid-cols-1 gap-1.5 sm:grid-cols-2">
-          {OVERLAY_DISPLAY_ORDER.map((kind) => (
-            <StrategyCard
-              key={kind}
-              meta={OVERLAY_METADATA[kind]}
-              ticker={validHoldings[0]?.ticker ?? "AAPL"}
-              examplePrice={180}
-              // Live count, unlike Home's hardcoded 0: the qualifying badge
-              // can now tell the reader which overlays their actual book
-              // already satisfies, before they commit to one.
-              holdingsCount={validHoldings.length}
-              isSelected={false}
-              readOnly
-            />
-          ))}
-        </div>
-      </section>
-
-      <div>
+      {/* ── the action ──────────────────────────────────────────────────────
+          ABOVE the overlay list, and sticky. It used to sit under six
+          research cards at y=9,759 of a 9,831px page — reference material
+          between someone and the button they came for. A disabled button also
+          has to say WHY, or it is a dead end wearing a CTA's clothes. */}
+      <div className="sticky bottom-0 -mx-1 bg-gradient-to-t from-background via-background to-transparent px-1 pb-2 pt-3">
         <Button
           onClick={onContinue}
           disabled={validHoldings.length === 0}
           data-testid="portfolio-upload-continue"
+          className="w-full"
         >
           {continueLabel}
         </Button>
+        {validHoldings.length === 0 && (
+          <p
+            data-testid="portfolio-upload-blocked"
+            className="mt-1.5 text-center text-[12px] text-muted-foreground"
+          >
+            {blockedReason}
+          </p>
+        )}
       </div>
+
+      {/* ── what comes next ─────────────────────────────────────────────────
+          Six lines, not six research cards. See <OverlayShortlist> for why the
+          cards belong at the choice and not here. */}
+      <OverlayShortlist
+        holdingsCount={validHoldings.length}
+        title={overlaysTitle}
+        emptyHint={overlaysEmptyHint}
+      />
     </section>
   );
 }

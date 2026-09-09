@@ -436,3 +436,42 @@ describe("saving a finding as a rule", () => {
   });
 
 });
+
+describe("what leads and what folds", () => {
+  /* The section used to render markout profiles, the excursion pair and the
+   * setup table ABOVE the two habits, and the whole thing measured most of a
+   * 9,831px page with the flow's CTA in its final 0.7%.
+   *
+   * The finding and its fix now lead. The reasoning behind them is one click
+   * away — which is not the same as hidden, and the tests above still assert
+   * every one of those blocks renders. */
+
+  it("leads with the habits and the fix, not the workings", async () => {
+    render_();
+    const deep = await screen.findByTestId("when-deep");
+    const order = [...deep.querySelectorAll("[data-testid]")]
+      .map((e) => (e as HTMLElement).dataset.testid!)
+      .filter((t) => ["when-habits", "when-coverage", "when-evidence"].includes(t));
+    expect(order).toEqual(["when-habits", "when-coverage", "when-evidence"]);
+  });
+
+  it("folds the evidence and leaves the basis showing", async () => {
+    /* Compaction takes REASONING off the screen. It never takes away the
+     * caveat attached to a number still on it — every figure in the habits
+     * block is qualified by "measured on N of M closed positions". */
+    render_();
+    const ev = await screen.findByTestId("when-evidence");
+    expect(ev.tagName).toBe("DETAILS");
+    expect((ev as HTMLDetailsElement).open).toBe(false);
+
+    // The basis is NOT inside the disclosure.
+    const coverage = screen.getByTestId("when-coverage");
+    expect(ev.contains(coverage)).toBe(false);
+
+    // The workings ARE.
+    for (const id of ["when-entry-profile", "when-exit-profile", "when-setups"]) {
+      const el = screen.queryByTestId(id);
+      if (el) expect(ev.contains(el)).toBe(true);
+    }
+  });
+});

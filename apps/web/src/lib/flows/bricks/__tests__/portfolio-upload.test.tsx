@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@/lib/api", () => ({
   searchSymbols: vi.fn(async () => [{ symbol: "NVDA", name: "NVIDIA Corp" }]),
@@ -15,7 +15,8 @@ vi.mock("@/lib/api", () => ({
   // The Mirror mounts here when a broker is connected. Its own suites cover
   // what it renders; these only need it not to explode, and to record the
   // window it was asked for.
-  getTradingBehavior: (...a: unknown[]) => getTradingBehaviorMock(...(a as [])),
+  getTradingBehavior: (...a: unknown[]) =>
+    getTradingBehaviorMock(...(a as [string, { startDate: string }])),
   getMirrorTiming: async () => ({}),
   createExitPlan: async () => ({ rule_id: "r", strategy_id: "s", tracked: [], skipped: [] }),
 }));
@@ -40,7 +41,10 @@ const CONNECTED = {
   trading_enabled: false, last_synced_at: null,
 };
 const getSnapTradeStatusMock = vi.fn(async () => DISCONNECTED);
-const getTradingBehaviorMock = vi.fn(async () => ({
+// Params declared so `mock.calls[n][1]` types — the window assertion below
+// reads the startDate the panel was asked for, and an untyped mock makes that
+// a cast against an empty tuple.
+const getTradingBehaviorMock = vi.fn(async (_token: string, _opts: { startDate: string }) => ({
   total_buys: 0, total_sells: 0, symbols_traded: 0, round_trips: 0,
   realised_pnl: 0, fees_paid: 0, wins: 0, losses: 0,
   top_symbols_by_trades: [], top_symbols_by_pnl: [], worst_symbols_by_pnl: [],
@@ -64,6 +68,21 @@ vi.mock("next-auth/react", () => ({
 
 import { OVERLAY_METADATA, OVERLAY_DISPLAY_ORDER } from "@/lib/overlay-metadata";
 import { PortfolioUpload } from "../portfolio-upload";
+
+/** Every mock in this file is module-scoped, and `mockResolvedValue` sets the
+ *  implementation while KEEPING call history. Three separate bugs in this
+ *  suite have come from one describe inheriting another's leftovers — a
+ *  `?connected=1` that was never cleared, a call count that included the
+ *  previous test's calls. One reset at the top, so a describe only has to
+ *  state what it actually needs. */
+beforeEach(() => {
+  searchParamsMock.mockReturnValue(new URLSearchParams());
+  listBrokerPositionsMock.mockClear();
+  listBrokerPositionsMock.mockResolvedValue([]);
+  getSnapTradeStatusMock.mockClear();
+  getSnapTradeStatusMock.mockResolvedValue(DISCONNECTED);
+  getTradingBehaviorMock.mockClear();
+});
 
 function renderUpload(overrides: { context?: Partial<{ holdings: any[] }> } = {}) {
   const advance = vi.fn();
@@ -284,39 +303,92 @@ describe("PortfolioUpload — holdings from a connected broker", () => {
  */
 
 describe("the overlays it will offer", () => {
-  it("shows all six, read-only, before the choice is made", () => {
+  /* MOVED AGAIN, and the invariants came with them — twice now. These were
+   * written against Home's <StrategyCard> grid, re-homed here in #363, and the
+   * cards have since become six one-line rows because the grid measured
+   * 8,138px and put the flow's own CTA in the last 0.7% of a 9,831px page.
+   *
+   * The guarantees did not change form with the UI. What each overlay needs is
+   * still stated up front; no performance figure appears without its basis;
+   * and no fit is claimed before there is a book to fit. */
+
+  it("still shows all six, and they are not choices yet", () => {
     renderUpload();
-    const cards = screen.getAllByTestId(/^strategy-card-/);
-    expect(cards.length).toBe(OVERLAY_DISPLAY_ORDER.length);
-    // Read-only: the pick happens after the diagnosis, not here.
-    for (const c of cards) expect(c.tagName).not.toBe("BUTTON");
+    const rows = screen.getAllByTestId(/^overlay-row-/);
+    expect(rows.length).toBe(OVERLAY_DISPLAY_ORDER.length);
+    // The pick happens after the diagnosis; nothing here is clickable.
+    for (const r of rows) expect(r.querySelector("button")).toBeNull();
   });
 
-  it("says up front how many holdings an overlay needs", () => {
+  it("says up front how many holdings each one needs", () => {
     renderUpload();
     const first = OVERLAY_DISPLAY_ORDER[0];
-    expect(screen.getByTestId(`strategy-card-${first}`).textContent).toMatch(
-      new RegExp(`Needs ${OVERLAY_METADATA[first].minHoldings}\\+ holding`),
+    expect(screen.getByTestId(`overlay-row-${first}`).textContent).toContain(
+      `needs ${OVERLAY_METADATA[first].minHoldings}+`,
     );
   });
 
-  it("never shows a performance figure without its basis", () => {
-    /* A number never travels without what produced it. */
+  it("carries NO performance figure at all, because a row cannot carry a basis", () => {
+    /* STRENGTHENED. The card version could show "−28% vs −55%" as long as
+     * `historicalEstimate` sat beside it. A collapsed row has no room for the
+     * basis, so the rule here is absolute: no figure, not "a figure with its
+     * source". That is what makes the compaction safe rather than just short. */
     renderUpload();
-    const t = screen.getByTestId("portfolio-upload-overlays").textContent ?? "";
+    const t = screen.getByTestId("overlay-shortlist-rows").textContent ?? "";
+    expect(t).not.toMatch(/[-−+]?\d+(\.\d+)?\s*%/);
+    expect(t).not.toMatch(/\$\s*\d/);
     for (const kind of OVERLAY_DISPLAY_ORDER) {
       const meta = OVERLAY_METADATA[kind];
-      if (t.includes(meta.tagline)) expect(t).toContain(meta.historicalEstimate);
+      expect(t).not.toContain(meta.tagline);
+      expect(t).not.toContain(meta.historicalEstimate);
     }
   });
 
-  it("claims no portfolio fit while the book is still empty", () => {
-    /* `fitLabel` is the diagnosis step's verdict; nothing has been diagnosed. */
-    renderUpload();
-    const t = screen.getByTestId("portfolio-upload-overlays").textContent ?? "";
+  it("keeps every oneLine free of a figure, so a future edit cannot sneak one in", () => {
+    /* A guard on the DATA, not the render — the row is the one place a number
+     * can appear with nothing to qualify it. Mechanics are fine and necessary:
+     * "200-day average" is what the overlay does, not what it earned. */
     for (const kind of OVERLAY_DISPLAY_ORDER) {
-      expect(t).not.toContain(OVERLAY_METADATA[kind].fitLabel);
+      const line = OVERLAY_METADATA[kind].oneLine;
+      expect(line, kind).not.toMatch(/%/);
+      expect(line, kind).not.toMatch(/\$/);
+      expect(line.length, kind).toBeLessThanOrEqual(90);
     }
+  });
+
+  it("claims no fit while the book is still empty", () => {
+    renderUpload();
+    const t = screen.getByTestId("portfolio-upload-book") ? "" : "";
+    const summary = screen.getByTestId("overlay-shortlist-summary").textContent ?? "";
+    expect(summary).toContain("add holdings to see which fit");
+    expect(screen.queryByTestId("overlay-shortlist-fit")).toBeNull();
+    // `fitLabel` is the diagnosis step's verdict; nothing has been diagnosed.
+    const rows = screen.getByTestId("overlay-shortlist-rows").textContent ?? "";
+    for (const kind of OVERLAY_DISPLAY_ORDER) {
+      expect(rows).not.toContain(OVERLAY_METADATA[kind].fitLabel);
+    }
+    expect(t).toBe("");
+  });
+
+  it("counts the fits against the book once there IS one — typed counts too", async () => {
+    /* The fit column reads a holdings COUNT, so it works for someone who never
+     * connects. On a one-holding book "1 of 6" is a finding about
+     * concentration, which six cards could never have told them. */
+    renderUpload();
+    fireEvent.change(screen.getByTestId("portfolio-upload-search"), {
+      target: { value: "NVDA" },
+    });
+    const hit = await screen.findByTestId("portfolio-upload-suggestion-NVDA");
+    fireEvent.click(hit);
+
+    const expected = OVERLAY_DISPLAY_ORDER.filter(
+      (k) => OVERLAY_METADATA[k].minHoldings <= 1,
+    ).length;
+    await waitFor(() => {
+      expect(screen.getByTestId("overlay-shortlist-fit").textContent).toBe(
+        `${expected} of ${OVERLAY_DISPLAY_ORDER.length} fit${expected === 1 ? "s" : ""} this book`,
+      );
+    });
   });
 });
 
@@ -366,10 +438,81 @@ describe("the Mirror", () => {
     const panel = await screen.findByTestId("portfolio-upload-mirror");
 
     await waitFor(() => expect(getTradingBehaviorMock).toHaveBeenCalled());
-    const asked = (getTradingBehaviorMock.mock.calls.at(-1)![1] as { startDate: string })
-      .startDate;
+    const asked = getTradingBehaviorMock.mock.calls.at(-1)![1].startDate;
 
     expect(panel.textContent).toContain(asked);
     expect(panel.textContent).toMatch(/last 12 months/i);
+  });
+});
+
+describe("the two states of this page", () => {
+  it("does not call it an upload when the broker already filled it in", async () => {
+    /* "Upload your portfolio" above a book the broker supplied contradicts the
+     * card directly beneath it, which says the holdings are up to date. */
+    getSnapTradeStatusMock.mockResolvedValue(CONNECTED);
+    renderUpload();
+    expect(await screen.findByText("Your portfolio")).toBeTruthy();
+    expect(screen.queryByText("Upload your portfolio")).toBeNull();
+  });
+
+  it("still calls it an upload when there is nothing yet", async () => {
+    getSnapTradeStatusMock.mockResolvedValue(DISCONNECTED);
+    renderUpload();
+    expect(await screen.findByText("Upload your portfolio")).toBeTruthy();
+  });
+
+  it("opens the form when the book is empty and folds it once filled", async () => {
+    /* For someone with nothing the table IS the task. For a connected user it
+     * is confirmation, and left open it pushes the reason they came below the
+     * fold. */
+    getSnapTradeStatusMock.mockResolvedValue(DISCONNECTED);
+    renderUpload();
+    await waitFor(() =>
+      expect(screen.getByTestId("portfolio-upload-book")).toHaveProperty("open", true),
+    );
+
+    cleanup();
+    getSnapTradeStatusMock.mockResolvedValue(CONNECTED);
+    listBrokerPositionsMock.mockResolvedValue([
+      { account_id: "a1", symbol: "NVDA", units: 120, average_purchase_price: 118.4 },
+    ]);
+    renderUpload();
+    await screen.findByDisplayValue("NVDA");
+    expect(screen.getByTestId("portfolio-upload-book")).toHaveProperty("open", false);
+  });
+
+  it("tells you WHY the button is dead instead of just dimming it", async () => {
+    /* A disabled CTA with no reason is a dead end wearing a CTA's clothes, and
+     * it names BOTH ways out — typing one, or connecting. */
+    getSnapTradeStatusMock.mockResolvedValue(DISCONNECTED);
+    renderUpload();
+    const cta = await screen.findByTestId("portfolio-upload-continue");
+    expect(cta).toHaveProperty("disabled", true);
+    const why = screen.getByTestId("portfolio-upload-blocked").textContent ?? "";
+    expect(why).toMatch(/at least one holding/i);
+    expect(why).toMatch(/connect a brokerage/i);
+  });
+
+  it("argues for connecting from INSIDE the card, so it cannot outlive it", async () => {
+    /* Rendered as a sibling this copy survives every path that makes
+     * <ConnectBrokerage> return null — an operator who has not configured
+     * SnapTrade, and a user who just dismissed it — leaving prose arguing for
+     * a button that is not on the page. */
+    getSnapTradeStatusMock.mockResolvedValue({ ...DISCONNECTED, configured: true });
+    renderUpload();
+    const why = await screen.findByTestId("connect-brokerage-extra");
+    // The honest asymmetry: holdings can be typed, trade history cannot.
+    expect(why.textContent).toMatch(/trade history, which cannot be typed/i);
+    expect(screen.getByTestId("connect-brokerage").contains(why)).toBe(true);
+
+    cleanup();
+    fireEvent.click(screen.queryByTestId("connect-brokerage-dismiss") ?? document.body);
+  });
+
+  it("says nothing about connecting once a broker is connected", async () => {
+    getSnapTradeStatusMock.mockResolvedValue(CONNECTED);
+    renderUpload();
+    await screen.findByText("Your portfolio");
+    expect(screen.queryByTestId("connect-brokerage-extra")).toBeNull();
   });
 });
