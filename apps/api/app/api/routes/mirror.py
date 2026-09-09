@@ -130,10 +130,41 @@ class SetupView(BaseModel):
     median_capture: Optional[float] = None
 
 
+class LeakTradeView(BaseModel):
+    """One position behind a finding.
+
+    A four-trade claim is only believable if you can see the four trades. The
+    client renders this table directly, so every field the contract declares
+    must be serialised here — a value the service computes and this model
+    omits reaches the browser as `undefined`, which is how the WHEN section
+    once took the whole page down with it.
+    """
+
+    symbol: str
+    # ISO strings, not `date`. Matches TimingCoverageView's window bounds and
+    # the TS contract, which keys table rows off `opened_on`.
+    opened_on: str
+    closed_on: Optional[str] = None
+    units: float = 0.0
+    entry_price: float = 0.0
+    exit_price: Optional[float] = None
+    realised_return: Optional[float] = None
+    mae: Optional[float] = None
+    mfe: Optional[float] = None
+    # What the STOCK did after the exit — the negation already undone, so a
+    # positive number means it rose after the user sold.
+    after_exit_5d: Optional[float] = None
+    after_exit_20d: Optional[float] = None
+    dollars: float = 0.0
+
+
 class LeakView(BaseModel):
     key: str
     n: int
     dollars: float
+    # Most expensive first. Defaults to empty so a leak without trades is a
+    # leak with no rows to show, never a missing attribute on the client.
+    trades: List[LeakTradeView] = []
 
 
 class TimingCoverageView(BaseModel):
@@ -169,6 +200,36 @@ def _profile_view(p) -> ProfileView:
         ],
         excluded_beyond_window=p.excluded_beyond_window,
         has_consistent_pattern=p.has_consistent_pattern,
+    )
+
+
+def _leak_view(leak) -> LeakView:
+    """Serialise a leak WITH the trades behind it.
+
+    The trades are the evidence, not decoration: the surface renders them as
+    the table under each habit, and it keys the rows off `opened_on`.
+    """
+    return LeakView(
+        key=leak.key,
+        n=leak.n,
+        dollars=leak.dollars,
+        trades=[
+            LeakTradeView(
+                symbol=t.symbol,
+                opened_on=str(t.opened_on),
+                closed_on=str(t.closed_on) if t.closed_on else None,
+                units=t.units,
+                entry_price=t.entry_price,
+                exit_price=t.exit_price,
+                realised_return=t.realised_return,
+                mae=t.mae,
+                mfe=t.mfe,
+                after_exit_5d=t.after_exit_5d,
+                after_exit_20d=t.after_exit_20d,
+                dollars=t.dollars,
+            )
+            for t in leak.trades
+        ],
     )
 
 
@@ -264,7 +325,7 @@ def mirror_timing(
             for s in rep.setups
         ],
         outcomes=dict(rep.outcomes),
-        leaks=[LeakView(key=l.key, n=l.n, dollars=l.dollars) for l in rep.leaks],
+        leaks=[_leak_view(l) for l in rep.leaks],
         coverage=TimingCoverageView(
             episodes_total=rep.coverage.episodes_total,
             episodes_analysed=len(analysis.episodes),
