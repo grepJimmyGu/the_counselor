@@ -45,8 +45,11 @@ registerModeCopy("portfolio_mode", {
   upload_continue: "Continue → Diagnose",
   upload_mirror_title: "How you've been trading",
   upload_overlays_title: "What you can put over it",
+  // No count in the copy: the cards render from OVERLAY_DISPLAY_ORDER, so a
+  // written "six" would rot the moment a seventh overlay lands, and the
+  // reader can see how many there are anyway.
   upload_overlays_sub:
-    "Six overlays, and what each is for. You'll choose one after we diagnose the book — this is so the choice isn't the first time you meet them.",
+    "Every overlay we've built, and what each is for. You'll choose one after we diagnose the book — so the choice isn't the first time you meet them.",
 });
 
 /** The Mirror's window. One year, matching /account/brokerage's default.

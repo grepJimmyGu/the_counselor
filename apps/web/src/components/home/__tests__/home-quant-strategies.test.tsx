@@ -22,7 +22,10 @@ import { fireEvent, render, screen } from "@testing-library/react";
 vi.mock("@/lib/flows/runtime", () => ({ startFlow: vi.fn() }));
 
 import { researchTemplates } from "@/lib/contracts";
-import { WIZARD_QUESTIONS } from "@/components/strategy-builder/wizard/strategy-wizard-data";
+import {
+  WIZARD_QUESTIONS,
+  WIZARD_STRATEGIES,
+} from "@/components/strategy-builder/wizard/strategy-wizard-data";
 import { startFlow } from "@/lib/flows/runtime";
 import {
   HomeQuantStrategies,
@@ -87,12 +90,54 @@ describe("the numbers it quotes", () => {
     expect(block()).toContain(`${QUESTION_COUNT} plain questions`);
   });
 
-  it("counts only the templates that can actually be run", () => {
+  it("counts only what the wizard can ACTUALLY land you on", () => {
+    /* CORRECTED. This asserted `TEMPLATE_COUNT === runnable.length` and
+     * rendered 12 — self-consistent, so it read as verified, while measuring
+     * the wrong set. The card promises outcomes reachable from the button
+     * under it, and that is ready ∧ wizard-reachable:
+     *
+     *   - the wizard locks anything not `availability === "ready"`, so the
+     *     one `proxy` template is not a fit it can offer;
+     *   - five templates it maps to are not ready, and three ready ones have
+     *     no wizard mapping at all.
+     *
+     * A number that counts a superset is a promise the button cannot keep. */
     render(<HomeQuantStrategies />);
-    const runnable = researchTemplates.filter((t) => t.availability !== "unavailable");
-    expect(TEMPLATE_COUNT).toBe(runnable.length);
-    expect(TEMPLATE_COUNT).toBeLessThan(researchTemplates.length); // some ARE unavailable
-    expect(block()).toContain(`${TEMPLATE_COUNT}`);
+
+    const ready = new Set(
+      researchTemplates.filter((t) => t.availability === "ready").map((t) => t.id),
+    );
+    const reachable = new Set(
+      WIZARD_STRATEGIES.map((s) => s.templateId).filter(
+        (id): id is string => Boolean(id) && ready.has(id as string),
+      ),
+    );
+    expect(TEMPLATE_COUNT).toBe(reachable.size);
+    // The bug this replaces: the old count was strictly larger.
+    expect(TEMPLATE_COUNT).toBeLessThan(
+      researchTemplates.filter((t) => t.availability !== "unavailable").length,
+    );
+    expect(block()).toContain(`${TEMPLATE_COUNT} published strategies`);
+  });
+
+  it("promises nothing about evidence it does not have for every one", () => {
+    /* "each rated for how strong the evidence is" was false: 2 of the 9 the
+     * wizard can fit (trend-following, cross-sectional-momentum) carry no
+     * `evidenceTier` at all. The tier still renders per-card in the wizard,
+     * where it is true or absent; the card no longer claims it universally. */
+    render(<HomeQuantStrategies />);
+    expect(block()).not.toMatch(/each rated|every one is rated|all rated/i);
+  });
+
+  it("claims only the rules the composer actually lets you write", () => {
+    /* "your own entry, exit and ranking rules" overstated: the canvas has a
+     * primitive catalog (entry conditions) and an ExitLadderEditor, but the
+     * ranking on the screener path is built by the rank step per survivor —
+     * the user does not compose it. */
+    render(<HomeQuantStrategies />);
+    const t = screen.getByTestId("quant-build-from-scratch").textContent ?? "";
+    expect(t).not.toMatch(/ranking rules/i);
+    expect(t).toMatch(/exit ladder/i);
   });
 
   it("keeps the primitive count in one place, since it can't be derived", () => {

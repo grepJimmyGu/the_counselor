@@ -39,15 +39,37 @@ import { Link2, ShieldCheck, SlidersHorizontal, Sparkles } from "lucide-react";
 import { startFlow } from "@/lib/flows/runtime";
 import { INITIAL_CUSTOM_BUILD_CONTEXT } from "@/lib/flows/custom-build-mode-context";
 import { researchTemplates } from "@/lib/contracts";
-import { WIZARD_QUESTIONS } from "@/components/strategy-builder/wizard/strategy-wizard-data";
+import {
+  WIZARD_QUESTIONS,
+  WIZARD_STRATEGIES,
+} from "@/components/strategy-builder/wizard/strategy-wizard-data";
 
-/** Derived, not typed in — the copy says "five questions" and "12 strategies",
- *  and a hand-written number is a claim that rots the first time the wizard or
- *  the template list changes underneath it. */
+/** Derived, not typed in — a hand-written number is a claim that rots the
+ *  first time the wizard or the template list changes underneath it. */
 export const QUESTION_COUNT = WIZARD_QUESTIONS.length;
-export const TEMPLATE_COUNT = researchTemplates.filter(
-  (t) => t.availability !== "unavailable",
-).length;
+
+/** ⚠ THE INTERSECTION, and it is smaller than either side.
+ *
+ *  This said `researchTemplates.filter(t => t.availability !== "unavailable")`
+ *  and rendered 12. That counted the wrong set twice over:
+ *
+ *    - The wizard's gate is `availability === "ready"`, not "not unavailable".
+ *      A `proxy` template is LOCKED in the picker (strategy-wizard.tsx:139,
+ *      :324), so it is not something the wizard can fit anyone to. 11 ready.
+ *    - Five templates the wizard maps to are not ready, and three ready ones
+ *      have no wizard mapping at all — reachable and runnable are different
+ *      sets, and the card claims the overlap.
+ *
+ *  Ready ∧ reachable is 9. The number a card promises has to be the number of
+ *  outcomes actually reachable from the button under it. */
+const READY_TEMPLATE_IDS = new Set(
+  researchTemplates.filter((t) => t.availability === "ready").map((t) => t.id),
+);
+export const TEMPLATE_COUNT = new Set(
+  WIZARD_STRATEGIES.map((s) => s.templateId).filter(
+    (id): id is string => Boolean(id) && READY_TEMPLATE_IDS.has(id as string),
+  ),
+).size;
 
 /** The one number that CANNOT be derived here: the primitive catalog is
  *  served by `GET /api/signal-primitives`, not bundled. 110 as of 2026-09-09
@@ -142,9 +164,9 @@ export function HomeQuantStrategies() {
           onClick={onGuided}
           testid="quant-guided-start"
         >
-          {QUESTION_COUNT} plain questions. We fit one of {TEMPLATE_COUNT}{" "}
-          published strategies to your stock, each rated for how strong the
-          evidence is.
+          {QUESTION_COUNT} plain questions, and we fit one of {TEMPLATE_COUNT}{" "}
+          published strategies to your stock — ruling out the ones your answers
+          disqualify.
         </EntryCard>
 
         <EntryCard
@@ -154,8 +176,9 @@ export function HomeQuantStrategies() {
           onClick={onBuild}
           testid="quant-build-from-scratch"
         >
-          Compose from {PRIMITIVE_COUNT} primitives — your own entry, exit and
-          ranking rules, over any universe you choose.
+          Compose from {PRIMITIVE_COUNT} primitives — your own entry rules and
+          exit ladder, over the S&P 500, the Russell 3000, a sector, or your
+          own list.
         </EntryCard>
       </div>
 
