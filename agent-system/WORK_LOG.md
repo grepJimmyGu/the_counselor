@@ -15,9 +15,20 @@
 
 ---
 
-## Current state — 2026-08-28
+## Current state — 2026-09-10
 
-**Five PRs merged**, #355 → #359. Nothing open, nothing in flight on a branch.
+**Eleven PRs merged**, #355 → #365. Nothing open.
+
+> 📍 **Read [`docs/QUANT_ENGINE_MAP.md`](../docs/QUANT_ENGINE_MAP.md) before
+> planning any 43-series work.** It maps the blueprint's §1–§40 to what ships
+> and carries the ranked open questions. This file says where work *stopped*;
+> the map says what the work is *for*.
+>
+> ⚠ Two sessions ran in parallel on 2026-09-09 and collided twice (#362
+> duplicated a fix already written elsewhere; #365 rewrote the file #362 had
+> just repaired). Both were in separate worktrees the whole time — worktrees
+> did not prevent it. Sessions now split by **role**; see CLAUDE.md
+> "Session roles".
 
 The Quant Engine packet went from "43a shipped, both lenses blocked" to
 **level 0, 1 and 2 of the maturity ladder live end to end**: the Mirror
@@ -30,6 +41,12 @@ against it, and a finding can now be saved as a rule that outlives the tab.
 | [#356](https://github.com/grepJimmyGu/the_counselor/pull/356) | 43b P0 — markouts, excursions, catalog snapshot, the two classifications, `GET /api/mirror/timing` |
 | [#357](https://github.com/grepJimmyGu/the_counselor/pull/357) | Mirror v2 four zones + the WHEN section rendering 43b's numbers |
 | [#359](https://github.com/grepJimmyGu/the_counselor/pull/359) | 43e Rules P0 — `Rule` object, `/api/rules`, `/account/rules`, and Save-as-a-rule on the WHEN section |
+| [#360](https://github.com/grepJimmyGu/the_counselor/pull/360) | Session handoff docs |
+| [#361](https://github.com/grepJimmyGu/the_counselor/pull/361) | The exit plan — `POST /api/mirror/exit-plan`, `LeakTrade` evidence rows, the exit-gap net split, `SnapTradeReadFailed` |
+| [#362](https://github.com/grepJimmyGu/the_counselor/pull/362) | `/account/brokerage` died on load — `LeakView` computed `trades` and never serialised them. `ExitGapView` had the same hole |
+| [#363](https://github.com/grepJimmyGu/the_counselor/pull/363) | Two ways into Quant Rules from Home — **closes the "no entry from Home" gap** |
+| [#364](https://github.com/grepJimmyGu/the_counselor/pull/364) | The Mirror was gated on a value that means something else |
+| [#365](https://github.com/grepJimmyGu/the_counselor/pull/365) | The portfolio step fits one screen; overlay shortlist |
 
 ### Next, in order
 
@@ -39,6 +56,12 @@ against it, and a finding can now be saved as a rule that outlives the tab.
    markers plus that episode's numbers). The last open item on P0's DoD; the
    aggregate view shipped without it, deliberately.
 3. **43d**, before 43b P1 rather than after.
+
+⚠ **Items 1 and 2 are contested.** #361 ships an exit plan whose rule saves at
+`saved` with no path to `tested`, because the blueprint's §22 validation
+methodology does not exist. The larger question: *is rule discovery
+statistically possible on a 33-episode record at all?* See the map's "fork
+worth deciding first" — do not start 43b P1 without settling it.
 4. **43b P1**, then **43c P1** (43c P1 never waits on 43d).
 5. **43e Playbooks** — needs 43d for the `validated` state.
 
@@ -83,7 +106,11 @@ mode is not a broken page, it is a plausible number.**
 
 ### Don't touch without coordinating
 
-Nothing. All five PRs are merged and every branch is landed.
+Nothing is in flight. All branches through #365 are landed.
+
+Lane split as of 2026-09-10: the **planning session** owns `docs/`,
+`agent-system/` and the roadmap; **executing sessions** own `apps/`. See
+CLAUDE.md "Session roles".
 
 
 ---
