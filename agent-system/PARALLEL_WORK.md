@@ -139,6 +139,7 @@ Either:
 | **deepseek-main** (master merger) | `/Users/jimmygu/the_counselor` | rotating per-task | latest | Active 2026-06-01 — current master merger. Runs on DeepSeek backend; uses `deepseek/` prefix. Owns all `gh pr merge` to `main`. |
 | claude-main (former master merger) | — | — | — | Retired 2026-06-01. Master-merger role handed off to deepseek-main. |
 | **claude-belowfold** (master merger this session) | `/Users/jimmygu/the_counselor` + per-task worktrees | `claude/` prefix, rotating per task | `4d535f2` | Active 2026-08-07→09. PRD-29 below-the-fold blocks 1–4, fundamental-screening repair, query vocabulary. **Jimmy designated this session master merger on 2026-08-09** — adopted the "Mr Gu" handshake from that point. Merged #283–#295. |
+| **claude-planner** (planning & analysis) | `/Users/jimmygu/the_counselor-planner` | `claude/docs/planner-role-and-roadmap` | `172c2ca` | Active 2026-09-10. **Planning & analysis role — does not write application code, does not merge.** Owns `docs/QUANT_ENGINE_MAP.md`, WORK_LOG's roadmap, and read-only evaluation of shipped work against the live system. Any change it wants in `apps/` goes to an executing session as a written plan. See CLAUDE.md "Session roles". |
 | codex-chatbuilder | `/private/tmp/the_counselor_chatbuilder_test` | `codex/improve-chat-builder` | `0932c75` | abandoned 2026-05-19; rebase or delete |
 | deepseek-overlay-expansion | — | — | — | Merged 2026-06-01 — PRD-13c: 3 new portfolio overlay strategies (dual momentum, defense-first, stability tilt). |
 

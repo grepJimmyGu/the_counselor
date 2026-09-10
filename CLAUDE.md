@@ -33,6 +33,78 @@ Don't be the fourth.
 
 ---
 
+## Session roles — planning vs execution
+
+Sessions split by **role**, not only by branch and worktree. A session is one
+of two things, and it should say which in its first reply.
+
+### Executing session (the default)
+
+Writes code, opens feature PRs, fixes bugs. Everything in this file that talks
+about pre-push checklists, tests and migrations is addressed to you.
+
+### Planning & analysis session
+
+**Designated 2026-09-10 by Jimmy.** Owns the roadmap and the evaluation of
+work already shipped. It does **not** implement.
+
+**Does:**
+
+- **Owns the roadmap.** `docs/QUANT_ENGINE_MAP.md`, the "Next, in order" block
+  in `agent-system/WORK_LOG.md`, PRD sequencing, and what the packet is *for*.
+  When an executing session wants to know what to build next, that is where the
+  answer lives.
+- **Writes the plan an executing session implements** — scope, slices, the
+  definition of done, the traps that apply. Not the code.
+- **Runs analysis to evaluate results.** Read-only, against the live system:
+  query the deployed API, read production data, run the engine over a real
+  record, and report what the numbers actually say. This is where the session's
+  value is — every real defect found on 2026-09-07/09 came from executing
+  against the live account, not from reading fixtures:
+  - giveback was overstated **2.4×** ($10,535 → $4,349) because it priced on
+    episode total units instead of units held at the MFE date;
+  - the $35,816 exit gap turned out to be a **net** of +$73,770 against
+    −$37,954, which changed the copy from an accusation into a description;
+  - both markout profiles were **noise** — quartiles straddling zero at every
+    horizon — which is why `has_consistent_pattern` exists;
+  - `/account/brokerage` was dying behind Next's error boundary, diagnosed by
+    curling the deployed `openapi.json` and finding `LeakView` had no `trades`.
+- **Reviews merged work against the blueprint** and updates the map when a
+  section changes status or an open question closes.
+
+**Does not:**
+
+- write or edit application code (`apps/api/app/**`, `apps/web/src/**`);
+- open feature PRs;
+- run `gh pr merge` — ever, on anything, including its own docs.
+
+**Its lane is `docs/`, `agent-system/`, and this file.** It may open PRs for
+those, because a roadmap that cannot land is not a roadmap. Any change it wants
+in application code goes to an executing session as a written plan.
+
+> **"No execution" means no implementation, not no tool use.** The analysis half
+> of this role requires running things — `curl` against production, read-only
+> DB queries, the test suite, a script over a real brokerage record. That is the
+> job. What it must not do is *write the feature*. Read-only against production
+> stays read-only: Jimmy fires anything that writes.
+
+### Why this exists
+
+*2026-09-09 — two sessions worked the same subsystem for a day.* PR #362
+duplicated a fix another session had already written and verified; PR #365 then
+rewrote 321 lines of `mirror-when-section.tsx`, the file #362 had just repaired.
+Nothing broke — the guard survived and the fix is intact on `main` — but neither
+collision was prevented by isolation, because **both sessions were already in
+separate worktrees the whole time.** Worktrees isolate the filesystem; those
+collisions lived in coordination. Splitting by role removes the class outright:
+two sessions that are not writing the same kind of artifact cannot collide in it.
+
+The corollary is that the planning session's output has to land in git to be
+worth anything — see PARALLEL_WORK.md's "State lives in git." A roadmap that
+exists only in one chat window is the out-of-band channel that rule warns about.
+
+---
+
 ## Boot sequence
 
 Read these files in order. Each is the canonical source for its topic; do
@@ -331,6 +403,7 @@ The canonical in-repo sources of truth (read on demand, not all at boot):
 | **State** — where work stopped, what's next, what not to touch | [`agent-system/WORK_LOG.md`](agent-system/WORK_LOG.md) |
 | **History** — the one chronological log of what shipped | [`project_log.md`](project_log.md) |
 | **Journal** — the story of the project, and its lessons | [`docs/BUILDING_LIVERMORE_JOURNAL.md`](docs/BUILDING_LIVERMORE_JOURNAL.md) |
+| **Roadmap** — the Quant Engine blueprint mapped to what ships, and the open questions | [`docs/QUANT_ENGINE_MAP.md`](docs/QUANT_ENGINE_MAP.md) |
 
 > **Only two of those are logs, and they do different jobs.** `WORK_LOG.md` is
 > STATE: rewrite the top of it at every checkpoint, never append dated entries,
