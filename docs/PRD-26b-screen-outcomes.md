@@ -151,6 +151,99 @@ beneath it. No functional change.
 
 ---
 
+## 4b. The surface the three doors sit on
+
+*Added 2026-09-10 by the executing session, from Jimmy's UI spec. §§0–4 above are
+unchanged; this section is what the three outcomes are rendered on top of, and it
+exists because §2 is what finally gives a hand-picked basket somewhere to go.*
+
+Four changes to the results surface. Each is checked against the code below —
+what already exists, what is genuinely new, and one that reverses an earlier
+decision and should be chosen rather than inherited.
+
+### 4b.1 Conditions on top, editable, with the universe
+
+The reader has to see what they asked for, change it in place, and not be told
+a number that means nothing to them.
+
+| Piece | State |
+|---|---|
+| Condition chips, each with the count it matches ALONE | **Ships** on `/screen` (`query-results.tsx` `ConditionChip`), one `POST /api/screen/count` per chip |
+| Edit a condition without leaving the page | **Ships** — the search box is retained at the top and re-pushes `?q=` |
+| **Universe selector — S&P 500 / Russell 3000** | **New.** `/screen` reads `?universe=` and never lets you change it; the pair already exists as `UNIVERSES` in `smart-search-box.tsx`. Changing it re-scans |
+| **Drop the total-universe size** | **New**, and it is a deletion: `query-results.tsx:672` and `screener-results.tsx:285` both render `of {universe_size}`. "14 of 503" invites the reader to judge the screen by its yield, which is not a quality signal — a screen matching 3 names is not worse than one matching 300 |
+
+Keep the match count itself. It is the one number that says how much work is
+left to do.
+
+### 4b.2 The names, not a table of them
+
+Today `/screen` is a dense sortable table: one column per condition carrying its
+value, switchable column groups, ranking on any column, 25-row paging. That is
+**Jimmy's own 2026-08-07 spec**, shipped across #303 / #304 / #305 / #307.
+
+The proposal here replaces it with a **map of names** — a compact grid holding
+many more tickers on one screen, where editing a condition fades tickers in and
+out rather than re-paginating a table.
+
+> ⚠ **This reverses a shipped decision, and the trade is real.** The table's
+> columns are what justify each match — the value of each condition, per name.
+> A name map shows more names and no reasons. Both are defensible; what is not
+> defensible is switching by accident. If the map ships, the condition values
+> should survive behind a toggle rather than be deleted, so "why is NVDA here"
+> is still answerable.
+
+The fade is not decoration: it is the only affordance that shows a condition
+edit *doing* something to a 200-name basket. A table that re-renders gives no
+sense of what changed.
+
+### 4b.3 Clicking a name opens it beside the list
+
+A row click today leaves the page for `/stocks/[ticker]`, which loses the
+screen. Instead: open a company profile in a right-hand panel, list still
+visible on the left.
+
+`getCompanyOverview(symbol)` already exists and is already used this way — the
+company drawer in `smart-search-box.tsx` (`openCompany`). The render is inline
+in that component, so the work is **extracting it into a shared panel**, not
+building one. Do not fork a second overview renderer.
+
+### 4b.4 Selection, and what it is for
+
+Users pick names — multi-select, drag, or whatever reads best — into a basket.
+
+**This is the point that §2 rescues.** Before "Hold the basket" existed, a
+hand-picked selection had nowhere to go, and the obvious guesses were both
+wrong:
+
+- it is **not** the input to *Watch it*. A saved screen is rules re-run daily by
+  `monitor_saved_screens`; `ScreenSaveRequest` carries `{title, universe_id,
+  rules}` and no symbol list. Pinning picks to it means tomorrow's cron
+  overwrites them. That is not a missing field, it is what saving *is*;
+- it is **not** the input to *Study one*, which takes exactly one symbol
+  (`buildPromoteDraft(context, symbol)`).
+
+It is the input to **Hold the basket** (§2): the selected names become
+`inherited_universe`, and §2.4's top-K cut becomes a default the user can
+override by hand rather than a number imposed on them.
+
+So the selection needs one state, not two: **selected** feeds the basket door,
+and the other two doors ignore it. If nothing is selected, Hold-the-basket falls
+back to §2.4's ranked top-K — selection is a refinement, never a prerequisite.
+
+### 4b.5 What this does not settle
+
+`/screen` (`query-results.tsx`) and the flow's `screen_results`
+(`screener-results.tsx`) are two renderings of "a query landed", and they split
+the pieces this section needs: the conditions header lives on the first, the
+three doors live on the second. Building 4b.1 and the doors on one screen means
+choosing one. That choice is `PROJECT_BACKLOG.md` §4 "One results surface for
+both query engines" (#368) and is **not decided here** — but it blocks the UI
+slices below, and whichever surface wins should be the one with a real URL, so
+a screen can be sent to someone.
+
+---
+
 ## 5. Out of scope
 
 - **The two screener backends.** `screener.py` vs `screen.py` is #368's question.
@@ -169,6 +262,7 @@ beneath it. No functional change.
 | 2 | Does Trade-it need to reach **active execution**, or is backtest-and-save enough for v1? | Changes the scope by roughly a slice |
 | 3 | Is **"Trade it"** the right word, given the product places no orders? Alternatives: "Hold the basket", "Build a portfolio from this" | Naming is the whole point of this PRD; getting it wrong repeats PRD-26 |
 | 4 | Should the drift notice **offer** re-promote, or only report drift? | Offering it makes the frozen basket feel living without lying about the backtest |
+| 5 | **Do the three doors gate differently?** Watch-it is Strategist+ today (`save_screen` is tier-gated). If Hold-the-basket gates too and Study-one does not, a free user meets three doors and can open one | Must be answered BEFORE slice 1, which renders them as a peer set. Three doors with two locks reads worse than one door — the product becomes visibly withholding. Everything ships ungated today while Stripe is unconfigured |
 
 ---
 
@@ -181,8 +275,19 @@ beneath it. No functional change.
 | **3 — Trade it** | Screen basket → top-K → overlay pick → existing backtest → review → save | A technical *and* a fundamental basket both reach a saved portfolio strategy; `rebalance` excluded with a stated reason; below-minimum baskets refuse with the reason |
 | **4 — Drift notice** | Set difference between `current_basket` and the strategy's frozen `inherited_universe`, rendered on `/screens/{id}` and the strategy page | A screen whose basket has moved says so on both surfaces |
 
+| **5 — Conditions header** | Universe selector (S&P 500 / Russell 3000, re-scans on change); delete the `of {universe_size}` render in both surfaces; condition chips carried onto whichever surface wins §4b.5 | Changing the universe re-scans; no total-universe number renders anywhere; the match count stays |
+| **6 — Company panel** | Extract the `openCompany` overview render out of `smart-search-box.tsx` into a shared panel; mount it right of the list | A row click opens the company beside the list without leaving the screen; one overview renderer, not two |
+| **7 — Selection → basket** | Multi-select on the name list; selected names become Hold-the-basket's `inherited_universe`, overriding §2.4's top-K | Selecting nothing still works (falls back to ranked top-K); Watch-it and Study-one ignore the selection |
+| **8 — Name map** | Replace the table with a name grid; condition edits fade tickers in/out; condition values survive behind a toggle | More names visible than the table at the same height; "why is this name here" still answerable |
+
 Slices 1 and 2 are independent and can land in either order. Slice 3 depends on 2.
 Slice 4 depends on 3.
+
+**The UI slices (5–8) all depend on §4b.5** — the surface question in #368 — because
+they add to a page that has two competing implementations today. 5 and 6 are
+independent of each other and of 1–4. **7 depends on slice 3**: selection has no
+destination until Hold-the-basket exists. 8 is last and is the only one that
+reverses a shipped decision.
 
 ---
 
