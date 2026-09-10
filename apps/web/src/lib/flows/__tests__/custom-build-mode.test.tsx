@@ -466,3 +466,77 @@ describe("CustomBuildCanvas", () => {
     expect(runBtn.disabled).toBe(false);
   });
 });
+
+// ── where a parsed query lands ──────────────────────────────────────────────
+
+/**
+ * A query typed in Home's search box — or clicked as a "Traders ask" chip —
+ * arrives with its rules already parsed. Its answer is a list of names, and
+ * `screen_results` is the surface that renders one. The flow used to stop on
+ * the composer canvas instead, which Home badges "Expert".
+ */
+describe("a query that arrived already parsed", () => {
+  const step = (id: string) =>
+    CustomBuildModeFlow.steps.find((s) => s.id === id)!;
+
+  const ctx = (over: Partial<CustomBuildModeContext>) =>
+    ({ rules: [], universe_id: "symbols", ...over }) as CustomBuildModeContext;
+
+  it("goes straight to the results, not the canvas", () => {
+    const next = step("pick_template").next!;
+    expect(
+      next(ctx({ rules: [{ uid: "r1" } as BuildRule], universe_id: "sp500" })),
+    ).toBe("screen_results");
+  });
+
+  it("lands on the SAME step compose_signals would have routed it to", () => {
+    /* The destination is not new — `compose_signals` already sends exactly
+     * this shape to `screen_results`. If these two ever disagree, a query
+     * would land somewhere its own next step wouldn't have chosen. */
+    const withRules = ctx({
+      rules: [{ uid: "r1" } as BuildRule],
+      universe_id: "sp500",
+    });
+    expect(step("pick_template").next!(withRules)).toBe(
+      step("compose_signals").next!(withRules),
+    );
+  });
+
+  it("routes a mixed query by its pre-narrowed symbols", () => {
+    /* universe "symbols" carrying dozens of names IS a screen — the PRD-29
+     * distinction `isScreenUniverse` exists for. */
+    const next = step("pick_template").next!;
+    expect(
+      next(
+        ctx({
+          rules: [{ uid: "r1" } as BuildRule],
+          universe_id: "symbols",
+          entered_symbols: ["AAPL", "MSFT", "NVDA"],
+        }),
+      ),
+    ).toBe("screen_results");
+  });
+
+  it("leaves every rules-empty entry on the canvas", () => {
+    /* The gallery's own picks and a blank composer launch both arrive with no
+     * rules — they still need somewhere to write them. */
+    const next = step("pick_template").next!;
+    expect(next(ctx({ universe_id: "sp500" }))).toBe("compose_signals");
+    expect(next(ctx({ universe_id: "symbols" }))).toBe("compose_signals");
+  });
+
+  it("keeps a single-symbol backtest on the canvas even with rules", () => {
+    /* One entered name is not a screen; it is a backtest, and the canvas is
+     * where the symbol and exit ladder get set. */
+    const next = step("pick_template").next!;
+    expect(
+      next(
+        ctx({
+          rules: [{ uid: "r1" } as BuildRule],
+          universe_id: "symbols",
+          entered_symbols: ["AAPL"],
+        }),
+      ),
+    ).toBe("compose_signals");
+  });
+});

@@ -1,5 +1,7 @@
 /** @vitest-environment jsdom */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 
 vi.mock("@/lib/api", () => ({
@@ -272,7 +274,21 @@ describe("fundamental-only queries", () => {
     });
     render(<SmartSearchBox />);
     submit("p/e under 15");
-    await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/stocks?max_pe=15"));
+    /* CORRECTED DESTINATION, stated openly per CLAUDE.md.
+     *
+     * This asserted `/stocks?max_pe=15`, and passed, and was wrong the whole
+     * time. Market Pulse took over `/stocks` on 2026-05-15 (PRD-15) and reads
+     * no query params; the screener that reads `max_pe` moved to
+     * `/stocks/screener`. #283 wrote the push on 2026-08-05 — a PR titled
+     * "repair the fundamental screening path (P/E, yield, routing)" — three
+     * months after the route it targeted stopped being the screener.
+     *
+     * The test pinned the push SHAPE and never checked the destination
+     * rendered anything, so it certified a path where the server resolved the
+     * names (543 for "p/e under 15" today) and the browser dropped them. */
+    await waitFor(() =>
+      expect(pushMock).toHaveBeenCalledWith("/stocks/screener?max_pe=15"),
+    );
     // The signal-scan launcher rejects an empty rule set, so routing there
     // would have shown "try naming an indicator".
     expect(launchScreenFromParsedRules).not.toHaveBeenCalled();
@@ -292,7 +308,7 @@ describe("fundamental-only queries", () => {
     submit("healthcare small caps");
     await waitFor(() =>
       expect(pushMock).toHaveBeenCalledWith(
-        "/stocks?sector=Health+Care&market_cap_category=small",
+        "/stocks/screener?sector=Health+Care&market_cap_category=small",
       ),
     );
   });
@@ -312,5 +328,36 @@ describe("fundamental-only queries", () => {
     submit("oversold");
     await waitFor(() => expect(launchScreenFromParsedRules).toHaveBeenCalled());
     expect(pushMock).not.toHaveBeenCalled();
+  });
+});
+
+// ── the guard the corrected test above could not be ─────────────────────────
+
+/**
+ * Asserting `pushMock` was called with a path proves the box's intent, never
+ * that the path renders anything. That is how `/stocks?max_pe=15` stayed green
+ * for a month while dropping every filter: the assertion and the bug agreed.
+ *
+ * This reads the routes themselves. It is the cheapest thing that would have
+ * failed on 2026-08-05.
+ */
+describe("the fundamental push targets a route that reads params", () => {
+  const read = (p: string) =>
+    readFileSync(resolve(process.cwd(), "src/app", p), "utf8");
+
+  it("sends filters to the route that renders the screener", () => {
+    // `StocksPageInner` is the component holding getParam("max_pe") / ("min_pe").
+    expect(read("stocks/screener/page.tsx")).toContain("StocksPageInner");
+    expect(read("stocks/_page-inner.tsx")).toContain('getParam("max_pe")');
+  });
+
+  it("does NOT send them to /stocks, which is Market Pulse", () => {
+    /* PRD-15 took this route on 2026-05-15. It renders MarketPulsePage, which
+     * reads no search params at all — so a filter pushed here is discarded in
+     * silence, with a 200 and a plausible-looking page. */
+    const stocks = read("stocks/page.tsx");
+    expect(stocks).toContain("MarketPulsePage");
+    expect(stocks).not.toContain("StocksPageInner");
+    expect(read("stocks/_market-pulse.tsx")).not.toContain("useSearchParams");
   });
 });

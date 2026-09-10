@@ -94,7 +94,33 @@ export const CustomBuildModeFlow: FlowDefinition<CustomBuildModeContext> = {
     {
       id: "pick_template",
       brick: RecommendedTemplatesGallery,
-      next: () => "compose_signals",
+      // A query that ARRIVED PARSED goes straight to its results.
+      //
+      // The chip in Home's "Traders ask" reads like a question, and its answer
+      // is a list of names — but the flow used to stop on the composer canvas,
+      // which is the surface badged "Expert" on Home. A beginner clicking
+      // "golden cross" got a rule-building canvas instead of an answer, and the
+      // block's own caption ("Runs in the search box above") promised neither.
+      //
+      // The destination is not new: `compose_signals` already routes exactly
+      // this shape to `screen_results` one step later. This only stops making
+      // the user click through a canvas to reach a page they were always
+      // going to land on. `← Edit reading` on the results surface takes them
+      // to that canvas when they DO want it — after seeing what it found.
+      //
+      // Rules-empty entries (the gallery's own picks, a blank composer launch)
+      // fall through unchanged.
+      // `ctx.rules?.length`, not `ctx.rules.length`. A context can reach this
+      // step without the field: entry-mode-picker spreads
+      // INITIAL_CUSTOM_BUILD_CONTEXT precisely because the canvas crashed on
+      // an undefined `rules` and showed Next's "This page couldn't load", and
+      // the existing test pins a bare `{}` here. Dereferencing it directly
+      // moved that crash one step earlier.
+      next: (ctx) =>
+        (ctx.rules?.length ?? 0) > 0 &&
+        isScreenUniverse(ctx.universe_id, ctx.entered_symbols)
+          ? "screen_results"
+          : "compose_signals",
     },
     {
       id: "compose_signals",
