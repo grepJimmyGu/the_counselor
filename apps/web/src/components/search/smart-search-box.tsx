@@ -230,8 +230,16 @@ export function SmartSearchBox() {
           result.screen.screener_params &&
           Object.keys(result.screen.screener_params).length > 0;
         if (fundamentalOnly) {
+          // `/stocks/screener`, NOT `/stocks`. Market Pulse took over `/stocks`
+          // on 2026-05-15 (PRD-15) and reads no query params at all; the
+          // screener that reads `max_pe` / `min_pe` moved to the subroute. This
+          // push was written on 2026-08-05 by #283 — "repair the fundamental
+          // screening path (P/E, yield, routing)" — pointing at a route that
+          // had been Market Pulse for three months, so every fundamental query
+          // since has resolved its names on the server and thrown them away in
+          // the browser. "p/e under 15" matches 543 names today.
           const qs = new URLSearchParams(result.screen.screener_params).toString();
-          router.push(`/stocks?${qs}` as Route);
+          router.push(`/stocks/screener?${qs}` as Route);
           return;
         }
         const launched = await launchScreenFromParsedRules(
