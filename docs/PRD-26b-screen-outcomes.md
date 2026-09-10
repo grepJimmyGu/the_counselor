@@ -43,19 +43,24 @@ replaces this button has to work for a basket that is only a list of names.
 A screen is a standing rule over a universe that produces a **basket that changes over
 time**. It has exactly three honest outcomes, and they should be named for what they do.
 
+**Decided 2026-09-10 by Jimmy: there are TWO outcomes, not three.**
+
 | Outcome | Keeps | Produces | Lands on | Status |
 |---|---|---|---|---|
-| **Watch it** | the basket, living | new-entrant / exit alerts | `/screens/{id}` | ✅ ships (PRD-23c) |
-| **Trade it** | the basket, frozen | a portfolio-overlay strategy | `/account/strategies/{id}` | ⬅ **this PRD** |
-| **Study one** | the rules, one name | a single-asset strategy | `/account/strategies/{id}` | ✅ ships as "Promote", **misnamed** |
+| **Save Live Rule** | the **rule**, living — re-run by cron | a saved screen you revisit like a search result | `/screens/{id}` | ✅ ships (PRD-23c) |
+| **Create a Portfolio** | the **names**, frozen at today | a portfolio-overlay strategy you backtest | `/account/strategies/{id}` | ⬅ **this PRD** |
 
-Read down the "Keeps" column: that is the whole product decision. A screen's value is
-either the *basket* or the *rule*, and the user has to be told which one each door
-keeps. Today neither door says.
+Read down the "Keeps" column: that is the whole product decision. One door keeps the
+*question* and keeps asking it; the other keeps the *answer* as it stands today. The
+user has to be told which. Today neither door says.
+
+**"Study one" is removed** — see §3. It was the third door in the first draft of this
+PRD and Jimmy cut it: a screen exists to produce a set, and a door that throws the set
+away to build a single-name strategy is a different feature wearing a screen's clothes.
 
 ---
 
-## 2. Trade it — the new outcome
+## 2. Create a Portfolio — the new outcome
 
 ### 2.1 The machinery already exists
 
@@ -132,29 +137,46 @@ the overlay cards; that is how the two screener backends happened.
 
 ---
 
-## 3. Study one — the rename
+## 3. Study one — removed
 
-Keep the feature exactly as built. Change the label to what it does:
+**Cut by Jimmy, 2026-09-10.** The earlier draft kept the feature and renamed it. It is
+now removed from the results surface entirely.
 
-> **Promote to strategy** → **Build a strategy for one name**
+This is a **deletion of shipped code**, not a hidden button — say so plainly so nobody
+"restores" it later:
 
-and put the seeded-thresholds/ATR-ladder explanation in the sheet, where it already
-partly lives. No code change beyond copy and the button's placement among three peers.
+- `PromoteToStrategyButton` (`components/bridge/promote-to-strategy-button.tsx`)
+- `buildPromoteDraft` + the seeded-threshold / ATR-ladder path (`lib/flows/promote-to-strategy.ts`)
+- their call site and tests in `screener-results.tsx`
+
+The single-asset path itself is untouched — the composer still builds one-name
+strategies, and `one_asset_mode` is unaffected. What goes is the door **from a screen**
+into that path. If it turns out users wanted it, it returns as a per-row action on a
+ticker, not as a peer of the two outcomes.
 
 ---
 
-## 4. Watch it — unchanged, promoted to primary
+## 4. Save Live Rule — unchanged, promoted to primary
 
-"Save + track" is the only outcome that keeps the basket living, and it is the one a
-screen is *for*. It should read as the primary action, with the other two as peers
-beneath it. No functional change.
+Today's "Save + track this screen". **No functional change** — it already does exactly
+what the name now says: persists the rule as `SavedStrategy(kind="screen")`, wires a
+`SignalAlertSubscription` into `monitor_saved_screens`, seeds the basket, and re-runs
+on the cron. Revisiting `/screens/{id}` reads like a search result you saved.
+
+Two changes, both outside this outcome's own machinery:
+
+- **Rename** to "Save Live Rule". "Save + track this screen" does not say what is being
+  saved, and the whole point of §1 is that the user must know which door keeps what.
+- **Surface it under Your Livermore.** `home-your-livermore.tsx` does not mention
+  screens today, so a saved rule is currently reachable only by URL. A saved thing the
+  user cannot find again is not saved.
 
 ---
 
-## 4b. The surface the three doors sit on
+## 4b. The surface the two doors sit on
 
 *Added 2026-09-10 by the executing session, from Jimmy's UI spec. §§0–4 above are
-unchanged; this section is what the three outcomes are rendered on top of, and it
+unchanged; this section is what the two outcomes are rendered on top of, and it
 exists because §2 is what finally gives a hand-picked basket somewhere to go.*
 
 Four changes to the results surface. Each is checked against the code below —
@@ -186,12 +208,12 @@ The proposal here replaces it with a **map of names** — a compact grid holding
 many more tickers on one screen, where editing a condition fades tickers in and
 out rather than re-paginating a table.
 
-> ⚠ **This reverses a shipped decision, and the trade is real.** The table's
-> columns are what justify each match — the value of each condition, per name.
-> A name map shows more names and no reasons. Both are defensible; what is not
-> defensible is switching by accident. If the map ships, the condition values
-> should survive behind a toggle rather than be deleted, so "why is NVDA here"
-> is still answerable.
+> ✅ **DECIDED 2026-09-10: the map ships.** Jimmy chose it knowing it reverses
+> #303–#307. The trade is real and is accepted: the table's columns are what
+> justify each match, and a map shows more names and no reasons. **The condition
+> values therefore survive behind a toggle rather than being deleted** — "why is
+> NVDA here" must stay answerable, which is the condition the decision was made
+> under.
 
 The fade is not decoration: it is the only affordance that shows a condition
 edit *doing* something to a 200-name basket. A table that re-renders gives no
@@ -212,32 +234,32 @@ building one. Do not fork a second overview renderer.
 
 Users pick names — multi-select, drag, or whatever reads best — into a basket.
 
-**This is the point that §2 rescues.** Before "Hold the basket" existed, a
+**This is the point that §2 rescues.** Before **Create a Portfolio** existed, a
 hand-picked selection had nowhere to go, and the obvious guesses were both
 wrong:
 
-- it is **not** the input to *Watch it*. A saved screen is rules re-run daily by
+- it is **not** the input to *Save Live Rule*. That door saves the RULE, re-run daily by
   `monitor_saved_screens`; `ScreenSaveRequest` carries `{title, universe_id,
   rules}` and no symbol list. Pinning picks to it means tomorrow's cron
   overwrites them. That is not a missing field, it is what saving *is*;
-- it is **not** the input to *Study one*, which takes exactly one symbol
-  (`buildPromoteDraft(context, symbol)`).
+- *Study one* is gone (§3), so the single-name door it might have fed no longer
+  exists.
 
-It is the input to **Hold the basket** (§2): the selected names become
-`inherited_universe`, and §2.4's top-K cut becomes a default the user can
-override by hand rather than a number imposed on them.
+It is the input to **Create a Portfolio** (§2): the selected names become
+`inherited_universe` — the static list Jimmy specified — and §2.4's top-K cut
+becomes a default the user can override by hand rather than a number imposed on
+them.
 
-So the selection needs one state, not two: **selected** feeds the basket door,
-and the other two doors ignore it. If nothing is selected, Hold-the-basket falls
-back to §2.4's ranked top-K — selection is a refinement, never a prerequisite.
+So the selection needs one state: **selected** feeds Create-a-Portfolio, and
+Save-Live-Rule ignores it entirely — that door keeps the rule, not the names.
+If nothing is selected, Create-a-Portfolio falls back to §2.4's ranked top-K — selection is a refinement, never a prerequisite.
 
 ### 4b.5 What this does not settle
 
 `/screen` (`query-results.tsx`) and the flow's `screen_results`
 (`screener-results.tsx`) are two renderings of "a query landed", and they split
 the pieces this section needs: the conditions header lives on the first, the
-three doors live on the second. Building 4b.1 and the doors on one screen means
-choosing one. That choice is `PROJECT_BACKLOG.md` §4 "One results surface for
+two doors live on the second. Building 4b.1 and the doors on one screen means choosing one. That choice is `PROJECT_BACKLOG.md` §4 "One results surface for
 both query engines" (#368) and is **not decided here** — but it blocks the UI
 slices below, and whichever surface wins should be the one with a real URL, so
 a screen can be sent to someone.
@@ -260,9 +282,9 @@ a screen can be sent to someone.
 |---|---|---|
 | 1 | **Tier gating.** Save+track is Strategist+ today. Is Trade-it the same, or Quant? | It is the highest-value outcome; gating it hardest may be right, but see the Stripe question — everything ships ungated today |
 | 2 | Does Trade-it need to reach **active execution**, or is backtest-and-save enough for v1? | Changes the scope by roughly a slice |
-| 3 | Is **"Trade it"** the right word, given the product places no orders? Alternatives: "Hold the basket", "Build a portfolio from this" | Naming is the whole point of this PRD; getting it wrong repeats PRD-26 |
+| 3 | ~~Is "Trade it" the right word?~~ | **CLOSED 2026-09-10 — "Create a Portfolio".** "Trade it" promised execution the product deliberately does not do (Home says "No automated trading"; `test_snaptrade_readonly_guard` bans every timer-driven order), which would have repeated the PRD-26 error in a PRD written to fix it |
 | 4 | Should the drift notice **offer** re-promote, or only report drift? | Offering it makes the frozen basket feel living without lying about the backtest |
-| 5 | **Do the three doors gate differently?** Watch-it is Strategist+ today (`save_screen` is tier-gated). If Hold-the-basket gates too and Study-one does not, a free user meets three doors and can open one | Must be answered BEFORE slice 1, which renders them as a peer set. Three doors with two locks reads worse than one door — the product becomes visibly withholding. Everything ships ungated today while Stripe is unconfigured |
+| 5 | ~~Do the doors gate differently?~~ | **CLOSED 2026-09-10 — no gates.** Both outcomes ship ungated, matching how 43b shipped while Stripe is built and unconfigured. Note this makes `save_screen` MORE open than today, where it is Strategist+: removing that gate is part of the work, not a no-op |
 
 ---
 
@@ -270,15 +292,16 @@ a screen can be sent to someone.
 
 | Slice | Scope | DoD |
 |---|---|---|
-| **1 — Rename** | "Promote to strategy" → "Build a strategy for one name"; three outcomes rendered as a named set with the Keeps column stated in copy | The results surface says what each door keeps; existing promote behaviour byte-unchanged |
+| **1 — Two doors** | Remove "Promote to strategy" and its code (§3); rename "Save + track" → **Save Live Rule**; render the two outcomes as a named pair stating what each keeps; drop the Strategist+ gate on `save_screen` | The surface offers exactly two doors and says what each keeps; no promote path remains from a screen; a free account can open both |
 | **2 — Extract the overlay brick** | Lift `buildOverlayStrategyJson` + the card grid out of `overlay-picker.tsx` into a shared brick | `portfolio_mode` behaviour byte-unchanged; the brick mounts in two places |
-| **3 — Trade it** | Screen basket → top-K → overlay pick → existing backtest → review → save | A technical *and* a fundamental basket both reach a saved portfolio strategy; `rebalance` excluded with a stated reason; below-minimum baskets refuse with the reason |
+| **3 — Create a Portfolio** | Screen basket → top-K → overlay pick → existing backtest → review → save | A technical *and* a fundamental basket both reach a saved portfolio strategy; `rebalance` excluded with a stated reason; below-minimum baskets refuse with the reason |
 | **4 — Drift notice** | Set difference between `current_basket` and the strategy's frozen `inherited_universe`, rendered on `/screens/{id}` and the strategy page | A screen whose basket has moved says so on both surfaces |
 
 | **5 — Conditions header** | Universe selector (S&P 500 / Russell 3000, re-scans on change); delete the `of {universe_size}` render in both surfaces; condition chips carried onto whichever surface wins §4b.5 | Changing the universe re-scans; no total-universe number renders anywhere; the match count stays |
+| **5b — Your Livermore** | Link saved screens from `home-your-livermore.tsx`, which does not mention them today | A saved rule is reachable without knowing its URL |
 | **6 — Company panel** | Extract the `openCompany` overview render out of `smart-search-box.tsx` into a shared panel; mount it right of the list | A row click opens the company beside the list without leaving the screen; one overview renderer, not two |
-| **7 — Selection → basket** | Multi-select on the name list; selected names become Hold-the-basket's `inherited_universe`, overriding §2.4's top-K | Selecting nothing still works (falls back to ranked top-K); Watch-it and Study-one ignore the selection |
-| **8 — Name map** | Replace the table with a name grid; condition edits fade tickers in/out; condition values survive behind a toggle | More names visible than the table at the same height; "why is this name here" still answerable |
+| **7 — Selection → basket** | Multi-select on the name map; selected names become Create-a-Portfolio's `inherited_universe`, overriding §2.4's top-K | Selecting nothing still works (falls back to ranked top-K); Save-Live-Rule ignores the selection |
+| **8 — Name map** (decided) | Replace the table with a name grid; condition edits fade tickers in/out; condition values survive behind a toggle | More names visible than the table at the same height; "why is this name here" still answerable |
 
 Slices 1 and 2 are independent and can land in either order. Slice 3 depends on 2.
 Slice 4 depends on 3.
@@ -286,7 +309,7 @@ Slice 4 depends on 3.
 **The UI slices (5–8) all depend on §4b.5** — the surface question in #368 — because
 they add to a page that has two competing implementations today. 5 and 6 are
 independent of each other and of 1–4. **7 depends on slice 3**: selection has no
-destination until Hold-the-basket exists. 8 is last and is the only one that
+destination until Create-a-Portfolio exists. 8 is last and is the only one that
 reverses a shipped decision.
 
 ---
@@ -294,9 +317,9 @@ reverses a shipped decision.
 ## 8. What would make this proposal wrong
 
 If a screen is meant to be a **discovery tool and nothing more** — a way to find names
-you then research individually — then Trade-it should not exist, and the correct fix is
-slice 1 alone: rename the button, stop implying a screen becomes a strategy, and let
-"Watch it" be the only thing a screen persists as.
+you then research individually — then Create-a-Portfolio should not exist, and the
+correct fix is slice 1 alone: remove the promote button, stop implying a screen becomes
+a strategy, and let Save-Live-Rule be the only thing a screen persists as.
 
 That is a legitimate product position. It should be decided deliberately rather than
 inherited from a button label.
