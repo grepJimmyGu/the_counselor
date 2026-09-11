@@ -227,3 +227,59 @@ describe("ScreenResults", () => {
     expect(screen.getByText(/watching 2 names/)).toBeTruthy();
   });
 });
+
+// ── PRD-26b §1 — two doors, and each says what it keeps ─────────────────────
+
+describe("the screen's two outcomes", () => {
+  // The save door only renders for a signed-in reader (`rankGated`); anonymous
+  // sees the sign-in gate, which its own test above already covers.
+  beforeEach(() => {
+    sessionValue = { data: { backendToken: "tok" }, status: "authenticated" };
+    (screenRank as ReturnType<typeof vi.fn>).mockResolvedValue({
+      ranked: [],
+      as_of_date: "2026-06-15",
+      matched_count: 2,
+      backtested_count: 0,
+      dropped_count: 0,
+      universe_size: 503,
+      unsupported_primitives: [],
+      default_param_primitives: [],
+    });
+  });
+
+  it("no longer offers a door that throws the basket away", async () => {
+    /* PRD-26's "Promote to strategy" took ONE symbol out of the matched basket
+     * and discarded the rest — you narrowed 500 names to 14, pressed it, and
+     * got a single-name backtest. Removed, not renamed: the button, its sheet
+     * and `buildPromoteDraft` are deleted. `promote-to-strategy.ts` survives
+     * only for the ATR-ladder helpers `flow-track.tsx` imports. */
+    renderResults();
+    await waitFor(() => expect(screen.getByTestId("screen-results-save")).toBeTruthy());
+    expect(screen.queryByText(/Promote to strategy/i)).toBeNull();
+    expect(screen.queryByTestId("promote-to-strategy")).toBeNull();
+  });
+
+  it("offers exactly two, and each states what it keeps", async () => {
+    renderResults();
+    await waitFor(() => expect(screen.getByTestId("screen-results-save")).toBeTruthy());
+
+    const save = screen.getByTestId("screen-results-save").parentElement!;
+    expect(save.textContent).toContain("Save Live Rule");
+    expect(save.textContent).toMatch(/rule/i);
+    expect(save.textContent).toMatch(/not the names/i);
+
+    const portfolio = screen.getByTestId("screen-door-portfolio");
+    expect(portfolio.textContent).toContain("Create a Portfolio");
+    expect(portfolio.textContent).toMatch(/names/i);
+  });
+
+  it("tells the reader where a saved rule goes", async () => {
+    /* A saved thing the user cannot find again is not saved — and
+     * `home-your-livermore.tsx` does not link screens yet (slice 5b). */
+    renderResults();
+    await waitFor(() => expect(screen.getByTestId("screen-results-save")).toBeTruthy());
+    expect(
+      screen.getByTestId("screen-results-save").parentElement!.textContent,
+    ).toMatch(/Your Livermore/i);
+  });
+});

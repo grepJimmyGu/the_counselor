@@ -17,12 +17,15 @@
 import * as React from "react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import type { Holding, OverlayKind, StrategyJson } from "@/lib/contracts";
+import type { OverlayKind, StrategyJson } from "@/lib/contracts";
 import { OVERLAY_METADATA, OVERLAY_DISPLAY_ORDER } from "@/lib/overlay-metadata";
 import { StrategyCard } from "@/components/strategy-picker/strategy-card";
 import type { FlowStepProps } from "../types";
 import { registerModeCopy, useFlowCopy } from "../copy";
 import type { PortfolioModeContext } from "../portfolio-mode-context";
+// PRD-26b slice 2 — shared with the screen-basket door; see
+// `overlay-strategy-json.ts` for why it moved out of this file.
+import { buildOverlayStrategyJson } from "../overlay-strategy-json";
 
 type DateRange = "3Y" | "5Y" | "10Y";
 
@@ -36,92 +39,6 @@ registerModeCopy("portfolio_mode", {
   overlay_advanced_header: "Advanced Overlays",
   overlay_basic_header: "Basic Overlays",
 });
-
-function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
-}
-
-function fiveYearsAgoIso(years: number = 5): string {
-  const d = new Date();
-  d.setFullYear(d.getFullYear() - years);
-  return d.toISOString().slice(0, 10);
-}
-
-function makeWeights(holdings: Holding[]): Record<string, number> {
-  const explicit: Record<string, number> = {};
-  let hasAll = true;
-  for (const h of holdings) {
-    if (h.weight !== undefined && h.weight > 0) {
-      explicit[h.ticker] = h.weight;
-    } else {
-      hasAll = false;
-    }
-  }
-  if (hasAll && holdings.length > 0) {
-    const total = Object.values(explicit).reduce((a, b) => a + b, 0);
-    if (total > 0) {
-      const out: Record<string, number> = {};
-      for (const [k, v] of Object.entries(explicit)) out[k] = v / total;
-      return out;
-    }
-  }
-  const equal = 1 / Math.max(1, holdings.length);
-  const out: Record<string, number> = {};
-  for (const h of holdings) out[h.ticker] = equal;
-  return out;
-}
-
-function buildStrategyJson(
-  overlay: OverlayKind,
-  holdings: Holding[],
-  lookbackYears: number,
-): StrategyJson {
-  const tickers = holdings.map((h) => h.ticker);
-  const weights = makeWeights(holdings);
-  const meta = OVERLAY_METADATA[overlay];
-
-  // Overlays that use fixed target weights (all except rotation and dual_momentum)
-  const usesEqualWeight = overlay === "rotation" || overlay === "dual_momentum";
-
-  // Build rules based on overlay kind
-  let rules: Array<Record<string, unknown>> = [];
-  if (overlay === "rotation") {
-    rules = [{ ranking_lookback_days: 126, top_n: Math.min(3, tickers.length) }];
-  } else if (overlay === "dual_momentum") {
-    rules = [{
-      ranking_lookback_days: 126,
-      top_n: Math.min(3, tickers.length),
-      lookback_days: 252,
-    }];
-  } else if (overlay === "defensive") {
-    rules = [{ lookback_days: 200, source: "close", indicator: "moving_average", operator: "gt" }];
-  } else if (overlay === "defense_first") {
-    rules = [{ lookback_days: 200, threshold: 0.5, value: 0.5, source: "close", indicator: "moving_average", operator: "gt" }];
-  } else if (overlay === "stability_tilt") {
-    rules = [{ lookback_days: 63, value: 0.25 }];
-  }
-  // rebalance: no rules
-
-  return {
-    strategy_name: meta.label + " Overlay",
-    strategy_type: meta.strategyType,
-    universe: tickers,
-    inherited_universe: tickers,
-    benchmark: "SPY",
-    start_date: fiveYearsAgoIso(lookbackYears),
-    end_date: todayIso(),
-    initial_capital: 100_000,
-    rebalance_frequency: "monthly",
-    transaction_cost_bps: 5,
-    slippage_bps: 5,
-    rules: rules as StrategyJson["rules"],
-    position_sizing: usesEqualWeight
-      ? { method: "equal_weight" }
-      : { method: "fixed_weight", weights },
-    risk_management: {},
-    cash_management: { hold_cash_when_no_signal: true, cash_yield_bps: 0 },
-  };
-}
 
 export function OverlayPicker({
   context,
@@ -148,7 +65,7 @@ export function OverlayPicker({
     setSelected(overlay);
     updateContext({
       selectedOverlay: overlay,
-      strategyJson: buildStrategyJson(overlay, holdings, DATE_RANGE_YEARS[dateRange]),
+      strategyJson: buildOverlayStrategyJson(overlay, holdings, DATE_RANGE_YEARS[dateRange]),
     });
   };
 
@@ -162,7 +79,7 @@ export function OverlayPicker({
   React.useEffect(() => {
     if (selected) {
       updateContext({
-        strategyJson: buildStrategyJson(selected, holdings, DATE_RANGE_YEARS[dateRange]),
+        strategyJson: buildOverlayStrategyJson(selected, holdings, DATE_RANGE_YEARS[dateRange]),
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps

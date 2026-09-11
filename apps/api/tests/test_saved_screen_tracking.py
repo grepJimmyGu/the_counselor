@@ -317,13 +317,26 @@ def _gating_on(monkeypatch):
     )
 
 
-def test_save_endpoint_blocks_scout_with_402(authed, monkeypatch):
+def test_save_endpoint_is_open_to_every_tier(authed, monkeypatch):
+    """CONTRACT CHANGE, stated openly per CLAUDE.md.
+
+    This was `test_save_endpoint_blocks_scout_with_402` and asserted that Scout
+    got a 402 `screen_tracking_locked`. PRD-26b removed that gate on 2026-09-10:
+    a screen now has two outcomes rendered as peers, and gating one of two doors
+    means a free account meets both and can open one — worse than offering one
+    door. Stripe is built and unconfigured, so the check enforced against a
+    paywall nobody can pass.
+
+    The assertion is inverted rather than deleted, so the day someone re-gates
+    this the reason has to be re-argued rather than silently reinstated. The
+    INTRADAY gate is untouched and still pinned by
+    `test_intraday_screen_requires_quant` — that one is a compute cost.
+    """
     _gating_on(monkeypatch)
     client, set_user, _ = authed
     set_user(tier="scout")
     r = client.post("/api/screen/save", json=_save_body())
-    assert r.status_code == 402, r.text
-    assert r.json()["detail"]["entitlement"]["code"] == "screen_tracking_locked"
+    assert r.status_code == 200, r.text
 
 
 def test_gating_off_lifts_the_tier_gate(authed, monkeypatch):
