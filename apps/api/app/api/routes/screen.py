@@ -299,8 +299,8 @@ async def screen_save(
 
     The screen is a `SavedStrategy` (kind="screen"); a `SignalAlertSubscription`
     wires it into the `monitor_saved_screens` cron, which notifies on each NEW
-    basket entrant. Tier-gated Strategist+ (standing-screen tracking is a paid
-    feature). The initial basket is seeded SILENTLY here so the first cron tick
+    basket entrant. UNGATED as of 2026-09-10 (PRD-26b) — see the note in the
+    body. The initial basket is seeded SILENTLY here so the first cron tick
     doesn't fire a "new entrant" alert for every current match.
     """
     user, ent = auth
@@ -312,15 +312,18 @@ async def screen_save(
     # below are observe-only — mirrors how `_violation` gates elsewhere, so the
     # feature is testable on any tier with GATING_ENABLED=false.
     gating_on = get_settings().gating_enabled
-    if gating_on and tier not in ("strategist", "quant"):
-        raise upgrade_error(
-            "screen_tracking_locked",
-            current_tier=tier,
-            current_value=tier,
-            limit_value="strategist",
-        )
-    # Intraday screening is Quant-only — the universe-wide intraday warm is the
-    # top-tier perk (PRD-23c PR3).
+
+    # NO TIER GATE ON SAVING A SCREEN — removed 2026-09-10 (PRD-26b, Jimmy).
+    #
+    # This raised `screen_tracking_locked` for anything below Strategist. A
+    # screen now has exactly two outcomes (§1) and they are peers on the results
+    # surface; gating one of two doors means a free account meets both and can
+    # open one, which reads worse than offering one door. Stripe is built and
+    # unconfigured, so every tier check today enforces against a paywall nobody
+    # can pass — the same reason 43b shipped ungated.
+    #
+    # The INTRADAY gate below stays: Quant-only, because the universe-wide
+    # intraday warm is a compute cost, not a lock on this outcome (PRD-23c PR3).
     if gating_on and payload.bar_resolution == "intraday" and tier != "quant":
         raise upgrade_error(
             "screen_tracking_locked",

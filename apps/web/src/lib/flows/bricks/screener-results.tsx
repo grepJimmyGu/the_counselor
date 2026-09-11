@@ -23,6 +23,7 @@ import type {
   RankedSymbol,
   ScreenSaveResponse,
   ScreenScanResponse,
+  OverlayKind,
   StrategyJson,
 } from "@/lib/contracts";
 import type { CustomBuildModeContext } from "@/lib/flows/custom-build-mode-context";
@@ -37,8 +38,7 @@ import {
   TryOtherThemes,
 } from "@/components/templates/theme-landing-chrome";
 import { SignalGlanceChip } from "@/components/signals/signal-glance-chip";
-import { PromoteToStrategyButton } from "@/components/bridge/promote-to-strategy-button";
-import type { PromoteDraft } from "@/lib/flows/promote-to-strategy";
+import { ScreenPortfolioDoor } from "./screen-portfolio-door";
 import { cn } from "@/lib/utils";
 
 /**
@@ -203,19 +203,25 @@ export function ScreenResults({
     );
   }, [scan, ranked]);
 
-  // PRD-26 — promote the screen into a strategy. Seeds thresholds + a
-  // calculated exit ladder onto `strategyJson`, then advances into the existing
-  // backtest → review → save chain (screen_results.next reads strategyJson).
-  const handlePromote = useCallback(
-    (draft: PromoteDraft) => {
+  // PRD-26b §2 — "Create a Portfolio": freeze today's names into a
+  // portfolio-overlay strategy and hand it to the SAME backtest → review →
+  // save chain promote used (`screen_results.next` reads `strategyJson`).
+  //
+  // Replaces PRD-26's "Promote to strategy", which took ONE symbol out of the
+  // basket and discarded the rest — you narrowed 500 names to 14, pressed the
+  // button, and got a single-name backtest. Removed in this PR, not renamed.
+  const handleCreatePortfolio = useCallback(
+    (json: StrategyJson, overlay: OverlayKind, tickers: string[]) => {
       updateContext({
-        rules: draft.rules,
-        symbol: draft.symbol,
-        strategyJson: draft.strategyJson,
-        promoted_from_screen: {
+        strategyJson: json,
+        from_screen: {
           universe_id: context.universe_id,
           matched_count: scan?.matched_count ?? 0,
-          seeded_from_template: draft.seededFromTemplate,
+          // The frozen basket, and the date it was frozen AT. §2.2's drift
+          // notice is a set difference against this — it cannot exist if the
+          // strategy does not record what it took.
+          overlay,
+          basket: tickers,
           as_of_date: scan?.as_of_date ?? null,
         },
       } as Partial<CustomBuildModeContext>);
@@ -420,18 +426,25 @@ export function ScreenResults({
               data-testid="screen-results-save-gate"
               className="rounded-md bg-slate-50 px-4 py-2 text-[12px] text-slate-600"
             >
-              Sign in (Strategist+) to save + track this screen for new entrants.
+              Sign in to save this rule and get told when a new name enters.
             </p>
           ) : (
-            <button
-              type="button"
-              data-testid="screen-results-save"
-              onClick={handleSave}
-              disabled={saveState === "saving"}
-              className="self-start rounded-md border border-slate-300 px-4 py-2 text-sm font-medium text-slate-700 hover:border-slate-400 disabled:opacity-50"
-            >
-              {saveState === "saving" ? "Saving…" : "Save + track this screen →"}
-            </button>
+            <div className="rounded-lg border border-border p-3.5">
+              <button
+                type="button"
+                data-testid="screen-results-save"
+                onClick={handleSave}
+                disabled={saveState === "saving"}
+                className="text-sm font-semibold disabled:opacity-50"
+              >
+              {saveState === "saving" ? "Saving…" : "Save Live Rule"}
+              </button>
+              <p className="mt-1 text-[12px] leading-relaxed text-muted-foreground">
+                Keeps the <strong className="font-medium text-foreground">rule</strong>,
+                not the names. We re-run it every day and tell you when a new
+                name enters. Find it again under Your Livermore.
+              </p>
+            </div>
           )}
           {saveError && (
             <p
@@ -442,15 +455,10 @@ export function ScreenResults({
             </p>
           )}
 
-          {/* PRD-26 — the screen's second exit: turn it into a strategy with
-              seeded entry/exit and a calculated stop/target ladder. Saving the
-              screen (above) watches for NEW entrants; promoting produces a
-              backtested, alertable strategy. */}
-          <PromoteToStrategyButton
-            context={context}
-            matched={ordered}
-            onConfirm={handlePromote}
-          />
+          {/* PRD-26b §1 — the screen's TWO outcomes, and the whole point is
+              that each says what it keeps. One keeps the question and keeps
+              asking it; the other keeps today's answer. */}
+          <ScreenPortfolioDoor ordered={ordered} onCreate={handleCreatePortfolio} />
         </div>
       )}
 

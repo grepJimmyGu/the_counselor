@@ -12,7 +12,7 @@
  * to render parameter editors on the canvas.
  */
 import type { FlowContextBase } from "./types";
-import type {
+import type { OverlayKind,
   BacktestResult,
   ScreenRankResponse,
   ScreenUniverseId,
@@ -133,10 +133,18 @@ export interface CustomBuildModeContext extends FlowContextBase {
   /** PRD-26 — provenance when this strategy came from promoting a screen
    *  rather than being composed by hand. Set by ScreenResults' promote
    *  action; `screen_results.next` also keys off `strategyJson` being set. */
-  promoted_from_screen?: {
+  /** PRD-26b §2 — provenance for a portfolio created from a screen basket.
+   *
+   *  Renamed from `promoted_from_screen` and reshaped: `seeded_from_template`
+   *  belonged to PRD-26's promote path, which took ONE symbol and is removed.
+   *  What a portfolio needs recorded instead is WHICH names it froze and WHEN,
+   *  because §2.2's drift notice is a set difference against `basket` — it
+   *  cannot exist if the strategy never wrote down what it took. */
+  from_screen?: {
     universe_id: string;
     matched_count: number;
-    seeded_from_template: string | null;
+    overlay: OverlayKind;
+    basket: string[];
     as_of_date: string | null;
   };
 }
