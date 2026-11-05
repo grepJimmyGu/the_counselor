@@ -9,9 +9,14 @@ from sqlalchemy.orm import Session
 from app.data.sectors import normalize_sector
 from app.models.symbol import SymbolCache
 from app.schemas.fundamental import CompanyProfile, FundamentalSummary, KeyMetrics
+import logging
+
+from app.data.countries import normalize_country
 from app.services.adapters.fmp_adapter import FMPAdapter
 from app.services.adapters.yfinance_adapter import YFinanceAdapter
 from app.services.fmp_client import FMPNotConfiguredError, FMPRateLimitError
+
+logger = logging.getLogger(__name__)
 
 _CACHE_TTL_HOURS = 24  # fundamentals refresh daily
 
@@ -86,7 +91,7 @@ class FundamentalService:
         # them out of the exact-match sector screen. See app/data/sectors.py.
         existing.sector = normalize_sector(profile.sector)
         existing.industry = profile.industry
-        existing.country = profile.country
+        existing.country = normalize_country(profile.country)
         existing.description = profile.description
         existing.market_cap = profile.market_cap
         # Never null out a P/E we already have. FMP's *profile* has no P/E at
@@ -116,7 +121,10 @@ class FundamentalService:
         # Canonicalise here too, not just at the DB write: this profile is what
         # the caller renders and what the value-chain lookup keys on, so a fresh
         # fetch must agree with what a later cache hit will return.
-        return profile.model_copy(update={"sector": normalize_sector(profile.sector)})
+        return profile.model_copy(update={
+            "sector": normalize_sector(profile.sector),
+            "country": normalize_country(profile.country),
+        })
 
     async def _fetch_metrics(self, symbol: str) -> KeyMetrics:
         try:
@@ -151,7 +159,15 @@ class FundamentalService:
             )
         # Fetch fresh data
         profile = await self._fetch_profile(sym)
-        self._upsert_symbol(db, profile)
+        # The upsert is a cache refresh — a side effect of viewing the page, not
+        # the page. If Postgres rejects the row (column width, constraint, pool
+        # hiccup) the user must still get the profile we just fetched. Fail
+        # loudly in the log (trap #20), never in the response.
+        try:
+            self._upsert_symbol(db, profile)
+        except Exception:
+            db.rollback()
+            logger.exception("SymbolCache upsert failed for %s; serving fresh profile uncached", sym)
         return profile
 
     async def get_key_metrics(self, db: Session, symbol: str) -> KeyMetrics:
