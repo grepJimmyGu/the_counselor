@@ -29,6 +29,20 @@ A running log of bugs encountered, root causes, and confirmed fixes. Add new ent
 
 ## Entries
 
+### Company page 500 on the yfinance fallback — `symbols.country` is VARCHAR(8) and yfinance sends country NAMES. 2026-11-05.
+
+**Symptom:** `/stocks/BBY` rendered "Unable to load company data". Backend: `psycopg.errors.StringDataRightTruncation: value too long for type character varying(8)` on `UPDATE symbols SET ... country='United States'`.
+
+**Root cause:** `SymbolCache.country` is `String(8)` (`models/symbol.py:36`, `db/migrations.py:365`), sized for the ISO alpha-2 codes FMP returns (`"US"`). When FMP is unconfigured or rate-limited, `_fetch_profile` falls back to `YFinanceAdapter`, whose `info["country"]` is the full *name* — passed through raw at `adapters/yfinance_adapter.py:33` — and `_upsert_symbol` wrote it unguarded. **SQLite ignores VARCHAR length, so the local suite could never see this; Postgres enforces it.** The failing upsert then propagated out of `get_profile`, so a cache-refresh *side effect* took down the page *read*.
+
+**Fix (#TBD):** `app/data/countries.py` — `normalize_country()`, same shape as `normalize_sector`: name → alpha-2 at both the fetch boundary and the DB write, so a fresh fetch and a later cache hit agree. A long unrecognised value becomes `NULL` with a warning, never a truncated fabrication (`"United "` is not a country). Separately, `get_profile` wraps the upsert in `try/except` → `rollback` + `logger.exception`, and still returns the fetched profile.
+
+**Why normalise rather than widen the column:** `scripts/seed_symbols.py:94` already writes `"US"` for the ~8,000 seeded symbols, and the screener filters country by **exact match** (`services/screener_service.py:50`) with its options built from `_distinct(SymbolCache.country)` (line 36). Two spellings in that column would silently split the filter's vocabulary and halve its results. Normalising needs **no migration and no backfill** — every existing row already fits, because Postgres rejected everything that didn't.
+
+**Watch this — the fix introduces a quieter failure mode.** The upsert can no longer take down the page, which is right (the cache is not the page, trap #20). But it turns a loud failure into a silent one, and the silent version *loops*: if that write starts failing for any other reason, the cache stops filling → every company-page view re-fetches from the provider → FMP rate limit → more yfinance fallback → more writes to fail. Nothing surfaces it today except the log line `SymbolCache upsert failed for <sym>; serving fresh profile uncached`. **If company-page latency or FMP quota burn ever looks wrong, grep that line first.** A counter on it is backlogged.
+
+**Files:** `apps/api/app/data/countries.py` (new), `apps/api/app/services/fundamental_service.py`, `apps/api/tests/test_symbol_country_truncation.py` (new).
+
 ### FastAPI admin trigger 500'd — a sync `def` endpoint calling `asyncio.create_task` has no event loop. 2026-06-25.
 
 **Symptom:** `POST /api/admin/snapshot/warm` (the on-demand snapshot warm, #251) returned `500 Internal Server Error`. Worse, `start_warm()` sets the in-memory status to `"running"` *before* spawning the task, so the status wedged at `"running"` with no warm actually running — retries then 409'd ("already running") until the container restarted.
