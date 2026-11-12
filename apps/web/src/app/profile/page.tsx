@@ -96,7 +96,7 @@ export default function ProfilePage() {
                 {watchlist.map(({ symbol, added_at }) => (
                   <div key={symbol} className="flex items-center justify-between rounded-lg border border-border bg-muted/20 px-3 py-2.5">
                     <div>
-                      <Link href={`/stocks/${symbol}` as Route} className="font-mono text-sm font-bold hover:text-primary transition-colors">
+                      <Link href={`/stocks/${symbol}` as Route} prefetch={false} className="font-mono text-sm font-bold hover:text-primary transition-colors">
                         {symbol}
                       </Link>
                       <p className="text-[10px] text-muted-foreground">
@@ -104,7 +104,7 @@ export default function ProfilePage() {
                       </p>
                     </div>
                     <div className="flex items-center gap-1.5">
-                      <Link href={`/stocks/${symbol}` as Route}>
+                      <Link href={`/stocks/${symbol}` as Route} prefetch={false}>
                         <ArrowRight className="h-3.5 w-3.5 text-muted-foreground hover:text-primary transition-colors" />
                       </Link>
                       <WatchlistButton symbol={symbol} size="sm" />

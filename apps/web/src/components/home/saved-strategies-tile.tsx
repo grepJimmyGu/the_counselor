@@ -54,6 +54,7 @@ function FallbackRow({ strategy }: { strategy: UserSavedStrategy }) {
     <div className="rounded-lg border border-border bg-card p-3">
       <Link
         href={`/account/strategies/${strategy.id}` as Route}
+        prefetch={false}
         className="block truncate text-sm font-semibold text-foreground hover:text-primary"
       >
         {strategy.title}

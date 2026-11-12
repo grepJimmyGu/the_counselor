@@ -34,6 +34,7 @@ export function MoverRow({ card, category, href }: MoverRowProps) {
   return (
     <Link
       href={href as Route}
+      prefetch={false}
       className="block rounded-xl border border-border bg-white p-3 transition-colors hover:border-primary/40 hover:bg-accent/40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary"
     >
       {/* Top — symbol + category chip + perf badge */}

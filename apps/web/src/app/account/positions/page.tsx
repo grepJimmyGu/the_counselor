@@ -175,6 +175,7 @@ export default function PositionsPage() {
                         </span>
                         <Link
                           href={`/account/strategies/${p.strategy_id}` as Route}
+                          prefetch={false}
                           className="ml-2 text-[12px] text-muted-foreground underline-offset-2 hover:underline"
                         >
                           {p.strategy_title}

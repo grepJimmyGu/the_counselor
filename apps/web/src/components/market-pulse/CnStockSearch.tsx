@@ -168,6 +168,7 @@ export function CnStockSearch({ market }: { market: "US" | "CN" }) {
                   <div className="flex items-center gap-1.5">
                     <Link
                       href={`/stocks/${r.symbol}` as Route}
+                      prefetch={false}
                       className="rounded p-0.5 text-muted-foreground hover:bg-muted/20 hover:text-primary"
                       title="查看公司详情"
                       onClick={(e: React.MouseEvent) => e.stopPropagation()}
@@ -197,6 +198,7 @@ export function CnStockSearch({ market }: { market: "US" | "CN" }) {
               </span>
               <Link
                 href={`/stocks/${selected.symbol}` as Route}
+                prefetch={false}
                 className="ml-2 inline-flex items-center gap-0.5 text-[11px] font-medium text-primary hover:underline"
               >
                 查看公司 <ExternalLink className="h-3 w-3" />

@@ -315,7 +315,7 @@ export function StocksPageInner() {
                   : results.map((r) => (
                     <tr key={r.symbol} className="border-b border-border/40 transition-colors hover:bg-muted/20">
                       <td className="px-4 py-3">
-                        <Link href={`/stocks/${r.symbol}` as Route} className="font-mono text-sm font-bold text-primary hover:underline">
+                        <Link href={`/stocks/${r.symbol}` as Route} prefetch={false} className="font-mono text-sm font-bold text-primary hover:underline">
                           {r.symbol}
                         </Link>
                       </td>
@@ -338,7 +338,7 @@ export function StocksPageInner() {
                       </td>
                       <td className="px-4 py-3 font-mono text-sm">{r.beta ? r.beta.toFixed(2) : "—"}</td>
                       <td className="px-4 py-3">
-                        <Link href={`/stocks/${r.symbol}` as Route} className="text-xs text-primary hover:underline">
+                        <Link href={`/stocks/${r.symbol}` as Route} prefetch={false} className="text-xs text-primary hover:underline">
                           View →
                         </Link>
                       </td>

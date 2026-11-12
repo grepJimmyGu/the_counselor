@@ -33,7 +33,7 @@ function SupplyChain({ mp, symbol }: { mp: MarketPositionSection; symbol: string
               <div className="flex flex-wrap gap-1.5">
                 {mp.upstream_suppliers.map((s) =>
                   s.symbol ? (
-                    <Link key={s.name} href={`/stocks/${s.symbol}` as Route}>
+                    <Link key={s.name} href={`/stocks/${s.symbol}` as Route} prefetch={false}>
                       <Badge
                         variant="outline"
                         className="cursor-pointer font-mono text-[10px] hover:border-primary/50 transition-colors"
@@ -69,7 +69,7 @@ function SupplyChain({ mp, symbol }: { mp: MarketPositionSection; symbol: string
               <div className="flex flex-wrap justify-end gap-1.5">
                 {mp.downstream_customers.map((c) =>
                   c.symbol ? (
-                    <Link key={c.name} href={`/stocks/${c.symbol}` as Route}>
+                    <Link key={c.name} href={`/stocks/${c.symbol}` as Route} prefetch={false}>
                       <Badge
                         variant="outline"
                         className="cursor-pointer font-mono text-[10px] hover:border-primary/50 transition-colors"
@@ -145,6 +145,7 @@ function RankingTable({
                 <td className="py-2">
                   <Link
                     href={`/stocks/${r.symbol}` as Route}
+                    prefetch={false}
                     className="font-medium hover:text-primary hover:underline transition-colors"
                   >
                     {r.name || r.symbol}
@@ -272,7 +273,7 @@ export function MarketPositionSectionUI({ mp, symbol, competitorSegments }: Prop
           </div>
           <div className="flex flex-wrap gap-1.5">
             {mp.key_competitors.map((c) => (
-              <Link key={c} href={`/stocks/${c}` as Route}>
+              <Link key={c} href={`/stocks/${c}` as Route} prefetch={false}>
                 <Badge
                   variant="outline"
                   className="cursor-pointer font-mono text-xs hover:border-primary/40 transition-colors"
