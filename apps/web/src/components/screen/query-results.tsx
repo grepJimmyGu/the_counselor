@@ -835,6 +835,7 @@ export function QueryResults({
                     )}
                     <Link
                       href={`/stocks/${r.symbol}` as Route}
+                      prefetch={false}
                       className="font-mono font-semibold text-primary hover:underline"
                       onClick={(e: MouseEvent) => e.stopPropagation()}
                     >

@@ -150,6 +150,7 @@ export function UnresolvedExits() {
                   href={
                     `/strategies/${encodeURIComponent(item.strategy_id)}?action=executed` as Route
                   }
+                  prefetch={false}
                   className="text-[12px] font-medium text-slate-600 underline-offset-2 transition hover:text-slate-800 hover:underline"
                 >
                   I sold — record it

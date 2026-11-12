@@ -183,7 +183,7 @@ function PublishedSuccess({ slug, onClose }: { slug: string; onClose: () => void
           {copied ? "Copied!" : "Copy link"}
         </Button>
         <Button asChild size="sm">
-          <Link href={`/s/${slug}` as Route} onClick={onClose}>
+          <Link href={`/s/${slug}` as Route} prefetch={false} onClick={onClose}>
             View
           </Link>
         </Button>

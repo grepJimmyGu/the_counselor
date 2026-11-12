@@ -75,6 +75,7 @@ export function SignalCard({
           {href ? (
             <Link
               href={href}
+              prefetch={false}
               data-testid="signal-card-heading"
               className="block truncate text-sm font-semibold text-foreground hover:text-primary"
             >
@@ -136,6 +137,7 @@ export function SignalCard({
           {btHref && (
             <Link
               href={btHref}
+              prefetch={false}
               data-testid="signal-card-backtest"
               className="inline-flex items-center gap-1 text-xs font-semibold text-primary hover:underline"
             >

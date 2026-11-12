@@ -164,7 +164,7 @@ export function StartingPointCard({
 
   if (href) {
     return (
-      <Link href={href as Route} data-testid={testId ?? `starting-point-${t.id}`} className={cls}>
+      <Link href={href as Route} prefetch={false} data-testid={testId ?? `starting-point-${t.id}`} className={cls}>
         {body}
       </Link>
     );

@@ -29,6 +29,40 @@ A running log of bugs encountered, root causes, and confirmed fixes. Add new ent
 
 ## Entries
 
+### Vercel paused the whole site for Fluid Active CPU — auth middleware ran on every request and every link prefetched a function. 2026-11-11.
+
+**Symptom:** every path on livermorealpha.com, apex and www, returned `402 Payment required` with `x-vercel-error: DEPLOYMENT_DISABLED`. Vercel had paused the project for Fluid Active CPU. The Railway API was healthy throughout — this was the frontend only.
+
+**Root cause:** almost no request to the frontend was served without running compute. Nothing here was a recent regression — the frontend had not changed since #370 (2026-09-10) — so the trigger was traffic meeting a structure that was always expensive. Four parts:
+
+1. **The auth middleware matcher ended in a catch-all**, `/((?!api|_next/static|_next/image|favicon.ico).*)`, although only `/profile` and `/watchlist` are protected. Auth.js therefore ran on every page, every `<Link>` prefetch, `robots.txt`, `sitemap.xml` and every bot probe for a path that does not exist. Measured on a production build: **one first-time visit to the home page — a fully prerendered page — was 1 document + 26 prefetch requests = 27 middleware runs.** (Next 16 sends several prefetch requests per link, not one.)
+2. **No link to a function-rendered route opted out of prefetch.** 50 `<Link>`s pointed at `/stocks/[ticker]`, `/s/[slug]`, `/strategies/[slug]`, `/screens/[id]`, `/flow/[flowId]`, `/screen` and friends. A default `<Link>` prefetches when it scrolls into view, so a screener result list or the sector table asked a function to render one route per row, for navigations that mostly never happen.
+3. **`/stocks/[ticker]` rendered on every request** (`ƒ (Dynamic)` in `next build`; `Cache-Control: private, no-cache, no-store`), prefetches included — although `page.tsx` is a client component whose server output is the same skeleton for every visitor. *A "use client" page behind a dynamic segment is still server-rendered per request.*
+4. **`<SessionProvider>` used next-auth's defaults**, which re-read `/api/auth/session` on every tab re-focus for signed-in users.
+
+**Fix (#372):**
+
+- `src/middleware.ts` — matcher is now exactly `["/profile/:path*", "/watchlist/:path*"]`. Signed-out requests to both still 307 to sign-in.
+- `prefetch={false}` on all 50 links. Navigation is unchanged; the route is fetched on click instead of on scroll.
+- `src/app/stocks/[ticker]/layout.tsx` (new) exports `generateStaticParams() => []`, which turns the route into `● (SSG)`: generated the first time a ticker is visited, then cached (`x-nextjs-cache: MISS` → `HIT`, `s-maxage=31536000`). It is a layout because `generateStaticParams` cannot be exported from a "use client" file.
+- `src/app/layout.tsx` — `refetchOnWindowFocus={false}` plus a 4-hour `refetchInterval`. The poll is not decoration: the session read is what re-mints an ageing backend token (trap #23), and with the middleware no longer running on navigations, a tab left open across the token's expiry would otherwise keep a dead token until reload.
+- `public/robots.txt` — bulk crawlers that do not run JavaScript are kept off `/stocks/<ticker>` (they receive an empty shell anyway). Search engines are untouched.
+
+**Guard:** `src/__tests__/vercel-compute-guards.test.ts` pins all four. Nothing fails at runtime when one of these regresses — the bill just climbs — so they are enforced structurally: the matcher is tested against real public paths, and every `<Link>` in the tree is parsed and classified.
+
+**Rules:**
+
+- A middleware matcher lists what it *protects*. A catch-all "exclude a few things" matcher makes every request billable, including the ones served from a static file.
+- A `<Link>` to any route `next build` marks `ƒ` gets `prefetch={false}`.
+- Read the route table at the end of `next build`. Every `ƒ` is a function run per request; ask of each whether its output actually differs per request.
+
+**Not verified:** Vercel's per-path usage breakdown was not visible to the session that fixed this, so the relative weight of the four causes is unknown, and nothing could be checked in production while the project was paused. After it is unpaused: Usage → Fluid Active CPU, by path.
+
+**Still open:**
+
+- `/api/auth/session` is requested **twice** per page load. next-auth 5.0.0-beta.31 announces each session fetch on a *new* `BroadcastChannel`, and the provider's own listener in the same tab hears it and fetches again.
+- `/screen`, `/commodities/[symbol]`, `/s/[slug]`, `/strategies/[slug]`, `/flow/[flowId]`, `/screens/[id]` and `/account/strategies/[id]` are still rendered per request. Prefetch no longer reaches them, but direct visits and crawlers do.
+
 ### FastAPI admin trigger 500'd — a sync `def` endpoint calling `asyncio.create_task` has no event loop. 2026-06-25.
 
 **Symptom:** `POST /api/admin/snapshot/warm` (the on-demand snapshot warm, #251) returned `500 Internal Server Error`. Worse, `start_warm()` sets the in-memory status to `"running"` *before* spawning the task, so the status wedged at `"running"` with no warm actually running — retries then 409'd ("already running") until the container restarted.

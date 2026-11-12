@@ -71,6 +71,7 @@ function MoverRow({ m }: { m: BriefMover }) {
   return (
     <Link
       href={`/stocks/${m.symbol}` as Route}
+      prefetch={false}
       data-testid="brief-mover"
       className="flex items-baseline gap-2 border-b border-border/60 py-1.5 text-xs last:border-b-0 hover:bg-muted/40"
     >
@@ -333,6 +334,7 @@ export function HomeMarketPulseBlock() {
       {brief.unusual && (
         <Link
           href={`/stocks/${brief.unusual.symbol}` as Route}
+          prefetch={false}
           data-testid="brief-unusual"
           className="flex items-baseline gap-2 rounded-md border border-amber-300/60 bg-amber-50 px-3 py-2 text-xs transition-colors hover:bg-amber-100/70"
         >

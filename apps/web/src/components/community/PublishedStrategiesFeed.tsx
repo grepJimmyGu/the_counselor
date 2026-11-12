@@ -152,6 +152,7 @@ function Card({
   return (
     <Link
       href={`/s/${s.slug}` as Route}
+      prefetch={false}
       className="block rounded-lg border border-border bg-card p-4 transition-colors hover:border-primary/50 hover:bg-accent/40"
     >
       <div className="flex items-start justify-between gap-2">

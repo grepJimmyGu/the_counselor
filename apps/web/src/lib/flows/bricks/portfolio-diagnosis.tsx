@@ -205,6 +205,7 @@ function HoldingPreview({
 
       <Link
         href={`/stocks/${ticker}` as Route}
+        prefetch={false}
         target="_blank"
         rel="noopener noreferrer"
         data-testid={`holding-profile-link-${ticker}`}
@@ -281,6 +282,7 @@ function HoldingsExplorer({ holdings, label }: { holdings: Holding[]; label: str
                       </p>
                       <Link
                         href={`/stocks/${h.ticker}` as Route}
+                        prefetch={false}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"

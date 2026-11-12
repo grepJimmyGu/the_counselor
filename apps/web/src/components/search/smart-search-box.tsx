@@ -419,6 +419,7 @@ export function SmartSearchBox() {
                   <li key={s.saved_strategy_id}>
                     <Link
                       href={`/screens/${s.saved_strategy_id}` as Route}
+                      prefetch={false}
                       data-testid={`smart-search-saved-${s.saved_strategy_id}`}
                       className="flex items-center justify-between gap-3 px-4 py-2.5 text-left transition-colors hover:bg-muted/50"
                     >
@@ -497,6 +498,7 @@ export function SmartSearchBox() {
                 Couldn&rsquo;t load {selected.symbol}.{" "}
                 <Link
                   href={`/stocks/${selected.symbol}` as Route}
+                  prefetch={false}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="font-medium text-primary hover:underline"
@@ -527,6 +529,7 @@ export function SmartSearchBox() {
             <div className="flex flex-wrap gap-3 border-t border-border pt-4">
               <Link
                 href={`/stocks/${selected.symbol}` as Route}
+                prefetch={false}
                 target="_blank"
                 rel="noopener noreferrer"
                 data-testid="smart-search-open-detail"

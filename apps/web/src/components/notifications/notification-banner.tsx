@@ -173,6 +173,7 @@ function BannerRow({ item, dismissing, onDismiss }: BannerRowProps) {
           {href ? (
             <Link
               href={href as Route}
+              prefetch={false}
               className="block focus:outline-none focus-visible:underline"
             >
               <p className="truncate text-sm font-semibold text-slate-900 hover:underline">
@@ -205,6 +206,7 @@ function BannerRow({ item, dismissing, onDismiss }: BannerRowProps) {
           <MarkAsExecutedButton strategyId={strategyId} />
           <Link
             href={`/strategies/${encodeURIComponent(strategyId)}` as Route}
+            prefetch={false}
             className="text-[12px] font-medium text-slate-500 underline-offset-2 hover:text-slate-700 hover:underline"
           >
             View strategy →
