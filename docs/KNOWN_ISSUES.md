@@ -40,7 +40,7 @@ A running log of bugs encountered, root causes, and confirmed fixes. Add new ent
 3. **`/stocks/[ticker]` rendered on every request** (`ƒ (Dynamic)` in `next build`; `Cache-Control: private, no-cache, no-store`), prefetches included — although `page.tsx` is a client component whose server output is the same skeleton for every visitor. *A "use client" page behind a dynamic segment is still server-rendered per request.*
 4. **`<SessionProvider>` used next-auth's defaults**, which re-read `/api/auth/session` on every tab re-focus for signed-in users.
 
-**Fix (#TBD):**
+**Fix (#372):**
 
 - `src/middleware.ts` — matcher is now exactly `["/profile/:path*", "/watchlist/:path*"]`. Signed-out requests to both still 307 to sign-in.
 - `prefetch={false}` on all 50 links. Navigation is unchanged; the route is fetched on click instead of on scroll.
