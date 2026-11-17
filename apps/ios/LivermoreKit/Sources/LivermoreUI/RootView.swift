@@ -24,6 +24,7 @@ public struct RootView: View {
     public var body: some View {
         MainTabView()
         .environment(session)
+        .tint(.brand)
         .task(id: session.isSignedIn) {
             await session.refreshEntitlements()
         }

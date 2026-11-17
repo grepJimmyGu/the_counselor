@@ -3,8 +3,8 @@ import LivermoreAPI
 import LivermoreKit
 import SwiftUI
 
-/// How a strategy would have done: headline numbers, growth against the
-/// benchmark, yearly returns and the trades behind them.
+/// How a strategy would have done: the headline against the benchmark, the
+/// growth of the money, the numbers behind it, and what to do next.
 struct BacktestResultView: View {
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
@@ -18,129 +18,151 @@ struct BacktestResultView: View {
     }
 
     @State private var saveState: SaveState = .idle
+    @State private var showsAllTrades = false
 
     private var strategy: StrategyJSON { result.strategyJson }
     private var metrics: BacktestMetrics { result.metrics }
+    private var edge: Double { metrics.totalReturn - metrics.benchmarkTotalReturn }
 
     var body: some View {
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 16) {
-                VStack(alignment: .leading, spacing: 4) {
-                    // The period first: every number below describes it.
-                    Text("\(strategy.startDate) TO \(strategy.endDate)")
-                        .font(.caption2.weight(.semibold)).tracking(0.8).foregroundStyle(.secondary)
-                    Text(strategy.strategyName).font(.title3.weight(.semibold))
-                    Text(strategy.universe.joined(separator: ", ")).font(.subheadline).foregroundStyle(.secondary)
-                }
-
+            LazyVStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
+                hero
                 ForEach(result.warnings, id: \.self) { warning in
-                    Label(warning, systemImage: "exclamationmark.triangle")
-                        .font(.footnote).foregroundStyle(.orange)
+                    Notice(text: warning, systemImage: "exclamationmark.triangle.fill", tint: .caution)
                 }
-
-                Card("Result") {
-                    Grid(horizontalSpacing: 12, verticalSpacing: 12) {
-                        GridRow {
-                            Stat("Total return", Fmt.percent(metrics.totalReturn, signed: true), tint: metrics.totalReturn.changeColor)
-                            Stat("\(strategy.benchmark) over the same period", Fmt.percent(metrics.benchmarkTotalReturn, signed: true))
-                        }
-                        GridRow {
-                            Stat("Per year", Fmt.percent(metrics.annualizedReturn, signed: true))
-                            Stat("Worst drop", Fmt.percent(metrics.maxDrawdown))
-                        }
-                        GridRow {
-                            Stat("Sharpe ratio", String(format: "%.2f", metrics.sharpeRatio))
-                            Stat("Time invested", Fmt.percent(metrics.timeInMarket))
-                        }
-                        GridRow {
-                            Stat("Trades", "\(metrics.numberOfTrades)")
-                            Stat("Winning trades", Fmt.percent(metrics.winRate))
-                        }
-                    }
-                }
-
                 GrowthChart(result: result, benchmark: strategy.benchmark)
-
-                if !result.annualReturns.isEmpty {
-                    Card("By year") {
-                        ForEach(result.annualReturns, id: \.year) { year in
-                            HStack {
-                                Text(String(year.year)).font(.subheadline.monospacedDigit())
-                                Spacer()
-                                Text(Fmt.percent(year.returnPct, signed: true))
-                                    .font(.subheadline.weight(.semibold).monospacedDigit())
-                                    .foregroundStyle(year.returnPct.changeColor)
-                            }
-                        }
-                    }
-                }
-
-                if !result.tradeLog.isEmpty {
-                    let recent = Array(result.tradeLog.suffix(20).reversed())
-                    Card(result.tradeLog.count > recent.count ? "Last \(recent.count) of \(result.tradeLog.count) trades" : "Trades") {
-                        ForEach(Array(recent.enumerated()), id: \.offset) { index, trade in
-                            if index > 0 { Divider() }
-                            HStack(alignment: .firstTextBaseline) {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(trade.symbol).font(.subheadline.weight(.semibold))
-                                    Text("\(trade.entryDate) → \(trade.exitDate) · \(trade.holdingPeriodDays) days")
-                                        .font(.caption).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Text(Fmt.percent(trade.returnPct, signed: true))
-                                    .font(.subheadline.monospacedDigit())
-                                    .foregroundStyle(trade.returnPct.changeColor)
-                            }
-                        }
-                    }
-                }
-
-                settingsSection
-
-                saveSection
-
+                numbers
+                if result.annualReturns.count > 1 { byYear }
+                if !result.tradeLog.isEmpty { trades }
+                settings
                 Text("This backtest shows how the strategy would have performed against historical data. Real-world execution differs (slippage, fees, market regime shifts). Research tool, not advice.")
-                    .font(.caption).foregroundStyle(.secondary)
+                    .font(.caption2).foregroundStyle(.inkSecondary).padding(.horizontal, 4)
             }
-            .padding()
+            .padding(Metrics.screenPadding)
         }
-        .background(Color.groupedBackground)
+        .screenBackground()
         .navigationTitle("Backtest")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .bottomBar { actions }
+        .sensoryFeedback(.success, trigger: saveState) { _, new in
+            if case .saved = new { true } else { false }
+        }
     }
 
-    /// What produced these numbers, and the way back to change it.
-    private var settingsSection: some View {
+    // MARK: Sections
+
+    private var hero: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            // The period first: every number below describes it.
+            Text("\(strategy.startDate) to \(strategy.endDate)").eyebrowStyle()
+            Text(strategy.strategyName).font(.title3.weight(.semibold))
+            Text(Fmt.percent(metrics.totalReturn, signed: true))
+                .font(.hero).foregroundStyle(metrics.totalReturn.changeColor)
+            HStack(spacing: 8) {
+                Tag("\(Fmt.points(edge)) vs \(strategy.benchmark)", tint: edge.changeColor,
+                    systemImage: edge >= 0 ? "arrow.up.right" : "arrow.down.right")
+                Text("\(strategy.benchmark) returned \(Fmt.percent(metrics.benchmarkTotalReturn, signed: true))")
+                    .font(.footnote.monospacedDigit()).foregroundStyle(.inkSecondary)
+            }
+            Text(verdict).font(.subheadline).foregroundStyle(.inkSecondary).padding(.top, 2)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4)
+    }
+
+    /// The result in a sentence, stated as what happened and nothing more.
+    private var verdict: String {
+        let ending = Fmt.wholeMoney(strategy.initialCapital * (1 + metrics.totalReturn))
+        let start = Fmt.wholeMoney(strategy.initialCapital)
+        let comparison = edge >= 0 ? "ahead of" : "behind"
+        return "\(start) became \(ending), \(comparison) simply holding \(strategy.benchmark), while invested \(Fmt.percent(metrics.timeInMarket)) of the time."
+    }
+
+    private var numbers: some View {
+        Card("The numbers") {
+            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
+                StatTile(label: "Per year", value: Fmt.percent(metrics.annualizedReturn, signed: true), tint: metrics.annualizedReturn.changeColor)
+                StatTile(label: "Worst drop", value: Fmt.percent(metrics.maxDrawdown), tint: .loss)
+                StatTile(label: "Sharpe ratio", value: String(format: "%.2f", metrics.sharpeRatio), note: "Return per unit of risk")
+                StatTile(label: "Time invested", value: Fmt.percent(metrics.timeInMarket))
+                StatTile(label: "Trades", value: "\(metrics.numberOfTrades)")
+                StatTile(label: "Winning trades", value: Fmt.percent(metrics.winRate))
+            }
+        }
+    }
+
+    private var byYear: some View {
+        Card("Year by year") {
+            Chart(result.annualReturns, id: \.year) { year in
+                BarMark(x: .value("Year", String(year.year)), y: .value("Return", year.returnPct), width: .ratio(0.6))
+                    .foregroundStyle(year.returnPct >= 0 ? Color.gain : Color.loss)
+                    .cornerRadius(4)
+                    .annotation(position: year.returnPct >= 0 ? .top : .bottom, spacing: 3) {
+                        Text(Fmt.percent(year.returnPct, signed: true))
+                            .font(.caption2.monospacedDigit()).foregroundStyle(.inkSecondary)
+                    }
+            }
+            .chartYAxis(.hidden)
+            .frame(height: 150)
+            .accessibilityLabel("Return in each calendar year")
+        }
+    }
+
+    private var trades: some View {
+        let all = Array(result.tradeLog.reversed())
+        let shown = showsAllTrades ? Array(all.prefix(50)) : Array(all.prefix(5))
+        return Card("Trades", accessory: {
+            Text("\(result.tradeLog.count)").font(.subheadline.monospacedDigit()).foregroundStyle(.inkSecondary)
+        }, content: {
+            ForEach(Array(shown.enumerated()), id: \.offset) { index, trade in
+                if index > 0 { Divider() }
+                HStack(alignment: .firstTextBaseline) {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(trade.symbol).font(.subheadline.weight(.semibold).monospaced())
+                        Text("\(trade.entryDate) → \(trade.exitDate) · \(trade.holdingPeriodDays) days")
+                            .font(.caption).foregroundStyle(.inkSecondary)
+                    }
+                    Spacer()
+                    ChangePill(fraction: trade.returnPct, compact: true)
+                }
+            }
+            if all.count > 5 {
+                Button(showsAllTrades ? "Show fewer" : all.count <= 50 ? "Show all \(all.count)" : "Show the last 50") {
+                    withAnimation { showsAllTrades.toggle() }
+                }
+                .font(.subheadline.weight(.semibold))
+            }
+        })
+    }
+
+    /// What produced these numbers.
+    private var settings: some View {
         Card("Settings used") {
-            LabeledContent("Starting capital", value: Fmt.wholeMoney(strategy.initialCapital))
-            LabeledContent("Costs per trade", value: costSummary)
+            DetailRow("Tickers", strategy.universe.joined(separator: ", "))
+            DetailRow("Starting capital", Fmt.wholeMoney(strategy.initialCapital))
+            DetailRow("Costs per trade", costSummary)
             if strategy.positionSizing.method == .volTarget, let target = strategy.positionSizing.targetVolAnnual {
-                LabeledContent("Volatility target", value: Fmt.percent(target))
+                DetailRow("Volatility target", Fmt.percent(target))
             }
             if let ladder = strategy.riskManagement?.exitLadder, !ladder.isEmpty {
                 Divider()
-                Text("Exit plan").font(.subheadline.weight(.semibold))
+                Text("Exit plan").eyebrowStyle()
                 ForEach(Array(ladder.enumerated()), id: \.offset) { _, tier in
-                    LabeledContent(
+                    DetailRow(
                         tier.label ?? Fmt.percent(tier.triggerPct, signed: true),
-                        value: tier.action == .sellAll
+                        tier.action == .sellAll
                             ? "Sell everything"
-                            : "Sell \(Int(((tier.fraction ?? 0) * 100).rounded()))% of the position"
+                            : "Sell \(Int(((tier.fraction ?? 0) * 100).rounded()))% of the position",
+                        tint: tier.triggerPct < 0 ? .loss : .gain
                     )
                 }
+            } else {
+                Notice(text: "No stop or targets. Add an exit plan in Settings to have Livermore watch a position against this strategy.")
             }
-            Button {
-                dismiss()
-            } label: {
-                Label("Change settings and run again", systemImage: "slider.horizontal.3")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.bordered)
-            .accessibilityIdentifier("adjust-and-rerun")
         }
-        .font(.subheadline)
     }
 
     private var costSummary: String {
@@ -148,49 +170,48 @@ struct BacktestResultView: View {
         return total == 0 ? "None" : String(format: "%.2f%%", total / 100)
     }
 
+    // MARK: Actions
+
     @ViewBuilder
-    private var saveSection: some View {
-        Card("Keep this strategy") {
-            if !session.isSignedIn {
-                Text("Sign in from the Account tab to save strategies and track positions against them.")
-                    .font(.subheadline).foregroundStyle(.secondary)
-            } else {
-                switch saveState {
-                case .saved(let saved):
-                    Label("Saved. It's in your Strategies tab.", systemImage: "checkmark.circle.fill")
-                        .font(.subheadline).foregroundStyle(.green)
-                    // Straight on to acting on it: buy at the broker, or
-                    // track a position already held.
-                    NavigationLink {
-                        StrategyDetailView(strategy: saved, trackedPositions: [])
-                    } label: {
-                        Label(
-                            saved.tracksExits ? "Put it to work — buy or track a position" : "Open the strategy",
-                            systemImage: "arrow.right.circle.fill"
-                        )
-                        .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .accessibilityIdentifier("open-saved-strategy")
-                    if !saved.tracksExits {
-                        Text("It has no stop or targets, so positions can't be tracked against it. Add an exit plan in Settings and save again to have Livermore watch one.")
-                            .font(.footnote).foregroundStyle(.secondary)
-                    }
-                default:
+    private var actions: some View {
+        if case .failed(let message) = saveState {
+            Text(message).font(.footnote).foregroundStyle(.loss).frame(maxWidth: .infinity, alignment: .leading)
+        }
+        if case .saved(let saved) = saveState {
+            // Straight on to acting on it: buy at the broker, or track a
+            // position already held.
+            NavigationLink {
+                StrategyDetailView(strategy: saved, trackedPositions: [])
+            } label: {
+                Label(saved.tracksExits ? "Saved — put it to work" : "Saved — open the strategy", systemImage: "checkmark.circle.fill")
+            }
+            .buttonStyle(PrimaryButtonStyle(tint: .gain))
+            .accessibilityIdentifier("open-saved-strategy")
+        } else {
+            HStack(spacing: 10) {
+                Button {
+                    dismiss()
+                } label: {
+                    Label("Adjust", systemImage: "slider.horizontal.3")
+                }
+                .buttonStyle(SecondaryButtonStyle())
+                .accessibilityIdentifier("adjust-and-rerun")
+
+                if session.isSignedIn {
                     Button(action: save) {
-                        HStack {
+                        HStack(spacing: 8) {
+                            if saveState == .saving { ProgressView().tint(.white) }
                             Text(saveState == .saving ? "Saving…" : "Save strategy")
-                            if saveState == .saving { ProgressView() }
                         }
-                        .frame(maxWidth: .infinity)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(PrimaryButtonStyle())
                     .disabled(saveState == .saving)
                     .accessibilityIdentifier("save-strategy")
-                    if case .failed(let message) = saveState {
-                        Text(message).font(.footnote).foregroundStyle(.red)
-                    }
                 }
+            }
+            if !session.isSignedIn {
+                Text("Sign in from the Account tab to save this strategy and track positions against it.")
+                    .font(.footnote).foregroundStyle(.inkSecondary).frame(maxWidth: .infinity, alignment: .leading)
             }
         }
     }
@@ -211,15 +232,19 @@ struct BacktestResultView: View {
     }
 }
 
+/// The strategy's value over the test against the benchmark's. Touch and
+/// drag to read both on any day.
 private struct GrowthChart: View {
     let result: BacktestResult
     let benchmark: String
 
+    @State private var selectedDate: Date?
+
     private struct Point: Identifiable {
-        let series: String
         let date: Date
-        let value: Double
-        var id: String { "\(series)-\(date.timeIntervalSince1970)" }
+        let strategy: Double
+        let benchmark: Double?
+        var id: Date { date }
     }
 
     private var points: [Point] {
@@ -228,47 +253,93 @@ private struct GrowthChart: View {
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "UTC")
         formatter.dateFormat = "yyyy-MM-dd"
-        func series(_ name: String, _ curve: [Components.Schemas.CurvePoint]) -> [Point] {
-            // A daily curve over ten years is ~2,500 points per line; a phone
-            // chart shows no more detail past a few hundred.
-            let step = max(1, curve.count / 300)
-            return curve.enumerated().compactMap { index, point in
-                guard index % step == 0 || index == curve.count - 1,
-                      let date = formatter.date(from: String(point.date.prefix(10)))
-                else { return nil }
-                return Point(series: name, date: date, value: point.value)
-            }
+        var benchmarkByDay: [String: Double] = [:]
+        for point in result.benchmarkCurve { benchmarkByDay[String(point.date.prefix(10))] = point.value }
+        // A daily curve over ten years is ~2,500 points; a phone chart shows
+        // no more detail past a few hundred.
+        let curve = result.equityCurve
+        let step = max(1, curve.count / 300)
+        return curve.enumerated().compactMap { index, point in
+            let day = String(point.date.prefix(10))
+            guard index % step == 0 || index == curve.count - 1, let date = formatter.date(from: day) else { return nil }
+            return Point(date: date, strategy: point.value, benchmark: benchmarkByDay[day])
         }
-        return series("Strategy", result.equityCurve) + series(benchmark, result.benchmarkCurve)
-    }
-
-    private var yDomain: ClosedRange<Double> {
-        let values = points.map(\.value)
-        guard let low = values.min(), let high = values.max(), high > low else { return 0...1 }
-        let pad = (high - low) * 0.08
-        return (low - pad)...(high + pad)
     }
 
     var body: some View {
-        Card("Growth of your starting capital") {
-            Chart(points) { point in
-                LineMark(x: .value("Date", point.date), y: .value("Value", point.value))
-                    .foregroundStyle(by: .value("Series", point.series))
-            }
-            .chartForegroundStyleScale(["Strategy": Color.blue, benchmark: Color.gray])
-            // Scaled to the data: starting the axis at zero flattens both
-            // lines into the top of the chart.
-            .chartYScale(domain: yDomain)
-            .chartYAxis {
-                AxisMarks { value in
-                    AxisGridLine()
-                    AxisValueLabel {
-                        if let amount = value.as(Double.self) { Text(Fmt.compactMoney(amount)) }
-                    }
+        let points = points
+        let selected = selectedDate.flatMap { date in
+            points.min { abs($0.date.timeIntervalSince(date)) < abs($1.date.timeIntervalSince(date)) }
+        }
+        let shown = selected ?? points.last
+        let values = points.flatMap { [$0.strategy] + ($0.benchmark.map { [$0] } ?? []) }
+        let low = values.min() ?? 0
+        let high = values.max() ?? 1
+        let pad = max((high - low) * 0.08, 1)
+
+        Card {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(selected.map { $0.date.formatted(date: .abbreviated, time: .omitted) } ?? "Growth of your starting capital")
+                    .eyebrowStyle()
+                HStack(spacing: 16) {
+                    LegendValue(name: "Strategy", value: shown.map { Fmt.wholeMoney($0.strategy) }, color: .brand)
+                    LegendValue(name: benchmark, value: shown?.benchmark.map { Fmt.wholeMoney($0) }, color: .inkSecondary)
                 }
             }
-            .frame(height: 200)
-            .accessibilityLabel("Strategy value against \(benchmark) over the test period")
+            if points.count > 1 {
+                Chart {
+                    ForEach(points) { point in
+                        if let value = point.benchmark {
+                            LineMark(x: .value("Date", point.date), y: .value("Value", value), series: .value("Series", benchmark))
+                                .foregroundStyle(Color.inkSecondary.opacity(0.7))
+                                .lineStyle(StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round))
+                        }
+                        LineMark(x: .value("Date", point.date), y: .value("Value", point.strategy), series: .value("Series", "Strategy"))
+                            .foregroundStyle(Color.brand)
+                            .lineStyle(StrokeStyle(lineWidth: 2.2, lineCap: .round, lineJoin: .round))
+                    }
+                    if let selected {
+                        RuleMark(x: .value("Date", selected.date)).foregroundStyle(Color.inkSecondary.opacity(0.6))
+                        PointMark(x: .value("Date", selected.date), y: .value("Value", selected.strategy))
+                            .foregroundStyle(Color.brand).symbolSize(70)
+                    }
+                }
+                // Scaled to the data: starting the axis at zero flattens
+                // both lines into the top of the chart.
+                .chartYScale(domain: (low - pad)...(high + pad))
+                .chartYAxis {
+                    AxisMarks(position: .trailing, values: .automatic(desiredCount: 4)) { value in
+                        AxisGridLine().foregroundStyle(Color.hairline.opacity(0.5))
+                        AxisValueLabel {
+                            if let amount = value.as(Double.self) { Text(Fmt.compactMoney(amount)) }
+                        }
+                    }
+                }
+                .chartXAxis {
+                    AxisMarks(values: .automatic(desiredCount: 4)) { _ in
+                        AxisValueLabel(format: .dateTime.year())
+                    }
+                }
+                .chartXSelection(value: $selectedDate)
+                .frame(height: 210)
+                .sensoryFeedback(.selection, trigger: selected?.date)
+                .accessibilityLabel("Strategy value against \(benchmark) over the test period")
+            }
         }
+    }
+}
+
+private struct LegendValue: View {
+    let name: String
+    let value: String?
+    let color: Color
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Circle().fill(color).frame(width: 8, height: 8)
+            Text(name).font(.caption).foregroundStyle(.inkSecondary)
+            Text(value ?? "—").font(.subheadline.weight(.semibold).monospacedDigit())
+        }
+        .accessibilityElement(children: .combine)
     }
 }

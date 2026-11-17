@@ -9,7 +9,7 @@ What the app does, and how far each part has been checked.
 
 | Area | What a user can do | Checked |
 |---|---|---|
-| Research | Search; company page with live price, the three scores, 90-day chart, financials, business, market position; news & sentiment; supply chain | Against production |
+| Research | Market strip and a watchlist with sparklines; search; company page with live price, a ranged chart you can scrub (against the S&P 500), the scores in one card, key stats, revenue and cash-flow charts, revenue mix, competitors; news & sentiment; supply chain | Against production |
 | Live prices | Prices on every screen refresh every 10 s while visible, with "Prices checked 9:18:17 PM" beside them | Against production |
 | Build a strategy | Pick one of the website's templates; choose tickers and period; change capital, costs, the rule's numbers, risk level and the stop/targets; run the backtest; change settings and run again | Against production, signed out (one run) |
 | Save and re-test | Save a result; open a saved strategy and test it again with changes, saving the result as a new strategy | Sample data only |
@@ -38,6 +38,45 @@ first five need someone to sign in on the device; the last two also need the
 backend's SnapTrade keys and, for orders, `SNAPTRADE_TRADING_ENABLED=true`.
 
 Research and one backtest work without an account, as on the website.
+
+## Design
+
+One visual system, in `Sources/LivermoreUI/Design/`:
+
+- **`Theme.swift`** — the website's palette (`apps/web/src/app/globals.css`),
+  converted from OKLCH, with its own light and dark values: `brand`, `gain`,
+  `loss`, `caution`, and the `canvas` / `surface` / `well` layers. Gain and
+  loss colours are used for gains and losses and nothing else.
+- **`Components.swift`** — `Card`, `StatTile`, `ChangePill`, `Tag`, `Notice`,
+  `DetailRow`, `ScoreRing`, `ScoreBar`, `Sparkline`, `LevelBar` (a position
+  between its stop and target), the primary and secondary button styles, and
+  `bottomBar`, which pins a screen's next step above the tab bar.
+
+Conventions the screens follow:
+
+- **A date or a category sits above every headline** (`eyebrowStyle`), never
+  in a footer.
+- **Numbers use tabular digits**, so a refreshing price does not jitter.
+- **The next step is always on screen**: Run, Save, Trade and Send live in the
+  bottom bar rather than at the end of a scroll.
+- **Loading shows the page's shape** (`SkeletonBlock`), not a spinner.
+- **Long explanations are collapsed to their first sentence** with the rest a
+  tap away ("Why", "Before you rely on it").
+
+### Where the price chart's numbers come from
+
+The company chart is built on the device from `/api/data/daily/{symbol}` (the
+stock) and the same call for SPY, fetched once per launch and cached
+(`PriceHistory`). Ranges, the period return and "vs S&P 500" are all computed
+from those closes (`PerformanceSeries`), so the three always describe the same
+days and always end on the latest close.
+
+`/api/market/sector-comparison/{symbol}` looks like the endpoint for this and
+is not used: for ranges longer than a month its series stops on 2026-09-10,
+which made NVDA read "+17.0% past year" when the true figure was −16.4%.
+
+The watchlist and "recently viewed" are kept on the device (`Watchlist`,
+UserDefaults). They are not the website's community watchlist.
 
 ## How orders work
 
@@ -112,7 +151,7 @@ apps/ios/
       Brokerage/                    SnapTrade link, holdings, order tickets
       Demo/                         the sample account (debug builds only)
     Sources/LivermoreUI/          SwiftUI screens, same folders
-    Tests/LivermoreKitTests/      95 tests; `swift test` runs them in a second
+    Tests/LivermoreKitTests/      105 tests; `swift test` runs them in a second
   scripts/refresh_openapi.py      refreshes openapi.json from the backend
   scripts/gen_scoring_golden.mjs  regenerates the scoring parity fixture
   scripts/gen_templates.mjs       regenerates the strategy templates
@@ -226,9 +265,11 @@ belongs in `LivermoreKit/` instead.
   chart or trade log.**
 - **Supply chain shows the summary and chokepoint tests only**, not the
   supplier and customer graph.
-- **The price chart is the 90-day series from the trend endpoint.**
-  `/api/data/daily/{symbol}` ignores its `start` parameter and returns the
-  whole history (6,802 bars for AAPL), which is too heavy for a phone.
+- **The price chart downloads the whole daily history** (about 200 KB
+  compressed) because `/api/data/daily/{symbol}` ignores its `start`
+  parameter. It is fetched once per symbol per launch.
+- **The market strip shows index ETFs** (SPY, QQQ, DIA, IWM), not the indices
+  themselves, and says so.
 
 - **Sign-in is email and password only.** Google sign-in needs an iOS client
   id; Sign in with Apple needs an Apple Developer account.

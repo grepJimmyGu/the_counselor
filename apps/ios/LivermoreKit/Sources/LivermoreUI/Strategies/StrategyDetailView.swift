@@ -103,6 +103,7 @@ struct StrategyDetailView: View {
                 boughtSymbol = target.symbol
             }
         }
+        .screenBackground()
         .navigationTitle(strategy.title)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -156,7 +157,7 @@ extension StrategyDetailView {
                 .accessibilityIdentifier("track-position")
             }
             if let declaredNote {
-                Label(declaredNote, systemImage: "checkmark.circle").font(.footnote).foregroundStyle(.green)
+                Label(declaredNote, systemImage: "checkmark.circle").font(.footnote).foregroundStyle(.gain)
             }
             if let typed = strategy.typedStrategy {
                 NavigationLink {

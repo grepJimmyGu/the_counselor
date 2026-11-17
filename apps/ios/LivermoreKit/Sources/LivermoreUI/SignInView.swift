@@ -57,7 +57,7 @@ struct SignInView: View {
                         }
                         if let errorMessage {
                             Text(errorMessage)
-                                .foregroundStyle(.red)
+                                .foregroundStyle(.loss)
                                 .accessibilityIdentifier("sign-in-error")
                         }
                     }
@@ -81,6 +81,7 @@ struct SignInView: View {
                         : "Use the email and password from your Livermore account. Research tool, not advice.")
                 }
             }
+            .screenBackground()
             .navigationTitle(mode == .create ? "Create account" : "Sign in")
             .onChange(of: mode) { _, _ in if !isSubmitting { errorMessage = nil } }
         }

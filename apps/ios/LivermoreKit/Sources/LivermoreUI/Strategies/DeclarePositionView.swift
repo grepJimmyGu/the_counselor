@@ -98,7 +98,7 @@ struct DeclarePositionView: View {
                 } footer: {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Stops and targets are measured from the price you paid, so use your real average cost.")
-                        if let failure { Text(failure.message).foregroundStyle(.red) }
+                        if let failure { Text(failure.message).foregroundStyle(.loss) }
                     }
                 }
 
@@ -116,6 +116,7 @@ struct DeclarePositionView: View {
                     Text("Livermore watches it against “\(strategy.title)” and puts an action in your inbox when a level is reached. It does not place any order.")
                 }
             }
+            .screenBackground()
             .navigationTitle("Track a position")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)

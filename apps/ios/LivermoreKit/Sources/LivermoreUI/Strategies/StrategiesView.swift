@@ -46,6 +46,7 @@ struct StrategiesView: View {
                     }
                 }
             }
+            .screenBackground()
             .navigationTitle("Strategies")
             .toolbar {
                 ToolbarItem(placement: .primaryAction) {
@@ -83,6 +84,13 @@ struct StrategiesView: View {
     private var list: some View {
         List {
             if session.isDemo { SampleDataNotice() }
+            if !positions.isEmpty {
+                Section {
+                    PositionsSummary(positions: positions, quotes: session.quotes.quotes)
+                        .listRowInsets(EdgeInsets())
+                        .listRowBackground(Color.clear)
+                }
+            }
             Section {
                 if positions.isEmpty {
                     Text("No open positions. Declare one from a strategy with exit rules and Livermore will watch its stop and targets.")
@@ -159,12 +167,46 @@ struct SampleDataNotice: View {
     var body: some View {
         Label("Sample data — not a real account", systemImage: "testtube.2")
             .font(.footnote.weight(.semibold))
-            .foregroundStyle(.orange)
-            .listRowBackground(Color.orange.opacity(0.12))
+            .foregroundStyle(.caution)
+            .listRowBackground(Color.caution.opacity(0.12))
     }
 }
 
 // MARK: - Rows
+
+/// What the tracked positions are worth, and how they stand against cost.
+struct PositionsSummary: View {
+    let positions: [TrackedPosition]
+    let quotes: [String: LiveQuote]
+
+    var body: some View {
+        var value = 0.0
+        var cost = 0.0
+        for position in positions {
+            let price = quotes[position.symbol.uppercased()]?.price ?? position.latestPrice ?? position.entryPrice
+            value += price * position.sharesRemaining
+            cost += position.entryPrice * position.sharesRemaining
+        }
+        let profit = value - cost
+        let waiting = positions.reduce(0) { $0 + ($1.unresolvedCount ?? 0) }
+
+        return Card {
+            Text("Tracked positions").eyebrowStyle()
+            Text(Fmt.price(value)).font(.hero).contentTransition(.numericText(value: value))
+            HStack(spacing: 8) {
+                ChangePill(fraction: cost > 0 ? profit / cost : nil)
+                Text("\(Fmt.signedMoney(profit)) since entry")
+                    .font(.subheadline.monospacedDigit()).foregroundStyle(profit.changeColor)
+            }
+            HStack(spacing: 8) {
+                StatTile(label: "Positions", value: "\(positions.count)")
+                StatTile(label: "Cost basis", value: Fmt.price(cost))
+                StatTile(label: "Waiting on you", value: "\(waiting)", tint: waiting > 0 ? .caution : nil)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
 
 struct TrackedPositionRow: View {
     let position: TrackedPosition
@@ -186,71 +228,46 @@ struct TrackedPositionRow: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(alignment: .firstTextBaseline) {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("\(Fmt.shares(position.sharesRemaining)) \(position.symbol)")
-                        .font(.headline)
-                    Text(position.strategyTitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(position.symbol).font(.headline.monospaced())
+                    Text("\(Fmt.shares(position.sharesRemaining)) shares · \(position.strategyTitle)")
+                        .font(.caption).foregroundStyle(.inkSecondary).lineLimit(1)
                 }
                 Spacer()
-                VStack(alignment: .trailing, spacing: 2) {
-                    Text(Fmt.percent(changeFromEntry, signed: true))
-                        .font(.headline.monospacedDigit())
-                        .foregroundStyle((changeFromEntry ?? 0).changeColor)
-                    if let openProfit {
-                        Text(Fmt.signedMoney(openProfit))
-                            .font(.caption.monospacedDigit())
-                            .foregroundStyle(openProfit.changeColor)
-                    }
+                VStack(alignment: .trailing, spacing: 3) {
+                    LivePriceText(price: price).font(.subheadline.weight(.semibold))
+                    ChangePill(fraction: changeFromEntry, compact: true)
                 }
-            }
-            HStack(spacing: 4) {
-                LivePriceText(price: price)
-                Text("· \(quote == nil ? position.priceNote : "live quote") · cost basis \(Fmt.price(position.entryPrice))")
-            }
-            .font(.caption).foregroundStyle(.secondary)
-
-            if let waiting = position.unresolvedCount, waiting > 0 {
-                Label(
-                    waiting == 1 ? "A tier fired and is waiting on you." : "\(waiting) tiers fired and are waiting on you.",
-                    systemImage: "bell.badge"
-                )
-                .font(.caption.weight(.medium))
-                .padding(.horizontal, 10).padding(.vertical, 6)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.orange.opacity(0.15), in: RoundedRectangle(cornerRadius: 8))
             }
 
             if position.stop != nil || position.nextTarget != nil {
-                HStack(alignment: .top) {
-                    TierCell(title: "Stop", tier: position.stop, signed: false, missing: "none set")
-                    TierCell(title: "Next target", tier: position.nextTarget, signed: true, missing: "all hit")
+                LevelBar(
+                    stop: position.stop?.price, entry: position.entryPrice,
+                    target: position.nextTarget?.price, price: price
+                )
+            }
+
+            HStack {
+                Text("Cost \(Fmt.price(position.entryPrice)) · \(quote == nil ? position.priceNote : "live quote")")
+                    .foregroundStyle(.inkSecondary)
+                Spacer()
+                if let openProfit {
+                    Text(Fmt.signedMoney(openProfit)).fontWeight(.semibold).foregroundStyle(openProfit.changeColor)
                 }
+            }
+            .font(.caption.monospacedDigit())
+
+            if let waiting = position.unresolvedCount, waiting > 0 {
+                Notice(
+                    text: waiting == 1 ? "An exit level was reached. See Actions." : "\(waiting) exit levels were reached. See Actions.",
+                    systemImage: "bell.badge.fill", tint: .caution
+                )
             }
         }
         .padding(.vertical, 4)
         .accessibilityElement(children: .combine)
-    }
-}
-
-private struct TierCell: View {
-    let title: String
-    let tier: TierMarker?
-    let signed: Bool
-    let missing: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text(title.uppercased()).font(.caption2.weight(.semibold)).tracking(0.6).foregroundStyle(.secondary)
-            if let tier {
-                Text(Fmt.price(tier.price)).font(.subheadline.monospacedDigit())
-                Text("\(Fmt.percent(tier.distancePct, signed: signed)) away").font(.caption2).foregroundStyle(.secondary)
-            } else {
-                Text(missing).font(.subheadline).foregroundStyle(.secondary)
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -259,21 +276,29 @@ private struct StrategyRow: View {
     let openCount: Int
 
     var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(strategy.title).font(.body).lineLimit(2)
-                Text("Saved \(strategy.createdAt.formatted(date: .abbreviated, time: .omitted))")
-                    .font(.caption).foregroundStyle(.secondary)
-            }
-            Spacer()
-            if openCount > 0 {
-                Text(openCount == 1 ? "1 open" : "\(openCount) open")
-                    .font(.caption.weight(.semibold))
-                    .padding(.horizontal, 8).padding(.vertical, 3)
-                    .background(.green.opacity(0.15), in: Capsule())
-            } else if strategy.tracksExits {
-                Text("Can track").font(.caption).foregroundStyle(.secondary)
+        HStack(spacing: 12) {
+            Image(systemName: strategy.tracksExits ? "scope" : "chart.xyaxis.line")
+                .font(.body.weight(.medium)).foregroundStyle(.brand)
+                .frame(width: 40, height: 40)
+                .background(Color.brand.opacity(0.10), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            VStack(alignment: .leading, spacing: 4) {
+                Text(strategy.title).font(.subheadline.weight(.semibold)).lineLimit(2)
+                HStack(spacing: 6) {
+                    if openCount > 0 {
+                        Tag(openCount == 1 ? "1 position" : "\(openCount) positions", tint: .gain)
+                    } else if strategy.tracksExits {
+                        Tag("Ready to track", tint: .brand)
+                    } else {
+                        Tag("No exit plan")
+                    }
+                    let universe = strategy.universe
+                    if !universe.isEmpty {
+                        Text(universe.count <= 2 ? universe.joined(separator: ", ") : "\(universe.prefix(2).joined(separator: ", ")) +\(universe.count - 2)")
+                            .font(.caption.monospaced()).foregroundStyle(.inkSecondary)
+                    }
+                }
             }
         }
+        .padding(.vertical, 2)
     }
 }

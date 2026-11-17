@@ -62,12 +62,13 @@ struct StrategyRerunView: View {
                 .accessibilityIdentifier("run-backtest")
             } footer: {
                 VStack(alignment: .leading, spacing: 4) {
-                    if let problem = customization.problem { Text(problem).foregroundStyle(.orange) }
-                    if let failure { Text(failure.message).foregroundStyle(.red) }
+                    if let problem = customization.problem { Text(problem).foregroundStyle(.caution) }
+                    if let failure { Text(failure.message).foregroundStyle(.loss) }
                     Text("Saving the result keeps it as a new strategy; “\(saved.title)” is not changed.")
                 }
             }
         }
+        .screenBackground()
         .navigationTitle("Test again")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

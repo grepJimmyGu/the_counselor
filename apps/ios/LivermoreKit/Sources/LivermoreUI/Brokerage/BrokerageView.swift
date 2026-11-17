@@ -38,6 +38,7 @@ struct BrokerageView: View {
                 Section { HStack { ProgressView(); Text("Checking your brokerage link…").foregroundStyle(.secondary) } }
             }
         }
+        .screenBackground()
         .navigationTitle("Brokerage")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -64,7 +65,7 @@ struct BrokerageView: View {
             if isFirst { Text("Connect your own broker") }
         } footer: {
             VStack(alignment: .leading, spacing: 6) {
-                if let linkFailure { Text(linkFailure.message).foregroundStyle(.red) }
+                if let linkFailure { Text(linkFailure.message).foregroundStyle(.loss) }
                 if isFirst {
                     Text("You sign in on your broker's own page, through SnapTrade — Robinhood, Charles Schwab and the other brokers it supports. Livermore never sees your brokerage password and cannot withdraw or move money.")
                     Text("Once linked, Livermore can show what you hold and, where your broker allows it, send an order you have reviewed and confirmed. It never places one on its own.")
@@ -94,7 +95,7 @@ struct BrokerageView: View {
                 if !status.canTrade {
                     Text("Sending orders from Livermore isn't switched on yet. You can still see your holdings here; place orders in your brokerage app and record them in Actions.")
                 }
-                if let failure = link.failure { Text(failure.message).foregroundStyle(.orange) }
+                if let failure = link.failure { Text(failure.message).foregroundStyle(.caution) }
             }
         }
 

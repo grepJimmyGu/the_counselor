@@ -33,6 +33,7 @@ struct AccountView: View {
                     .accessibilityIdentifier("sign-out-button")
                 }
             }
+            .screenBackground()
             .navigationTitle("Account")
         }
     }

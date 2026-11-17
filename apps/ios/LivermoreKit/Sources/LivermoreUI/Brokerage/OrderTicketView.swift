@@ -82,6 +82,7 @@ struct OrderTicketView: View {
                     actionSection
                 }
             }
+            .screenBackground()
             .navigationTitle(isSell ? "Sell \(symbol)" : "Buy \(symbol)")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -221,9 +222,9 @@ struct OrderTicketView: View {
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
                 if let failure {
-                    Text(failure.message).foregroundStyle(.red)
+                    Text(failure.message).foregroundStyle(.loss)
                 } else if let problem, amount != nil {
-                    Text(problem).foregroundStyle(.orange)
+                    Text(problem).foregroundStyle(.caution)
                 }
                 Text("Livermore sends the order to your broker and nothing else. It never trades on its own.")
             }
@@ -233,7 +234,7 @@ struct OrderTicketView: View {
     private func sentSection(_ receipt: OrderReceipt, _ preview: OrderPreview) -> some View {
         Section {
             Label("Order sent to \(accountName)", systemImage: "checkmark.circle.fill")
-                .font(.headline).foregroundStyle(.green)
+                .font(.headline).foregroundStyle(.gain)
             Text(orderLine).font(.subheadline.monospaced())
             if let status = receipt.status { LabeledContent("Broker status", value: status) }
             if let id = receipt.brokerageOrderId { LabeledContent("Order reference", value: id) }

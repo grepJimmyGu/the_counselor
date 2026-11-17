@@ -67,7 +67,7 @@ struct StrategyCustomizeView: View {
             if let problem = customization.problem {
                 Section {
                     Label(problem, systemImage: "exclamationmark.triangle")
-                        .font(.footnote).foregroundStyle(.orange)
+                        .font(.footnote).foregroundStyle(.caution)
                 }
             }
 
@@ -79,6 +79,7 @@ struct StrategyCustomizeView: View {
                 }
             }
         }
+        .screenBackground()
         .navigationTitle("Settings")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

@@ -46,7 +46,7 @@ struct QuoteFreshnessLabel: View {
                         "Couldn't refresh — prices from \(checked.formatted(date: .omitted, time: .standard))",
                         systemImage: "wifi.exclamationmark"
                     )
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.caution)
                 } else {
                     Label(
                         "Prices checked \(checked.formatted(date: .omitted, time: .standard))",
@@ -56,7 +56,7 @@ struct QuoteFreshnessLabel: View {
                 }
             } else if store.lastRefreshFailed {
                 Label("Couldn't load live prices", systemImage: "wifi.exclamationmark")
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(.caution)
             }
         }
         .font(.caption.weight(.semibold))

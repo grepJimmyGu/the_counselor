@@ -21,6 +21,7 @@ struct ActionsView: View {
                     list
                 }
             }
+            .screenBackground()
             .navigationTitle("Actions")
             .navigationDestination(for: UnresolvedExit.self) { ExitDecisionView(exit: $0) }
         }
@@ -83,7 +84,7 @@ struct ActionsView: View {
                     ForEach(inbox.notices, id: \.id) { notice in
                         NoticeRow(notice: notice)
                             .swipeActions {
-                                Button("Read") { acknowledge(notice) }.tint(.blue)
+                                Button("Read") { acknowledge(notice) }.tint(.brand)
                             }
                     }
                 }

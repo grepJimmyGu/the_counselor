@@ -97,6 +97,7 @@ struct ExitDecisionView: View {
 
             decisionSection
         }
+        .screenBackground()
         .navigationTitle(exit.symbol)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -131,7 +132,7 @@ struct ExitDecisionView: View {
     private var decisionSection: some View {
         Section {
             if sentOrder != nil {
-                Label("Your order went to your broker.", systemImage: "paperplane.fill").foregroundStyle(.green)
+                Label("Your order went to your broker.", systemImage: "paperplane.fill").foregroundStyle(.gain)
                 Button("Record this sale", systemImage: "square.and.pencil") { isRecording = true }
                     .fontWeight(.semibold)
                     .accessibilityIdentifier("record-sale")
@@ -163,7 +164,7 @@ struct ExitDecisionView: View {
             Text("Your decision")
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
-                if let failure { Text(failure.message).foregroundStyle(.red) }
+                if let failure { Text(failure.message).foregroundStyle(.loss) }
                 Text(brokerNote)
             }
         }
@@ -261,8 +262,8 @@ struct RecordSaleView: View {
                 } footer: {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Use the fill from your broker. Left empty, the price that met the rule (\(Fmt.price(exit.price))) is recorded instead.")
-                        if let problem, shares != nil { Text(problem).foregroundStyle(.orange) }
-                        if let failure { Text(failure.message).foregroundStyle(.red) }
+                        if let problem, shares != nil { Text(problem).foregroundStyle(.caution) }
+                        if let failure { Text(failure.message).foregroundStyle(.loss) }
                     }
                 }
 
@@ -280,6 +281,7 @@ struct RecordSaleView: View {
                     Text("This updates Livermore's record of your position. It does not place an order.")
                 }
             }
+            .screenBackground()
             .navigationTitle("Record a sale")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)

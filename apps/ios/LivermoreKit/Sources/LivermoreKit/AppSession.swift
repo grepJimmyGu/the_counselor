@@ -53,6 +53,12 @@ public final class AppSession {
     /// Live prices for the symbols on screen, shared by every screen.
     public let quotes: QuoteStore
 
+    /// The symbols the user follows, kept on this device.
+    public let watchlist = Watchlist()
+
+    /// Daily price histories for the charts, kept while the app runs.
+    public let priceHistory: PriceHistory
+
     /// Exits waiting on a decision and unread notices.
     public let inbox: ActionInbox
 
@@ -72,6 +78,9 @@ public final class AppSession {
         self.client = client
         self.quotes = QuoteStore { symbols in
             try await ResearchService(client: client).quotes(symbols)
+        }
+        self.priceHistory = PriceHistory { symbol in
+            try await ResearchService(client: client).dailyCloses(symbol)
         }
         self.inbox = ActionInbox(service: ActionService(client: client))
         self.brokerageLink = BrokerageLink(service: BrokerageService(client: client))

@@ -47,6 +47,22 @@ public struct StrategyTemplate: Codable, Identifiable, Equatable, Sendable {
     public var comingSoon: Bool?
     public var strategy: StrategyJSON
 
+    /// The headline range out of a longer line: "+3% to +12% annual (varies
+    /// widely…)" → "+3% to +12%". Nil when the line has no percentages.
+    public static func headlineRange(_ text: String?) -> String? {
+        guard let text else { return nil }
+        let pattern = #"[+−\-–]?\d+(?:\.\d+)?%(?:\s*to\s*[+−\-–]?\d+(?:\.\d+)?%)?"#
+        guard let range = text.range(of: pattern, options: .regularExpression) else { return nil }
+        return String(text[range])
+    }
+
+    /// The first sentence of the description — enough for a card.
+    public var summary: String {
+        let text = whatItCaptures ?? description
+        guard let end = text.range(of: ". ") else { return text }
+        return String(text[..<end.lowerBound]) + "."
+    }
+
     /// Runnable today. "proxy" templates run on an ETF stand-in and say so.
     public var isRunnable: Bool {
         (availability == "ready" || availability == "proxy") && comingSoon != true

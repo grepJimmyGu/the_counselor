@@ -38,3 +38,6 @@ filter:
     - /api/snaptrade/positions
     - /api/snaptrade/orders/preview
     - /api/snaptrade/orders/place
+    # Market strip and sparklines; daily history for the price chart
+    - /api/market/overview
+    - /api/data/daily/{symbol}

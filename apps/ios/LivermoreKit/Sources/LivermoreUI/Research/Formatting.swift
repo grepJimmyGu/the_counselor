@@ -26,6 +26,20 @@ enum Fmt {
         v.formatted(.currency(code: "USD").precision(.fractionLength(0)))
     }
 
+    /// Chart axis prices: "$352", "$1.2K", "$0.85".
+    static func axisPrice(_ v: Double) -> String {
+        let a = abs(v)
+        if a >= 10_000 { return String(format: "$%.1fK", v / 1e3) }
+        if a >= 100 { return String(format: "$%.0f", v) }
+        if a >= 10 { return String(format: "$%.1f", v) }
+        return String(format: "$%.2f", v)
+    }
+
+    /// A difference between two percentages, in points: "+12.3 pts".
+    static func points(_ fraction: Double) -> String {
+        String(format: "%+.1f pts", fraction * 100)
+    }
+
     static func price(_ v: Double?) -> String {
         guard let v else { return "—" }
         return v.formatted(.currency(code: "USD").precision(.fractionLength(2)))
@@ -58,21 +72,4 @@ enum Fmt {
         guard let v else { return "—" }
         return String(format: "%.1fx", v)
     }
-}
-
-extension ScoreStatus {
-    var color: Color {
-        switch self {
-        case .strong: .green
-        case .neutral: .orange
-        case .weak: .red
-        }
-    }
-
-    var label: String { rawValue.capitalized }
-}
-
-extension Double {
-    /// Green when up, red when down, grey when flat.
-    var changeColor: Color { self > 0 ? .green : self < 0 ? .red : .secondary }
 }
