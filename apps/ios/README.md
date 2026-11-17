@@ -46,7 +46,8 @@ the code, not left to the screens:
 
 1. **Nothing is sent without a preview.** `BrokerageService.place` takes a
    preview and sends only its id. There is no call that places an order from a
-   symbol and a quantity.
+   symbol and a quantity. The ticket's steps are a tested state machine
+   (`OrderTicketState`): sent is reachable only through fill in → price → send.
 2. **What is sent is what was shown.** Changing the amount or the account on
    a ticket discards the broker's price; the Send button is not there again
    until the new order has been priced.
@@ -66,7 +67,7 @@ screens are showing, every 10 seconds, and stops in the background. Views opt
 in with `.liveQuotes([...])` and read `session.quotes.quotes`.
 
 How fresh a price can be is set by the backend's per-symbol cache — 30 seconds
-today — not by the poll. PR "feat(api): fresher live quotes" makes that
+today — not by the poll. PR #374 (`feat(api): fresher live quotes`) makes that
 configurable (`LIVE_QUOTE_TTL_SECONDS`) and adds an optional Alpha Vantage
 real-time source. Once it is deployed, refresh `openapi.json`: the response
 gains `ttl_seconds` (the right poll interval) and, per quote, `as_of` (when
@@ -111,7 +112,7 @@ apps/ios/
       Brokerage/                    SnapTrade link, holdings, order tickets
       Demo/                         the sample account (debug builds only)
     Sources/LivermoreUI/          SwiftUI screens, same folders
-    Tests/LivermoreKitTests/      87 tests; `swift test` runs them in a second
+    Tests/LivermoreKitTests/      95 tests; `swift test` runs them in a second
   scripts/refresh_openapi.py      refreshes openapi.json from the backend
   scripts/gen_scoring_golden.mjs  regenerates the scoring parity fixture
   scripts/gen_templates.mjs       regenerates the strategy templates
