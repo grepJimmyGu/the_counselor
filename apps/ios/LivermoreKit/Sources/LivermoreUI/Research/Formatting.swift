@@ -13,6 +13,14 @@ enum Fmt {
         return String(format: "$%.0f", v)
     }
 
+    /// Axis labels: "$12.5K", "$1.2M", "$850".
+    static func compactMoney(_ v: Double) -> String {
+        let a = abs(v)
+        if a >= 1e6 { return String(format: "$%.1fM", v / 1e6) }
+        if a >= 1e3 { return String(format: "$%.1fK", v / 1e3) }
+        return String(format: "$%.0f", v)
+    }
+
     static func price(_ v: Double?) -> String {
         guard let v else { return "—" }
         return v.formatted(.currency(code: "USD").precision(.fractionLength(2)))

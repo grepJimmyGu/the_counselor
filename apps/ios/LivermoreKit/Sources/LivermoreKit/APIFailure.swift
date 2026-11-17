@@ -13,6 +13,9 @@ public enum APIFailure: Error, Equatable, Sendable {
     /// 401 — no token, or one the backend no longer accepts. Tokens last 30
     /// days and a device cannot refresh one, so this means "sign in again".
     case notSignedIn
+    /// 400 — the backend understood the request and turned it down, with a
+    /// reason written for the user ("Unknown or unsupported ticker(s): …").
+    case rejected(String)
     case server(status: Int)
     /// The response arrived but could not be decoded — the app and the backend
     /// disagree about its shape. Kept apart from `network` so a schema
@@ -25,6 +28,7 @@ public enum APIFailure: Error, Equatable, Sendable {
         case .upgradeRequired(let detail): detail
         case .unavailable: "Livermore couldn't load this right now."
         case .notSignedIn: "Your session has ended. Sign in again."
+        case .rejected(let reason): reason
         case .server(let status): "Livermore returned an error (\(status)). Try again in a moment."
         case .unreadable: "Livermore sent data this version of the app can't read. Updating the app may fix it."
         case .network: "Couldn't reach Livermore. Check your connection and try again."
@@ -52,6 +56,7 @@ public enum APIFailure: Error, Equatable, Sendable {
             detail = Self.detail(in: data)
         }
         switch status {
+        case 400: return .rejected(detail ?? "Livermore couldn't run this request.")
         case 401: return .notSignedIn
         case 402: return .upgradeRequired(detail ?? "This isn't included in your plan.")
         case 404: return .unavailable(detail ?? "")

@@ -23,3 +23,6 @@ filter:
     - /api/saved-strategies/open-positions
     - /api/saved-strategies/{strategy_id}/signal
     - /api/saved-strategies/{strategy_id}/positions
+    # Strategy builder (slice 6)
+    - /api/backtest/run
+    - /api/anonymous/backtest/run

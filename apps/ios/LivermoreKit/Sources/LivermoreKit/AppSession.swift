@@ -68,6 +68,9 @@ public final class AppSession {
     /// The user's strategies and tracked positions. Needs a signed-in session.
     public var strategies: StrategyService { StrategyService(client: client) }
 
+    /// Backtests and saving. Runs work signed out, within the anonymous limit.
+    public var backtests: BacktestService { BacktestService(client: client) }
+
     public var isSignedIn: Bool {
         if case .signedIn = state { true } else { false }
     }

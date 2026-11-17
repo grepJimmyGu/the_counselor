@@ -25,6 +25,9 @@ struct StrategiesView: View {
                         Label("Sign in to see your strategies", systemImage: "chart.line.uptrend.xyaxis")
                     } description: {
                         Text("Your saved strategies and the positions Livermore is tracking appear here. Sign in from the Account tab.")
+                    } actions: {
+                        NavigationLink("Test a strategy template") { TemplateGalleryView() }
+                            .buttonStyle(.borderedProminent)
                     }
                 } else {
                     switch phase {
@@ -44,6 +47,16 @@ struct StrategiesView: View {
                 }
             }
             .navigationTitle("Strategies")
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    NavigationLink {
+                        TemplateGalleryView()
+                    } label: {
+                        Label("New strategy", systemImage: "plus")
+                    }
+                    .accessibilityIdentifier("new-strategy")
+                }
+            }
             .navigationDestination(for: SavedStrategy.self) { strategy in
                 StrategyDetailView(strategy: strategy, trackedPositions: positions.filter { $0.strategyId == strategy.id })
             }
@@ -57,7 +70,12 @@ struct StrategiesView: View {
                 phase = .loading
                 return
             }
-            if case .loaded = phase { return }
+            if case .loaded = phase {
+                // Coming back from the builder may mean a strategy was just
+                // saved; refresh quietly rather than show a spinner.
+                await load(showSpinner: false)
+                return
+            }
             await load()
         }
     }

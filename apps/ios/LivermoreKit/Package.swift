@@ -34,7 +34,9 @@ let package = Package(
                 .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
                 .product(name: "OpenAPIURLSession", package: "swift-openapi-urlsession"),
                 .product(name: "HTTPTypes", package: "swift-http-types"),
-            ]
+            ],
+            // The website's strategy templates, exported by scripts/gen_templates.mjs.
+            resources: [.process("Builder/templates.json")]
         ),
         .target(name: "LivermoreUI", dependencies: ["LivermoreKit", "LivermoreAPI"]),
         .testTarget(

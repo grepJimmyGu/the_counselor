@@ -121,6 +121,12 @@ struct CompanyView: View {
 
                 Card("More on \(overview.symbol)") {
                     NavigationLink {
+                        TemplateGalleryView(presetTicker: overview.symbol)
+                    } label: {
+                        MoreRow(title: "Test a strategy on \(overview.symbol)", systemImage: "chart.xyaxis.line")
+                    }
+                    Divider()
+                    NavigationLink {
                         SentimentView(symbol: overview.symbol)
                     } label: {
                         MoreRow(title: "News & sentiment", systemImage: "newspaper")

@@ -11,6 +11,10 @@ directly; the website is not in the path.
 | 2 | Research: search and the company page | **Built and run** — see below |
 | 3 | Strategies: saved strategies, open positions, signals | **Built.** Seen with sample data only — see below |
 | 4 | Brokerage link and the Actions inbox | Not started |
+| 6 | Strategy builder, step 1: run a template, see the result, save it | **Built.** Run seen against production; saving not yet — see below |
+| 7 | Strategy builder, step 2: customise parameters and exits | Not started |
+| 8 | Strategy builder, step 3: build from signals | Not started |
+| 5 | Live price refresh | Not started — design pending |
 
 **Seen running** on an iPhone 17 simulator against the production API: search,
 the company page (live price, the three scores, 90-day chart, financials,
@@ -28,8 +32,13 @@ user and answers the account endpoints from fixtures; the screens are marked
 xcrun simctl launch booted com.livermorealpha.app -demo
 ```
 
-**Not yet seen:** any of the signed-in screens against a real account, and a
-successful sign-in. Both need a real account's password.
+**Seen running, signed out, against production:** the template gallery, a
+template's setup screen, a real backtest (Trend Following on AAPL, five
+years) and its result screen, and the message shown when the one free
+signed-out run is used up.
+
+**Not yet seen:** any of the signed-in screens against a real account, a
+successful sign-in, and saving a strategy. All need a real account's password.
 
 Research works without an account, as it does on the website; the backend
 serves the anonymous tier. Sign-in lives in the Account tab.
@@ -100,6 +109,24 @@ cd apps/ios/LivermoreKit && swift test          # fails until Swift matches
 ```
 
 The lasting fix is to compute the scores on the backend so there is one copy.
+
+## The strategy templates are a copy — regenerate when the web's change
+
+The template catalogue is data in `apps/web/src/lib/contracts.ts`
+(`researchTemplates`); the backend does not serve it. The app ships an export:
+
+```bash
+node apps/ios/scripts/gen_templates.mjs           # rewrite templates.json
+node apps/ios/scripts/gen_templates.mjs --check   # exit 1 if it is stale
+```
+
+`TemplateCatalogTests` checks that every exported template decodes into the
+generated `StrategyJSON` type. A template run sends exactly what the web sends
+(`buildStrategyFromTemplate`): the template's rules with the universe, dates
+and name replaced.
+
+Signed out, the backend allows one backtest per visitor; the app then asks
+the user to sign in.
 
 ## Build the app
 
