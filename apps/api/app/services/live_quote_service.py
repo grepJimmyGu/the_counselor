@@ -19,7 +19,12 @@ Design (one diagram for the file):
                                             └── return merged result
 
 Properties:
-  - 30s TTL — any quote within 30s of fetch is reused.
+  - 30s TTL by default — any quote within 30s of fetch is reused. A caller
+    may ask for fresher with `max_age`; /api/live/quotes does, from
+    `settings.live_quote_ttl_seconds`.
+  - Optional Alpha Vantage real-time source in front of FMP
+    (`settings.live_quote_provider == "alpha_vantage"`), for small batches
+    only; anything it does not return is fetched from FMP as before.
   - A symbol is fetched once however many callers want it at the same moment.
   - Callers never queue behind each other. They queue behind FMP, and every
     FMP call carries the union of what all of them are missing (a page with
@@ -53,6 +58,8 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
 from app.core.concurrency import PerLoop
+from app.core.config import get_settings
+from app.services.alpha_vantage_quotes import BULK_LIMIT, AlphaVantageQuoteClient
 from app.services.fmp_client import FMPClient
 
 _log = logging.getLogger(__name__)
@@ -61,6 +68,11 @@ _log = logging.getLogger(__name__)
 # concurrent users, short enough that "live" still feels live. Don't bump
 # without re-running the call-rate math.
 TTL_SECONDS = 30.0
+
+# A caller cannot ask for quotes fresher than this. Below a couple of seconds
+# every poll is a provider call, which is a rate-limit incident rather than a
+# feature.
+MIN_MAX_AGE_SECONDS = 2.0
 
 
 @dataclass(frozen=True)
@@ -76,7 +88,17 @@ class LiveQuote:
     market_cap: Optional[float]
     name: Optional[str]
     exchange: Optional[str]
-    fetched_at: float  # epoch seconds
+    # time.monotonic() at fetch — a cache-age clock, NOT a wall-clock time.
+    # (The field was documented as "epoch seconds" and never was; it stays
+    # for cache arithmetic and for clients that already read it.)
+    fetched_at: float
+    # Wall-clock epoch seconds when we fetched it: "prices checked at".
+    checked_at: Optional[float] = None
+    # Epoch seconds of the quote itself — the last trade — when the provider
+    # says. During market hours this is how old the PRICE is, which
+    # `checked_at` cannot tell you.
+    as_of: Optional[float] = None
+    source: str = "fmp"
 
 
 @dataclass
@@ -99,13 +121,33 @@ class LiveQuoteService:
     """Holds the cache and the queue for FMP. Instantiated as a module-level
     singleton at the bottom of this file; routes import `live_quote_service`."""
 
-    def __init__(self, fmp: Optional[FMPClient] = None) -> None:
+    def __init__(
+        self,
+        fmp: Optional[FMPClient] = None,
+        alpha_vantage: Optional[AlphaVantageQuoteClient] = None,
+        provider: Optional[str] = None,
+    ) -> None:
         self._fmp = fmp or FMPClient()
+        self._alpha_vantage = alpha_vantage or AlphaVantageQuoteClient()
+        # None = read the setting on each fetch, so the env var is the switch.
+        self._provider_override = provider
         self._cache: dict[str, LiveQuote] = {}
         self._pending: PerLoop[_Pending] = PerLoop(_Pending)
 
-    def _is_fresh(self, q: LiveQuote, now: float) -> bool:
-        return (now - q.fetched_at) < TTL_SECONDS
+    def _is_fresh(self, q: LiveQuote, now: float, max_age: float = TTL_SECONDS) -> bool:
+        return (now - q.fetched_at) < max_age
+
+    def _uses_alpha_vantage(self, count: int) -> bool:
+        """Alpha Vantage first, for batches it can answer in one call.
+
+        Market Pulse asks for ~500 symbols at a time; sending those to AV
+        would spend five calls per refresh against a per-minute quota that
+        the watch-list traffic also draws on. Those stay on FMP. A batch is
+        everything queued while the previous call was out, so a watch list
+        that happens to arrive alongside Market Pulse rides to FMP with it.
+        """
+        provider = self._provider_override or get_settings().live_quote_provider
+        return (provider or "").strip().lower() == "alpha_vantage" and count <= BULK_LIMIT
 
     def cached(self, symbol: str, max_age: float = TTL_SECONDS) -> Optional[LiveQuote]:
         """The last quote fetched for *symbol* if it is younger than
@@ -115,8 +157,13 @@ class LiveQuoteService:
             return quote
         return None
 
-    async def get_quotes(self, symbols: list[str]) -> dict[str, LiveQuote]:
+    async def get_quotes(
+        self, symbols: list[str], max_age: Optional[float] = None
+    ) -> dict[str, LiveQuote]:
         """Return cached quotes for *symbols*, fetching any stale ones.
+
+        `max_age` (seconds) asks for fresher quotes than the 30 s default;
+        it is floored at `MIN_MAX_AGE_SECONDS` and never widens the default.
 
         Result dict only contains entries we successfully resolved; callers
         treat missing keys as "no data available" (e.g., bad ticker, FMP
@@ -126,12 +173,13 @@ class LiveQuoteService:
             return {}
         normalized = [s.upper() for s in symbols if s]
         now = time.monotonic()
+        ttl = TTL_SECONDS if max_age is None else min(TTL_SECONDS, max(MIN_MAX_AGE_SECONDS, max_age))
 
         fresh: dict[str, LiveQuote] = {}
         stale: list[str] = []
         for sym in normalized:
             cached = self._cache.get(sym)
-            if cached and self._is_fresh(cached, now):
+            if cached and self._is_fresh(cached, now, ttl):
                 fresh[sym] = cached
             else:
                 stale.append(sym)
@@ -154,6 +202,49 @@ class LiveQuoteService:
         """Convenience wrapper around get_quotes() for the one-ticker case."""
         result = await self.get_quotes([symbol])
         return result.get(symbol.upper())
+
+    async def _fetch_from_alpha_vantage(self, symbols: list[str]) -> list[str]:
+        """Cache whatever Alpha Vantage returns; hand back what it did not.
+
+        Never raises. A failure here — transport, quota, a key that is not
+        entitled — must cost the user nothing but the FMP fallback, so every
+        symbol is simply returned as still wanted.
+        """
+        try:
+            rows = await self._alpha_vantage.get_bulk_quotes(symbols)
+        except Exception:  # noqa: BLE001
+            _log.exception("live_quote_service: Alpha Vantage quotes failed; using FMP")
+            return symbols
+        fetched_at = time.monotonic()
+        checked_at = time.time()
+        wanted = set(symbols)
+        returned: set[str] = set()
+        for row in rows:
+            sym = row.get("symbol")
+            # Only what was asked for: a provider answering with extra or
+            # renamed symbols must not write into unrelated cache entries.
+            if sym not in wanted:
+                continue
+            previous = self._cache.get(sym)
+            self._cache[sym] = LiveQuote(
+                symbol=sym,
+                price=row["price"],
+                change=row["change"],
+                change_percent=row["change_percent"],
+                day_high=row.get("day_high"),
+                day_low=row.get("day_low"),
+                volume=_maybe_int(row.get("volume")),
+                # AV's quote has no company fields; keep what FMP gave us.
+                market_cap=previous.market_cap if previous else None,
+                name=previous.name if previous else None,
+                exchange=previous.exchange if previous else None,
+                fetched_at=fetched_at,
+                checked_at=checked_at,
+                as_of=row.get("as_of"),
+                source="alpha_vantage",
+            )
+            returned.add(sym)
+        return [s for s in symbols if s not in returned]
 
     async def _fetch_stale(self, stale: list[str]) -> None:
         """Wait until every symbol in *stale* has been asked of FMP once.
@@ -184,26 +275,34 @@ class LiveQuoteService:
                 raise outcome
 
     async def _drain(self, pending: _Pending) -> None:
-        """Send the queue to FMP, one call at a time, until it is empty.
+        """Send the queue to the provider, one batch at a time, until it is empty.
 
-        One call at a time is deliberate: FMP's burst limiter drops symbols
-        from concurrent quote requests (apps/api/CLAUDE.md, trap 15). Whatever
-        is asked for while a call is out simply rides on the next one.
+        One at a time is deliberate: FMP's burst limiter drops symbols from
+        concurrent quote requests (apps/api/CLAUDE.md, trap 15). Whatever is
+        asked for while a batch is out simply rides on the next one.
+
+        A batch goes to Alpha Vantage first when that source is switched on
+        and the batch is small enough, and to FMP for whatever is left.
         """
         try:
             while pending.queue:
                 batch, pending.queue = pending.queue, []
                 failure: Optional[Exception] = None
                 try:
-                    raw = await self._fmp.get_quotes_batch(batch)
-                    fetched_at = time.monotonic()
-                    returned: set[str] = set()
-                    for item in raw:
-                        quote = _from_fmp_payload(item, fetched_at)
-                        if quote is None:
-                            continue
-                        self._cache[quote.symbol] = quote
-                        returned.add(quote.symbol)
+                    remaining = batch
+                    if self._uses_alpha_vantage(len(batch)):
+                        remaining = await self._fetch_from_alpha_vantage(batch)
+                    returned: set[str] = set(batch) - set(remaining)
+                    if remaining:
+                        raw = await self._fmp.get_quotes_batch(remaining)
+                        fetched_at = time.monotonic()
+                        checked_at = time.time()
+                        for item in raw:
+                            quote = _from_fmp_payload(item, fetched_at, checked_at)
+                            if quote is None:
+                                continue
+                            self._cache[quote.symbol] = quote
+                            returned.add(quote.symbol)
                     missing = set(batch) - returned
                     if missing:
                         # Log but don't fail — caller already treats missing as "no data".
@@ -228,7 +327,9 @@ class LiveQuoteService:
             pending.queue = []
 
 
-def _from_fmp_payload(raw: dict, fetched_at: float) -> Optional[LiveQuote]:
+def _from_fmp_payload(
+    raw: dict, fetched_at: float, checked_at: Optional[float] = None
+) -> Optional[LiveQuote]:
     """Build a LiveQuote from one FMP /stable/quote response item.
 
     FMP's response field names vary slightly across endpoint variants. We
@@ -253,6 +354,10 @@ def _from_fmp_payload(raw: dict, fetched_at: float) -> Optional[LiveQuote]:
             name=raw.get("name"),
             exchange=raw.get("exchange"),
             fetched_at=fetched_at,
+            checked_at=checked_at,
+            # FMP stamps the quote with the last trade, in epoch seconds.
+            as_of=_maybe_float(raw.get("timestamp")),
+            source="fmp",
         )
     except (TypeError, ValueError):
         return None
