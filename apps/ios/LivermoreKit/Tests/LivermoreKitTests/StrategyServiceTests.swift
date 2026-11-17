@@ -42,6 +42,40 @@ struct StrategyServiceTests {
         #expect(transport.requests.last?.authorization == "Bearer demo-token")
     }
 
+    @Test("a saved strategy the app has a type for can be re-tested; others are left alone")
+    func typedStrategy() async throws {
+        let (service, transport, _) = make()
+        transport.stub(Op.strategies, .json(status: 200, DemoData.strategies))
+        let rows = try await service.strategies()
+
+        let typed = try #require(rows[0].typedStrategy)
+        #expect(typed.strategyType == .movingAverageFilter)
+        #expect(rows[0].universe == ["NVDA"])
+        // Its settings open as they were saved, exit plan included.
+        let settings = StrategyCustomization(strategy: typed)
+        #expect(settings.exitPlan == ExitPlan(stopPercent: 8, firstTargetPercent: 15, finalTargetPercent: 30))
+        #expect(settings.parameters.map(\.label) == ["Moving average length"])
+        #expect(settings.apply(to: typed) == typed)
+
+        // A strategy type this build doesn't know is not offered for editing
+        // rather than half-decoded.
+        #expect(rows[1].typedStrategy == nil)
+        #expect(rows[1].universe.count == 7)
+    }
+
+    @Test("re-dating keeps everything but the dates")
+    func redated() throws {
+        let base = TemplateCatalog.runnable[0].strategy
+        let today = ISO8601DateFormatter().date(from: "2026-11-17T15:00:00Z")!
+        let redated = StrategyBuilder.redated(base, range: .threeYears, today: today)
+        #expect(redated.startDate == "2023-11-17")
+        #expect(redated.endDate == "2026-11-17")
+        var expected = base
+        expected.startDate = redated.startDate
+        expected.endDate = redated.endDate
+        #expect(redated == expected)
+    }
+
     @Test("open positions decode with their stop, next target and price note")
     func openPositions() async throws {
         let (service, transport, _) = make()

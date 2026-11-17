@@ -18,6 +18,14 @@ struct CompanyView: View {
     @State private var phase: Phase = .loading
     @State private var trend: CompanyTrend?
     @State private var trendFailed = false
+    @State private var isTrading = false
+    @State private var tradeSide: TradeSide = .buy
+
+    private enum TradeSide: String, CaseIterable, Identifiable {
+        case buy = "Buy"
+        case sell = "Sell"
+        var id: String { rawValue }
+    }
 
     var body: some View {
         Group {
@@ -35,6 +43,12 @@ struct CompanyView: View {
         .navigationBarTitleDisplayMode(.inline)
         #endif
         .liveQuotes([symbol])
+        .sheet(isPresented: $isTrading) { tradeSheet }
+        .task(id: session.isSignedIn) {
+            // Whether to offer a trade depends on the brokerage link, which a
+            // signed-in user may never have opened the Actions tab to load.
+            if session.isSignedIn, session.brokerageLink.status == nil { await session.brokerageLink.refresh() }
+        }
         .task(id: symbol) {
             // `.task` runs again every time this screen reappears — including
             // on the way back from Sentiment or Supply chain. Reloading there
@@ -61,6 +75,29 @@ struct CompanyView: View {
         }
         trend = await trendResult
         trendFailed = trend == nil
+    }
+
+    /// Buy, or — when the broker shows a holding — choose between buying
+    /// more and selling it.
+    @ViewBuilder
+    private var tradeSheet: some View {
+        if let holding = session.brokerageLink.holding(of: symbol) {
+            VStack(spacing: 0) {
+                Picker("Side", selection: $tradeSide) {
+                    ForEach(TradeSide.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .padding()
+                OrderTicketView(
+                    symbol: symbol,
+                    side: tradeSide == .sell ? .sell(holding: holding, suggested: nil) : .buy(suggestedDollars: nil)
+                )
+                // A different side is a different order: start the ticket over.
+                .id(tradeSide)
+            }
+        } else {
+            OrderTicketView(symbol: symbol, side: .buy(suggestedDollars: nil))
+        }
     }
 
     @ViewBuilder
@@ -124,6 +161,21 @@ struct CompanyView: View {
                         MoreRow(title: "Test a strategy on \(overview.symbol)", systemImage: "chart.xyaxis.line")
                     }
                     Divider()
+                    if session.brokerageLink.canTrade {
+                        Button {
+                            isTrading = true
+                        } label: {
+                            MoreRow(
+                                title: session.brokerageLink.holding(of: overview.symbol) == nil
+                                    ? "Buy \(overview.symbol) at your broker"
+                                    : "Trade \(overview.symbol) at your broker",
+                                systemImage: "arrow.left.arrow.right.circle"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("trade-at-broker")
+                        Divider()
+                    }
                     NavigationLink {
                         SentimentView(symbol: overview.symbol)
                     } label: {

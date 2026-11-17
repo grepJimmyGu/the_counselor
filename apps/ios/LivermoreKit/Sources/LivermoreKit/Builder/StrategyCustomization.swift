@@ -168,11 +168,14 @@ public struct ExitPlan: Equatable, Sendable {
         if let partial = partials.first, let final = finals.first, final.triggerPct <= partial.triggerPct {
             return nil
         }
+        // 0.08 × 100 is 8.000000000000002 in floating point; a plan read back
+        // from a ladder must equal the plan that wrote it.
+        func percent(_ fraction: Double) -> Double { (fraction * 1_000_000).rounded() / 10_000 }
         self.init(
-            stopPercent: -stops[0].triggerPct * 100,
-            firstTargetPercent: partials.first.map { $0.triggerPct * 100 },
+            stopPercent: percent(-stops[0].triggerPct),
+            firstTargetPercent: partials.first.map { percent($0.triggerPct) },
             firstTargetFraction: partials.first?.fraction ?? 0.5,
-            finalTargetPercent: finals.first.map { $0.triggerPct * 100 }
+            finalTargetPercent: finals.first.map { percent($0.triggerPct) }
         )
     }
 }
@@ -430,12 +433,17 @@ public struct StrategyCustomization: Equatable, Sendable {
             next = riskLevel.apply(to: next)
         }
 
-        if !keepsOriginalLadder {
+        // The ladder is rewritten only when the plan differs from the one the
+        // strategy came with. Rewriting an unchanged plan would still replace
+        // its tier labels with this screen's wording, which is a change the
+        // user did not make.
+        let existing = strategy.riskManagement?.exitLadder ?? []
+        let existingPlan = existing.isEmpty ? nil : ExitPlan(tiers: existing)
+        let unrepresentable = !existing.isEmpty && existingPlan == nil
+        if !keepsOriginalLadder, unrepresentable || exitPlan != existingPlan {
             var risk = next.riskManagement ?? .init()
             risk.exitLadder = exitPlan?.tiers
-            // An empty object and an absent one mean the same to the backend;
-            // keep whichever the strategy came with.
-            if next.riskManagement != nil || risk.exitLadder != nil { next.riskManagement = risk }
+            next.riskManagement = risk
         }
         return next
     }

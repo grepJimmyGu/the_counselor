@@ -253,7 +253,9 @@ struct OrderTicketView: View {
         switch side {
         case .sell(let holding, let suggested):
             accountID = holding.accountId
-            if amount == nil { amount = min(suggested ?? holding.units, holding.units) }
+            // Only a rule's own share count is filled in. Without one the
+            // field starts empty: "sell everything" is not a default.
+            if amount == nil, let suggested { amount = min(suggested, holding.units) }
         case .buy(let dollars):
             if accountID.isEmpty { accountID = link.accounts.first?.id ?? "" }
             if amount == nil { amount = dollars }

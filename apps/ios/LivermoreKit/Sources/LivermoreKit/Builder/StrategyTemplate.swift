@@ -127,6 +127,15 @@ public enum StrategyBuilder {
         return "\(template.name) — \(suffix)"
     }
 
+    /// A strategy re-dated to end today and start `range` years back — for
+    /// testing a saved strategy again on current data.
+    public static func redated(_ strategy: StrategyJSON, range: BacktestRange, today: Date = .now) -> StrategyJSON {
+        var next = strategy
+        next.endDate = isoDay(today)
+        next.startDate = isoDay(utc.date(byAdding: .year, value: -range.years, to: today) ?? today)
+        return next
+    }
+
     /// The strategy a template runs for the chosen tickers and period — the
     /// web's `buildStrategyFromTemplate`: the template's own rules, with the
     /// universe, the dates and the name replaced.

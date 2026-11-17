@@ -108,7 +108,7 @@ struct StrategiesView: View {
 
             Section("Your strategies") {
                 if strategies.isEmpty {
-                    Text("No saved strategies yet. Build one on livermorealpha.com and it will appear here.")
+                    Text("No saved strategies yet. Tap + to test a template, change it to suit you, and save it. Strategies saved on livermorealpha.com appear here too.")
                         .font(.subheadline).foregroundStyle(.secondary)
                 } else {
                     ForEach(strategies, id: \.id) { strategy in

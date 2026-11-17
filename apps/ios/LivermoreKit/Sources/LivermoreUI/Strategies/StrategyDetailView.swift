@@ -158,6 +158,14 @@ extension StrategyDetailView {
             if let declaredNote {
                 Label(declaredNote, systemImage: "checkmark.circle").font(.footnote).foregroundStyle(.green)
             }
+            if let typed = strategy.typedStrategy {
+                NavigationLink {
+                    StrategyRerunView(saved: strategy, original: typed)
+                } label: {
+                    Label("Test it again, with changes", systemImage: "slider.horizontal.3")
+                }
+                .accessibilityIdentifier("rerun-strategy")
+            }
         } header: {
             Text("Act on it")
         } footer: {

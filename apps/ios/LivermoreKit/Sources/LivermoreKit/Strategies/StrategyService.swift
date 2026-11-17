@@ -95,6 +95,15 @@ extension Components.Schemas.AppApiRoutesSavedStrategiesSavedStrategyResponse {
         return !ladder.isEmpty
     }
 
+    /// The strategy in the shape the backtester takes, or nil when it uses
+    /// something this version of the app has no type for. The saved copy is
+    /// free-form JSON; a strategy built with the website's signal composer
+    /// can carry fields added since this app was built.
+    public var typedStrategy: StrategyJSON? {
+        guard let data = try? JSONEncoder().encode(strategyJson) else { return nil }
+        return try? JSONDecoder().decode(StrategyJSON.self, from: data)
+    }
+
     /// The tickers the strategy trades.
     public var universe: [String] {
         let raw = strategyJson.additionalProperties.value["universe"] as? [(any Sendable)?] ?? []
