@@ -182,28 +182,64 @@ _SECTOR_NAMES: dict[str, str] = {
 }
 
 
+# How far behind the series it is charted against the index may be before
+# it is treated as stale. Covers a long weekend plus a holiday; anything
+# more is a refresh that has stopped, not a calendar gap.
+_BENCHMARK_MAX_LAG_DAYS = 5
+
+
 def _load_benchmark(
-    db: Session, cutoff: date
+    db: Session, cutoff: date, need_through: Optional[date] = None
 ) -> tuple[str, list[tuple[date, float]]]:
     """Return `(symbol, bars)` for the S&P 500 benchmark series.
 
     Tries `^GSPC` first (the actual index) and falls back to `SPY` (the
-    ETF proxy) if ^GSPC has no bars in the window. Logs at WARN on
-    fallback so the operator knows the backfill script hasn't been run
-    yet.
+    ETF proxy) when ^GSPC cannot do the job:
+
+      - it has no bars in the window, or
+      - it is STALE: `need_through` is the last date of the series it will
+        be charted against, and ^GSPC stops more than
+        `_BENCHMARK_MAX_LAG_DAYS` before it.
+
+    The second case matters because the chart keeps only dates both series
+    share. A benchmark that stopped updating does not merely look old — it
+    silently truncates the other line to its own last date (2026-11: the
+    index refresh had not run since 2026-09-10, so every sector chart ended
+    there and read months out of date while the table beside it was right).
+
+    Logs at WARN on either fallback so the operator knows.
     """
     bars = _fetch_series(db, _BENCHMARK_PRIMARY, cutoff)
-    if bars:
+    stale = bool(
+        bars and need_through is not None
+        and (need_through - bars[-1][0]).days > _BENCHMARK_MAX_LAG_DAYS
+    )
+    if bars and not stale:
         return _BENCHMARK_PRIMARY, bars
-    bars = _fetch_series(db, _BENCHMARK_FALLBACK, cutoff)
+
+    fallback = _fetch_series(db, _BENCHMARK_FALLBACK, cutoff)
+    if fallback and (not bars or fallback[-1][0] > bars[-1][0]):
+        if stale:
+            _log.warning(
+                "sector_comparison: %s is stale (last bar %s, needed through %s); "
+                "using %s. The index refresh has stopped — see "
+                "app.main._warmup_gspc / refresh_market_data_job.",
+                _BENCHMARK_PRIMARY, bars[-1][0].isoformat(),
+                need_through.isoformat() if need_through else "?", _BENCHMARK_FALLBACK,
+            )
+        else:
+            _log.warning(
+                "sector_comparison: %s has no bars in window cutoff=%s; "
+                "falling back to %s. Run apps/api/scripts/backfill_gspc.py "
+                "to populate the index series.",
+                _BENCHMARK_PRIMARY, cutoff.isoformat(), _BENCHMARK_FALLBACK,
+            )
+        return _BENCHMARK_FALLBACK, fallback
     if bars:
-        _log.warning(
-            "sector_comparison: %s has no bars in window cutoff=%s; "
-            "falling back to %s. Run apps/api/scripts/backfill_gspc.py "
-            "to populate the index series.",
-            _BENCHMARK_PRIMARY, cutoff.isoformat(), _BENCHMARK_FALLBACK,
-        )
-    return _BENCHMARK_FALLBACK, bars
+        # Stale, and the ETF is no fresher: the index is still the better
+        # label for what is on the chart.
+        return _BENCHMARK_PRIMARY, bars
+    return _BENCHMARK_FALLBACK, fallback
 
 
 def get_comparison(
@@ -223,7 +259,9 @@ def get_comparison(
     cutoff = _cutoff_for_range(range_, today)
 
     sector_bars = _fetch_series(db, sym, cutoff)
-    benchmark_sym, benchmark_bars = _load_benchmark(db, cutoff)
+    benchmark_sym, benchmark_bars = _load_benchmark(
+        db, cutoff, need_through=sector_bars[-1][0] if sector_bars else None
+    )
 
     # Align: only keep dates present in BOTH series so the indices line up.
     sector_by_date = {d: p for d, p in sector_bars}
@@ -245,7 +283,10 @@ def get_comparison(
     # the returns table shows accurate Day / YTD / 1Y / 3Y regardless of
     # which window the chart is currently zoomed into.
     full_sector = _fetch_series(db, sym, date(today.year - 4, 1, 1))
-    _, full_spy = _load_benchmark(db, date(today.year - 4, 1, 1))
+    _, full_spy = _load_benchmark(
+        db, date(today.year - 4, 1, 1),
+        need_through=full_sector[-1][0] if full_sector else None,
+    )
 
     s_dates = [d for d, _ in full_sector]
     s_prices = [p for _, p in full_sector]

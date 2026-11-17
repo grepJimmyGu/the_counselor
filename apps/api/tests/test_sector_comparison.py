@@ -236,3 +236,70 @@ def test_load_benchmark_returns_symbol_used(db):
     _insert_price_bars(db, "^GSPC", [(today - timedelta(days=1), 5000.0)])
     sym, bars = svc._load_benchmark(db, cutoff)
     assert sym == "^GSPC"
+
+
+# ── A stale index must not truncate the chart (2026-11) ─────────────────────
+#
+# Symptom: every sector chart longer than a month ended on 2026-09-10 and read
+# +30.8% for XLK's year when the returns table beside it said +16.3%.
+# Cause: ^GSPC had not been refreshed since 2026-09-10; the series keeps only
+# dates BOTH lines share, so the stale benchmark cut the fresh sector line
+# down to its own last date. The fallback to SPY fired only when ^GSPC had
+# no bars at all, never when it was merely out of date.
+
+
+def _daily(start: date, days: int, first: float, step: float) -> list[tuple[date, float]]:
+    return [(start + timedelta(days=i), first + step * i) for i in range(days)]
+
+
+def test_stale_index_does_not_truncate_the_series(db):
+    today = date.today()
+    start = today - timedelta(days=60)
+    _insert_price_bars(db, "XLK", _daily(start, 60, 100.0, 1.0))
+    _insert_price_bars(db, "SPY", _daily(start, 60, 500.0, 1.0))
+    # The index stops 40 days ago.
+    _insert_price_bars(db, "^GSPC", _daily(start, 20, 5000.0, 10.0))
+
+    resp = svc.get_comparison(db, "XLK", "6M")
+
+    last_sector_bar = (start + timedelta(days=59)).isoformat()
+    assert resp.series[-1].date == last_sector_bar
+    assert len(resp.series) == 60
+    # And the benchmark line is SPY's, over the same 60 days.
+    assert resp.series[-1].spy == pytest.approx(559.0 / 500.0 - 1.0)
+
+
+def test_fresh_index_is_still_preferred(db):
+    today = date.today()
+    start = today - timedelta(days=20)
+    _insert_price_bars(db, "XLK", _daily(start, 20, 100.0, 1.0))
+    _insert_price_bars(db, "SPY", _daily(start, 20, 500.0, 1.0))
+    # Two days behind — a weekend, not a stopped refresh.
+    _insert_price_bars(db, "^GSPC", _daily(start, 18, 5000.0, 100.0))
+
+    sym, _ = svc._load_benchmark(db, start, need_through=start + timedelta(days=19))
+    assert sym == "^GSPC"
+
+
+def test_stale_index_is_kept_when_the_etf_is_no_fresher(db):
+    today = date.today()
+    start = today - timedelta(days=60)
+    _insert_price_bars(db, "^GSPC", _daily(start, 20, 5000.0, 10.0))
+    _insert_price_bars(db, "SPY", _daily(start, 10, 500.0, 1.0))
+
+    sym, bars = svc._load_benchmark(db, start, need_through=today)
+    assert sym == "^GSPC"
+    assert len(bars) == 20
+
+
+def test_totals_use_a_current_benchmark_too(db):
+    """The returns table reads the benchmark over four years; a stale index
+    there would report yesterday's S&P move as one from two months ago."""
+    today = date.today()
+    start = today - timedelta(days=60)
+    _insert_price_bars(db, "XLK", _daily(start, 60, 100.0, 1.0))
+    _insert_price_bars(db, "SPY", _daily(start, 60, 500.0, 1.0))
+    _insert_price_bars(db, "^GSPC", _daily(start, 20, 5000.0, 10.0))
+
+    resp = svc.get_comparison(db, "XLK", "1M")
+    assert resp.spy_day == pytest.approx(559.0 / 558.0 - 1.0)
