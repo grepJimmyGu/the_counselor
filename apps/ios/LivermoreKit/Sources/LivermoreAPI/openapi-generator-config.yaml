@@ -1,0 +1,14 @@
+generate:
+  - types
+  - client
+accessModifier: public
+namingStrategy: idiomatic
+# Only the endpoints the app calls. The schema has 157 paths; generating all of
+# them would triple build time for code nothing uses. Add a path here when a
+# screen starts calling it.
+filter:
+  paths:
+    - /api/auth/password/login
+    - /api/auth/password/signup
+    - /api/me/entitlements
+    - /api/live/quotes
