@@ -1,0 +1,729 @@
+{
+ "cases": [
+  {
+   "template": "trend-following",
+   "level": "low",
+   "position_sizing": {
+    "method": "vol_target",
+    "max_positions": 1,
+    "target_vol_annual": 0.08
+   },
+   "risk_management": {
+    "stop_loss_pct": 0.08,
+    "max_drawdown_stop": 0.15
+   },
+   "detected": "low"
+  },
+  {
+   "template": "trend-following",
+   "level": "medium",
+   "position_sizing": {
+    "method": "vol_target",
+    "max_positions": 1,
+    "target_vol_annual": 0.12
+   },
+   "risk_management": {
+    "stop_loss_pct": 0.12,
+    "max_drawdown_stop": 0.25
+   },
+   "detected": "medium"
+  },
+  {
+   "template": "trend-following",
+   "level": "high",
+   "position_sizing": {
+    "method": "equal_weight",
+    "max_positions": 1
+   },
+   "risk_management": {
+    "stop_loss_pct": 0.08,
+    "max_drawdown_stop": 0.4
+   },
+   "detected": "high"
+  },
+  {
+   "template": "cross-sectional-momentum",
+   "level": "low",
+   "position_sizing": {
+    "method": "vol_target",
+    "max_positions": 2,
+    "target_vol_annual": 0.08
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.15,
+    "stop_loss_pct": 0.08
+   },
+   "detected": "low"
+  },
+  {
+   "template": "cross-sectional-momentum",
+   "level": "medium",
+   "position_sizing": {
+    "method": "vol_target",
+    "max_positions": 2,
+    "target_vol_annual": 0.12
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.25,
+    "stop_loss_pct": 0.12
+   },
+   "detected": "medium"
+  },
+  {
+   "template": "cross-sectional-momentum",
+   "level": "high",
+   "position_sizing": {
+    "method": "equal_weight",
+    "max_positions": 2
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.4
+   },
+   "detected": "high"
+  },
+  {
+   "template": "etf-rotation",
+   "level": "low",
+   "position_sizing": {
+    "method": "vol_target",
+    "max_positions": 1,
+    "target_vol_annual": 0.08
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.15,
+    "stop_loss_pct": 0.08
+   },
+   "detected": "low"
+  },
+  {
+   "template": "etf-rotation",
+   "level": "medium",
+   "position_sizing": {
+    "method": "vol_target",
+    "max_positions": 1,
+    "target_vol_annual": 0.12
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.25,
+    "stop_loss_pct": 0.12
+   },
+   "detected": "medium"
+  },
+  {
+   "template": "etf-rotation",
+   "level": "high",
+   "position_sizing": {
+    "method": "equal_weight",
+    "max_positions": 1
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.4
+   },
+   "detected": "high"
+  },
+  {
+   "template": "value-momentum",
+   "level": "low",
+   "position_sizing": {
+    "method": "vol_target",
+    "max_positions": 1,
+    "target_vol_annual": 0.08
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.15,
+    "stop_loss_pct": 0.08
+   },
+   "detected": "low"
+  },
+  {
+   "template": "value-momentum",
+   "level": "medium",
+   "position_sizing": {
+    "method": "vol_target",
+    "max_positions": 1,
+    "target_vol_annual": 0.12
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.25,
+    "stop_loss_pct": 0.12
+   },
+   "detected": "medium"
+  },
+  {
+   "template": "value-momentum",
+   "level": "high",
+   "position_sizing": {
+    "method": "equal_weight",
+    "max_positions": 1
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.4
+   },
+   "detected": "high"
+  },
+  {
+   "template": "commodity-carry",
+   "level": "low",
+   "position_sizing": {
+    "method": "vol_target",
+    "max_positions": 2,
+    "target_vol_annual": 0.08
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.15,
+    "stop_loss_pct": 0.08
+   },
+   "detected": "low"
+  },
+  {
+   "template": "commodity-carry",
+   "level": "medium",
+   "position_sizing": {
+    "method": "vol_target",
+    "max_positions": 2,
+    "target_vol_annual": 0.12
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.25,
+    "stop_loss_pct": 0.12
+   },
+   "detected": "medium"
+  },
+  {
+   "template": "commodity-carry",
+   "level": "high",
+   "position_sizing": {
+    "method": "equal_weight",
+    "max_positions": 2
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.4
+   },
+   "detected": "high"
+  },
+  {
+   "template": "news-sentiment-momentum",
+   "level": "low",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.08
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.15,
+    "stop_loss_pct": 0.08
+   },
+   "detected": "low"
+  },
+  {
+   "template": "news-sentiment-momentum",
+   "level": "medium",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.12
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.25,
+    "stop_loss_pct": 0.12
+   },
+   "detected": "medium"
+  },
+  {
+   "template": "news-sentiment-momentum",
+   "level": "high",
+   "position_sizing": {
+    "method": "equal_weight"
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.4
+   },
+   "detected": "high"
+  },
+  {
+   "template": "insider-buying",
+   "level": "low",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.08
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.15,
+    "stop_loss_pct": 0.08
+   },
+   "detected": "low"
+  },
+  {
+   "template": "insider-buying",
+   "level": "medium",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.12
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.25,
+    "stop_loss_pct": 0.12
+   },
+   "detected": "medium"
+  },
+  {
+   "template": "insider-buying",
+   "level": "high",
+   "position_sizing": {
+    "method": "equal_weight"
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.4
+   },
+   "detected": "high"
+  },
+  {
+   "template": "multi-factor-composite",
+   "level": "low",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.08
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.15,
+    "stop_loss_pct": 0.08
+   },
+   "detected": "low"
+  },
+  {
+   "template": "multi-factor-composite",
+   "level": "medium",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.12
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.25,
+    "stop_loss_pct": 0.12
+   },
+   "detected": "medium"
+  },
+  {
+   "template": "multi-factor-composite",
+   "level": "high",
+   "position_sizing": {
+    "method": "equal_weight"
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.4
+   },
+   "detected": "high"
+  },
+  {
+   "template": "cross-sectional-momentum-12-1",
+   "level": "low",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.08
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.15,
+    "stop_loss_pct": 0.08
+   },
+   "detected": "low"
+  },
+  {
+   "template": "cross-sectional-momentum-12-1",
+   "level": "medium",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.12
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.25,
+    "stop_loss_pct": 0.12
+   },
+   "detected": "medium"
+  },
+  {
+   "template": "cross-sectional-momentum-12-1",
+   "level": "high",
+   "position_sizing": {
+    "method": "equal_weight"
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.4
+   },
+   "detected": "high"
+  },
+  {
+   "template": "time-series-momentum",
+   "level": "low",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.08
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.15,
+    "stop_loss_pct": 0.08
+   },
+   "detected": "low"
+  },
+  {
+   "template": "time-series-momentum",
+   "level": "medium",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.12
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.25,
+    "stop_loss_pct": 0.12
+   },
+   "detected": "medium"
+  },
+  {
+   "template": "time-series-momentum",
+   "level": "high",
+   "position_sizing": {
+    "method": "equal_weight"
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.4
+   },
+   "detected": "high"
+  },
+  {
+   "template": "short-term-reversal",
+   "level": "low",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.08
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.15,
+    "stop_loss_pct": 0.08
+   },
+   "detected": "low"
+  },
+  {
+   "template": "short-term-reversal",
+   "level": "medium",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.12
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.25,
+    "stop_loss_pct": 0.12
+   },
+   "detected": "medium"
+  },
+  {
+   "template": "short-term-reversal",
+   "level": "high",
+   "position_sizing": {
+    "method": "equal_weight"
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.4
+   },
+   "detected": "high"
+  },
+  {
+   "template": "pairs-trading-long-only",
+   "level": "low",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.08
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.15,
+    "stop_loss_pct": 0.08
+   },
+   "detected": "low"
+  },
+  {
+   "template": "pairs-trading-long-only",
+   "level": "medium",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.12
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.25,
+    "stop_loss_pct": 0.12
+   },
+   "detected": "medium"
+  },
+  {
+   "template": "pairs-trading-long-only",
+   "level": "high",
+   "position_sizing": {
+    "method": "equal_weight"
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.4
+   },
+   "detected": "high"
+  },
+  {
+   "template": "sector-rotation-spdr",
+   "level": "low",
+   "position_sizing": {
+    "method": "vol_target",
+    "max_positions": 3,
+    "target_vol_annual": 0.08
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.15,
+    "stop_loss_pct": 0.08
+   },
+   "detected": "low"
+  },
+  {
+   "template": "sector-rotation-spdr",
+   "level": "medium",
+   "position_sizing": {
+    "method": "vol_target",
+    "max_positions": 3,
+    "target_vol_annual": 0.12
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.25,
+    "stop_loss_pct": 0.12
+   },
+   "detected": "medium"
+  },
+  {
+   "template": "sector-rotation-spdr",
+   "level": "high",
+   "position_sizing": {
+    "method": "equal_weight",
+    "max_positions": 3
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.4
+   },
+   "detected": "high"
+  },
+  {
+   "template": "dual-momentum",
+   "level": "low",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.08
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.15,
+    "stop_loss_pct": 0.08
+   },
+   "detected": "low"
+  },
+  {
+   "template": "dual-momentum",
+   "level": "medium",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.12
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.25,
+    "stop_loss_pct": 0.12
+   },
+   "detected": "medium"
+  },
+  {
+   "template": "dual-momentum",
+   "level": "high",
+   "position_sizing": {
+    "method": "equal_weight"
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.4
+   },
+   "detected": "high"
+  },
+  {
+   "template": "low-volatility",
+   "level": "low",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.08
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.15,
+    "stop_loss_pct": 0.08
+   },
+   "detected": "low"
+  },
+  {
+   "template": "low-volatility",
+   "level": "medium",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.12
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.25,
+    "stop_loss_pct": 0.12
+   },
+   "detected": "medium"
+  },
+  {
+   "template": "low-volatility",
+   "level": "high",
+   "position_sizing": {
+    "method": "equal_weight"
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.4
+   },
+   "detected": "high"
+  },
+  {
+   "template": "bollinger-mean-reversion",
+   "level": "low",
+   "position_sizing": {
+    "method": "vol_target",
+    "max_positions": 1,
+    "target_vol_annual": 0.08
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.15,
+    "stop_loss_pct": 0.08
+   },
+   "detected": "low"
+  },
+  {
+   "template": "bollinger-mean-reversion",
+   "level": "medium",
+   "position_sizing": {
+    "method": "vol_target",
+    "max_positions": 1,
+    "target_vol_annual": 0.12
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.25,
+    "stop_loss_pct": 0.12
+   },
+   "detected": "medium"
+  },
+  {
+   "template": "bollinger-mean-reversion",
+   "level": "high",
+   "position_sizing": {
+    "method": "equal_weight",
+    "max_positions": 1
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.4
+   },
+   "detected": "high"
+  },
+  {
+   "template": "value-composite-cs",
+   "level": "low",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.08
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.15,
+    "stop_loss_pct": 0.08
+   },
+   "detected": "low"
+  },
+  {
+   "template": "value-composite-cs",
+   "level": "medium",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.12
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.25,
+    "stop_loss_pct": 0.12
+   },
+   "detected": "medium"
+  },
+  {
+   "template": "value-composite-cs",
+   "level": "high",
+   "position_sizing": {
+    "method": "equal_weight"
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.4
+   },
+   "detected": "high"
+  },
+  {
+   "template": "quality-piotroski-cs",
+   "level": "low",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.08
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.15,
+    "stop_loss_pct": 0.08
+   },
+   "detected": "low"
+  },
+  {
+   "template": "quality-piotroski-cs",
+   "level": "medium",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.12
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.25,
+    "stop_loss_pct": 0.12
+   },
+   "detected": "medium"
+  },
+  {
+   "template": "quality-piotroski-cs",
+   "level": "high",
+   "position_sizing": {
+    "method": "equal_weight"
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.4
+   },
+   "detected": "high"
+  },
+  {
+   "template": "pead-drift-cs",
+   "level": "low",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.08
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.15,
+    "stop_loss_pct": 0.08
+   },
+   "detected": "low"
+  },
+  {
+   "template": "pead-drift-cs",
+   "level": "medium",
+   "position_sizing": {
+    "method": "vol_target",
+    "target_vol_annual": 0.12
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.25,
+    "stop_loss_pct": 0.12
+   },
+   "detected": "medium"
+  },
+  {
+   "template": "pead-drift-cs",
+   "level": "high",
+   "position_sizing": {
+    "method": "equal_weight"
+   },
+   "risk_management": {
+    "max_drawdown_stop": 0.4
+   },
+   "detected": "high"
+  }
+ ]
+}

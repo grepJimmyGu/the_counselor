@@ -7,6 +7,7 @@ import SwiftUI
 /// benchmark, yearly returns and the trades behind them.
 struct BacktestResultView: View {
     @Environment(AppSession.self) private var session
+    @Environment(\.dismiss) private var dismiss
     let result: BacktestResult
     let templateID: String?
 
@@ -93,6 +94,8 @@ struct BacktestResultView: View {
                     }
                 }
 
+                settingsSection
+
                 saveSection
 
                 Text("This backtest shows how the strategy would have performed against historical data. Real-world execution differs (slippage, fees, market regime shifts). Research tool, not advice.")
@@ -105,6 +108,43 @@ struct BacktestResultView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+    }
+
+    /// What produced these numbers, and the way back to change it.
+    private var settingsSection: some View {
+        Card("Settings used") {
+            LabeledContent("Starting capital", value: Fmt.wholeMoney(strategy.initialCapital))
+            LabeledContent("Costs per trade", value: costSummary)
+            if strategy.positionSizing.method == .volTarget, let target = strategy.positionSizing.targetVolAnnual {
+                LabeledContent("Volatility target", value: Fmt.percent(target))
+            }
+            if let ladder = strategy.riskManagement?.exitLadder, !ladder.isEmpty {
+                Divider()
+                Text("Exit plan").font(.subheadline.weight(.semibold))
+                ForEach(Array(ladder.enumerated()), id: \.offset) { _, tier in
+                    LabeledContent(
+                        tier.label ?? Fmt.percent(tier.triggerPct, signed: true),
+                        value: tier.action == .sellAll
+                            ? "Sell everything"
+                            : "Sell \(Int(((tier.fraction ?? 0) * 100).rounded()))% of the position"
+                    )
+                }
+            }
+            Button {
+                dismiss()
+            } label: {
+                Label("Change settings and run again", systemImage: "slider.horizontal.3")
+                    .frame(maxWidth: .infinity)
+            }
+            .buttonStyle(.bordered)
+            .accessibilityIdentifier("adjust-and-rerun")
+        }
+        .font(.subheadline)
+    }
+
+    private var costSummary: String {
+        let total = (strategy.transactionCostBps ?? 0) + (strategy.slippageBps ?? 0)
+        return total == 0 ? "None" : String(format: "%.2f%%", total / 100)
     }
 
     @ViewBuilder

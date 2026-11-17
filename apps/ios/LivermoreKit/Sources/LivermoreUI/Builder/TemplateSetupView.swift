@@ -9,6 +9,7 @@ struct TemplateSetupView: View {
 
     @State private var tickerText = ""
     @State private var range: BacktestRange = .fiveYears
+    @State private var customization: StrategyCustomization
     @State private var isRunning = false
     @State private var failure: APIFailure?
     @State private var outcome: Outcome?
@@ -16,6 +17,12 @@ struct TemplateSetupView: View {
     struct Outcome: Hashable {
         let result: BacktestResult
         let templateID: String
+    }
+
+    init(template: StrategyTemplate, presetTicker: String? = nil) {
+        self.template = template
+        self.presetTicker = presetTicker
+        _customization = State(initialValue: StrategyCustomization(strategy: template.strategy))
     }
 
     private var tickers: [String] { StrategyBuilder.tickers(from: tickerText) }
@@ -27,7 +34,12 @@ struct TemplateSetupView: View {
         if tickers.count < template.minimumTickers {
             return "This template needs at least \(template.minimumTickers) tickers; you have \(tickers.count)."
         }
-        return nil
+        return customization.problem
+    }
+
+    private var settingsSummary: String {
+        let changes = customization.changeCount(from: template.strategy)
+        return changes == 0 ? "Template defaults" : "\(changes) change\(changes == 1 ? "" : "s")"
     }
 
     var body: some View {
@@ -87,6 +99,17 @@ struct TemplateSetupView: View {
             }
 
             Section {
+                NavigationLink {
+                    StrategyCustomizeView(customization: $customization, original: template.strategy)
+                } label: {
+                    LabeledContent("Settings", value: settingsSummary)
+                }
+                .accessibilityIdentifier("customize-strategy")
+            } footer: {
+                Text("Starting capital, trading costs, the rule's numbers, risk level, and a stop and targets.")
+            }
+
+            Section {
                 Button(action: run) {
                     HStack {
                         Text(isRunning ? "Running…" : "Run backtest")
@@ -130,7 +153,9 @@ struct TemplateSetupView: View {
         guard problem == nil, !isRunning else { return }
         isRunning = true
         failure = nil
-        let strategy = StrategyBuilder.strategy(from: template, tickers: tickers, range: range)
+        let strategy = customization.apply(
+            to: StrategyBuilder.strategy(from: template, tickers: tickers, range: range)
+        )
         let signedIn = session.isSignedIn
         Task {
             do throws(APIFailure) {

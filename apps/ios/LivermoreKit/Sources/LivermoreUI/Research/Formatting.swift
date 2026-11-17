@@ -21,6 +21,11 @@ enum Fmt {
         return String(format: "$%.0f", v)
     }
 
+    /// A whole-dollar amount in full: "$25,000".
+    static func wholeMoney(_ v: Double) -> String {
+        v.formatted(.currency(code: "USD").precision(.fractionLength(0)))
+    }
+
     static func price(_ v: Double?) -> String {
         guard let v else { return "—" }
         return v.formatted(.currency(code: "USD").precision(.fractionLength(2)))
