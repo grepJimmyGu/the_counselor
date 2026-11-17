@@ -36,7 +36,8 @@ let package = Package(
                 .product(name: "HTTPTypes", package: "swift-http-types"),
             ],
             // The website's strategy templates, exported by scripts/gen_templates.mjs.
-            resources: [.process("Builder/templates.json")]
+            // The second is sample data for the debug build's demo account.
+            resources: [.process("Builder/templates.json"), .process("Demo/filings-nvda.json")]
         ),
         .target(name: "LivermoreUI", dependencies: ["LivermoreKit", "LivermoreAPI"]),
         .testTarget(

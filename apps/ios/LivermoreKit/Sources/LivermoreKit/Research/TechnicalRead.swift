@@ -69,21 +69,26 @@ public struct TechnicalRead: Equatable, Sendable {
     /// What that means, in a sentence, without telling anyone what to do.
     public var summary: String {
         let tally = "\(upCount) of \(signals.count) signals lean up, \(downCount) lean down."
+        // The reading itself, not what tends to follow it: that is a
+        // forecast, and the entry and exit test measures it instead.
+        let strength = rsi.map { String(format: "%.0f", $0) } ?? "–"
+        let oversold = "the 14-day RSI is \(strength), under the 30 line that marks oversold"
+        let overbought = "the 14-day RSI is \(strength), over the 70 line that marks overbought"
         switch (trend, stretch) {
         case (.up, .overbought):
-            return "\(tally) The trend is up, and the price has run far enough above its recent range that pullbacks are common from here."
+            return "\(tally) The trend is up, and \(overbought)."
         case (.up, _):
             return "\(tally) Price, averages and momentum agree: the trend is up."
         case (.down, .oversold):
-            return "\(tally) The trend is down, and the fall has been sharp enough that rebounds are common from here — as are further drops."
+            return "\(tally) The trend is down, and \(oversold)."
         case (.down, _):
             return "\(tally) Price, averages and momentum agree: the trend is down."
         case (.mixed, .oversold):
-            return "\(tally) The signals disagree, and the price is stretched to the downside."
+            return "\(tally) The signals disagree, and \(oversold)."
         case (.mixed, .overbought):
-            return "\(tally) The signals disagree, and the price is stretched to the upside."
+            return "\(tally) The signals disagree, and \(overbought)."
         case (.mixed, .normal):
-            return "\(tally) The signals disagree: there is no trend to follow or fade yet."
+            return "\(tally) The signals disagree: neither direction has the majority."
         }
     }
 

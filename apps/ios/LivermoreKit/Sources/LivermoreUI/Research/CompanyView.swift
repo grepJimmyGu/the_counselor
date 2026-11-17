@@ -21,7 +21,8 @@ struct CompanyView: View {
     @State private var trendFailed = false
     @State private var isTrading = false
     @State private var tradeSide: TradeSide = .buy
-    @State private var tab: CompanyTab = .snapshot
+    @State private var tab: CompanyTab = .financials
+    @State private var filings: FilingsState = .loading
     /// The stock's and the benchmark's daily closes, once fetched: the chart
     /// and the signals both read these.
     @State private var history: (stock: [DailyClose], benchmark: [DailyClose])?
@@ -75,6 +76,7 @@ struct CompanyView: View {
             if session.isSignedIn, session.brokerageLink.status == nil { await session.brokerageLink.refresh() }
         }
         .task(id: symbol) { await loadHistory() }
+        .task(id: symbol) { await loadFilings() }
         .task(id: symbol) {
             // `.task` runs again every time this screen reappears — including
             // on the way back from Sentiment or Supply chain. Reloading there
@@ -103,6 +105,22 @@ struct CompanyView: View {
         }
         trend = await trendResult
         trendFailed = trend == nil
+    }
+
+    private func loadFilings() async {
+        if case .loaded(let analysis) = filings, analysis.symbol == symbol.uppercased() { return }
+        filings = .loading
+        do throws(ResearchError) {
+            filings = .loaded(try await session.research.filings(symbol))
+        } catch {
+            // The backend explains a company it cannot read (a foreign filer,
+            // one the SEC does not list); anything else is just "not now".
+            if case .unavailable(let reason) = error, !reason.isEmpty, reason != "Not Found" {
+                filings = .unavailable(reason)
+            } else {
+                filings = .unavailable(nil)
+            }
+        }
     }
 
     private func loadHistory() async {
@@ -156,27 +174,48 @@ struct CompanyView: View {
         )
     }
 
-    /// The full written analysis, in the order of its four questions.
+    /// What the filings show: the latest quarter, what changed in it, and
+    /// every metric's run — then how the market prices it.
     @ViewBuilder
-    private func deepDive(_ overview: CompanyOverview, _ price: Double?) -> some View {
-        FourQuestionsCard(overview: overview)
-        ReadCard(overview: overview, trend: trend, trendFailed: trendFailed)
+    private func financials(_ overview: CompanyOverview, _ price: Double?) -> some View {
+        switch filings {
+        case .loading:
+            Card { SkeletonBlock(height: 22, width: 160); SkeletonBlock(height: 150) }
+            Card { SkeletonBlock(); SkeletonBlock(); SkeletonBlock() }
+        case .loaded(let analysis):
+            LatestQuarterCard(analysis: analysis)
+            FindingsCard(analysis: analysis)
+            ForEach(analysis.metricGroups, id: \.name) { group in
+                MetricGroupCard(name: group.name, metrics: group.metrics, analysis: analysis)
+            }
+        case .unavailable(let reason):
+            Card {
+                Notice(
+                    text: reason ?? "The quarter-by-quarter reading of \(overview.symbol)'s filings isn't available right now. Annual figures are below.",
+                    systemImage: "doc.text.magnifyingglass"
+                )
+            }
+            // The annual figures the overview carries, so the tab is not empty.
+            FinancialsCard(check: overview.financialCheck)
+        }
 
-        SectionMark(letter: "A", title: "Demand", question: "Where does the growth come from?")
-        BusinessCard(overview: overview)
-
-        SectionMark(letter: "B", title: "Moat", question: "Why does it win, and who could take it?")
-        MarketCard(position: overview.marketPosition)
-
-        SectionMark(letter: "C", title: "Cash", question: "How much does it really make, and what is that worth?")
-        FinancialsCard(check: overview.financialCheck)
         KeyStatsCard(overview: overview)
         ValuationCard(overview: overview, price: price)
 
-        SectionMark(letter: "D", title: "Uncertainty", question: "What could break the story?")
-        UncertaintyCard(overview: overview)
+        if let mix = overview.revenueMix {
+            Card("Where sales came from") {
+                Text("Fiscal \(String(mix.year)), by segment").eyebrowStyle()
+                ForEach(mix.slices.prefix(5)) { slice in RevenueSliceRow(slice: slice) }
+            }
+        }
 
-        Card("Go deeper") {
+        Card("More on \(overview.symbol)") {
+            let rivals = overview.marketPosition.keyCompetitors ?? []
+            if !rivals.isEmpty {
+                Text("Compare with").eyebrowStyle()
+                RivalChips(rivals: rivals)
+                Divider()
+            }
             NavigationLink { SentimentView(symbol: overview.symbol) } label: {
                 MoreRow(title: "News & sentiment", detail: "What is being written and how it reads", systemImage: "newspaper")
             }
@@ -210,30 +249,34 @@ struct CompanyView: View {
     private func content(_ overview: CompanyOverview) -> some View {
         let price = quote?.price ?? trend?.latestPrice ?? overview.price
         let read = history.flatMap { TechnicalRead(closes: $0.stock, benchmark: $0.benchmark) }
+        let levels = history.flatMap { PriceLevels(closes: $0.stock, price: quote?.price) }
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
                 CompanyHeader(overview: overview, quote: quote, fallbackPrice: price)
                 CompanyTabBar(selection: $tab)
 
                 switch tab {
-                case .snapshot:
-                    BusinessSnapshot(overview: overview, trend: trend) { tab = .deepDive }
-                    decision(overview, read)
+                case .financials:
+                    financials(overview, price)
                 case .price:
                     PerformanceCard(symbol: symbol, trend: trend, history: history, historyFailed: historyFailed)
-                    if let read {
+                    if let history, let read {
                         SetupCard(read: read)
                         SignalsCard(read: read)
+                        TrendModelCard(closes: history.stock)
+                        if let levels { LevelsCard(levels: levels, isLive: quote != nil) }
+                        EntryExitCard(symbol: symbol, closes: history.stock, levels: levels, livePrice: quote?.price) {
+                            tradeSide = .buy
+                            isTrading = true
+                        }
                     } else if historyFailed {
-                        Card { Notice(text: "The price history isn't available right now, so the signals can't be worked out.", systemImage: "chart.line.downtrend.xyaxis") }
+                        Card { Notice(text: "The price history isn't available right now, so the signals and models can't be worked out.", systemImage: "chart.line.downtrend.xyaxis") }
                     } else {
                         Card { SkeletonBlock(height: 120) }
                     }
                     PriceContextCard(overview: overview, read: read, trend: trend, price: price)
-                    decision(overview, read)
-                case .deepDive:
-                    deepDive(overview, price)
                 }
+                decision(overview, read)
 
                 if let disclaimer = overview.disclaimer {
                     Text(disclaimer).font(.caption2).foregroundStyle(.inkSecondary)
@@ -491,146 +534,7 @@ private extension PerformanceRange {
     }
 }
 
-// MARK: - Livermore's read
-
-/// The three scores and what they add up to, on one card.
-struct ReadCard: View {
-    let overview: CompanyOverview
-    let trend: CompanyTrend?
-    let trendFailed: Bool
-
-    var body: some View {
-        let metrics = StockMetrics(overview: overview, trend: trend)
-        let health = StockScoring.health(metrics)
-        let valuation = StockScoring.valuation(metrics)
-        let trendScore = StockScoring.trend(metrics)
-        let check = overview.financialCheck
-
-        Card("Livermore's read") {
-            if trend != nil {
-                let overall = StockScoring.overall(health: health, valuation: valuation, trend: trendScore)
-                HStack(spacing: 16) {
-                    ScoreRing(score: overall)
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(StockScoring.label(forOverall: overall)).font(.title3.weight(.semibold))
-                        Text("Health, valuation and trend, weighed together. A way to organise the evidence — not a recommendation.")
-                            .font(.caption).foregroundStyle(.inkSecondary)
-                    }
-                }
-                Divider()
-            }
-            ScoreBar(title: "Business health", score: health, detail: check.financialValidationLabel ?? "Is the business fundamentally healthy?")
-            ScoreBar(title: "Valuation", score: valuation, detail: check.valuationSummary ?? "Is it cheap, fair or expensive?")
-            if let trend {
-                ScoreBar(title: "Market trend", score: trendScore, detail: Self.trendLine(trend))
-            } else if trendFailed {
-                Notice(text: "Market trend is unavailable for this company, so there is no overall score.")
-            } else {
-                SkeletonBlock(height: 34)
-            }
-        }
-    }
-
-    /// The trend in a sentence, from the two averages traders watch.
-    static func trendLine(_ trend: CompanyTrend) -> String {
-        switch ((trend.priceVsMa50 ?? 0) >= 0, (trend.priceVsMa200 ?? 0) >= 0) {
-        case (true, true): "Above both its 50-day and 200-day averages."
-        case (false, false): "Below both its 50-day and 200-day averages."
-        case (true, false): "Back above its 50-day average, still below the 200-day."
-        case (false, true): "Slipped below its 50-day average, still above the 200-day."
-        }
-    }
-}
-
-// MARK: - The four questions
-
-/// The page in four lines: what drives demand, why it wins, how much cash
-/// it makes, and what could break it — each from the company's own figures.
-struct FourQuestionsCard: View {
-    let overview: CompanyOverview
-
-    private var lines: [(letter: String, title: String, text: String)] {
-        let check = overview.financialCheck
-        let position = overview.marketPosition
-        var lines: [(String, String, String)] = []
-
-        var demand: [String] = []
-        if let top = overview.revenueMix?.slices.first {
-            demand.append("\(top.name) is \(Fmt.percent(top.share)) of revenue")
-        }
-        if let growth = check.revenueYoy { demand.append("revenue \(growth >= 0 ? "grew" : "fell") \(Fmt.percent(abs(growth))) last year") }
-        if !demand.isEmpty { lines.append(("A", "Demand", Self.sentence(demand))) }
-
-        var moat: [String] = []
-        if let label = position.competitivePositionLabel { moat.append(label) }
-        if let category = position.marketCategory { moat.append("in \(category)") }
-        if !moat.isEmpty {
-            let rivals = (position.keyCompetitors ?? []).prefix(3).joined(separator: ", ")
-            lines.append(("B", "Moat", Self.sentence([moat.joined(separator: " ")]) + (rivals.isEmpty ? "" : " Up against \(rivals)."))
-            )
-        }
-
-        var cash: [String] = []
-        if let dollar = SalesDollar(grossMargin: check.grossMargin, operatingMargin: check.operatingMargin) {
-            cash.append("keeps $\(Int(dollar.operatingProfit.rounded())) of every $100 sold as operating profit")
-        }
-        if let fcf = check.freeCashFlow { cash.append("\(Fmt.money(fcf)) of free cash flow") }
-        if !cash.isEmpty { lines.append(("C", "Cash", Self.sentence(cash))) }
-
-        let risks = (position.keyRisks ?? []) + (check.warnings ?? [])
-        if let first = risks.first {
-            lines.append(("D", "Uncertainty", Self.sentence([first]) + (risks.count > 1 ? " And \(risks.count - 1) more below." : "")))
-        }
-        return lines
-    }
-
-    private static func sentence(_ parts: [String]) -> String {
-        let joined = parts.joined(separator: "; ")
-        return joined.prefix(1).uppercased() + joined.dropFirst() + "."
-    }
-
-    var body: some View {
-        let lines = lines
-        if !lines.isEmpty {
-            Card("Four things that decide \(overview.symbol)'s value") {
-                ForEach(lines, id: \.letter) { line in
-                    HStack(alignment: .top, spacing: 10) {
-                        Text(line.letter)
-                            .font(.footnote.weight(.bold)).foregroundStyle(.white)
-                            .frame(width: 24, height: 24)
-                            .background(Color.brand, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(line.title).font(.caption.weight(.semibold)).foregroundStyle(.inkSecondary)
-                            Text(line.text).font(.subheadline)
-                        }
-                    }
-                    .accessibilityElement(children: .combine)
-                }
-                if let asOf = overview.asOfDate {
-                    Text("From figures as of \(asOf)").eyebrowStyle()
-                }
-            }
-        }
-    }
-}
-
-/// A section's letter, name and the question it answers.
-struct SectionMark: View {
-    let letter: String
-    let title: String
-    let question: String
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            Text("\(letter) · \(title)").eyebrowStyle()
-            Text(question).font(.title3.weight(.semibold))
-        }
-        .padding(.horizontal, 4)
-        .padding(.top, 10)
-        .accessibilityElement(children: .combine)
-        .accessibilityAddTraits(.isHeader)
-    }
-}
+// MARK: - Valuation
 
 /// The way into the cash-flow stress test, showing what the starting
 /// assumptions imply against today's price.
@@ -670,58 +574,21 @@ struct ValuationCard: View {
     }
 }
 
-/// What could break the story: the risks named for the business and the
-/// warnings the financials raise, together.
-struct UncertaintyCard: View {
-    let overview: CompanyOverview
-
-    var body: some View {
-        let risks = overview.marketPosition.keyRisks ?? []
-        let warnings = overview.financialCheck.warnings ?? []
-        let cyclicality = overview.businessMap.cyclicalityImplication
-        Card("What to watch") {
-            if risks.isEmpty && warnings.isEmpty && cyclicality == nil {
-                Text("No specific risks were identified in the available filings and data. That is an absence of evidence, not a clean bill of health.")
-                    .font(.subheadline).foregroundStyle(.inkSecondary)
-            }
-            if !risks.isEmpty {
-                PointList(title: "Risks to the business", points: risks, systemImage: "exclamationmark.circle.fill", tint: .loss)
-            }
-            ForEach(warnings, id: \.self) { warning in
-                Notice(text: warning, systemImage: "exclamationmark.triangle.fill", tint: .caution)
-            }
-            if let cyclicality {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("How it behaves in a downturn").font(.caption.weight(.semibold)).foregroundStyle(.inkSecondary)
-                    Text(cyclicality).font(.subheadline)
-                }
-            }
-            Text("Customer concentration, purchase commitments, guarantees and the next earnings date are not shown here yet: they come from filing notes the app does not read.")
-                .font(.caption).foregroundStyle(.inkSecondary)
-        }
-    }
-}
-
 // MARK: - Key stats
 
+/// How the market prices the company, on the latest annual figures.
 struct KeyStatsCard: View {
     let overview: CompanyOverview
 
     private var stats: [(String, String)] {
         let check = overview.financialCheck
         let all: [(String, String?)] = [
-            ("Market cap", overview.marketCap.map { Fmt.money($0) }),
-            ("P/E", check.peRatio.map { Fmt.multiple($0) }),
+            ("Market value", overview.marketCap.map { Fmt.money($0) }),
+            ("Price to earnings", check.peRatio.map { Fmt.multiple($0) }),
             ("EV / EBITDA", check.evEbitda.map { Fmt.multiple($0) }),
-            ("Price / sales", check.psRatio.map { Fmt.multiple($0) }),
-            ("Revenue growth", check.revenueYoy.map { Fmt.percent($0, signed: true) }),
-            ("3-year revenue CAGR", check.revenue3yCagr.map { Fmt.percent($0, signed: true) }),
-            ("Gross margin", check.grossMargin.map { Fmt.percent($0) }),
-            ("Operating margin", check.operatingMargin.map { Fmt.percent($0) }),
+            ("Price to sales", check.psRatio.map { Fmt.multiple($0) }),
+            ("Free cash flow yield", check.fcfYield.map { Fmt.percent($0) }),
             ("Return on equity", check.roe.map { Fmt.percent($0) }),
-            ("FCF yield", check.fcfYield.map { Fmt.percent($0) }),
-            ("Net debt", check.netDebt.map { Fmt.money($0) }),
-            ("Debt / equity", check.debtToEquity.map { String(format: "%.2f", $0) }),
         ]
         return all.compactMap { label, value in value.map { (label, $0) } }
     }
@@ -729,14 +596,14 @@ struct KeyStatsCard: View {
     var body: some View {
         let stats = stats
         if !stats.isEmpty {
-            Card("Key stats") {
+            Card("How the market prices it") {
                 LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
                     ForEach(stats, id: \.0) { label, value in
                         StatTile(label: label, value: value)
                     }
                 }
                 if let asOf = overview.asOfDate {
-                    Text("Fundamentals as of \(asOf)").eyebrowStyle()
+                    Text("As of \(asOf), on the latest full fiscal year").eyebrowStyle()
                 }
             }
         }
@@ -852,132 +719,6 @@ private struct SalesDollarPart: View {
             Text(label).font(.caption2).foregroundStyle(.inkSecondary)
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-}
-
-// MARK: - Business
-
-struct BusinessCard: View {
-    let overview: CompanyOverview
-
-    var body: some View {
-        let map = overview.businessMap
-        let rows: [(String, String?)] = [
-            ("How it makes money", map.revenueModel), ("Margins", map.marginImplication),
-            ("Pricing power", map.pricingPowerImplication), ("Cyclicality", map.cyclicalityImplication),
-        ]
-        let shown = rows.compactMap { title, text in text.map { (title, $0) } }
-        let mix = overview.revenueMix
-
-        if map.oneLineSummary != nil || !shown.isEmpty || mix != nil {
-            Card("The business") {
-                if let summary = map.oneLineSummary {
-                    Text(summary).font(.body)
-                }
-                let tags = [map.primaryValueChainRole, overview.industry].compactMap { $0 }
-                if !tags.isEmpty {
-                    FlowTags(tags)
-                }
-                if let mix {
-                    Divider()
-                    Text("Revenue mix · fiscal \(String(mix.year))").eyebrowStyle()
-                    ForEach(mix.slices.prefix(5)) { slice in
-                        VStack(alignment: .leading, spacing: 4) {
-                            HStack {
-                                Text(slice.name).font(.subheadline)
-                                Spacer()
-                                Text(Fmt.percent(slice.share)).font(.subheadline.weight(.semibold).monospacedDigit())
-                            }
-                            GeometryReader { proxy in
-                                ZStack(alignment: .leading) {
-                                    Capsule().fill(Color.well)
-                                    Capsule().fill(Color.brand).frame(width: max(proxy.size.width * slice.share, 3))
-                                }
-                            }
-                            .frame(height: 5)
-                        }
-                        .accessibilityElement(children: .combine)
-                    }
-                }
-                if !shown.isEmpty {
-                    Divider()
-                    ForEach(shown, id: \.0) { title, text in
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(title).font(.caption.weight(.semibold)).foregroundStyle(.inkSecondary)
-                            Text(text).font(.subheadline)
-                        }
-                    }
-                }
-                SourceNotes(notes: map.sourceNotes)
-            }
-        }
-    }
-}
-
-// MARK: - Market position
-
-struct MarketCard: View {
-    let position: Components.Schemas.MarketPositionSection
-
-    var body: some View {
-        let drivers = position.keyGrowthDrivers ?? []
-        let risks = position.keyRisks ?? []
-        let rivals = position.keyCompetitors ?? []
-
-        if position.marketCategory != nil || !drivers.isEmpty || !risks.isEmpty || !rivals.isEmpty {
-            Card("Market position") {
-                if let category = position.marketCategory {
-                    Text(category).font(.subheadline.weight(.semibold))
-                }
-                HStack(spacing: 6) {
-                    if let label = position.competitivePositionLabel { Tag(label.capitalized, tint: .brand, systemImage: "flag.fill") }
-                    if let growth = position.marketGrowthLabel { Tag("\(growth.capitalized) market", tint: .inkSecondary) }
-                }
-                if let notes = position.marketShareNotes {
-                    Text(notes).font(.subheadline)
-                }
-                if !drivers.isEmpty {
-                    PointList(title: "What could drive it", points: drivers, systemImage: "arrow.up.right.circle.fill", tint: .gain)
-                }
-                if !rivals.isEmpty {
-                    Divider()
-                    Text("Competes with").eyebrowStyle()
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 8) {
-                            ForEach(rivals, id: \.self) { rival in
-                                NavigationLink(value: rival) {
-                                    Text(rival)
-                                        .font(.subheadline.weight(.semibold).monospaced())
-                                        .padding(.horizontal, 12).padding(.vertical, 8)
-                                        .background(Color.well, in: Capsule())
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                    }
-                }
-                SourceNotes(notes: position.sourceNotes)
-            }
-        }
-    }
-}
-
-struct PointList: View {
-    let title: String
-    let points: [String]
-    let systemImage: String
-    let tint: Color
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text(title).eyebrowStyle()
-            ForEach(points, id: \.self) { point in
-                HStack(alignment: .firstTextBaseline, spacing: 8) {
-                    Image(systemName: systemImage).font(.footnote).foregroundStyle(tint)
-                    Text(point.prefix(1).uppercased() + point.dropFirst()).font(.subheadline)
-                }
-            }
-        }
     }
 }
 

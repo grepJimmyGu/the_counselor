@@ -10734,6 +10734,204 @@
     ],
     "title": "SavedStrategyResponse",
     "type": "object"
+   },
+   "FilingAnalysisResponse": {
+    "properties": {
+     "cik": {
+      "title": "Cik",
+      "type": "string"
+     },
+     "company_name": {
+      "title": "Company Name",
+      "type": "string"
+     },
+     "computed_at": {
+      "title": "Computed At",
+      "type": "string"
+     },
+     "findings": {
+      "items": {
+       "$ref": "#/components/schemas/FilingFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+     },
+     "latest": {
+      "$ref": "#/components/schemas/FilingQuarter"
+     },
+     "metrics": {
+      "items": {
+       "$ref": "#/components/schemas/FilingMetric"
+      },
+      "title": "Metrics",
+      "type": "array"
+     },
+     "quarters": {
+      "items": {
+       "$ref": "#/components/schemas/FilingQuarter"
+      },
+      "title": "Quarters",
+      "type": "array"
+     },
+     "source": {
+      "default": "SEC EDGAR XBRL company facts (10-Q and 10-K filings)",
+      "title": "Source",
+      "type": "string"
+     },
+     "symbol": {
+      "title": "Symbol",
+      "type": "string"
+     }
+    },
+    "required": [
+     "symbol",
+     "company_name",
+     "cik",
+     "latest",
+     "quarters",
+     "metrics",
+     "findings",
+     "computed_at"
+    ],
+    "title": "FilingAnalysisResponse",
+    "type": "object"
+   },
+   "FilingQuarter": {
+    "description": "One fiscal quarter, and the filing it was reported in.",
+    "properties": {
+     "filed": {
+      "title": "Filed",
+      "type": "string"
+     },
+     "filing_url": {
+      "title": "Filing Url",
+      "type": "string"
+     },
+     "fiscal_period": {
+      "title": "Fiscal Period",
+      "type": "string"
+     },
+     "fiscal_year": {
+      "title": "Fiscal Year",
+      "type": "integer"
+     },
+     "form": {
+      "title": "Form",
+      "type": "string"
+     },
+     "label": {
+      "title": "Label",
+      "type": "string"
+     },
+     "period_end": {
+      "title": "Period End",
+      "type": "string"
+     },
+     "values": {
+      "additionalProperties": {
+       "type": "number"
+      },
+      "title": "Values",
+      "type": "object"
+     }
+    },
+    "required": [
+     "label",
+     "period_end"
+    ],
+    "title": "FilingQuarter",
+    "type": "object"
+   },
+   "FilingMetric": {
+    "description": "One figure, with how it has moved.\n\nThe series itself is `quarters[i].values[key]` \u2014 one place for every\nnumber, and a quarter with no figure simply lacks the key, so no client\nhas to decode a list with holes in it.",
+    "properties": {
+     "better": {
+      "title": "Better",
+      "type": "string"
+     },
+     "change_kind": {
+      "title": "Change Kind",
+      "type": "string"
+     },
+     "change_qoq": {
+      "title": "Change Qoq",
+      "type": "number"
+     },
+     "change_yoy": {
+      "title": "Change Yoy",
+      "type": "number"
+     },
+     "group": {
+      "title": "Group",
+      "type": "string"
+     },
+     "key": {
+      "title": "Key",
+      "type": "string"
+     },
+     "label": {
+      "title": "Label",
+      "type": "string"
+     },
+     "latest": {
+      "title": "Latest",
+      "type": "number"
+     },
+     "note": {
+      "title": "Note",
+      "type": "string"
+     },
+     "unit": {
+      "title": "Unit",
+      "type": "string"
+     }
+    },
+    "required": [
+     "key",
+     "label",
+     "group",
+     "unit",
+     "better",
+     "change_kind"
+    ],
+    "title": "FilingMetric",
+    "type": "object"
+   },
+   "FilingFinding": {
+    "description": "Something in the latest quarter that moved enough to state.",
+    "properties": {
+     "category": {
+      "title": "Category",
+      "type": "string"
+     },
+     "detail": {
+      "title": "Detail",
+      "type": "string"
+     },
+     "metrics": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Metrics",
+      "type": "array"
+     },
+     "severity": {
+      "title": "Severity",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     }
+    },
+    "required": [
+     "severity",
+     "category",
+     "title",
+     "detail"
+    ],
+    "title": "FilingFinding",
+    "type": "object"
    }
   }
  },
@@ -18505,6 +18703,48 @@
     "summary": "Triage Context",
     "tags": [
      "internal"
+    ]
+   }
+  },
+  "/api/company/{symbol}/filings": {
+   "get": {
+    "operationId": "get_company_filings_api_company__symbol__filings_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "symbol",
+      "required": true,
+      "schema": {
+       "title": "Symbol",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/FilingAnalysisResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Company Filings",
+    "tags": [
+     "company-filings"
     ]
    }
   }

@@ -41,3 +41,5 @@ filter:
     # Market strip and sparklines; daily history for the price chart
     - /api/market/overview
     - /api/data/daily/{symbol}
+    # Quarterly filing analysis (10-Q / 10-K)
+    - /api/company/{symbol}/filings

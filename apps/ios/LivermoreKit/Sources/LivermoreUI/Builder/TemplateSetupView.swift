@@ -25,11 +25,18 @@ struct TemplateSetupView: View {
         let templateID: String
     }
 
-    init(template: StrategyTemplate, presetTicker: String? = nil, presetTickers: [String]? = nil) {
+    /// `presetExitPlan` carries a stop and target chosen elsewhere (the
+    /// entry / exit test) into the strategy's settings.
+    init(
+        template: StrategyTemplate, presetTicker: String? = nil, presetTickers: [String]? = nil,
+        presetExitPlan: ExitPlan? = nil
+    ) {
         self.template = template
         self.presetTicker = presetTicker ?? (presetTickers?.count == 1 ? presetTickers?.first : nil)
         self.presetTickers = presetTickers
-        _customization = State(initialValue: StrategyCustomization(strategy: template.strategy))
+        var settings = StrategyCustomization(strategy: template.strategy)
+        if let presetExitPlan, presetExitPlan.problem == nil { settings.exitPlan = presetExitPlan }
+        _customization = State(initialValue: settings)
     }
 
     private var tickers: [String] { StrategyBuilder.tickers(from: tickerText) }

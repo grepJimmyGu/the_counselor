@@ -45,6 +45,11 @@ struct TechnicalReadTests {
         #expect(read.headline == "Downtrend, oversold")
         #expect(read.rangePosition == 0)
         #expect(read.summary.contains("0 of 6 signals lean up, 6 lean down."))
+        // The sentence states the reading; it does not say what tends to
+        // happen next.
+        #expect(read.summary.contains("the 14-day RSI is"))
+        #expect(read.summary.contains("under the 30 line"))
+        #expect(!read.summary.contains("common"))
         #expect(signal(read, "trend200")?.reading.contains("below its 200-day average") == true)
     }
 

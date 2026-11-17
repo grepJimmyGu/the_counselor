@@ -9,10 +9,16 @@ public typealias MarketSnapshot = Components.Schemas.MarketSnapshotItem
 public struct DailyClose: Equatable, Sendable {
     public let date: Date
     public let close: Double
+    /// The day's high and low, adjusted the same way as the close. Equal to
+    /// the close when only closes are known.
+    public let high: Double
+    public let low: Double
 
-    public init(date: Date, close: Double) {
+    public init(date: Date, close: Double, high: Double? = nil, low: Double? = nil) {
         self.date = date
         self.close = close
+        self.high = max(high ?? close, close)
+        self.low = min(low ?? close, close)
     }
 }
 
@@ -209,7 +215,15 @@ extension ResearchService {
             formatter.dateFormat = "yyyy-MM-dd"
             return rows
                 .compactMap { row in
-                    formatter.date(from: String(row.tradingDate.prefix(10))).map { DailyClose(date: $0, close: row.adjustedClose) }
+                    formatter.date(from: String(row.tradingDate.prefix(10))).map { date in
+                        // Splits and dividends are folded into the adjusted
+                        // close; the same factor puts the high and low on
+                        // that scale.
+                        let factor = row.close > 0 ? row.adjustedClose / row.close : 1
+                        return DailyClose(
+                            date: date, close: row.adjustedClose, high: row.high * factor, low: row.low * factor
+                        )
+                    }
                 }
                 .sorted { $0.date < $1.date }
         case .unprocessableContent:

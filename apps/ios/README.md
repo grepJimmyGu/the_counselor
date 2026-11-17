@@ -9,7 +9,7 @@ What the app does, and how far each part has been checked.
 
 | Area | What a user can do | Checked |
 |---|---|---|
-| Research | Market strip and a watchlist with sparklines; search; company page with live price, a ranged chart you can scrub (against the S&P 500), the scores in one card, key stats, revenue and cash-flow charts, revenue mix, competitors; news & sentiment; supply chain | Against production |
+| Research | Market strip and a watchlist with sparklines; search; company page in two tabs — **Financials** (the latest 10-Q or 10-K: what changed, flagged; every metric's nine-quarter trend) and **Price** (chart, signals, trend model, key levels, entry and exit test); news & sentiment; supply chain | Price tab against production. Financials against real SEC data through a local backend — the endpoint is PR #376, not yet deployed |
 | Live prices | Prices on every screen refresh every 10 s while visible, with "Prices checked 9:18:17 PM" beside them | Against production |
 | Build a strategy | Pick one of the website's templates; choose tickers and period; change capital, costs, the rule's numbers, risk level and the stop/targets; run the backtest; change settings and run again | Against production, signed out (one run) |
 | Save and re-test | Save a result; open a saved strategy and test it again with changes, saving the result as a new strategy | Sample data only |
@@ -78,56 +78,71 @@ which made NVDA read "+17.0% past year" when the true figure was −16.4%.
 The watchlist and "recently viewed" are kept on the device (`Watchlist`,
 UserDefaults). They are not the website's community watchlist.
 
-## The company page: three views that end in a decision
+## The company page: what changed, and where the price stands
 
-| Tab | Answers | Built from |
+Two tabs, both ending in the same card — *Decide yourself* (Buy / Sell
+through the linked broker) or *Let a rule decide* (strategies matched to the
+setup, each opening ready to backtest on this stock).
+
+The page has three rules, set by Jimmy on 2026-11-17:
+
+1. **No general introduction.** Nothing about what the company is or how it
+   makes money. It opens on the latest filing.
+2. **No fixed framework.** A topic (demand, cash, dilution, debt) appears only
+   when a figure moved enough to raise it. A quiet quarter has a short list.
+3. **Facts, not assumptions.** Every sentence is arithmetic on a filed figure
+   or a measured price. Nothing says what will happen, and nothing says buy
+   or sell. The backend test suite fails a finding containing "will",
+   "should", "expect", "buy" or "sell".
+
+### Financials — the latest 10-Q / 10-K
+
+Built from `GET /api/company/{symbol}/filings` (backend PR #376), which reads
+the company's own XBRL figures from SEC EDGAR.
+
+| Card | Shows |
+|---|---|
+| Latest quarter | Form, filing date and period; revenue, operating margin, EPS and free cash flow, each against a year ago and last quarter; a link to the filing on sec.gov |
+| What changed this quarter | Rule-based findings, most serious first, tagged *to watch*, *improved* or *to note* — e.g. receivables growing faster than sales, inventory building, profit ahead of cash, share count, debt. Each states the two figures it compared |
+| Growth, Profitability, Cash, Balance sheet, Shareholders | 24 metrics; each row has the latest value, the change from a year ago, nine quarters of bars and "9-quarter high / low" where true. Tap for every quarter with its form and filing date |
+| How the market prices it | Market value, P/E, EV/EBITDA, P/S, free-cash-flow yield, ROE; the cash-flow stress test |
+
+Fourth quarters are not filed on their own: they are the fiscal year less the
+first three quarters. A missing figure is shown as missing, never as zero.
+
+**Until #376 is merged and deployed the tab shows a notice and the annual
+figures instead.** The sample account (`-demo`) serves NVIDIA's real analysis
+from a bundled copy captured 2026-11-17 (`Demo/filings-nvda.json`), so the
+screen can be seen today.
+
+Not covered, because the SEC's company-facts feed does not carry it: segment
+and customer-concentration figures, the text of the filing (risk factors,
+commitments, guarantees), and companies that file 20-F or 40-F.
+
+### Price — signals, a model, and a test
+
+All computed on the device from the daily history the chart uses.
+
+| Card | Shows | Code |
 |---|---|---|
-| **Snapshot** | What is this business? | The overview: what it does, four headline numbers, where each $100 of sales goes, revenue mix, health and valuation scores, main driver and risk, rivals |
-| **Price & signals** | Where does the price stand? | Daily closes: the chart, the setup ("Downtrend, oversold"), six direction signals with a tally, RSI, the 52-week range, returns, valuation |
-| **Deep dive** | Why? | The four-question analysis below |
+| The setup, Signals | Six direction signals with a tally, and the 14-day RSI reading | `TechnicalRead` |
+| Trend model | A log-linear fit over 3, 6 or 12 months: annual rate, R², how many standard deviations today's price sits from the line, and a ±2σ band. It measures the window; it does not project past it | `TrendModel` |
+| Key levels | 50- and 200-day averages, 20-day and 52-week highs and lows, the last turning points, each with its distance from the live price; a typical day's range (14-day ATR) | `PriceLevels` |
+| Test an entry and exit | Set an entry, a stop and a target. The plan is tried on every trading day of the past five years: how often the target was reached, the stop was hit, or neither within the horizon; the average result; and the same again for days on the same side of the 200-day average as today | `BracketTest` |
 
-Snapshot and Price & signals both end in the same card, **"What do you want
-to do?"**: *Decide yourself* (Buy / Sell through the linked broker) or *Let
-a rule decide* (strategies matched to the setup, each opening ready to
-backtest on this stock — or on it and its rivals).
-
-Signals are computed on the device (`TechnicalRead`) from the same closes as
-the chart: price against the 200- and 50-day averages, the 50-day against
-the 200-day, three-month momentum, three-month return against the S&P 500,
-and position in the 52-week range. Each leans up, down or neither; the trend
-is called only when the lean is lopsided. RSI is reported apart from the
-tally because "oversold" is not a direction. For NVDA the two averages match
-the backend's trend endpoint to the decimal.
-
-The page describes and never recommends: a setup, then the two ways to act
-on it. `StrategyAdvisor` picks which strategies to *test*, with the reason;
-the backtest is what says whether the rule has worked.
-
-## Research depth — the four questions
-
-The company page follows the structure of a written equity analysis
-("Nvidia After the Selloff", JG, 2026-11-12): a four-line summary, then
-**A Demand**, **B Moat**, **C Cash**, **D Uncertainty**, each answering one
-question from the company's own figures.
+The defaults for the test come from the stock: the stop is two typical days'
+range away and the target twice the stop. A day that touched both levels
+counts as stopped, and each day starts its own trial, so trials overlap —
+the card says so. From the result, "Backtest a strategy with this stop and
+target" opens the trend-following template with that exit plan filled in.
 
 The cash-flow stress test (`CashFlowModel`, `RevenueShock`, `ValuationView`)
-is that post's model: five years of free cash flow at one growth rate, a
-terminal value, a discount rate, net cash and a share count, with a
-sensitivity grid and a lasting demand shortfall on the largest segment.
-`CashFlowModelTests` reproduces the post's published results from its
-published inputs ($163 central; $142 and $120 for a 10% and 20% Data Center
-shortfall).
+is unchanged: five years of free cash flow at one growth rate, a terminal
+value, a discount rate, net cash and a share count, with a sensitivity grid.
+`CashFlowModelTests` reproduces a published model's results from its inputs.
 
-What the app cannot match yet, because the backend does not provide it:
-
-| The post uses | The app has |
-|---|---|
-| The latest quarter (10-Q) | The last fiscal year only — NVDA's starting cash flow is $96.7B where the post normalises to $160B |
-| Receivables, customer concentration | Not in the overview |
-| Supply commitments, guarantees (filing notes) | Not parsed |
-| Next earnings date, leadership changes | No calendar or event feed |
-| Industry forecasts (capex, shipment mix, share) | No third-party research source |
-| Each claim linked to its source | Source notes on two sections; one evidence row for NVDA |
+The sample account passes public market data (quotes, daily history, the
+overview) through to the live API, so the Price tab is live in `-demo` too.
 
 ## How orders work
 
@@ -202,7 +217,7 @@ apps/ios/
       Brokerage/                    SnapTrade link, holdings, order tickets
       Demo/                         the sample account (debug builds only)
     Sources/LivermoreUI/          SwiftUI screens, same folders
-    Tests/LivermoreKitTests/      126 tests; `swift test` runs them in a second
+    Tests/LivermoreKitTests/      146 tests; `swift test` runs them in a second
   scripts/refresh_openapi.py      refreshes openapi.json from the backend
   scripts/gen_scoring_golden.mjs  regenerates the scoring parity fixture
   scripts/gen_templates.mjs       regenerates the strategy templates
@@ -245,6 +260,10 @@ To call a new endpoint, add its path to
 generated.
 
 ## The company scores are a port — keep them in step with the web
+
+**The company page no longer shows the scores** (2026-11-17: facts, not
+assessments). `StockScoring` and its parity tests stay in the package for
+the screens that may use them.
 
 The website computes Asset health, Valuation and Market trend in the browser
 (`apps/web/src/lib/evaluation/scoring.ts`); there is no endpoint for them.
@@ -309,9 +328,13 @@ belongs in `LivermoreKit/` instead.
 - **The brokerage sign-in returns to the website**, not to the app (the
   backend builds the return address from a site path, deliberately). The user
   taps Done on the in-app browser and the app re-reads the link.
-- **The company page shows the scores and the backend's summaries, not the
-  web's written interpretation** (the bull and bear cases and the analyst
-  summary in `interpretation.ts`). Those are not ported.
+- **The Financials tab depends on backend PR #376.** Until it is deployed
+  the app shows the annual figures with a notice. It covers companies that
+  file 10-Q and 10-K with the SEC; it has no segment, customer-concentration
+  or filing-text data.
+- **The entry and exit test uses daily highs and lows.** It cannot see the
+  order of moves inside a day, which is why a day touching both levels is
+  counted as stopped.
 - **A strategy page shows its signal and positions, not the web's intraday
   chart or trade log.**
 - **Supply chain shows the summary and chokepoint tests only**, not the

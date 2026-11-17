@@ -2,17 +2,16 @@ import LivermoreAPI
 import LivermoreKit
 import SwiftUI
 
-/// The three views of a company. The first two are what a decision needs;
-/// the third is everything behind them.
+/// The two views of a company: what its filings show, and what its price
+/// is doing. Both end in the same decision.
 enum CompanyTab: String, CaseIterable, Identifiable {
-    case snapshot = "Snapshot"
-    case price = "Price & signals"
-    case deepDive = "Deep dive"
+    case financials = "Financials"
+    case price = "Price"
 
     var id: String { rawValue }
 }
 
-/// A segmented control in the app's own style, wide enough for three words.
+/// A segmented control in the app's own style.
 struct CompanyTabBar: View {
     @Binding var selection: CompanyTab
 
@@ -41,106 +40,7 @@ struct CompanyTabBar: View {
     }
 }
 
-// MARK: - Snapshot
-
-/// The business in one screen: what it is, how big, how profitable, where
-/// the money comes from, and how it stands.
-struct BusinessSnapshot: View {
-    let overview: CompanyOverview
-    let trend: CompanyTrend?
-    let onSeeAll: () -> Void
-
-    var body: some View {
-        let check = overview.financialCheck
-        let map = overview.businessMap
-        let position = overview.marketPosition
-        let metrics = StockMetrics(overview: overview, trend: trend)
-
-        Card("What it is") {
-            if let summary = map.oneLineSummary {
-                Text(summary).font(.body)
-            }
-            let tags = [map.primaryValueChainRole, overview.industry, position.competitivePositionLabel?.capitalized]
-                .compactMap { $0 }
-            if !tags.isEmpty { FlowTags(tags) }
-            if let model = map.revenueModel {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("How it makes money").font(.caption.weight(.semibold)).foregroundStyle(.inkSecondary)
-                    Text(model).font(.subheadline)
-                }
-            }
-        }
-
-        Card("The numbers that matter") {
-            LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
-                StatTile(label: "Market value", value: Fmt.money(overview.marketCap))
-                StatTile(
-                    label: "Sales, last year", value: Fmt.money(check.revenueByYear.last?.value),
-                    tint: nil, note: check.revenueYoy.map { "\(Fmt.percent($0, signed: true)) on the year before" }
-                )
-                StatTile(label: "Operating margin", value: Fmt.percent(check.operatingMargin), note: "Profit per dollar of sales")
-                StatTile(
-                    label: "Free cash flow", value: Fmt.money(check.freeCashFlow),
-                    tint: (check.freeCashFlow ?? 0) < 0 ? .loss : nil, note: check.fcfYield.map { "\(Fmt.percent($0)) of market value" }
-                )
-            }
-            if let dollar = SalesDollar(grossMargin: check.grossMargin, operatingMargin: check.operatingMargin) {
-                Divider()
-                SalesDollarBar(dollar: dollar)
-            }
-            if let asOf = overview.asOfDate { Text("As of \(asOf)").eyebrowStyle() }
-        }
-
-        if let mix = overview.revenueMix {
-            Card("Where the money comes from") {
-                Text("Fiscal \(String(mix.year))").eyebrowStyle()
-                ForEach(mix.slices.prefix(4)) { slice in RevenueSliceRow(slice: slice) }
-                if mix.slices.count > 4 {
-                    Text("and \(mix.slices.count - 4) smaller line\(mix.slices.count - 4 == 1 ? "" : "s")")
-                        .font(.caption).foregroundStyle(.inkSecondary)
-                }
-            }
-        }
-
-        Card("How it stands") {
-            ScoreBar(
-                title: "Business health", score: StockScoring.health(metrics),
-                detail: check.financialValidationLabel
-            )
-            ScoreBar(title: "Valuation", score: StockScoring.valuation(metrics), detail: check.valuationSummary)
-            if let driver = position.keyGrowthDrivers?.first {
-                Divider()
-                SnapshotPoint(title: "Main driver", text: driver, systemImage: "arrow.up.right.circle.fill", tint: .gain)
-            }
-            if let risk = (position.keyRisks ?? []).first ?? (check.warnings ?? []).first {
-                SnapshotPoint(title: "Main risk", text: risk, systemImage: "exclamationmark.circle.fill", tint: .loss)
-            }
-            let rivals = position.keyCompetitors ?? []
-            if !rivals.isEmpty {
-                Divider()
-                Text("Competes with").eyebrowStyle()
-                RivalChips(rivals: rivals)
-            }
-        }
-
-        Button(action: onSeeAll) {
-            HStack {
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Read the full analysis").font(.subheadline.weight(.semibold))
-                    Text("Demand, moat, cash and uncertainty, with the cash-flow stress test")
-                        .font(.caption).foregroundStyle(.inkSecondary)
-                }
-                Spacer()
-                Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
-            }
-            .padding(Metrics.cardPadding)
-            .background(Color.surface, in: RoundedRectangle(cornerRadius: Metrics.cardRadius, style: .continuous))
-            .contentShape(Rectangle())
-        }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("open-deep-dive")
-    }
-}
+// MARK: - Shared rows
 
 struct RevenueSliceRow: View {
     let slice: RevenueSlice
@@ -159,24 +59,6 @@ struct RevenueSliceRow: View {
                 }
             }
             .frame(height: 5)
-        }
-        .accessibilityElement(children: .combine)
-    }
-}
-
-private struct SnapshotPoint: View {
-    let title: String
-    let text: String
-    let systemImage: String
-    let tint: Color
-
-    var body: some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: systemImage).foregroundStyle(tint)
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title).font(.caption.weight(.semibold)).foregroundStyle(.inkSecondary)
-                Text(text.prefix(1).uppercased() + text.dropFirst()).font(.subheadline)
-            }
         }
         .accessibilityElement(children: .combine)
     }

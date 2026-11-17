@@ -135,6 +135,10 @@ public enum DemoData {
         "get_company_trend_api_company__symbol__trend_get",
         "get_sentiment_summary_api_sentiment__symbol__summary_get",
         "get_summary_api_supply_chain__symbol__summary_get",
+        // Price history: without it the chart falls back to 90 days and the
+        // signals, trend model and entry/exit test have nothing to work on.
+        "get_daily_prices_api_data_daily__symbol__get",
+        "get_market_overview_api_market_overview_get",
     ]
 }
 
@@ -189,6 +193,16 @@ struct DemoTransport: ClientTransport {
     ) async throws -> (HTTPResponse, HTTPBody?) {
         if let reply = DemoData.replies[operationID] {
             return (HTTPResponse(status: .ok, headerFields: [.contentType: "application/json"]), HTTPBody(reply))
+        }
+        // Filing analysis: NVIDIA's real figures from the SEC, captured
+        // 2026-11-17, so the screen can be seen before the endpoint is live.
+        if operationID == "get_company_filings_api_company__symbol__filings_get" {
+            if (request.path ?? "").uppercased().contains("/NVDA/"),
+               let url = Bundle.module.url(forResource: "filings-nvda", withExtension: "json"),
+               let data = try? Data(contentsOf: url) {
+                return (HTTPResponse(status: .ok, headerFields: [.contentType: "application/json"]), HTTPBody(data))
+            }
+            return try await live.send(request, body: body, baseURL: baseURL, operationID: operationID)
         }
         if DemoData.liveOperations.contains(operationID) {
             return try await live.send(request, body: body, baseURL: baseURL, operationID: operationID)

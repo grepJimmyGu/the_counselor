@@ -286,6 +286,9 @@ struct DemoAccountTests {
         // Only public, read-only calls go to the network.
         #expect(DemoData.liveOperations.allSatisfy { $0.hasSuffix("_get") })
         #expect(DemoData.liveOperations.allSatisfy { !$0.contains("snaptrade") && !$0.contains("saved_strategies") })
+        // Price history is public market data, and the company page's
+        // signals and models are empty without it.
+        #expect(DemoData.liveOperations.contains("get_daily_prices_api_data_daily__symbol__get"))
         // Anything not answered from fixtures is refused locally.
         let session = AppSession.demo()
         let strategy = TemplateCatalog.runnable[0].strategy
