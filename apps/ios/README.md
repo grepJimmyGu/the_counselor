@@ -7,15 +7,21 @@ directly; the website is not in the path.
 
 | Slice | What | State |
 |---|---|---|
-| 1 | Project, generated API client, sign-in, tab shell | **Built and launched** in the iOS 27.2 simulator. Signed-in screens not yet seen — see below. |
-| 2 | Research: search and the company page | Not started |
+| 1 | Project, generated API client, sign-in, tab shell | **Built and run** in the iOS 27.2 simulator |
+| 2 | Research: search and the company page | **Built and run** — see below |
 | 3 | Strategies: enabled strategies, open positions, signals | Not started |
 | 4 | Brokerage link and the Actions inbox | Not started |
 
-**Seen running:** the sign-in screen, and a wrong password against the
-production API showing "That email and password don't match an account."
-**Not yet seen:** anything behind sign-in (the tab shell and Account), because
-that needs a real account's password.
+**Seen running** on an iPhone 17 simulator against the production API: search,
+the company page (live price, the three scores, 90-day chart, financials,
+business, market position), News & sentiment, Supply chain, and the
+wrong-password message on sign-in.
+
+**Not yet seen:** a successful sign-in and the Account screen behind it — that
+needs a real account's password.
+
+Research works without an account, as it does on the website; the backend
+serves the anonymous tier. Sign-in lives in the Account tab.
 
 ## Layout
 
@@ -25,10 +31,11 @@ apps/ios/
   App/LivermoreApp.swift          the app target's only file
   LivermoreKit/                   Swift package — all of the app's code
     Sources/LivermoreAPI/         client generated from openapi.json
-    Sources/LivermoreKit/         session, Keychain storage, auth middleware
+    Sources/LivermoreKit/         session, Keychain storage, research calls, scoring
     Sources/LivermoreUI/          SwiftUI screens
     Tests/LivermoreKitTests/
   scripts/refresh_openapi.py      refreshes openapi.json from the backend
+  scripts/gen_scoring_golden.mjs  regenerates the scoring parity fixture
 ```
 
 ## Build and test the package (no Xcode needed)
@@ -66,6 +73,23 @@ To call a new endpoint, add its path to
 `Sources/LivermoreAPI/openapi-generator-config.yaml`. Only listed paths are
 generated.
 
+## The company scores are a port — keep them in step with the web
+
+The website computes Asset health, Valuation and Market trend in the browser
+(`apps/web/src/lib/evaluation/scoring.ts`); there is no endpoint for them.
+`StockScoring.swift` is a line-for-line port, held to the original by
+`StockScoringParityTests`, which replays 401 cases produced by running the
+TypeScript itself.
+
+If `scoring.ts` changes:
+
+```bash
+node apps/ios/scripts/gen_scoring_golden.mjs   # regenerate the fixture
+cd apps/ios/LivermoreKit && swift test          # fails until Swift matches
+```
+
+The lasting fix is to compute the scores on the backend so there is one copy.
+
 ## Build the app
 
 ```bash
@@ -83,6 +107,15 @@ that folder join the target without editing the project file. Nearly all code
 belongs in `LivermoreKit/` instead.
 
 ## Known limits
+
+- **The company page shows the scores and the backend's summaries, not the
+  web's written interpretation** (the bull and bear cases and the analyst
+  summary in `interpretation.ts`). Those are not ported.
+- **Supply chain shows the summary and chokepoint tests only**, not the
+  supplier and customer graph.
+- **The price chart is the 90-day series from the trend endpoint.**
+  `/api/data/daily/{symbol}` ignores its `start` parameter and returns the
+  whole history (6,802 bars for AAPL), which is too heavy for a phone.
 
 - **Sign-in is email and password only.** Google sign-in needs an iOS client
   id; Sign in with Apple needs an Apple Developer account.

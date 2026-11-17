@@ -1,17 +1,15 @@
 import LivermoreKit
 import SwiftUI
 
-/// The four areas of the app. Research, Strategies and Actions are filled in
-/// by the slices that follow this one; Account works today.
+/// The four areas of the app. Research and Account work; Strategies and
+/// Actions are filled in by the slices that follow.
 struct MainTabView: View {
+    @Environment(AppSession.self) private var session
+
     var body: some View {
         TabView {
-            ComingSoonView(
-                title: "Research",
-                systemImage: "magnifyingglass",
-                detail: "Search a company and read its fundamentals, trend, sentiment and supply chain."
-            )
-            .tabItem { Label("Research", systemImage: "magnifyingglass") }
+            ResearchView()
+                .tabItem { Label("Research", systemImage: "magnifyingglass") }
 
             ComingSoonView(
                 title: "Strategies",
@@ -27,8 +25,14 @@ struct MainTabView: View {
             )
             .tabItem { Label("Actions", systemImage: "bell.badge") }
 
-            AccountView()
-                .tabItem { Label("Account", systemImage: "person.crop.circle") }
+            Group {
+                if session.isSignedIn {
+                    AccountView()
+                } else {
+                    SignInView()
+                }
+            }
+            .tabItem { Label("Account", systemImage: "person.crop.circle") }
         }
     }
 }

@@ -58,6 +58,9 @@ public final class AppSession {
         }
     }
 
+    /// Company research calls, sharing this session's client and token.
+    public var research: ResearchService { ResearchService(client: client) }
+
     public var isSignedIn: Bool {
         if case .signedIn = state { true } else { false }
     }

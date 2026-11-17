@@ -51,7 +51,7 @@ struct SignInView: View {
                     Text("Use the email and password from your Livermore account. Research tool, not advice.")
                 }
             }
-            .navigationTitle("Livermore")
+            .navigationTitle("Sign in")
         }
     }
 

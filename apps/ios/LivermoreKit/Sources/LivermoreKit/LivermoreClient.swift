@@ -42,6 +42,34 @@ struct BearerTokenMiddleware: ClientMiddleware {
     }
 }
 
+/// Reads the timestamp formats the backend actually sends.
+///
+/// The generator's default accepts only whole-second ISO 8601. The backend
+/// serialises Python datetimes with microseconds ("…T04:14:09.273587Z"), and
+/// naive ones with no zone at all, so the default fails the whole response —
+/// the sentiment summary could not be decoded with it.
+struct LenientDateTranscoder: DateTranscoder {
+    func encode(_ date: Date) throws -> String {
+        ISO8601DateFormatter().string(from: date)
+    }
+
+    func decode(_ string: String) throws -> Date {
+        let fractional = ISO8601DateFormatter()
+        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        if let date = fractional.date(from: string) { return date }
+        if let date = ISO8601DateFormatter().date(from: string) { return date }
+        // No zone: the backend's naive datetimes are UTC.
+        let hasZone = string.hasSuffix("Z") || string.dropFirst(19).contains(where: { $0 == "+" || $0 == "-" })
+        if !hasZone {
+            if let date = fractional.date(from: string + "Z") { return date }
+            if let date = ISO8601DateFormatter().date(from: string + "Z") { return date }
+        }
+        throw DecodingError.dataCorrupted(
+            .init(codingPath: [], debugDescription: "Unrecognised timestamp: \(string)")
+        )
+    }
+}
+
 extension Client {
     static func livermore(
         serverURL: URL,
@@ -50,6 +78,7 @@ extension Client {
     ) -> Client {
         Client(
             serverURL: serverURL,
+            configuration: Configuration(dateTranscoder: LenientDateTranscoder()),
             transport: transport,
             middlewares: [BearerTokenMiddleware(tokens: tokens)]
         )

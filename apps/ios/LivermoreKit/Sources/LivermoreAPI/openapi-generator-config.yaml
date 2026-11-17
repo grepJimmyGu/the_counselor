@@ -12,3 +12,9 @@ filter:
     - /api/auth/password/signup
     - /api/me/entitlements
     - /api/live/quotes
+    # Research (slice 2)
+    - /api/symbols/search
+    - /api/company/{symbol}/overview
+    - /api/company/{symbol}/trend
+    - /api/sentiment/{symbol}/summary
+    - /api/supply-chain/{symbol}/summary

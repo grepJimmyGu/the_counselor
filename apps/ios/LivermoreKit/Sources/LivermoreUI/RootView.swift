@@ -1,7 +1,11 @@
 import LivermoreKit
 import SwiftUI
 
-/// The whole app: sign-in when signed out, the tab shell when signed in.
+/// The whole app.
+///
+/// Research is open without an account, as it is on the website — the backend
+/// serves the anonymous tier. Signing in happens in the Account tab and is
+/// what the Strategies and Actions tabs need.
 public struct RootView: View {
     @State private var session: AppSession
 
@@ -10,13 +14,7 @@ public struct RootView: View {
     }
 
     public var body: some View {
-        Group {
-            if session.isSignedIn {
-                MainTabView()
-            } else {
-                SignInView()
-            }
-        }
+        MainTabView()
         .environment(session)
         .task(id: session.isSignedIn) {
             await session.refreshEntitlements()

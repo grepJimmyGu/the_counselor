@@ -36,7 +36,7 @@ let package = Package(
                 .product(name: "HTTPTypes", package: "swift-http-types"),
             ]
         ),
-        .target(name: "LivermoreUI", dependencies: ["LivermoreKit"]),
+        .target(name: "LivermoreUI", dependencies: ["LivermoreKit", "LivermoreAPI"]),
         .testTarget(
             name: "LivermoreKitTests",
             dependencies: [
