@@ -112,16 +112,23 @@ struct ActionsView: View {
 private struct ExitRow: View {
     let exit: UnresolvedExit
 
+    private var isStop: Bool { (exit.pctChange ?? 0) < 0 || exit.triggerType.contains("stop") }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            // The day the rule was met, first.
-            Text((exit.barDate ?? exit.signaledAt.map { String($0.prefix(10)) } ?? "").uppercased())
-                .font(.caption2.weight(.semibold)).tracking(0.8).foregroundStyle(.secondary)
-            HStack(alignment: .firstTextBaseline) {
-                Text(exit.symbol).font(.headline.monospaced())
-                Text(exit.headline).font(.subheadline)
+        HStack(spacing: 12) {
+            Image(systemName: isStop ? "exclamationmark.octagon.fill" : "flag.checkered")
+                .font(.title3).foregroundStyle(isStop ? Color.loss : .gain)
+                .frame(width: 42, height: 42)
+                .background((isStop ? Color.loss : .gain).opacity(0.12), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            VStack(alignment: .leading, spacing: 3) {
+                // The day the rule was met, first.
+                Text(exit.barDate ?? exit.signaledAt.map { String($0.prefix(10)) } ?? "").eyebrowStyle()
+                HStack(alignment: .firstTextBaseline, spacing: 6) {
+                    Text(exit.symbol).font(.headline.monospaced())
+                    Text(exit.headline).font(.subheadline)
+                }
+                Text(exit.strategyTitle).font(.caption).foregroundStyle(.inkSecondary).lineLimit(1)
             }
-            Text(exit.strategyTitle).font(.caption).foregroundStyle(.secondary).lineLimit(1)
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)

@@ -101,6 +101,13 @@ struct BrokerageView: View {
 
         let invested = link.holdings.filter { $0.cashEquivalent != true }
         let cash = link.holdings.filter { $0.cashEquivalent == true }
+        if !invested.isEmpty {
+            Section {
+                HoldingsSummary(holdings: invested, cash: cash, quotes: session.quotes.quotes)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
+            }
+        }
         Section("Holdings") {
             if invested.isEmpty {
                 Text("No stock or fund holdings in the linked accounts.").foregroundStyle(.secondary)
@@ -142,6 +149,48 @@ struct BrokerageView: View {
             }
             isOpeningLink = false
         }
+    }
+}
+
+/// The linked accounts in one figure: what the holdings are worth now.
+private struct HoldingsSummary: View {
+    let holdings: [BrokerHolding]
+    let cash: [BrokerHolding]
+    let quotes: [String: LiveQuote]
+
+    var body: some View {
+        var value = 0.0
+        var cost = 0.0
+        var hasCost = false
+        for holding in holdings {
+            let price = quotes[holding.symbol.uppercased()]?.price ?? holding.lastPrice ?? 0
+            value += price * holding.units
+            if let basis = holding.averagePurchasePrice {
+                cost += basis * holding.units
+                hasCost = true
+            } else {
+                cost += price * holding.units
+            }
+        }
+        let cashValue = cash.reduce(0) { $0 + ($1.marketValue ?? $1.units) }
+        let profit = value - cost
+
+        return Card {
+            Text("Holdings at your broker").eyebrowStyle()
+            Text(Fmt.price(value)).font(.hero).contentTransition(.numericText(value: value))
+            if hasCost {
+                HStack(spacing: 8) {
+                    ChangePill(fraction: cost > 0 ? profit / cost : nil)
+                    Text("\(Fmt.signedMoney(profit)) against cost")
+                        .font(.subheadline.monospacedDigit()).foregroundStyle(profit.changeColor)
+                }
+            }
+            HStack(spacing: 8) {
+                StatTile(label: "Positions", value: "\(holdings.count)")
+                StatTile(label: "Cash", value: Fmt.price(cashValue))
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

@@ -26,6 +26,23 @@ struct SignInView: View {
         NavigationStack {
             Form {
                 Section {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Image(systemName: "chart.line.uptrend.xyaxis")
+                            .font(.title2.weight(.semibold)).foregroundStyle(.white)
+                            .frame(width: 52, height: 52)
+                            .background(Color.brand, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        Text("Livermore").font(.largeTitle.weight(.bold))
+                        Text("Research a company, test a strategy on it, and act on it through your own broker.")
+                            .font(.subheadline).foregroundStyle(.inkSecondary)
+                    }
+                    .padding(.vertical, 4)
+                    // Zero row insets put the text on the clip edge.
+                    .padding(.horizontal, 4)
+                }
+                .listRowBackground(Color.clear)
+                .listRowInsets(EdgeInsets())
+
+                Section {
                     Picker("Mode", selection: $mode) {
                         ForEach(Mode.allCases) { Text($0.rawValue).tag($0) }
                     }
@@ -65,15 +82,15 @@ struct SignInView: View {
 
                 Section {
                     Button(action: submit) {
-                        HStack {
+                        HStack(spacing: 8) {
+                            if isSubmitting { ProgressView().tint(.white) }
                             Text(mode == .create ? "Create account" : "Sign in")
-                            if isSubmitting {
-                                Spacer()
-                                ProgressView()
-                            }
                         }
                     }
+                    .buttonStyle(PrimaryButtonStyle())
                     .disabled(!canSubmit)
+                    .listRowInsets(EdgeInsets())
+                    .listRowBackground(Color.clear)
                     .accessibilityIdentifier("sign-in-button")
                 } footer: {
                     Text(mode == .create
@@ -82,7 +99,7 @@ struct SignInView: View {
                 }
             }
             .screenBackground()
-            .navigationTitle(mode == .create ? "Create account" : "Sign in")
+            .navigationTitle("")
             .onChange(of: mode) { _, _ in if !isSubmitting { errorMessage = nil } }
         }
     }
