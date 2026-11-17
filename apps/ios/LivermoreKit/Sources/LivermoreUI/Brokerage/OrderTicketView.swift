@@ -24,21 +24,14 @@ struct OrderTicketView: View {
     /// Called once the broker has accepted the order.
     var onSent: (OrderReceipt, OrderPreview) -> Void = { _, _ in }
 
-    fileprivate enum Phase: Equatable {
-        case editing
-        case pricing
-        case priced(OrderPreview)
-        case sending(OrderPreview)
-        case sent(OrderReceipt, OrderPreview)
-    }
-
     @State private var amount: Double?
     @State private var accountID = ""
-    @State private var phase: Phase = .editing
+    @State private var ticket = OrderTicketState()
     @State private var failure: APIFailure?
     @State private var isConfirming = false
     @FocusState private var amountFocused: Bool
 
+    private var phase: OrderTicketState.Phase { ticket.phase }
     private var link: BrokerageLink { session.brokerageLink }
     private var isSell: Bool { if case .sell = side { true } else { false } }
 
@@ -101,7 +94,7 @@ struct OrderTicketView: View {
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button(phase.isSent ? "Close" : "Cancel") { dismiss() }
+                    Button(ticket.isSent ? "Close" : "Cancel") { dismiss() }
                 }
             }
             .confirmationDialog(
@@ -116,7 +109,7 @@ struct OrderTicketView: View {
             }
             .liveQuotes([symbol])
             .task { await prepare() }
-            .interactiveDismissDisabled(phase.isBusy)
+            .interactiveDismissDisabled(ticket.isBusy)
         }
     }
 
@@ -176,7 +169,7 @@ struct OrderTicketView: View {
         }
         // Locked while a request is out, so the order on screen stays the
         // one being priced or sent.
-        .disabled(phase.isBusy)
+        .disabled(ticket.isBusy)
         .onChange(of: amount) { _, _ in invalidatePrice() }
         .onChange(of: accountID) { _, _ in invalidatePrice() }
     }
@@ -214,13 +207,13 @@ struct OrderTicketView: View {
                     isConfirming = true
                 } label: {
                     HStack {
-                        Text(phase.isBusy ? "Sending…" : "Send order to \(accountName)")
+                        Text(ticket.isBusy ? "Sending…" : "Send order to \(accountName)")
                             .fontWeight(.semibold)
                         Spacer()
-                        if phase.isBusy { ProgressView() }
+                        if ticket.isBusy { ProgressView() }
                     }
                 }
-                .disabled(phase.isBusy)
+                .disabled(ticket.isBusy)
                 .accessibilityIdentifier("send-order")
             case .sent:
                 EmptyView()
@@ -267,63 +260,41 @@ struct OrderTicketView: View {
 
     /// A price describes one order. Change the order and it no longer does.
     private func invalidatePrice() {
-        switch phase {
-        case .priced, .pricing:
-            // Mid-request too: the answer on its way describes the old
-            // order, and `price()` drops it once the phase has moved on.
-            phase = .editing
-        case .editing, .sending, .sent:
-            break
-        }
+        ticket.edited()
         failure = nil
     }
 
     private func price() {
-        guard problem == nil else { return }
+        guard problem == nil, ticket.beginPricing() else { return }
         amountFocused = false
         failure = nil
-        phase = .pricing
         let draft = draft
         Task {
             do throws(APIFailure) {
                 let preview = try await session.brokerage.preview(draft)
-                // Only if the order on screen is still the one that was priced.
-                if phase == .pricing, draft == self.draft { phase = .priced(preview) }
+                ticket.priced(preview, for: draft, current: self.draft)
             } catch {
                 if error == .notSignedIn { session.signOut() }
                 failure = error
-                phase = .editing
+                ticket.pricingFailed()
             }
         }
     }
 
     private func send() {
-        guard case .priced(let preview) = phase else { return }
+        guard let preview = ticket.beginSending() else { return }
         failure = nil
-        phase = .sending(preview)
         Task {
             do throws(APIFailure) {
                 let receipt = try await session.brokerage.place(preview)
-                phase = .sent(receipt, preview)
+                ticket.sent(receipt)
                 onSent(receipt, preview)
                 await link.refresh()
             } catch {
                 if error == .notSignedIn { session.signOut() }
                 failure = error
-                // The old price may be stale or spent; make them price again
-                // rather than retry a send that just failed.
-                phase = .editing
+                ticket.sendFailed()
             }
-        }
-    }
-}
-
-private extension OrderTicketView.Phase {
-    var isSent: Bool { if case .sent = self { true } else { false } }
-    var isBusy: Bool {
-        switch self {
-        case .pricing, .sending: true
-        default: false
         }
     }
 }
