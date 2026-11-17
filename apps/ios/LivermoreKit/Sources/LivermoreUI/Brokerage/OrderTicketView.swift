@@ -174,6 +174,9 @@ struct OrderTicketView: View {
                 QuoteFreshnessLabel()
             }
         }
+        // Locked while a request is out, so the order on screen stays the
+        // one being priced or sent.
+        .disabled(phase.isBusy)
         .onChange(of: amount) { _, _ in invalidatePrice() }
         .onChange(of: accountID) { _, _ in invalidatePrice() }
     }
@@ -264,7 +267,14 @@ struct OrderTicketView: View {
 
     /// A price describes one order. Change the order and it no longer does.
     private func invalidatePrice() {
-        if case .priced = phase { phase = .editing }
+        switch phase {
+        case .priced, .pricing:
+            // Mid-request too: the answer on its way describes the old
+            // order, and `price()` drops it once the phase has moved on.
+            phase = .editing
+        case .editing, .sending, .sent:
+            break
+        }
         failure = nil
     }
 
