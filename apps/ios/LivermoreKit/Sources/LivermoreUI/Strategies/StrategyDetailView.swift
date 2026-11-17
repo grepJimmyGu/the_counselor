@@ -13,6 +13,16 @@ struct StrategyDetailView: View {
     @State private var signal: SignalState?
     @State private var signalError: APIFailure?
     @State private var positions: StrategyPositions?
+    @State private var isDeclaring = false
+    @State private var buySymbol: BuyTarget?
+    /// A buy the user just sent, offered for tracking once it fills.
+    @State private var boughtSymbol: String?
+    @State private var declaredNote: String?
+
+    private struct BuyTarget: Identifiable {
+        let symbol: String
+        var id: String { symbol }
+    }
 
     var body: some View {
         List {
@@ -40,6 +50,8 @@ struct StrategyDetailView: View {
                     }
                 }
             }
+
+            actSection
 
             Section("Open positions") {
                 if !strategy.tracksExits {
@@ -77,6 +89,20 @@ struct StrategyDetailView: View {
             }
         }
         .liveQuotes(trackedPositions.map(\.symbol))
+        .sheet(isPresented: $isDeclaring) {
+            DeclarePositionView(strategy: strategy, presetSymbol: boughtSymbol) {
+                boughtSymbol = nil
+                declaredNote = "Tracking started. It appears under Open positions on the Strategies tab."
+            }
+        }
+        .sheet(item: $buySymbol) { target in
+            OrderTicketView(
+                symbol: target.symbol, side: .buy(suggestedDollars: nil),
+                reason: "Buying for “\(strategy.title)”"
+            ) { _, _ in
+                boughtSymbol = target.symbol
+            }
+        }
         .navigationTitle(strategy.title)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -91,6 +117,59 @@ struct StrategyDetailView: View {
                 signalError = error
             }
             positions = await positionsResult
+            if session.brokerageLink.status == nil { await session.brokerageLink.refresh() }
+        }
+    }
+}
+
+extension StrategyDetailView {
+    /// Acting on the strategy: buy through the user's broker, and tell
+    /// Livermore about a position so its exits are watched.
+    @ViewBuilder
+    fileprivate var actSection: some View {
+        let link = session.brokerageLink
+        Section {
+            if link.canTrade {
+                if strategy.universe.count == 1, let only = strategy.universe.first {
+                    Button("Buy \(only) at your broker", systemImage: "arrow.down.left.circle.fill") {
+                        buySymbol = BuyTarget(symbol: only)
+                    }
+                    .accessibilityIdentifier("buy-at-broker")
+                } else if !strategy.universe.isEmpty {
+                    Menu {
+                        ForEach(strategy.universe, id: \.self) { symbol in
+                            Button(symbol) { buySymbol = BuyTarget(symbol: symbol) }
+                        }
+                    } label: {
+                        Label("Buy at your broker", systemImage: "arrow.down.left.circle.fill")
+                    }
+                    .accessibilityIdentifier("buy-at-broker")
+                }
+            }
+            if strategy.tracksExits {
+                Button(
+                    boughtSymbol.map { "Track the \($0) you just bought" } ?? "Track a position you hold",
+                    systemImage: "scope"
+                ) {
+                    isDeclaring = true
+                }
+                .accessibilityIdentifier("track-position")
+            }
+            if let declaredNote {
+                Label(declaredNote, systemImage: "checkmark.circle").font(.footnote).foregroundStyle(.green)
+            }
+        } header: {
+            Text("Act on it")
+        } footer: {
+            if !link.canTrade {
+                Text(link.isLinked
+                    ? "Sending orders from Livermore isn't switched on yet — buy in your brokerage app, then track the position here."
+                    : "Link your brokerage from the Actions tab to buy from here. You can track a position you already hold either way.")
+            } else if strategy.tracksExits {
+                Text("Today's signal above says what the rule wants. You decide the size, see your broker's numbers, and send the order yourself.")
+            } else {
+                Text("This strategy has no stop or targets, so a position can't be tracked against it.")
+            }
         }
     }
 }

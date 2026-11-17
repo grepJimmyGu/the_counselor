@@ -18,6 +18,15 @@ struct AccountView: View {
                     }
                 }
                 Section {
+                    NavigationLink {
+                        BrokerageView()
+                    } label: {
+                        Label("Brokerage", systemImage: "building.columns")
+                    }
+                } footer: {
+                    Text("Link Robinhood, Charles Schwab or another broker to see your holdings and send orders you have confirmed.")
+                }
+                Section {
                     Button("Sign out", role: .destructive) {
                         session.signOut()
                     }

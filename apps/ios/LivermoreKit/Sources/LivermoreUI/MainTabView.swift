@@ -1,7 +1,7 @@
 import LivermoreKit
 import SwiftUI
 
-/// The four areas of the app. Actions is filled in by the next slice.
+/// The four areas of the app.
 struct MainTabView: View {
     @Environment(AppSession.self) private var session
 
@@ -13,12 +13,9 @@ struct MainTabView: View {
             StrategiesView()
                 .tabItem { Label("Strategies", systemImage: "chart.line.uptrend.xyaxis") }
 
-            ComingSoonView(
-                title: "Actions",
-                systemImage: "bell.badge",
-                detail: "What your strategies are asking you to do, and your linked brokerage."
-            )
-            .tabItem { Label("Actions", systemImage: "bell.badge") }
+            ActionsView()
+                .tabItem { Label("Actions", systemImage: "bell.badge") }
+                .badge(session.inbox.waitingCount)
 
             Group {
                 if session.isSignedIn {
@@ -29,26 +26,9 @@ struct MainTabView: View {
             }
             .tabItem { Label("Account", systemImage: "person.crop.circle") }
         }
-    }
-}
-
-private struct ComingSoonView: View {
-    let title: String
-    let systemImage: String
-    let detail: String
-
-    var body: some View {
-        NavigationStack {
-            ContentUnavailableView {
-                Label(title, systemImage: systemImage)
-            } description: {
-                Text(detail)
-            } actions: {
-                Text("Not built yet")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-            }
-            .navigationTitle(title)
+        // The badge has to be right before the Actions tab is ever opened.
+        .task(id: session.isSignedIn) {
+            if session.isSignedIn { await session.inbox.refresh() }
         }
     }
 }

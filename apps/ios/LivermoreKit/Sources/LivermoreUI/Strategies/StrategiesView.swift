@@ -129,10 +129,10 @@ struct StrategiesView: View {
     private func load(showSpinner: Bool = true) async {
         if showSpinner { phase = .loading }
         let service = session.strategies
-        async let strategyRows = Result<[SavedStrategy], APIFailure>.catching { () async throws(APIFailure) in
+        async let strategyRows = Result<[SavedStrategy], APIFailure>.capture { () async throws(APIFailure) in
             try await service.strategies()
         }
-        async let positionRows = Result<[TrackedPosition], APIFailure>.catching { () async throws(APIFailure) in
+        async let positionRows = Result<[TrackedPosition], APIFailure>.capture { () async throws(APIFailure) in
             try await service.openPositions()
         }
         switch (await strategyRows, await positionRows) {
@@ -149,18 +149,6 @@ struct StrategiesView: View {
             } else {
                 phase = .failed(error)
             }
-        }
-    }
-}
-
-extension Result where Failure == APIFailure {
-    /// Runs a typed-throwing async call and captures its outcome, so two
-    /// calls can run together without the first failure cancelling the other.
-    static func catching(_ body: () async throws(APIFailure) -> Success) async -> Result {
-        do {
-            return .success(try await body())
-        } catch {
-            return .failure(error)
         }
     }
 }

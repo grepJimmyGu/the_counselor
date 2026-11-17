@@ -95,6 +95,12 @@ extension Components.Schemas.AppApiRoutesSavedStrategiesSavedStrategyResponse {
         return !ladder.isEmpty
     }
 
+    /// The tickers the strategy trades.
+    public var universe: [String] {
+        let raw = strategyJson.additionalProperties.value["universe"] as? [(any Sendable)?] ?? []
+        return raw.compactMap { $0 as? String }
+    }
+
     /// "daily" unless the strategy says otherwise.
     public var barResolution: String {
         (strategyJson.additionalProperties.value["bar_resolution"] as? String) ?? "daily"

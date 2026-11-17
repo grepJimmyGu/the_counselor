@@ -26,3 +26,15 @@ filter:
     # Strategy builder (slice 6)
     - /api/backtest/run
     - /api/anonymous/backtest/run
+    # Actions and brokerage (slice 4)
+    - /api/saved-strategies/unresolved-exits
+    - /api/saved-strategies/{strategy_id}/positions/{position_id}/confirm-exit
+    - /api/saved-strategies/{strategy_id}/positions/{position_id}/hold
+    - /api/me/notifications/pending
+    - /api/me/notifications/{entry_id}/ack
+    - /api/snaptrade/status
+    - /api/snaptrade/connect
+    - /api/snaptrade/accounts
+    - /api/snaptrade/positions
+    - /api/snaptrade/orders/preview
+    - /api/snaptrade/orders/place

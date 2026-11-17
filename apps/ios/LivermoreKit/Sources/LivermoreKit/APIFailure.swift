@@ -16,6 +16,13 @@ public enum APIFailure: Error, Equatable, Sendable {
     /// 400 — the backend understood the request and turned it down, with a
     /// reason written for the user ("Unknown or unsupported ticker(s): …").
     case rejected(String)
+    /// 503 — the feature is switched off on the backend (brokerage links, or
+    /// order placement, which has its own switch). Carries the backend's line.
+    case turnedOff(String)
+    /// 502 — the backend reached out to another service (the brokerage
+    /// aggregator) and that call failed. Carries a reason only when the
+    /// backend sent one fit to show.
+    case upstream(String?)
     case server(status: Int)
     /// The response arrived but could not be decoded — the app and the backend
     /// disagree about its shape. Kept apart from `network` so a schema
@@ -29,6 +36,8 @@ public enum APIFailure: Error, Equatable, Sendable {
         case .unavailable: "Livermore couldn't load this right now."
         case .notSignedIn: "Your session has ended. Sign in again."
         case .rejected(let reason): reason
+        case .turnedOff(let detail): detail
+        case .upstream(let detail): detail ?? "Your brokerage didn't answer. Try again in a moment."
         case .server(let status): "Livermore returned an error (\(status)). Try again in a moment."
         case .unreadable: "Livermore sent data this version of the app can't read. Updating the app may fix it."
         case .network: "Couldn't reach Livermore. Check your connection and try again."
@@ -60,8 +69,21 @@ public enum APIFailure: Error, Equatable, Sendable {
         case 401: return .notSignedIn
         case 402: return .upgradeRequired(detail ?? "This isn't included in your plan.")
         case 404: return .unavailable(detail ?? "")
+        case 502: return .upstream(detail.flatMap(Self.presentable))
+        case 503: return .turnedOff(detail ?? "This isn't available right now.")
         default: return .server(status: status)
         }
+    }
+
+    /// Some 502s carry a sentence written for the user ("Couldn't read your
+    /// brokerage accounts."); the order preview carries the aggregator's raw
+    /// exception. Only the first kind is shown.
+    static func presentable(_ detail: String) -> String? {
+        let text = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, text.count <= 200,
+              !text.contains("{"), !text.contains("\n"), !text.contains("Traceback")
+        else { return nil }
+        return text
     }
 
     static func detail(in data: Data) -> String? {
