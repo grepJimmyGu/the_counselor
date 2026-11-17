@@ -305,6 +305,11 @@ def test_endpoint_returns_the_analysis_and_caches_it(sec_stub):
         "Growth", "Profitability", "Cash", "Balance sheet", "Shareholders",
     }
     assert response.findings[0].severity == "watch"
+    # A metric's series is read from the quarters, by its key.
+    revenue = next(metric for metric in response.metrics if metric.key == "revenue")
+    assert not hasattr(revenue, "values")
+    assert [quarter.values.get("revenue") for quarter in response.quarters][-1] == revenue.latest
+    assert all(metric.key in response.latest.values for metric in response.metrics if metric.latest is not None)
 
     asyncio.run(get_company_filings("NVDA"))
     assert len(sec_stub) == 2, "the second request must be served from cache"

@@ -50,7 +50,10 @@ def to_response(analysis: FilingAnalysis) -> FilingAnalysisResponse:
         cik=analysis.cik,
         latest=quarters[-1],
         quarters=quarters,
-        metrics=[FilingMetric(**vars(metric)) for metric in analysis.metrics],
+        metrics=[
+            FilingMetric(**{key: value for key, value in vars(metric).items() if key != "values"})
+            for metric in analysis.metrics
+        ],
         findings=[FilingFinding(**vars(finding)) for finding in analysis.findings],
         computed_at=datetime.now(timezone.utc).isoformat(),
     )

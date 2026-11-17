@@ -21,13 +21,16 @@ class FilingQuarter(BaseModel):
 
 
 class FilingMetric(BaseModel):
-    """One figure across the quarters, with how it has moved."""
+    """One figure, with how it has moved.
+
+    The series itself is `quarters[i].values[key]` — one place for every
+    number, and a quarter with no figure simply lacks the key, so no client
+    has to decode a list with holes in it."""
     key: str
     label: str
     group: str                              # Growth | Profitability | Cash | Balance sheet | Shareholders
     unit: str                               # usd | per_share | shares | percent | ratio | days
     better: str                             # up | down | none
-    values: list[Optional[float]]           # one per quarter, oldest first
     latest: Optional[float] = None
     change_qoq: Optional[float] = None
     change_yoy: Optional[float] = None
