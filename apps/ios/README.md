@@ -7,14 +7,15 @@ directly; the website is not in the path.
 
 | Slice | What | State |
 |---|---|---|
-| 1 | Project, generated API client, sign-in, tab shell | **Built.** Compiles for iOS and passes tests. Not yet launched — see below. |
+| 1 | Project, generated API client, sign-in, tab shell | **Built and launched** in the iOS 27.2 simulator. Signed-in screens not yet seen — see below. |
 | 2 | Research: search and the company page | Not started |
 | 3 | Strategies: enabled strategies, open positions, signals | Not started |
 | 4 | Brokerage link and the Actions inbox | Not started |
 
-**Not yet launched.** The app target builds for the iOS simulator (Xcode 27.2),
-but no simulator runtime was installed when this was written, so the app has
-not been run and no screen has been looked at.
+**Seen running:** the sign-in screen, and a wrong password against the
+production API showing "That email and password don't match an account."
+**Not yet seen:** anything behind sign-in (the tab shell and Account), because
+that needs a real account's password.
 
 ## Layout
 
