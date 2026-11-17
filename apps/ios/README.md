@@ -78,6 +78,32 @@ which made NVDA read "+17.0% past year" when the true figure was −16.4%.
 The watchlist and "recently viewed" are kept on the device (`Watchlist`,
 UserDefaults). They are not the website's community watchlist.
 
+## Research depth — the four questions
+
+The company page follows the structure of a written equity analysis
+("Nvidia After the Selloff", JG, 2026-11-12): a four-line summary, then
+**A Demand**, **B Moat**, **C Cash**, **D Uncertainty**, each answering one
+question from the company's own figures.
+
+The cash-flow stress test (`CashFlowModel`, `RevenueShock`, `ValuationView`)
+is that post's model: five years of free cash flow at one growth rate, a
+terminal value, a discount rate, net cash and a share count, with a
+sensitivity grid and a lasting demand shortfall on the largest segment.
+`CashFlowModelTests` reproduces the post's published results from its
+published inputs ($163 central; $142 and $120 for a 10% and 20% Data Center
+shortfall).
+
+What the app cannot match yet, because the backend does not provide it:
+
+| The post uses | The app has |
+|---|---|
+| The latest quarter (10-Q) | The last fiscal year only — NVDA's starting cash flow is $96.7B where the post normalises to $160B |
+| Receivables, customer concentration | Not in the overview |
+| Supply commitments, guarantees (filing notes) | Not parsed |
+| Next earnings date, leadership changes | No calendar or event feed |
+| Industry forecasts (capex, shipment mix, share) | No third-party research source |
+| Each claim linked to its source | Source notes on two sections; one evidence row for NVDA |
+
 ## How orders work
 
 Livermore is a guide; the user's broker executes. Three rules are built into
@@ -151,7 +177,7 @@ apps/ios/
       Brokerage/                    SnapTrade link, holdings, order tickets
       Demo/                         the sample account (debug builds only)
     Sources/LivermoreUI/          SwiftUI screens, same folders
-    Tests/LivermoreKitTests/      105 tests; `swift test` runs them in a second
+    Tests/LivermoreKitTests/      113 tests; `swift test` runs them in a second
   scripts/refresh_openapi.py      refreshes openapi.json from the backend
   scripts/gen_scoring_golden.mjs  regenerates the scoring parity fixture
   scripts/gen_templates.mjs       regenerates the strategy templates

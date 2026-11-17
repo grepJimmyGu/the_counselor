@@ -147,11 +147,23 @@ struct CompanyView: View {
             LazyVStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
                 CompanyHeader(overview: overview, quote: quote, fallbackPrice: price)
                 PerformanceCard(symbol: symbol, latestPrice: price, trend: trend)
+                FourQuestionsCard(overview: overview)
                 ReadCard(overview: overview, trend: trend, trendFailed: trendFailed)
-                KeyStatsCard(overview: overview)
-                FinancialsCard(check: overview.financialCheck)
+
+                // The four questions, in the order the summary asks them.
+                SectionMark(letter: "A", title: "Demand", question: "Where does the growth come from?")
                 BusinessCard(overview: overview)
+
+                SectionMark(letter: "B", title: "Moat", question: "Why does it win, and who could take it?")
                 MarketCard(position: overview.marketPosition)
+
+                SectionMark(letter: "C", title: "Cash", question: "How much does it really make, and what is that worth?")
+                FinancialsCard(check: overview.financialCheck)
+                KeyStatsCard(overview: overview)
+                ValuationCard(overview: overview, price: price)
+
+                SectionMark(letter: "D", title: "Uncertainty", question: "What could break the story?")
+                UncertaintyCard(overview: overview)
                 if let trend { MomentumCard(trend: trend) }
 
                 Card("Go deeper") {
@@ -486,6 +498,166 @@ private struct ReadCard: View {
     }
 }
 
+// MARK: - The four questions
+
+/// The page in four lines: what drives demand, why it wins, how much cash
+/// it makes, and what could break it — each from the company's own figures.
+private struct FourQuestionsCard: View {
+    let overview: CompanyOverview
+
+    private var lines: [(letter: String, title: String, text: String)] {
+        let check = overview.financialCheck
+        let position = overview.marketPosition
+        var lines: [(String, String, String)] = []
+
+        var demand: [String] = []
+        if let top = overview.revenueMix?.slices.first {
+            demand.append("\(top.name) is \(Fmt.percent(top.share)) of revenue")
+        }
+        if let growth = check.revenueYoy { demand.append("revenue \(growth >= 0 ? "grew" : "fell") \(Fmt.percent(abs(growth))) last year") }
+        if !demand.isEmpty { lines.append(("A", "Demand", Self.sentence(demand))) }
+
+        var moat: [String] = []
+        if let label = position.competitivePositionLabel { moat.append(label) }
+        if let category = position.marketCategory { moat.append("in \(category)") }
+        if !moat.isEmpty {
+            let rivals = (position.keyCompetitors ?? []).prefix(3).joined(separator: ", ")
+            lines.append(("B", "Moat", Self.sentence([moat.joined(separator: " ")]) + (rivals.isEmpty ? "" : " Up against \(rivals)."))
+            )
+        }
+
+        var cash: [String] = []
+        if let dollar = SalesDollar(grossMargin: check.grossMargin, operatingMargin: check.operatingMargin) {
+            cash.append("keeps $\(Int(dollar.operatingProfit.rounded())) of every $100 sold as operating profit")
+        }
+        if let fcf = check.freeCashFlow { cash.append("\(Fmt.money(fcf)) of free cash flow") }
+        if !cash.isEmpty { lines.append(("C", "Cash", Self.sentence(cash))) }
+
+        let risks = (position.keyRisks ?? []) + (check.warnings ?? [])
+        if let first = risks.first {
+            lines.append(("D", "Uncertainty", Self.sentence([first]) + (risks.count > 1 ? " And \(risks.count - 1) more below." : "")))
+        }
+        return lines
+    }
+
+    private static func sentence(_ parts: [String]) -> String {
+        let joined = parts.joined(separator: "; ")
+        return joined.prefix(1).uppercased() + joined.dropFirst() + "."
+    }
+
+    var body: some View {
+        let lines = lines
+        if !lines.isEmpty {
+            Card("Four things that decide \(overview.symbol)'s value") {
+                ForEach(lines, id: \.letter) { line in
+                    HStack(alignment: .top, spacing: 10) {
+                        Text(line.letter)
+                            .font(.footnote.weight(.bold)).foregroundStyle(.white)
+                            .frame(width: 24, height: 24)
+                            .background(Color.brand, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(line.title).font(.caption.weight(.semibold)).foregroundStyle(.inkSecondary)
+                            Text(line.text).font(.subheadline)
+                        }
+                    }
+                    .accessibilityElement(children: .combine)
+                }
+                if let asOf = overview.asOfDate {
+                    Text("From figures as of \(asOf)").eyebrowStyle()
+                }
+            }
+        }
+    }
+}
+
+/// A section's letter, name and the question it answers.
+private struct SectionMark: View {
+    let letter: String
+    let title: String
+    let question: String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("\(letter) · \(title)").eyebrowStyle()
+            Text(question).font(.title3.weight(.semibold))
+        }
+        .padding(.horizontal, 4)
+        .padding(.top, 10)
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
+/// The way into the cash-flow stress test, showing what the starting
+/// assumptions imply against today's price.
+private struct ValuationCard: View {
+    let overview: CompanyOverview
+    let price: Double?
+
+    var body: some View {
+        let model = CashFlowModel(overview: overview, price: price)
+        NavigationLink {
+            ValuationView(overview: overview, price: price)
+        } label: {
+            Card {
+                HStack(alignment: .top, spacing: 12) {
+                    Image(systemName: "function")
+                        .font(.body.weight(.semibold)).foregroundStyle(.brand)
+                        .frame(width: 40, height: 40)
+                        .background(Color.brand.opacity(0.10), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Stress-test the cash flows").font(.headline)
+                        if let value = model?.valuePerShare, let model {
+                            Text("At \(Fmt.percent(model.growth)) growth and a \(Fmt.percent(model.discountRate)) required return, the cash flows imply about \(Fmt.price(value)) a share. Change the assumptions and see what a drop in demand does.")
+                                .font(.subheadline).foregroundStyle(.inkSecondary)
+                        } else {
+                            Text(model?.problem ?? "Not enough reported data to value it on cash flows.")
+                                .font(.subheadline).foregroundStyle(.inkSecondary)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right").font(.footnote.weight(.semibold)).foregroundStyle(.tertiary)
+                }
+            }
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("open-valuation")
+    }
+}
+
+/// What could break the story: the risks named for the business and the
+/// warnings the financials raise, together.
+private struct UncertaintyCard: View {
+    let overview: CompanyOverview
+
+    var body: some View {
+        let risks = overview.marketPosition.keyRisks ?? []
+        let warnings = overview.financialCheck.warnings ?? []
+        let cyclicality = overview.businessMap.cyclicalityImplication
+        Card("What to watch") {
+            if risks.isEmpty && warnings.isEmpty && cyclicality == nil {
+                Text("No specific risks were identified in the available filings and data. That is an absence of evidence, not a clean bill of health.")
+                    .font(.subheadline).foregroundStyle(.inkSecondary)
+            }
+            if !risks.isEmpty {
+                PointList(title: "Risks to the business", points: risks, systemImage: "exclamationmark.circle.fill", tint: .loss)
+            }
+            ForEach(warnings, id: \.self) { warning in
+                Notice(text: warning, systemImage: "exclamationmark.triangle.fill", tint: .caution)
+            }
+            if let cyclicality {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("How it behaves in a downturn").font(.caption.weight(.semibold)).foregroundStyle(.inkSecondary)
+                    Text(cyclicality).font(.subheadline)
+                }
+            }
+            Text("Customer concentration, purchase commitments, guarantees and the next earnings date are not shown here yet: they come from filing notes the app does not read.")
+                .font(.caption).foregroundStyle(.inkSecondary)
+        }
+    }
+}
+
 // MARK: - Key stats
 
 private struct KeyStatsCard: View {
@@ -558,6 +730,10 @@ private struct FinancialsCard: View {
 
         if !(revenue.isEmpty && cash.isEmpty && summaries.isEmpty) {
             Card("Financials") {
+                if let dollar = SalesDollar(grossMargin: check.grossMargin, operatingMargin: check.operatingMargin) {
+                    SalesDollarBar(dollar: dollar)
+                    Divider()
+                }
                 if !revenue.isEmpty, !cash.isEmpty {
                     Picker("Measure", selection: $measure) {
                         ForEach(Measure.allCases) { Text($0.rawValue).tag($0) }
@@ -589,11 +765,49 @@ private struct FinancialsCard: View {
                         }
                     }
                 }
-                ForEach(check.warnings ?? [], id: \.self) { warning in
-                    Notice(text: warning, systemImage: "exclamationmark.triangle.fill", tint: .caution)
-                }
             }
         }
+    }
+}
+
+/// Where each $100 of sales goes, as one bar.
+private struct SalesDollarBar: View {
+    let dollar: SalesDollar
+
+    var body: some View {
+        let profit = max(dollar.operatingProfit, 0)
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Out of every $100 of sales").eyebrowStyle()
+            GeometryReader { proxy in
+                HStack(spacing: 2) {
+                    Rectangle().fill(Color.inkSecondary.opacity(0.55)).frame(width: proxy.size.width * dollar.costOfSales / 100)
+                    Rectangle().fill(Color.caution.opacity(0.8)).frame(width: max(proxy.size.width * dollar.operatingCosts / 100, 0))
+                    Rectangle().fill(Color.gain)
+                }
+                .clipShape(Capsule())
+            }
+            .frame(height: 12)
+            HStack(alignment: .top) {
+                SalesDollarPart(amount: dollar.costOfSales, label: "making the product", color: .inkSecondary)
+                SalesDollarPart(amount: dollar.operatingCosts, label: "research, selling, running it", color: .caution)
+                SalesDollarPart(amount: dollar.operatingProfit, label: profit > 0 ? "operating profit" : "operating loss", color: profit > 0 ? .gain : .loss)
+            }
+        }
+        .accessibilityElement(children: .combine)
+    }
+}
+
+private struct SalesDollarPart: View {
+    let amount: Double
+    let label: String
+    let color: Color
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 1) {
+            Text("$\(Int(amount.rounded()))").font(.headline.monospacedDigit()).foregroundStyle(color)
+            Text(label).font(.caption2).foregroundStyle(.inkSecondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 }
 
@@ -680,9 +894,6 @@ private struct MarketCard: View {
                 }
                 if !drivers.isEmpty {
                     PointList(title: "What could drive it", points: drivers, systemImage: "arrow.up.right.circle.fill", tint: .gain)
-                }
-                if !risks.isEmpty {
-                    PointList(title: "What could hurt it", points: risks, systemImage: "exclamationmark.circle.fill", tint: .loss)
                 }
                 if !rivals.isEmpty {
                     Divider()
