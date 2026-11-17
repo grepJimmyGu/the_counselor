@@ -5,43 +5,93 @@ directly; the website is not in the path.
 
 ## Status
 
-| Slice | What | State |
+What the app does, and how far each part has been checked.
+
+| Area | What a user can do | Checked |
 |---|---|---|
-| 1 | Project, generated API client, sign-in, tab shell | **Built and run** in the iOS 27.2 simulator |
-| 2 | Research: search and the company page | **Built and run** — see below |
-| 3 | Strategies: saved strategies, open positions, signals | **Built.** Seen with sample data only — see below |
-| 4 | Brokerage link and the Actions inbox | Not started |
-| 6 | Strategy builder, step 1: run a template, see the result, save it | **Built.** Run seen against production; saving not yet — see below |
-| 7 | Strategy builder, step 2: customise parameters and exits | Not started |
-| 8 | Strategy builder, step 3: build from signals | Not started |
-| 5 | Live price refresh | Not started — design pending |
+| Research | Search; company page with live price, the three scores, 90-day chart, financials, business, market position; news & sentiment; supply chain | Against production |
+| Live prices | Prices on every screen refresh every 10 s while visible, with "Prices checked 9:18:17 PM" beside them | Against production |
+| Build a strategy | Pick one of the website's templates; choose tickers and period; change capital, costs, the rule's numbers, risk level and the stop/targets; run the backtest; change settings and run again | Against production, signed out (one run) |
+| Save and re-test | Save a result; open a saved strategy and test it again with changes, saving the result as a new strategy | Sample data only |
+| Strategies | Saved strategies, today's signal, open positions revalued on the live quote with stop and next target | Sample data only |
+| Act on a strategy | Buy at your broker from a strategy or company page; tell Livermore about a position you hold so its exits are watched | Sample data only |
+| Actions | Exits a strategy signalled, each resolved by selling at the broker, recording a sale made elsewhere, or keeping the position; notices | Sample data only |
+| Brokerage | Link Robinhood, Schwab or another SnapTrade broker; accounts and holdings; order ticket (fill in → broker's numbers → confirm → receipt) | Sample data only |
+| Account | Sign in, create an account, sign out | Wrong-password path against production; nothing that creates or uses a real account |
 
-**Seen running** on an iPhone 17 simulator against the production API: search,
-the company page (live price, the three scores, 90-day chart, financials,
-business, market position), News & sentiment, Supply chain, and the
-wrong-password message on sign-in.
-
-**Seen with sample data, not a real account:** the Strategies tab (open
-positions with stop and next target, the strategy list, a strategy's signal
-and recent changes). Launching a debug build with `-demo` signs in a made-up
-user and answers the account endpoints from fixtures; the screens are marked
-"Sample data". Those fixtures are also run through the real decoder in
-`StrategyServiceTests`.
+**"Sample data only" means the screens and the full flow run, but against
+fixtures.** Launching a debug build with `-demo` signs in a made-up user and
+answers every account endpoint from `DemoData`; the screens are marked "Sample
+data". The fixtures are run through the real decoder in the tests, so they
+cannot drift from the schema. The sample account reaches the network for six
+public read-only calls (quotes, search, company data) and nothing else — it
+cannot send an order.
 
 ```bash
 xcrun simctl launch booted com.livermorealpha.app -demo
 ```
 
-**Seen running, signed out, against production:** the template gallery, a
-template's setup screen, a real backtest (Trend Following on AAPL, five
-years) and its result screen, and the message shown when the one free
-signed-out run is used up.
+**Still to be seen against a real account:** a successful sign-in and
+sign-up, saving a strategy, the signed-in backtest, the Strategies and
+Actions tabs with real data, linking a real brokerage, and a real order. The
+first five need someone to sign in on the device; the last two also need the
+backend's SnapTrade keys and, for orders, `SNAPTRADE_TRADING_ENABLED=true`.
 
-**Not yet seen:** any of the signed-in screens against a real account, a
-successful sign-in, and saving a strategy. All need a real account's password.
+Research and one backtest work without an account, as on the website.
 
-Research works without an account, as it does on the website; the backend
-serves the anonymous tier. Sign-in lives in the Account tab.
+## How orders work
+
+Livermore is a guide; the user's broker executes. Three rules are built into
+the code, not left to the screens:
+
+1. **Nothing is sent without a preview.** `BrokerageService.place` takes a
+   preview and sends only its id. There is no call that places an order from a
+   symbol and a quantity.
+2. **What is sent is what was shown.** Changing the amount or the account on
+   a ticket discards the broker's price; the Send button is not there again
+   until the new order has been priced.
+3. **Livermore never assumes.** A sell ticket is prefilled only with a
+   rule's own share count. Where an earlier exit tier's outcome is unknown,
+   no share count is stated at all (`UnresolvedExit.quantity`).
+
+Order placement has its own switch on the backend (`snaptrade_trading_enabled`,
+off by default), separate from the read-only link. With it off the app shows
+holdings, says orders aren't switched on, and offers "place it in your
+brokerage app, then record it here" — never a button that would fail.
+
+## How live prices work
+
+`QuoteStore` polls `GET /api/live/quotes` for the union of symbols the visible
+screens are showing, every 10 seconds, and stops in the background. Views opt
+in with `.liveQuotes([...])` and read `session.quotes.quotes`.
+
+How fresh a price can be is set by the backend's per-symbol cache — 30 seconds
+today — not by the poll. PR "feat(api): fresher live quotes" makes that
+configurable (`LIVE_QUOTE_TTL_SECONDS`) and adds an optional Alpha Vantage
+real-time source. Once it is deployed, refresh `openapi.json`: the response
+gains `ttl_seconds` (the right poll interval) and, per quote, `as_of` (when
+the price itself is from), which the app should use in place of its fixed 10 s
+and its "checked at" label.
+
+There is no streaming. Tick-by-tick prices need a WebSocket feed and a data
+licence that covers redistribution; neither exists yet.
+
+## Risk level and exits — what the backtester honours
+
+The customise screen is a port of the website's risk presets
+(`lib/strategy-picker/risk-presets.ts`), held to it by a fixture generated
+from the web code:
+
+```bash
+node apps/ios/scripts/gen_risk_golden.mjs
+```
+
+Of the fields a preset writes, the backtester acts on the volatility target
+only. `stop_loss_pct`, `take_profit_pct` and `max_drawdown_stop` are stored on
+the strategy but nothing in `apps/api/app/services/backtester/` reads them. So
+the app describes a risk level by what it changes, and offers a stop and
+targets through the exit ladder (`ExitPlan`), which the engine does apply and
+which is also what makes a saved strategy trackable.
 
 ## Layout
 
@@ -51,11 +101,21 @@ apps/ios/
   App/LivermoreApp.swift          the app target's only file
   LivermoreKit/                   Swift package — all of the app's code
     Sources/LivermoreAPI/         client generated from openapi.json
-    Sources/LivermoreKit/         session, Keychain storage, research calls, scoring
-    Sources/LivermoreUI/          SwiftUI screens
-    Tests/LivermoreKitTests/
+    Sources/LivermoreKit/         everything that isn't a screen:
+      AppSession, APIFailure        session, Keychain storage, shared errors
+      Research/                     research calls, QuoteStore (live prices)
+      Scoring/                      the company scores (ported from the web)
+      Builder/                      templates, customisation, backtests
+      Strategies/                   saved strategies, positions, signals
+      Actions/                      exits waiting on the user, notices
+      Brokerage/                    SnapTrade link, holdings, order tickets
+      Demo/                         the sample account (debug builds only)
+    Sources/LivermoreUI/          SwiftUI screens, same folders
+    Tests/LivermoreKitTests/      87 tests; `swift test` runs them in a second
   scripts/refresh_openapi.py      refreshes openapi.json from the backend
   scripts/gen_scoring_golden.mjs  regenerates the scoring parity fixture
+  scripts/gen_templates.mjs       regenerates the strategy templates
+  scripts/gen_risk_golden.mjs     regenerates the risk-preset parity fixture
 ```
 
 ## Build and test the package (no Xcode needed)
@@ -66,7 +126,7 @@ swift build
 swift test
 ```
 
-Two extra tests make read-only calls to production. They are off by default:
+Six extra tests make read-only calls to production. They are off by default:
 
 ```bash
 LIVERMORE_LIVE_TESTS=1 swift test --filter LiveAPITests
@@ -146,6 +206,18 @@ belongs in `LivermoreKit/` instead.
 
 ## Known limits
 
+- **Strategies are built from the website's templates, then changed.** The
+  website's signal composer (build a rule from individual signals) is not in
+  the app. A strategy composed there appears in the app, is tracked, and can
+  be acted on; it can be re-tested here only if it uses nothing this build
+  lacks a type for.
+- **One rule's numbers are editable.** Templates carry a single rule; a
+  saved strategy with several shows the first.
+- **Orders are market orders, good for the day.** The backend also accepts
+  limit orders; the ticket does not offer them yet.
+- **The brokerage sign-in returns to the website**, not to the app (the
+  backend builds the return address from a site path, deliberately). The user
+  taps Done on the in-app browser and the app re-reads the link.
 - **The company page shows the scores and the backend's summaries, not the
   web's written interpretation** (the bull and bear cases and the analyst
   summary in `interpretation.ts`). Those are not ported.
