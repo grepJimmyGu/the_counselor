@@ -1,8 +1,7 @@
 import LivermoreKit
 import SwiftUI
 
-/// The four areas of the app. Research and Account work; Strategies and
-/// Actions are filled in by the slices that follow.
+/// The four areas of the app. Actions is filled in by the next slice.
 struct MainTabView: View {
     @Environment(AppSession.self) private var session
 
@@ -11,12 +10,8 @@ struct MainTabView: View {
             ResearchView()
                 .tabItem { Label("Research", systemImage: "magnifyingglass") }
 
-            ComingSoonView(
-                title: "Strategies",
-                systemImage: "chart.line.uptrend.xyaxis",
-                detail: "Your enabled strategies, their open positions and today's signal."
-            )
-            .tabItem { Label("Strategies", systemImage: "chart.line.uptrend.xyaxis") }
+            StrategiesView()
+                .tabItem { Label("Strategies", systemImage: "chart.line.uptrend.xyaxis") }
 
             ComingSoonView(
                 title: "Actions",

@@ -31,6 +31,16 @@ enum Fmt {
         return String(format: "%+.2f%%", v)
     }
 
+    /// Share counts: whole numbers without a decimal, fractions as typed.
+    static func shares(_ v: Double) -> String {
+        v == v.rounded() ? String(Int(v)) : String(format: "%.4g", v)
+    }
+
+    /// A dollar gain or loss: "+$412.50", "-$88.10".
+    static func signedMoney(_ v: Double) -> String {
+        (v < 0 ? "-" : "+") + abs(v).formatted(.currency(code: "USD").precision(.fractionLength(2)))
+    }
+
     static func multiple(_ v: Double?) -> String {
         guard let v else { return "—" }
         return String(format: "%.1fx", v)

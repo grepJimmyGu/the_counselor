@@ -7,6 +7,7 @@ struct AccountView: View {
     var body: some View {
         NavigationStack {
             List {
+                if session.isDemo { SampleDataNotice() }
                 if case .signedIn(let user) = session.state {
                     Section("Signed in as") {
                         if let name = user.displayName, !name.isEmpty {

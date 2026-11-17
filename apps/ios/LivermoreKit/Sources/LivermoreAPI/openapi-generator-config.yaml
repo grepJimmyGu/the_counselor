@@ -18,3 +18,8 @@ filter:
     - /api/company/{symbol}/trend
     - /api/sentiment/{symbol}/summary
     - /api/supply-chain/{symbol}/summary
+    # Strategies (slice 3)
+    - /api/saved-strategies
+    - /api/saved-strategies/open-positions
+    - /api/saved-strategies/{strategy_id}/signal
+    - /api/saved-strategies/{strategy_id}/positions

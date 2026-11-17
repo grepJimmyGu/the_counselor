@@ -10,6 +10,13 @@ public struct RootView: View {
     @State private var session: AppSession
 
     public init(session: AppSession? = nil) {
+        #if DEBUG
+        // `-demo` shows the signed-in screens with sample data; see DemoData.
+        if session == nil, ProcessInfo.processInfo.arguments.contains("-demo") {
+            _session = State(initialValue: AppSession.demo())
+            return
+        }
+        #endif
         _session = State(initialValue: session ?? AppSession())
     }
 

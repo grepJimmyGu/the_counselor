@@ -115,8 +115,8 @@ struct LenientDateTranscoderTests {
 struct DetailParsingTests {
     @Test("handles both of FastAPI's detail shapes")
     func shapes() {
-        #expect(ResearchService.detail(in: Data(#"{"detail":"plain"}"#.utf8)) == "plain")
-        #expect(ResearchService.detail(in: Data(#"{"detail":{"entitlement":{"detail":"gated"}}}"#.utf8)) == "gated")
-        #expect(ResearchService.detail(in: Data("not json".utf8)) == nil)
+        #expect(APIFailure.detail(in: Data(#"{"detail":"plain"}"#.utf8)) == "plain")
+        #expect(APIFailure.detail(in: Data(#"{"detail":{"entitlement":{"detail":"gated"}}}"#.utf8)) == "gated")
+        #expect(APIFailure.detail(in: Data("not json".utf8)) == nil)
     }
 }

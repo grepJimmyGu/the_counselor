@@ -37,6 +37,10 @@ public final class AppSession {
     /// The plan tier ("scout", "strategist", "quant"), once loaded.
     public private(set) var tier: String?
 
+    /// True only for the debug build's `-demo` session, whose account data is
+    /// made up. Screens that show that data say so.
+    public internal(set) var isDemo = false
+
     /// Shared by every feature. Carries the bearer token automatically.
     public let client: Client
 
@@ -60,6 +64,9 @@ public final class AppSession {
 
     /// Company research calls, sharing this session's client and token.
     public var research: ResearchService { ResearchService(client: client) }
+
+    /// The user's strategies and tracked positions. Needs a signed-in session.
+    public var strategies: StrategyService { StrategyService(client: client) }
 
     public var isSignedIn: Bool {
         if case .signedIn = state { true } else { false }

@@ -9,7 +9,7 @@ directly; the website is not in the path.
 |---|---|---|
 | 1 | Project, generated API client, sign-in, tab shell | **Built and run** in the iOS 27.2 simulator |
 | 2 | Research: search and the company page | **Built and run** — see below |
-| 3 | Strategies: enabled strategies, open positions, signals | Not started |
+| 3 | Strategies: saved strategies, open positions, signals | **Built.** Seen with sample data only — see below |
 | 4 | Brokerage link and the Actions inbox | Not started |
 
 **Seen running** on an iPhone 17 simulator against the production API: search,
@@ -17,8 +17,19 @@ the company page (live price, the three scores, 90-day chart, financials,
 business, market position), News & sentiment, Supply chain, and the
 wrong-password message on sign-in.
 
-**Not yet seen:** a successful sign-in and the Account screen behind it — that
-needs a real account's password.
+**Seen with sample data, not a real account:** the Strategies tab (open
+positions with stop and next target, the strategy list, a strategy's signal
+and recent changes). Launching a debug build with `-demo` signs in a made-up
+user and answers the account endpoints from fixtures; the screens are marked
+"Sample data". Those fixtures are also run through the real decoder in
+`StrategyServiceTests`.
+
+```bash
+xcrun simctl launch booted com.livermorealpha.app -demo
+```
+
+**Not yet seen:** any of the signed-in screens against a real account, and a
+successful sign-in. Both need a real account's password.
 
 Research works without an account, as it does on the website; the backend
 serves the anonymous tier. Sign-in lives in the Account tab.
@@ -111,6 +122,8 @@ belongs in `LivermoreKit/` instead.
 - **The company page shows the scores and the backend's summaries, not the
   web's written interpretation** (the bull and bear cases and the analyst
   summary in `interpretation.ts`). Those are not ported.
+- **A strategy page shows its signal and positions, not the web's intraday
+  chart or trade log.**
 - **Supply chain shows the summary and chokepoint tests only**, not the
   supplier and customer graph.
 - **The price chart is the 90-day series from the trend endpoint.**
