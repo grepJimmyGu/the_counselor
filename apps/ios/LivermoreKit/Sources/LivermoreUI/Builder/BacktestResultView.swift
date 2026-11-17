@@ -12,7 +12,8 @@ struct BacktestResultView: View {
     let templateID: String?
 
     private enum SaveState: Equatable {
-        case idle, saving, saved
+        case idle, saving
+        case saved(SavedStrategy)
         case failed(String)
     }
 
@@ -155,9 +156,26 @@ struct BacktestResultView: View {
                     .font(.subheadline).foregroundStyle(.secondary)
             } else {
                 switch saveState {
-                case .saved:
+                case .saved(let saved):
                     Label("Saved. It's in your Strategies tab.", systemImage: "checkmark.circle.fill")
                         .font(.subheadline).foregroundStyle(.green)
+                    // Straight on to acting on it: buy at the broker, or
+                    // track a position already held.
+                    NavigationLink {
+                        StrategyDetailView(strategy: saved, trackedPositions: [])
+                    } label: {
+                        Label(
+                            saved.tracksExits ? "Put it to work — buy or track a position" : "Open the strategy",
+                            systemImage: "arrow.right.circle.fill"
+                        )
+                        .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .accessibilityIdentifier("open-saved-strategy")
+                    if !saved.tracksExits {
+                        Text("It has no stop or targets, so positions can't be tracked against it. Add an exit plan in Settings and save again to have Livermore watch one.")
+                            .font(.footnote).foregroundStyle(.secondary)
+                    }
                 default:
                     Button(action: save) {
                         HStack {
@@ -181,10 +199,10 @@ struct BacktestResultView: View {
         saveState = .saving
         Task {
             do throws(APIFailure) {
-                _ = try await session.backtests.save(
+                let saved = try await session.backtests.save(
                     title: strategy.strategyName, strategy: strategy, backtestID: result.backtestId
                 )
-                saveState = .saved
+                saveState = .saved(saved)
             } catch {
                 if error == .notSignedIn { session.signOut() }
                 saveState = .failed(error.message)
