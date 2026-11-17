@@ -201,6 +201,31 @@ def test_a_line_that_stops_being_tagged_makes_the_total_unknown_not_smaller():
     assert "Moved to net debt" not in _titles(analysis)
 
 
+def test_a_small_line_that_stops_being_tagged_does_not_blank_the_total():
+    """Regression: Alphabet tagged $0.3B of long-term investments until early
+    2025 and then stopped. Treating that as "unknown" blanked a $265B cash
+    figure, and net cash with it, for six quarters. A dropped line makes the
+    total unknown only when it was a material part of it."""
+    cash = [20e9] * 9
+    securities = [70e9] * 9
+    small = [0.3e9] * 3 + [None] * 6
+    analysis = _analyse(
+        CashAndCashEquivalentsAtCarryingValue=cash, MarketableSecuritiesCurrent=securities,
+        LongTermInvestments=small, LongTermDebt=[10e9] * 9,
+    )
+    assert analysis.quarters[0].get("cash_and_investments") == 90.3e9
+    assert analysis.quarters[-1].get("cash_and_investments") == 90e9
+    assert analysis.quarters[-1].get("net_cash") == 80e9
+
+    # The same line at a size that matters still makes the total unknown.
+    large = [30e9] * 3 + [None] * 6
+    blanked = _analyse(
+        CashAndCashEquivalentsAtCarryingValue=cash, MarketableSecuritiesCurrent=securities,
+        LongTermInvestments=large,
+    )
+    assert blanked.quarters[-1].get("cash_and_investments") is None
+
+
 def test_total_debt_is_not_counted_twice():
     """`LongTermDebt` already includes the part due within a year."""
     analysis = _analyse(
@@ -209,8 +234,42 @@ def test_total_debt_is_not_counted_twice():
     assert analysis.quarters[-1].get("debt") == 100e6
     halves = _analyse(LongTermDebtNoncurrent=[90e6] * 9, LongTermDebtCurrent=[10e6] * 9)
     assert halves.quarters[-1].get("debt") == 100e6
-    # A company with no debt tags at all has none; it is not "unknown".
-    assert _analyse().quarters[-1].get("debt") == 0
+
+
+def test_no_debt_tags_means_debt_is_unknown_not_zero():
+    """CONTRACT CHANGED 2026-11-17. This used to assert the opposite ("a
+    company with no debt tags at all has none"). Berkshire Hathaway files
+    its notes payable under its own tags, not us-gaap ones, so that rule
+    reported $0 of debt for a company that owes over $100B. The absence of
+    a tag is not a filed figure: debt and net cash are left out instead."""
+    analysis = _analyse(CashAndCashEquivalentsAtCarryingValue=[10e6] * 9)
+    assert analysis.quarters[-1].get("debt") is None
+    assert analysis.quarters[-1].get("net_cash") is None
+    assert analysis.quarters[-1].get("cash_and_investments") == 10e6
+    assert not {"Moved to net debt", "Debt rose"} & _titles(analysis)
+
+
+def test_the_operating_margin_finding_is_named_for_what_moved():
+    """Regression: Alphabet's R&D and SG&A grew faster than revenue (+36% vs
+    +25%) while its operating margin widened, and the finding came out as an
+    improvement titled "Costs grew faster than sales". The title now names
+    the margin, which is what sets the severity."""
+    widened = _analyse(
+        Revenues=[100e6] * 5 + [130e6] * 4,
+        OperatingIncomeLoss=[30e6] * 5 + [45e6] * 4,
+        ResearchAndDevelopmentExpense=[10e6] * 5 + [15e6] * 4,
+    )
+    finding = next(f for f in widened.findings if f.title.startswith("Operating margin"))
+    assert finding.title == "Operating margin widened" and finding.severity == "good"
+    assert "Costs grew faster than sales" not in _titles(widened)
+
+    narrowed = _analyse(
+        Revenues=[100e6] * 5 + [130e6] * 4,
+        OperatingIncomeLoss=[30e6] * 5 + [30e6] * 4,
+        ResearchAndDevelopmentExpense=[10e6] * 5 + [15e6] * 4,
+    )
+    finding = next(f for f in narrowed.findings if f.title.startswith("Operating margin"))
+    assert finding.title == "Operating margin narrowed" and finding.severity == "watch"
 
 
 def test_margin_and_cash_flags_fire_on_their_thresholds():

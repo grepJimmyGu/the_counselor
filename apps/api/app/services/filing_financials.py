@@ -108,6 +108,9 @@ _NOT_ADDITIVE = {"diluted_shares"}
 _PERIODIC_FORMS = {"10-Q", "10-K", "10-Q/A", "10-K/A"}
 _QUARTER_DAYS = (75, 105)
 _MAX_CUMULATIVE_DAYS = 380
+# A dropped investment line makes "cash and investments" unknown only if it
+# was ever at least this share of the total.
+INVESTMENT_PART_MATERIAL = 0.05
 QUARTERS_RETURNED = 9          # the latest quarter, a year before it, and the run between
 # A "latest quarter" older than this is not the latest: the company changed
 # how it tags revenue, or stopped filing. Better no analysis than a stale one
@@ -327,22 +330,33 @@ def build_quarters(company_facts: dict, cik: str) -> list[Quarter]:
             days=(end - kept[index - 1]).days if index else 91,
             values=values,
         ))
-    # A balance-sheet line a company tagged in some quarters and not others
-    # is unknown in the gaps, not zero: adding it up as zero would invent a
-    # fall in cash or a jump in debt out of a change of tag.
+    # An investment line a company tagged in some quarters and not others is
+    # unknown in the gaps, not zero: adding it up as zero would invent a fall
+    # in cash out of a change of tag (NVIDIA's marketable securities did
+    # this). Unless the line was too small to matter: Alphabet stopped
+    # tagging $0.3B of long-term investments in 2025, and calling that
+    # "unknown" blanked a $265B cash figure. A line counts only if it was
+    # once a material share of cash and investments.
     sometimes = {
-        key for key in _COMPOSITE_PARTS
-        if any(quarter.get(key) is not None for quarter in quarters)
+        key for key in _INVESTMENT_PARTS
+        if any(_is_material_investment(quarter, key) for quarter in quarters)
     }
     for quarter in quarters:
         _derive(quarter, frozenset(sometimes))
     return quarters
 
 
-_COMPOSITE_PARTS = (
-    "short_term_investments", "long_term_investments",
-    "term_debt", "term_debt_noncurrent", "term_debt_current", "short_term_borrowings",
-)
+_INVESTMENT_PARTS = ("short_term_investments", "long_term_investments")
+
+
+def _is_material_investment(quarter: Quarter, key: str) -> bool:
+    """Whether `key` was at least INVESTMENT_PART_MATERIAL of the quarter's
+    cash plus tagged investments."""
+    value = quarter.get(key)
+    if value is None:
+        return False
+    whole = sum(quarter.get(part) or 0 for part in ("cash",) + _INVESTMENT_PARTS)
+    return whole <= 0 or value / whole >= INVESTMENT_PART_MATERIAL
 
 
 def _ratio(numerator: Optional[float], denominator: Optional[float]) -> Optional[float]:
@@ -400,9 +414,10 @@ def _derive(q: Quarter, sometimes: frozenset = frozenset()) -> None:
     elif v.get("term_debt_current") is not None:
         term_debt = v["term_debt_current"]
     else:
-        # No debt tagged in any quarter means none to report; tagged in some
-        # quarters and not this one means unknown.
-        term_debt = None if sometimes & {"term_debt", "term_debt_noncurrent", "term_debt_current"} else 0.0
+        # No debt tag is not a filed zero. Berkshire Hathaway reports its
+        # notes payable under its own tags, and "none tagged means none
+        # owed" gave it $0 of debt. Unknown, and net cash with it.
+        term_debt = None
     v["debt"] = term_debt + (v.get("short_term_borrowings") or 0) if term_debt is not None else None
     v["net_cash"] = (
         v["cash_and_investments"] - v["debt"]
@@ -609,9 +624,13 @@ def build_findings(quarters: list[Quarter]) -> list[Finding]:
         widened = op_margin_yoy > 0
         findings.append(Finding(
             "good" if widened else "watch", "margins",
-            "Costs grew slower than sales" if opex_yoy < revenue_yoy else "Costs grew faster than sales",
-            f"R&D and SG&A changed {_pct(opex_yoy, True)} from a year ago against {_pct(revenue_yoy, True)} for revenue. "
-            f"Operating margin went from {_pct(year_ago.get('operating_margin') or 0)} to {_pct(now.get('operating_margin') or 0)}.",
+            # Named for the margin, which sets the severity. Naming it for
+            # the cost line produced "Costs grew faster than sales" filed as
+            # an improvement whenever the margin widened anyway.
+            "Operating margin widened" if widened else "Operating margin narrowed",
+            f"Operating margin went from {_pct(year_ago.get('operating_margin') or 0)} a year ago to "
+            f"{_pct(now.get('operating_margin') or 0)}. R&D and SG&A changed {_pct(opex_yoy, True)} "
+            f"against {_pct(revenue_yoy, True)} for revenue.",
             ["operating_margin", "operating_expenses"],
         ))
 
