@@ -7,21 +7,21 @@ directly; the website is not in the path.
 
 | Slice | What | State |
 |---|---|---|
-| 1 | Project, generated API client, sign-in, tab shell | **Built.** Compiles and passes tests on macOS. Not yet run on iOS — see below. |
+| 1 | Project, generated API client, sign-in, tab shell | **Built.** Compiles for iOS and passes tests. Not yet launched — see below. |
 | 2 | Research: search and the company page | Not started |
 | 3 | Strategies: enabled strategies, open positions, signals | Not started |
 | 4 | Brokerage link and the Actions inbox | Not started |
 
-**Not yet run on a phone or simulator.** The machine this was written on has
-no Xcode, so there is no iOS SDK to build against. The code is plain SwiftUI
-that compiles for macOS with the command-line toolchain; the first build under
-Xcode may still surface iOS-only issues, and no screen has been looked at.
+**Not yet launched.** The app target builds for the iOS simulator (Xcode 27.2),
+but no simulator runtime was installed when this was written, so the app has
+not been run and no screen has been looked at.
 
 ## Layout
 
 ```
 apps/ios/
-  App/LivermoreApp.swift          the app target's only file (9 lines)
+  Livermore.xcodeproj             the app target; open this in Xcode
+  App/LivermoreApp.swift          the app target's only file
   LivermoreKit/                   Swift package — all of the app's code
     Sources/LivermoreAPI/         client generated from openapi.json
     Sources/LivermoreKit/         session, Keychain storage, auth middleware
@@ -30,7 +30,7 @@ apps/ios/
   scripts/refresh_openapi.py      refreshes openapi.json from the backend
 ```
 
-## Build and test (no Xcode needed)
+## Build and test the package (no Xcode needed)
 
 ```bash
 cd apps/ios/LivermoreKit
@@ -65,14 +65,21 @@ To call a new endpoint, add its path to
 `Sources/LivermoreAPI/openapi-generator-config.yaml`. Only listed paths are
 generated.
 
-## Creating the Xcode project (once Xcode is installed)
+## Build the app
 
-1. File → New → Project → iOS App, named `Livermore`, saved in `apps/ios/`.
-2. Replace the generated `LivermoreApp.swift` and `ContentView.swift` with
-   `App/LivermoreApp.swift`.
-3. File → Add Package Dependencies → Add Local → `apps/ios/LivermoreKit`, and
-   add the `LivermoreUI` product to the app target.
-4. Set the deployment target to iOS 17.
+```bash
+cd apps/ios
+xcodebuild -project Livermore.xcodeproj -scheme Livermore \
+  -destination 'generic/platform=iOS Simulator' \
+  -skipPackagePluginValidation build
+```
+
+`-skipPackagePluginValidation` lets the command line run the OpenAPI generator
+plugin without a prompt; in Xcode, choose "Trust & Enable" the first time.
+
+The project uses a file-system-synchronised `App/` group, so files added to
+that folder join the target without editing the project file. Nearly all code
+belongs in `LivermoreKit/` instead.
 
 ## Known limits
 
