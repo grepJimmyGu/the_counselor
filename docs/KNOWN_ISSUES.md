@@ -29,6 +29,24 @@ A running log of bugs encountered, root causes, and confirmed fixes. Add new ent
 
 ## Entries
 
+### Market-level price data went two months stale; sector charts ended on 2026-09-10. 2026-11-17.
+
+**Symptom:** `/api/market/data-latency` reported `very_stale`, 1,680 hours — `^GSPC` last bar 2026-09-10, sector ETFs as old as 2026-09-08 (XLF), 2026-10-28 (XLE), 2026-11-02 (XLK). Every `/api/market/sector-comparison` chart longer than one month ended on 2026-09-10 and disagreed with the returns table next to it: XLK's 1Y chart ended at +30.8% while the table said +16.3%. Found while building the iOS company chart, which first read NVDA as +17.0% for a year that was −16.4%.
+
+**Root cause — three things, in order:**
+
+1. **Freshness was a side effect of deploys.** The index (`_warmup_gspc`) and the Market Pulse ETFs (`_warmup_market_etfs`) were refreshed only by the startup warmups. The last merge to `main` — and so the last deploy — was 2026-09-10. Nothing refreshed them after that except a user happening to open a symbol (which is why SPY, QQQ, AAPL and NVDA were current and XLF was not).
+2. **The chart keeps only dates both series share**, and it benchmarks against `^GSPC`. A stale benchmark therefore truncated the fresh sector line to the benchmark's last date. The fallback to SPY fired only when `^GSPC` had *no* bars in the window — which is why the `1M` chart (window starts after 2026-09-10) looked fine and hid the problem.
+3. **The index refresh could not heal a gap.** It always asked FMP for "the last 30 days". After a quiet stretch longer than that, the next startup would have left 2026-09-11 → mid-October missing permanently, and the shared-dates alignment would have dropped those weeks without a word.
+
+**Fix:** (1) `refresh_market_data_job`, scheduled Mon–Fri 17:40 America/New_York, runs both warmups on the scheduler's thread via `_run_async_in_thread`. (2) `_load_benchmark` takes `need_through` and falls back to SPY when `^GSPC` is more than 5 days behind the series it is charted against. (3) `_gspc_refresh_start` starts the refresh from the last stored bar when that is further back than 30 days; the warmup now logs an empty FMP answer and keeps its traceback (trap #20).
+
+**Still to do in production (Jimmy):** the code fix does not backfill. After deploy the startup warmup will fetch `^GSPC` from 2026-09-10 forward on its own; confirm with `GET /api/data/status/%5EGSPC` and `GET /api/market/data-latency`.
+
+**Lesson:** a refresh that only runs at startup is a refresh that stops when the team stops shipping. And when two series are aligned on shared dates, the stalest one silently sets the end of the chart — check freshness of *both* before trusting either.
+
+**Regression tests:** `tests/test_market_data_refresh.py`, and four in `tests/test_sector_comparison.py` (`test_stale_index_does_not_truncate_the_series` and neighbours) — these fail on the pre-fix service.
+
 ### FastAPI admin trigger 500'd — a sync `def` endpoint calling `asyncio.create_task` has no event loop. 2026-06-25.
 
 **Symptom:** `POST /api/admin/snapshot/warm` (the on-demand snapshot warm, #251) returned `500 Internal Server Error`. Worse, `start_warm()` sets the in-memory status to `"running"` *before* spawning the task, so the status wedged at `"running"` with no warm actually running — retries then 409'd ("already running") until the container restarted.
