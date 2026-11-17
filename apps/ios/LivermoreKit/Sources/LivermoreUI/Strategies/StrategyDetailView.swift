@@ -48,7 +48,10 @@ struct StrategyDetailView: View {
                 } else if trackedPositions.isEmpty {
                     Text("No open positions on this strategy.").font(.subheadline).foregroundStyle(.secondary)
                 } else {
-                    ForEach(trackedPositions, id: \.positionId) { TrackedPositionRow(position: $0) }
+                    ForEach(trackedPositions, id: \.positionId) { position in
+                        TrackedPositionRow(position: position, quote: session.quotes.quotes[position.symbol.uppercased()])
+                    }
+                    QuoteFreshnessLabel()
                 }
             }
 
@@ -73,6 +76,7 @@ struct StrategyDetailView: View {
                 }
             }
         }
+        .liveQuotes(trackedPositions.map(\.symbol))
         .navigationTitle(strategy.title)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)

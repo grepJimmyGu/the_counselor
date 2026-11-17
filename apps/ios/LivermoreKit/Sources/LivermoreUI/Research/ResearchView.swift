@@ -10,7 +10,6 @@ struct ResearchView: View {
     @State private var results: [SymbolMatch] = []
     @State private var isSearching = false
     @State private var searchError: String?
-    @State private var quotes: [String: LiveQuote] = [:]
 
     /// Shown before the user types. The same large caps the website's ticker
     /// bar leads with.
@@ -25,12 +24,16 @@ struct ResearchView: View {
         NavigationStack {
             List {
                 if trimmedQuery.isEmpty {
-                    Section("Widely held") {
+                    Section {
                         ForEach(Self.starters, id: \.symbol) { starter in
                             NavigationLink(value: starter.symbol) {
-                                StarterRow(symbol: starter.symbol, name: starter.name, quote: quotes[starter.symbol])
+                                StarterRow(symbol: starter.symbol, name: starter.name, quote: session.quotes.quotes[starter.symbol])
                             }
                         }
+                    } header: {
+                        Text("Widely held")
+                    } footer: {
+                        QuoteFreshnessLabel()
                     }
                 } else if let searchError {
                     ContentUnavailableView("Search failed", systemImage: "wifi.exclamationmark", description: Text(searchError))
@@ -68,7 +71,7 @@ struct ResearchView: View {
             .autocorrectionDisabled()
             .overlay { if isSearching && results.isEmpty { ProgressView() } }
             .task(id: trimmedQuery) { await search() }
-            .task { await loadQuotes() }
+            .liveQuotes(Self.starters.map(\.symbol))
         }
     }
 
@@ -96,11 +99,6 @@ struct ResearchView: View {
         isSearching = false
     }
 
-    private func loadQuotes() async {
-        if let loaded = try? await session.research.quotes(Self.starters.map(\.symbol)) {
-            quotes = loaded
-        }
-    }
 }
 
 private struct StarterRow: View {
@@ -117,7 +115,7 @@ private struct StarterRow: View {
             Spacer()
             if let quote {
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(Fmt.price(quote.price)).font(.subheadline.monospacedDigit())
+                    LivePriceText(price: quote.price).font(.subheadline)
                     Text(Fmt.percentPoints(quote.changePercent))
                         .font(.caption.monospacedDigit())
                         .foregroundStyle(quote.changePercent.changeColor)

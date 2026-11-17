@@ -44,6 +44,9 @@ public final class AppSession {
     /// Shared by every feature. Carries the bearer token automatically.
     public let client: Client
 
+    /// Live prices for the symbols on screen, shared by every screen.
+    public let quotes: QuoteStore
+
     private let store: any SessionStore
     private let tokens = TokenBox()
 
@@ -53,7 +56,11 @@ public final class AppSession {
         transport: any ClientTransport = URLSessionTransport()
     ) {
         self.store = store
-        self.client = .livermore(serverURL: serverURL, transport: transport, tokens: tokens)
+        let client = Client.livermore(serverURL: serverURL, transport: transport, tokens: tokens)
+        self.client = client
+        self.quotes = QuoteStore { symbols in
+            try await ResearchService(client: client).quotes(symbols)
+        }
         if let saved = store.load() {
             tokens.set(saved.token)
             state = .signedIn(saved)

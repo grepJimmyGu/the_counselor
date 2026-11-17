@@ -18,7 +18,6 @@ struct CompanyView: View {
     @State private var phase: Phase = .loading
     @State private var trend: CompanyTrend?
     @State private var trendFailed = false
-    @State private var quote: LiveQuote?
 
     var body: some View {
         Group {
@@ -35,6 +34,7 @@ struct CompanyView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
+        .liveQuotes([symbol])
         .task(id: symbol) {
             // `.task` runs again every time this screen reappears — including
             // on the way back from Sentiment or Supply chain. Reloading there
@@ -52,7 +52,6 @@ struct CompanyView: View {
         trend = nil
         trendFailed = false
         let research = session.research
-        async let quotes = try? research.quotes([symbol])
         async let trendResult: CompanyTrend? = try? research.trend(symbol)
 
         do throws(ResearchError) {
@@ -60,7 +59,6 @@ struct CompanyView: View {
         } catch {
             phase = .failed(error)
         }
-        quote = await quotes?[symbol]
         trend = await trendResult
         trendFailed = trend == nil
     }
@@ -92,7 +90,7 @@ struct CompanyView: View {
 
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: 16) {
-                CompanyHeader(overview: overview, quote: quote, trend: trend)
+                CompanyHeader(overview: overview, quote: session.quotes.quotes[symbol.uppercased()], trend: trend)
 
                 Card("Fundamental analysis") {
                     ScoreRow(title: "Asset health", question: "Is the business fundamentally healthy?", score: health)
@@ -167,12 +165,19 @@ private struct CompanyHeader: View {
             }
             Text(overview.name).font(.title2.weight(.semibold))
             HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Text(Fmt.price(quote?.price ?? trend?.latestPrice ?? overview.price))
-                    .font(.title.weight(.bold).monospacedDigit())
+                LivePriceText(price: quote?.price ?? trend?.latestPrice ?? overview.price)
+                    .font(.title.weight(.bold))
                 if let quote {
-                    Text(Fmt.percentPoints(quote.changePercent))
-                        .font(.headline.monospacedDigit())
+                    Text("\(Fmt.signedMoney(quote.change)) (\(Fmt.percentPoints(quote.changePercent)))")
+                        .font(.subheadline.weight(.semibold).monospacedDigit())
                         .foregroundStyle(quote.changePercent.changeColor)
+                }
+            }
+            if quote != nil {
+                QuoteFreshnessLabel()
+                if let low = quote?.dayLow, let high = quote?.dayHigh {
+                    Text("Today \(Fmt.price(low)) – \(Fmt.price(high))")
+                        .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
                 }
             }
             Text([overview.sector, overview.industry, overview.exchange].compactMap { $0 }.joined(separator: " · "))

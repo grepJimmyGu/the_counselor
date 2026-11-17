@@ -89,15 +89,20 @@ struct StrategiesView: View {
                         .font(.subheadline).foregroundStyle(.secondary)
                 } else {
                     ForEach(positions, id: \.positionId) { position in
-                        TrackedPositionRow(position: position)
+                        TrackedPositionRow(position: position, quote: session.quotes.quotes[position.symbol.uppercased()])
                     }
                 }
             } header: {
                 Text("Open positions")
             } footer: {
-                if let loadedAt {
+                if !positions.isEmpty {
                     // What time these prices were fetched, in plain view.
-                    Text("Prices as of \(loadedAt.formatted(date: .abbreviated, time: .shortened)). Pull down to refresh.")
+                    VStack(alignment: .leading, spacing: 4) {
+                        QuoteFreshnessLabel()
+                        if let loadedAt {
+                            Text("Stops and targets as of \(loadedAt.formatted(date: .abbreviated, time: .shortened)). Pull down to refresh.")
+                        }
+                    }
                 }
             }
 
@@ -114,7 +119,11 @@ struct StrategiesView: View {
                 }
             }
         }
-        .refreshable { await load(showSpinner: false) }
+        .liveQuotes(positions.map(\.symbol))
+        .refreshable {
+            await load(showSpinner: false)
+            await session.quotes.refresh()
+        }
     }
 
     private func load(showSpinner: Bool = true) async {
@@ -171,6 +180,22 @@ struct SampleDataNotice: View {
 
 struct TrackedPositionRow: View {
     let position: TrackedPosition
+    /// The live quote for the position's symbol, when there is one. Without
+    /// it the row shows the price the backend last evaluated the ladder on.
+    var quote: LiveQuote?
+
+    private var price: Double? { quote?.price ?? position.latestPrice }
+
+    private var changeFromEntry: Double? {
+        guard let quote, position.entryPrice > 0 else { return position.pctChangeFromEntry }
+        return quote.price / position.entryPrice - 1
+    }
+
+    /// Unrealised gain or loss on the shares still held.
+    private var openProfit: Double? {
+        guard let price else { return nil }
+        return (price - position.entryPrice) * position.sharesRemaining
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -182,14 +207,21 @@ struct TrackedPositionRow: View {
                 }
                 Spacer()
                 VStack(alignment: .trailing, spacing: 2) {
-                    Text(Fmt.percent(position.pctChangeFromEntry, signed: true))
+                    Text(Fmt.percent(changeFromEntry, signed: true))
                         .font(.headline.monospacedDigit())
-                        .foregroundStyle((position.pctChangeFromEntry ?? 0).changeColor)
-                    Text("\(Fmt.price(position.latestPrice)) · \(position.priceNote)")
-                        .font(.caption2).foregroundStyle(.secondary)
+                        .foregroundStyle((changeFromEntry ?? 0).changeColor)
+                    if let openProfit {
+                        Text(Fmt.signedMoney(openProfit))
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(openProfit.changeColor)
+                    }
                 }
             }
-            Text("Cost basis \(Fmt.price(position.entryPrice))").font(.caption).foregroundStyle(.secondary)
+            HStack(spacing: 4) {
+                LivePriceText(price: price)
+                Text("· \(quote == nil ? position.priceNote : "live quote") · cost basis \(Fmt.price(position.entryPrice))")
+            }
+            .font(.caption).foregroundStyle(.secondary)
 
             if let waiting = position.unresolvedCount, waiting > 0 {
                 Label(

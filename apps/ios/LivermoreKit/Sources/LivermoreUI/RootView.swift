@@ -8,6 +8,7 @@ import SwiftUI
 /// what the Strategies and Actions tabs need.
 public struct RootView: View {
     @State private var session: AppSession
+    @Environment(\.scenePhase) private var scenePhase
 
     public init(session: AppSession? = nil) {
         #if DEBUG
@@ -25,6 +26,10 @@ public struct RootView: View {
         .environment(session)
         .task(id: session.isSignedIn) {
             await session.refreshEntitlements()
+        }
+        // Prices are only polled while the app is in front.
+        .onChange(of: scenePhase, initial: true) { _, phase in
+            session.quotes.setActive(phase != .background)
         }
     }
 }
