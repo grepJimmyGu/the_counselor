@@ -7,6 +7,9 @@ struct TemplateSetupView: View {
     @Environment(AppSession.self) private var session
     let template: StrategyTemplate
     var presetTicker: String?
+    /// A ready-made group — a stock and its rivals — for strategies that
+    /// rank several tickers.
+    var presetTickers: [String]?
 
     @State private var tickerText = ""
     @State private var range: BacktestRange = .fiveYears
@@ -22,9 +25,10 @@ struct TemplateSetupView: View {
         let templateID: String
     }
 
-    init(template: StrategyTemplate, presetTicker: String? = nil) {
+    init(template: StrategyTemplate, presetTicker: String? = nil, presetTickers: [String]? = nil) {
         self.template = template
-        self.presetTicker = presetTicker
+        self.presetTicker = presetTicker ?? (presetTickers?.count == 1 ? presetTickers?.first : nil)
+        self.presetTickers = presetTickers
         _customization = State(initialValue: StrategyCustomization(strategy: template.strategy))
     }
 
@@ -87,6 +91,8 @@ struct TemplateSetupView: View {
             guard tickerText.isEmpty else { return }
             if let presetTicker, !template.multiTicker {
                 tickerText = presetTicker
+            } else if let presetTickers, template.multiTicker, presetTickers.count >= template.minimumTickers {
+                tickerText = presetTickers.joined(separator: ", ")
             } else {
                 tickerText = template.defaultTickers.joined(separator: ", ")
             }

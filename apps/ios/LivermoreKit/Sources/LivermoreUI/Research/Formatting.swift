@@ -40,6 +40,17 @@ enum Fmt {
         String(format: "%+.1f pts", fraction * 100)
     }
 
+    /// A trading day: "Nov 16, 2026".
+    ///
+    /// Trading dates are parsed as midnight UTC, so they must be printed in
+    /// UTC too — in the device's own zone, anyone west of Greenwich sees the
+    /// day before.
+    static func tradingDay(_ date: Date) -> String {
+        var style = Date.FormatStyle.dateTime.month(.abbreviated).day().year()
+        style.timeZone = TimeZone(identifier: "UTC")!
+        return date.formatted(style)
+    }
+
     static func price(_ v: Double?) -> String {
         guard let v else { return "—" }
         return v.formatted(.currency(code: "USD").precision(.fractionLength(2)))

@@ -21,6 +21,11 @@ struct CompanyView: View {
     @State private var trendFailed = false
     @State private var isTrading = false
     @State private var tradeSide: TradeSide = .buy
+    @State private var tab: CompanyTab = .snapshot
+    /// The stock's and the benchmark's daily closes, once fetched: the chart
+    /// and the signals both read these.
+    @State private var history: (stock: [DailyClose], benchmark: [DailyClose])?
+    @State private var historyFailed = false
 
     private enum TradeSide: String, CaseIterable, Identifiable {
         case buy = "Buy"
@@ -69,6 +74,7 @@ struct CompanyView: View {
             // signed-in user may never have opened the Actions tab to load.
             if session.isSignedIn, session.brokerageLink.status == nil { await session.brokerageLink.refresh() }
         }
+        .task(id: symbol) { await loadHistory() }
         .task(id: symbol) {
             // `.task` runs again every time this screen reappears — including
             // on the way back from Sentiment or Supply chain. Reloading there
@@ -99,6 +105,20 @@ struct CompanyView: View {
         trendFailed = trend == nil
     }
 
+    private func loadHistory() async {
+        guard history == nil else { return }
+        do {
+            // The benchmark is shared by every chart and fetched once per
+            // launch; if only it fails the price still shows.
+            async let benchmark = try? session.priceHistory.closes(for: PriceHistory.benchmarkSymbol)
+            let stock = try await session.priceHistory.closes(for: symbol)
+            history = (stock, await benchmark ?? [])
+            historyFailed = false
+        } catch {
+            historyFailed = true
+        }
+    }
+
     /// Buy, or — when the broker shows a holding — choose between buying
     /// more and selling it.
     @ViewBuilder
@@ -122,6 +142,52 @@ struct CompanyView: View {
         }
     }
 
+    private func decision(_ overview: CompanyOverview, _ read: TechnicalRead?) -> some View {
+        DecisionCard(
+            symbol: symbol, read: read, peers: overview.marketPosition.keyCompetitors ?? [],
+            onBuy: {
+                tradeSide = .buy
+                isTrading = true
+            },
+            onSell: {
+                tradeSide = .sell
+                isTrading = true
+            }
+        )
+    }
+
+    /// The full written analysis, in the order of its four questions.
+    @ViewBuilder
+    private func deepDive(_ overview: CompanyOverview, _ price: Double?) -> some View {
+        FourQuestionsCard(overview: overview)
+        ReadCard(overview: overview, trend: trend, trendFailed: trendFailed)
+
+        SectionMark(letter: "A", title: "Demand", question: "Where does the growth come from?")
+        BusinessCard(overview: overview)
+
+        SectionMark(letter: "B", title: "Moat", question: "Why does it win, and who could take it?")
+        MarketCard(position: overview.marketPosition)
+
+        SectionMark(letter: "C", title: "Cash", question: "How much does it really make, and what is that worth?")
+        FinancialsCard(check: overview.financialCheck)
+        KeyStatsCard(overview: overview)
+        ValuationCard(overview: overview, price: price)
+
+        SectionMark(letter: "D", title: "Uncertainty", question: "What could break the story?")
+        UncertaintyCard(overview: overview)
+
+        Card("Go deeper") {
+            NavigationLink { SentimentView(symbol: overview.symbol) } label: {
+                MoreRow(title: "News & sentiment", detail: "What is being written and how it reads", systemImage: "newspaper")
+            }
+            Divider()
+            NavigationLink { SupplyChainView(symbol: overview.symbol) } label: {
+                MoreRow(title: "Supply chain", detail: "Where it sits and what could choke it", systemImage: "point.3.connected.trianglepath.dotted")
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
     @ViewBuilder
     private func failure(_ error: ResearchError) -> some View {
         if case .upgradeRequired = error {
@@ -143,39 +209,31 @@ struct CompanyView: View {
 
     private func content(_ overview: CompanyOverview) -> some View {
         let price = quote?.price ?? trend?.latestPrice ?? overview.price
+        let read = history.flatMap { TechnicalRead(closes: $0.stock, benchmark: $0.benchmark) }
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
                 CompanyHeader(overview: overview, quote: quote, fallbackPrice: price)
-                PerformanceCard(symbol: symbol, latestPrice: price, trend: trend)
-                FourQuestionsCard(overview: overview)
-                ReadCard(overview: overview, trend: trend, trendFailed: trendFailed)
+                CompanyTabBar(selection: $tab)
 
-                // The four questions, in the order the summary asks them.
-                SectionMark(letter: "A", title: "Demand", question: "Where does the growth come from?")
-                BusinessCard(overview: overview)
-
-                SectionMark(letter: "B", title: "Moat", question: "Why does it win, and who could take it?")
-                MarketCard(position: overview.marketPosition)
-
-                SectionMark(letter: "C", title: "Cash", question: "How much does it really make, and what is that worth?")
-                FinancialsCard(check: overview.financialCheck)
-                KeyStatsCard(overview: overview)
-                ValuationCard(overview: overview, price: price)
-
-                SectionMark(letter: "D", title: "Uncertainty", question: "What could break the story?")
-                UncertaintyCard(overview: overview)
-                if let trend { MomentumCard(trend: trend) }
-
-                Card("Go deeper") {
-                    NavigationLink { SentimentView(symbol: overview.symbol) } label: {
-                        MoreRow(title: "News & sentiment", detail: "What is being written and how it reads", systemImage: "newspaper")
+                switch tab {
+                case .snapshot:
+                    BusinessSnapshot(overview: overview, trend: trend) { tab = .deepDive }
+                    decision(overview, read)
+                case .price:
+                    PerformanceCard(symbol: symbol, trend: trend, history: history, historyFailed: historyFailed)
+                    if let read {
+                        SetupCard(read: read)
+                        SignalsCard(read: read)
+                    } else if historyFailed {
+                        Card { Notice(text: "The price history isn't available right now, so the signals can't be worked out.", systemImage: "chart.line.downtrend.xyaxis") }
+                    } else {
+                        Card { SkeletonBlock(height: 120) }
                     }
-                    Divider()
-                    NavigationLink { SupplyChainView(symbol: overview.symbol) } label: {
-                        MoreRow(title: "Supply chain", detail: "Where it sits and what could choke it", systemImage: "point.3.connected.trianglepath.dotted")
-                    }
+                    PriceContextCard(overview: overview, read: read, trend: trend, price: price)
+                    decision(overview, read)
+                case .deepDive:
+                    deepDive(overview, price)
                 }
-                .buttonStyle(.plain)
 
                 if let disclaimer = overview.disclaimer {
                     Text(disclaimer).font(.caption2).foregroundStyle(.inkSecondary)
@@ -244,7 +302,7 @@ private struct CompanyHeader: View {
 }
 
 /// Where today's price sits between the day's low and high.
-private struct DayRange: View {
+struct DayRange: View {
     let low: Double
     let high: Double
     let price: Double
@@ -274,16 +332,14 @@ private struct DayRange: View {
 
 /// Price over a chosen period, with the S&P 500 for comparison. Touch and
 /// drag to read any day.
-private struct PerformanceCard: View {
-    @Environment(AppSession.self) private var session
+struct PerformanceCard: View {
     let symbol: String
-    let latestPrice: Double?
     let trend: CompanyTrend?
+    /// The stock's and the benchmark's daily closes, once the page has them.
+    let history: (stock: [DailyClose], benchmark: [DailyClose])?
+    let historyFailed: Bool
 
     @State private var range: PerformanceRange = .oneYear
-    /// The stock's and the benchmark's daily closes, once fetched.
-    @State private var history: (stock: [DailyClose], benchmark: [DailyClose])?
-    @State private var historyFailed = false
     @State private var selectedDate: Date?
 
     private struct PricePoint: Identifiable {
@@ -320,7 +376,7 @@ private struct PerformanceCard: View {
         Card {
             VStack(alignment: .leading, spacing: 2) {
                 if let selected {
-                    Text(selected.date.formatted(date: .abbreviated, time: .omitted)).eyebrowStyle()
+                    Text(Fmt.tradingDay(selected.date)).eyebrowStyle()
                     Text(Fmt.price(selected.price)).font(.title3.weight(.semibold).monospacedDigit())
                 } else {
                     Text(usesHistory ? range.title : "Last 90 days").eyebrowStyle()
@@ -411,18 +467,6 @@ private struct PerformanceCard: View {
             .background(Color.well, in: Capsule())
             .sensoryFeedback(.selection, trigger: range)
         }
-        .task(id: symbol) {
-            guard history == nil else { return }
-            do {
-                // The benchmark is shared by every chart and fetched once
-                // per launch; if only it fails the price still shows.
-                async let benchmark = try? session.priceHistory.closes(for: PriceHistory.benchmarkSymbol)
-                let stock = try await session.priceHistory.closes(for: symbol)
-                history = (stock, await benchmark ?? [])
-            } catch {
-                historyFailed = true
-            }
-        }
     }
 }
 
@@ -450,7 +494,7 @@ private extension PerformanceRange {
 // MARK: - Livermore's read
 
 /// The three scores and what they add up to, on one card.
-private struct ReadCard: View {
+struct ReadCard: View {
     let overview: CompanyOverview
     let trend: CompanyTrend?
     let trendFailed: Bool
@@ -502,7 +546,7 @@ private struct ReadCard: View {
 
 /// The page in four lines: what drives demand, why it wins, how much cash
 /// it makes, and what could break it — each from the company's own figures.
-private struct FourQuestionsCard: View {
+struct FourQuestionsCard: View {
     let overview: CompanyOverview
 
     private var lines: [(letter: String, title: String, text: String)] {
@@ -571,7 +615,7 @@ private struct FourQuestionsCard: View {
 }
 
 /// A section's letter, name and the question it answers.
-private struct SectionMark: View {
+struct SectionMark: View {
     let letter: String
     let title: String
     let question: String
@@ -590,7 +634,7 @@ private struct SectionMark: View {
 
 /// The way into the cash-flow stress test, showing what the starting
 /// assumptions imply against today's price.
-private struct ValuationCard: View {
+struct ValuationCard: View {
     let overview: CompanyOverview
     let price: Double?
 
@@ -628,7 +672,7 @@ private struct ValuationCard: View {
 
 /// What could break the story: the risks named for the business and the
 /// warnings the financials raise, together.
-private struct UncertaintyCard: View {
+struct UncertaintyCard: View {
     let overview: CompanyOverview
 
     var body: some View {
@@ -660,7 +704,7 @@ private struct UncertaintyCard: View {
 
 // MARK: - Key stats
 
-private struct KeyStatsCard: View {
+struct KeyStatsCard: View {
     let overview: CompanyOverview
 
     private var stats: [(String, String)] {
@@ -701,7 +745,7 @@ private struct KeyStatsCard: View {
 
 // MARK: - Financials
 
-private struct FinancialsCard: View {
+struct FinancialsCard: View {
     let check: Components.Schemas.FinancialCheckSection
 
     private enum Measure: String, CaseIterable, Identifiable {
@@ -771,7 +815,7 @@ private struct FinancialsCard: View {
 }
 
 /// Where each $100 of sales goes, as one bar.
-private struct SalesDollarBar: View {
+struct SalesDollarBar: View {
     let dollar: SalesDollar
 
     var body: some View {
@@ -813,7 +857,7 @@ private struct SalesDollarPart: View {
 
 // MARK: - Business
 
-private struct BusinessCard: View {
+struct BusinessCard: View {
     let overview: CompanyOverview
 
     var body: some View {
@@ -872,7 +916,7 @@ private struct BusinessCard: View {
 
 // MARK: - Market position
 
-private struct MarketCard: View {
+struct MarketCard: View {
     let position: Components.Schemas.MarketPositionSection
 
     var body: some View {
@@ -918,7 +962,7 @@ private struct MarketCard: View {
     }
 }
 
-private struct PointList: View {
+struct PointList: View {
     let title: String
     let points: [String]
     let systemImage: String
@@ -937,32 +981,6 @@ private struct PointList: View {
     }
 }
 
-// MARK: - Momentum
-
-private struct MomentumCard: View {
-    let trend: CompanyTrend
-
-    var body: some View {
-        Card("Momentum") {
-            HStack(spacing: 8) {
-                StatTile(label: "1 month", value: Fmt.percent(trend.perf1m, signed: true), tint: trend.perf1m?.changeColor)
-                StatTile(label: "3 months", value: Fmt.percent(trend.perf3m, signed: true), tint: trend.perf3m?.changeColor)
-            }
-            HStack(spacing: 8) {
-                StatTile(label: "6 months", value: Fmt.percent(trend.perf6m, signed: true), tint: trend.perf6m?.changeColor)
-                StatTile(label: "12 months", value: Fmt.percent(trend.perf12m, signed: true), tint: trend.perf12m?.changeColor)
-            }
-            DetailRow("Against its 50-day average", Fmt.percent(trend.priceVsMa50, signed: true), tint: trend.priceVsMa50?.changeColor)
-            DetailRow("Against its 200-day average", Fmt.percent(trend.priceVsMa200, signed: true), tint: trend.priceVsMa200?.changeColor)
-            DetailRow("Against the S&P 500, 3 months", Fmt.percent(trend.rsVsSpy3m, signed: true), tint: trend.rsVsSpy3m?.changeColor)
-            DetailRow("Against the S&P 500, 12 months", Fmt.percent(trend.rsVsSpy12m, signed: true), tint: trend.rsVsSpy12m?.changeColor)
-            if let date = trend.latestDate {
-                Text("Prices through \(date)").eyebrowStyle()
-            }
-        }
-    }
-}
-
 // MARK: - Shared pieces
 
 /// Tags that wrap onto as many lines as they need.
@@ -974,9 +992,50 @@ struct FlowTags: View {
     }
 
     var body: some View {
-        ViewThatFits(in: .horizontal) {
-            HStack(spacing: 6) { ForEach(tags, id: \.self) { Tag($0) } }
-            VStack(alignment: .leading, spacing: 6) { ForEach(tags, id: \.self) { Tag($0) } }
+        FlowLayout(spacing: 6) {
+            ForEach(tags, id: \.self) { Tag($0) }
+        }
+    }
+}
+
+/// Lays children out left to right, wrapping to a new line when the next
+/// one does not fit.
+struct FlowLayout: Layout {
+    var spacing: CGFloat = 6
+
+    private func rows(_ subviews: Subviews, width: CGFloat) -> [(items: [(index: Int, size: CGSize)], height: CGFloat)] {
+        var rows: [(items: [(index: Int, size: CGSize)], height: CGFloat)] = [([], 0)]
+        var used: CGFloat = 0
+        for (index, subview) in subviews.enumerated() {
+            let size = subview.sizeThatFits(.unspecified)
+            if !rows[rows.count - 1].items.isEmpty, used + size.width > width {
+                rows.append(([], 0))
+                used = 0
+            }
+            rows[rows.count - 1].items.append((index, size))
+            rows[rows.count - 1].height = max(rows[rows.count - 1].height, size.height)
+            used += size.width + spacing
+        }
+        return rows
+    }
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        let width = proposal.width ?? .infinity
+        let rows = rows(subviews, width: width)
+        let height = rows.reduce(0) { $0 + $1.height } + spacing * CGFloat(max(rows.count - 1, 0))
+        let widest = rows.map { $0.items.reduce(0) { $0 + $1.size.width } + spacing * CGFloat(max($0.items.count - 1, 0)) }.max() ?? 0
+        return CGSize(width: proposal.width ?? widest, height: height)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        var y = bounds.minY
+        for row in rows(subviews, width: bounds.width) {
+            var x = bounds.minX
+            for item in row.items {
+                subviews[item.index].place(at: CGPoint(x: x, y: y), proposal: ProposedViewSize(item.size))
+                x += item.size.width + spacing
+            }
+            y += row.height + spacing
         }
     }
 }
@@ -991,7 +1050,7 @@ struct SourceNotes: View {
     }
 }
 
-private struct MoreRow: View {
+struct MoreRow: View {
     let title: String
     let detail: String
     let systemImage: String

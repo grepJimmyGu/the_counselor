@@ -279,7 +279,7 @@ private struct GrowthChart: View {
 
         Card {
             VStack(alignment: .leading, spacing: 6) {
-                Text(selected.map { $0.date.formatted(date: .abbreviated, time: .omitted) } ?? "Growth of your starting capital")
+                Text(selected.map { Fmt.tradingDay($0.date) } ?? "Growth of your starting capital")
                     .eyebrowStyle()
                 HStack(spacing: 16) {
                     LegendValue(name: "Strategy", value: shown.map { Fmt.wholeMoney($0.strategy) }, color: .brand)

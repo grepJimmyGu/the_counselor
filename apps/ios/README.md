@@ -78,6 +78,31 @@ which made NVDA read "+17.0% past year" when the true figure was −16.4%.
 The watchlist and "recently viewed" are kept on the device (`Watchlist`,
 UserDefaults). They are not the website's community watchlist.
 
+## The company page: three views that end in a decision
+
+| Tab | Answers | Built from |
+|---|---|---|
+| **Snapshot** | What is this business? | The overview: what it does, four headline numbers, where each $100 of sales goes, revenue mix, health and valuation scores, main driver and risk, rivals |
+| **Price & signals** | Where does the price stand? | Daily closes: the chart, the setup ("Downtrend, oversold"), six direction signals with a tally, RSI, the 52-week range, returns, valuation |
+| **Deep dive** | Why? | The four-question analysis below |
+
+Snapshot and Price & signals both end in the same card, **"What do you want
+to do?"**: *Decide yourself* (Buy / Sell through the linked broker) or *Let
+a rule decide* (strategies matched to the setup, each opening ready to
+backtest on this stock — or on it and its rivals).
+
+Signals are computed on the device (`TechnicalRead`) from the same closes as
+the chart: price against the 200- and 50-day averages, the 50-day against
+the 200-day, three-month momentum, three-month return against the S&P 500,
+and position in the 52-week range. Each leans up, down or neither; the trend
+is called only when the lean is lopsided. RSI is reported apart from the
+tally because "oversold" is not a direction. For NVDA the two averages match
+the backend's trend endpoint to the decimal.
+
+The page describes and never recommends: a setup, then the two ways to act
+on it. `StrategyAdvisor` picks which strategies to *test*, with the reason;
+the backtest is what says whether the rule has worked.
+
 ## Research depth — the four questions
 
 The company page follows the structure of a written equity analysis
@@ -177,7 +202,7 @@ apps/ios/
       Brokerage/                    SnapTrade link, holdings, order tickets
       Demo/                         the sample account (debug builds only)
     Sources/LivermoreUI/          SwiftUI screens, same folders
-    Tests/LivermoreKitTests/      113 tests; `swift test` runs them in a second
+    Tests/LivermoreKitTests/      126 tests; `swift test` runs them in a second
   scripts/refresh_openapi.py      refreshes openapi.json from the backend
   scripts/gen_scoring_golden.mjs  regenerates the scoring parity fixture
   scripts/gen_templates.mjs       regenerates the strategy templates
