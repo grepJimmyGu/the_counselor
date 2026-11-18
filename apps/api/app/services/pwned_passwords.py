@@ -23,7 +23,10 @@ def breach_count(password: str) -> Optional[int]:
     lookup could not be made. A caller should treat None as "unknown" and let
     the sign-up through: an outage at a third party must not close sign-ups.
     """
-    digest = hashlib.sha1(password.encode("utf-8")).hexdigest().upper()
+    # SHA-1 because it is the key the range API is indexed by, not because it
+    # protects anything: the digest is a lookup key, used once and never stored.
+    # Stored passwords are bcrypt (auth_service.hash_password).
+    digest = hashlib.sha1(password.encode("utf-8"), usedforsecurity=False).hexdigest().upper()
     prefix, suffix = digest[:5], digest[5:]
     try:
         # Add-Padding makes every response the same size, so the length of
