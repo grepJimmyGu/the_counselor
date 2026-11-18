@@ -4220,15 +4220,15 @@
    "OAuthGoogleRequest": {
     "properties": {
      "id_token": {
-      "title": "Id Token",
-      "type": "string"
+      "type": "string",
+      "title": "Id Token"
      }
     },
+    "type": "object",
     "required": [
      "id_token"
     ],
-    "title": "OAuthGoogleRequest",
-    "type": "object"
+    "title": "OAuthGoogleRequest"
    },
    "OutputKind": {
     "description": "Semantic shape of the signal a primitive emits at each timestep.\n\nPRD-22a. Drives the composer rule-builder dispatch (PRD-22c) and the\nKB-lookup Jaccard enrichment (PRD-22b). Defaults to VALUE so every v1\nprimitive stays backward-compatible \u2014 the composer's existing\n`[primitive] [< | >] [threshold]` widget is the VALUE widget.\n\n`str, Enum` (matching `SignalCategory`) so it JSON-serializes to its\nstring value in the catalog payload.",
@@ -10932,6 +10932,59 @@
     ],
     "title": "FilingFinding",
     "type": "object"
+   },
+   "PasswordRejected": {
+    "properties": {
+     "detail": {
+      "type": "string",
+      "title": "Detail"
+     },
+     "code": {
+      "type": "string",
+      "enum": [
+       "weak_password",
+       "breached_password"
+      ],
+      "title": "Code"
+     },
+     "failed": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Failed",
+      "default": []
+     }
+    },
+    "type": "object",
+    "required": [
+     "detail",
+     "code"
+    ],
+    "title": "PasswordRejected",
+    "description": "Why a sign-up's password was refused. `detail` is written for the user."
+   },
+   "GoogleTokenResponse": {
+    "properties": {
+     "user": {
+      "$ref": "#/components/schemas/UserPublic"
+     },
+     "session_token": {
+      "type": "string",
+      "title": "Session Token"
+     },
+     "is_new": {
+      "type": "boolean",
+      "title": "Is New"
+     }
+    },
+    "type": "object",
+    "required": [
+     "user",
+     "session_token",
+     "is_new"
+    ],
+    "title": "GoogleTokenResponse"
    }
   }
  },
@@ -11614,6 +11667,10 @@
   },
   "/api/auth/oauth/google/callback": {
    "post": {
+    "tags": [
+     "auth"
+    ],
+    "summary": "Google Oauth Callback",
     "operationId": "google_oauth_callback_api_auth_oauth_google_callback_post",
     "requestBody": {
      "content": {
@@ -11627,32 +11684,26 @@
     },
     "responses": {
      "200": {
+      "description": "Successful Response",
       "content": {
        "application/json": {
         "schema": {
-         "additionalProperties": true,
-         "title": "Response Google Oauth Callback Api Auth Oauth Google Callback Post",
-         "type": "object"
+         "$ref": "#/components/schemas/GoogleTokenResponse"
         }
        }
-      },
-      "description": "Successful Response"
+      }
      },
      "422": {
+      "description": "Validation Error",
       "content": {
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/HTTPValidationError"
         }
        }
-      },
-      "description": "Validation Error"
+      }
      }
-    },
-    "summary": "Google Oauth Callback",
-    "tags": [
-     "auth"
-    ]
+    }
    }
   },
   "/api/auth/password/login": {
@@ -11698,6 +11749,10 @@
   },
   "/api/auth/password/signup": {
    "post": {
+    "tags": [
+     "auth"
+    ],
+    "summary": "Password Signup",
     "operationId": "password_signup_api_auth_password_signup_post",
     "requestBody": {
      "content": {
@@ -11711,30 +11766,36 @@
     },
     "responses": {
      "201": {
+      "description": "Successful Response",
       "content": {
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/TokenResponse"
         }
        }
-      },
-      "description": "Successful Response"
+      }
+     },
+     "400": {
+      "description": "Bad Request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PasswordRejected"
+        }
+       }
+      }
      },
      "422": {
+      "description": "Validation Error",
       "content": {
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/HTTPValidationError"
         }
        }
-      },
-      "description": "Validation Error"
+      }
      }
-    },
-    "summary": "Password Signup",
-    "tags": [
-     "auth"
-    ]
+    }
    }
   },
   "/api/auth/refresh-session-token": {

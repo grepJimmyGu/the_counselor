@@ -37,6 +37,17 @@ struct AccountView: View {
                 } footer: {
                     Text("Link Robinhood, Charles Schwab or another broker to see your holdings and send orders you have confirmed.")
                 }
+                if let saved = session.biometricEmail {
+                    let biometry = session.biometry
+                    Section {
+                        Toggle(isOn: Binding(get: { true }, set: { if !$0 { session.turnOffBiometricSignIn() } })) {
+                            Label("Sign in with \(biometry?.name ?? "Face ID")", systemImage: biometry?.symbol ?? "faceid")
+                        }
+                        .accessibilityIdentifier("biometric-toggle")
+                    } footer: {
+                        Text("The password for \(saved) is kept in this device's Keychain and released only after \(biometry?.name ?? "Face ID"). Turning this off deletes it.")
+                    }
+                }
                 Section {
                     Button("Sign out", role: .destructive) {
                         session.signOut()

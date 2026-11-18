@@ -312,7 +312,7 @@ struct SignUpTests {
         let (session, transport, store) = make()
         transport.stub(Op.signup, .json(status: 201, Fixture.tokenResponse))
 
-        try await session.signUp(email: " new@example.com ", password: "long-enough", displayName: "  ")
+        try await session.signUp(email: " new@example.com ", password: "nuvmyz-Tapgo4-zimqyr", displayName: "  ")
 
         #expect(session.isSignedIn)
         #expect(store.load()?.token == "tok-123")
@@ -327,17 +327,32 @@ struct SignUpTests {
         let (session, transport, _) = make()
         transport.stub(Op.signup, .json(status: 409, #"{"detail":"An account with this email already exists."}"#))
         await #expect(throws: SignInError.emailTaken) {
-            try await session.signUp(email: "me@example.com", password: "long-enough", displayName: nil)
+            try await session.signUp(email: "me@example.com", password: "nuvmyz-Tapgo4-zimqyr", displayName: nil)
         }
         #expect(!session.isSignedIn)
     }
 
-    @Test("a short password is refused on the device")
+    @Test("a password that breaks a rule is refused on the device")
     func weak() async {
         let (session, transport, _) = make()
-        await #expect(throws: SignInError.weakPassword) {
-            try await session.signUp(email: "me@example.com", password: "short", displayName: nil)
+        // Twelve characters and four kinds, but it contains the account's own name.
+        for password in ["short", "long-enough-but-plain", "Me-Jordan-4-ever!"] {
+            await #expect(throws: SignInError.weakPassword) {
+                try await session.signUp(email: "jordan@example.com", password: password, displayName: nil)
+            }
         }
         #expect(transport.requests.isEmpty)
+    }
+
+    @Test("a password the backend refuses is reported in the backend's words")
+    func refusedByBackend() async {
+        // Only the backend can know a password has appeared in a breach.
+        let (session, transport, _) = make()
+        let reason = "That password has appeared in a known data breach. Choose a different one."
+        transport.stub(Op.signup, .json(status: 400, #"{"detail":"\#(reason)","code":"breached_password","failed":[]}"#))
+        await #expect(throws: SignInError.passwordRejected(reason)) {
+            try await session.signUp(email: "me@example.com", password: "nuvmyz-Tapgo4-zimqyr", displayName: nil)
+        }
+        #expect(!session.isSignedIn)
     }
 }

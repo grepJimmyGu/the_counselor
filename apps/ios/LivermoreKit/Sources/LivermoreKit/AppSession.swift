@@ -13,6 +13,19 @@ public enum SignInError: Error, Equatable, Sendable {
     case emailTaken
     /// Sign-up only: checked on the device before anything is sent.
     case weakPassword
+    /// Sign-up only: the backend refused the password, in its own words. This
+    /// is how a password found in breach data is reported, which only the
+    /// backend can know.
+    case passwordRejected(String)
+    /// Google sign-in: the address belongs to an account that signs in with a
+    /// password and has never used Google.
+    case emailHasPassword
+    /// Google did not complete the sign-in, or the backend did not accept it.
+    case googleFailed
+    /// Face ID sign-in: the saved password is no longer the account's password.
+    case savedPasswordRejected
+    /// The user backed out. Nothing to report.
+    case cancelled
     /// Any other HTTP status.
     case server(status: Int)
     /// The request never completed.
@@ -23,7 +36,12 @@ public enum SignInError: Error, Equatable, Sendable {
         case .invalidCredentials: "That email and password don't match an account."
         case .invalidInput: "Enter a valid email address and password."
         case .emailTaken: "That email already has an account. Sign in instead."
-        case .weakPassword: "Choose a password of at least \(AppSession.minimumPasswordLength) characters."
+        case .weakPassword: "That password doesn't meet the rules below."
+        case .passwordRejected(let reason): reason
+        case .emailHasPassword: "That email already has a Livermore account with a password. Sign in with the password instead."
+        case .googleFailed: "Google sign-in didn't complete. Try again."
+        case .savedPasswordRejected: "The saved password no longer works. Sign in with your current password."
+        case .cancelled: ""
         case .server(let status): "Livermore couldn't sign you in (error \(status)). Try again in a moment."
         case .network: "Couldn't reach Livermore. Check your connection and try again."
         }
@@ -65,15 +83,34 @@ public final class AppSession {
     /// The linked brokerage, as last read.
     public let brokerageLink: BrokerageLink
 
+    /// Google sign-in, or nil in a build with no Google client ID.
+    public let google: GoogleSignIn?
+
+    /// The biometric check this device offers, if any.
+    public var biometry: Biometry? { biometrics.biometry }
+
+    /// The address whose password is saved for Face ID sign-in, if one is.
+    public private(set) var biometricEmail: String?
+
+    /// Set after a typed sign-in on a device with Face ID: the credential the
+    /// user can choose to keep. Cleared by accepting or declining.
+    public private(set) var biometricOffer: SavedCredential?
+
     private let store: any SessionStore
+    private let biometrics: any BiometricCredentialStore
     private let tokens = TokenBox()
 
     public init(
         serverURL: URL = APIEnvironment.production,
         store: any SessionStore = KeychainSessionStore(),
+        biometrics: any BiometricCredentialStore = KeychainBiometricStore(),
+        googleClientID: String? = APIEnvironment.googleClientID,
         transport: any ClientTransport = URLSessionTransport()
     ) {
         self.store = store
+        self.biometrics = biometrics
+        self.biometricEmail = biometrics.savedEmail
+        self.google = GoogleSignIn(clientID: googleClientID)
         let client = Client.livermore(serverURL: serverURL, transport: transport, tokens: tokens)
         self.client = client
         self.quotes = QuoteStore { symbols in
@@ -129,7 +166,8 @@ public final class AppSession {
         switch output {
         case .ok(let ok):
             guard case .json(let token) = ok.body else { throw .server(status: 200) }
-            adopt(token, email: email)
+            adopt(token: token.sessionToken, user: token.user, email: email)
+            offerBiometrics(SavedCredential(email: email, password: password))
         case .unprocessableContent:
             throw .invalidInput
         case .undocumented(let status, _):
@@ -137,15 +175,91 @@ public final class AppSession {
         }
     }
 
-    public nonisolated static let minimumPasswordLength = 8
+    /// Signs in with the ID token Google issued. The backend checks the token
+    /// and finds or creates the account; a first sign-in creates one.
+    public func signInWithGoogle(idToken: String) async throws(SignInError) {
+        let output: Operations.GoogleOauthCallbackApiAuthOauthGoogleCallbackPost.Output
+        do {
+            output = try await client.googleOauthCallbackApiAuthOauthGoogleCallbackPost(
+                body: .json(.init(idToken: idToken))
+            )
+        } catch {
+            throw .network
+        }
+
+        switch output {
+        case .ok(let ok):
+            guard case .json(let token) = ok.body else { throw .server(status: 200) }
+            let email = GoogleSignIn.email(inIDToken: idToken) ?? ""
+            adopt(token: token.sessionToken, user: token.user, email: email)
+        case .unprocessableContent:
+            throw .googleFailed
+        case .undocumented(let status, _):
+            switch status {
+            case 409: throw .emailHasPassword
+            case 400: throw .googleFailed
+            default: throw .server(status: status)
+            }
+        }
+    }
+
+    // MARK: Face ID sign-in
+
+    /// Signs in with the saved password, after the device's biometric check.
+    public func signInWithBiometrics() async throws(SignInError) {
+        let credential: SavedCredential
+        do {
+            credential = try await biometrics.load(reason: "Sign in to Livermore")
+        } catch {
+            if error == .unavailable { biometricEmail = nil }
+            throw error == .unavailable ? .savedPasswordRejected : .cancelled
+        }
+        do {
+            try await signIn(email: credential.email, password: credential.password)
+        } catch {
+            // The password was changed elsewhere; keeping it would fail every time.
+            if error == .invalidCredentials {
+                turnOffBiometricSignIn()
+                throw .savedPasswordRejected
+            }
+            throw error
+        }
+    }
+
+    /// Keeps the password just typed, so the next sign-in needs only a face.
+    public func acceptBiometricOffer(_ offer: SavedCredential) {
+        biometricOffer = nil
+        if (try? biometrics.save(offer)) != nil { biometricEmail = offer.email }
+    }
+
+    public func declineBiometricOffer() {
+        biometricOffer = nil
+    }
+
+    public func turnOffBiometricSignIn() {
+        biometrics.clear()
+        biometricEmail = nil
+    }
+
+    private func offerBiometrics(_ credential: SavedCredential) {
+        guard biometrics.biometry != nil else { return }
+        if biometricEmail == credential.email {
+            // Already chosen for this account: keep what is saved current.
+            if (try? biometrics.save(credential)) == nil { biometricEmail = nil }
+        } else {
+            biometricOffer = credential
+        }
+    }
 
     /// Creates an account and signs in to it. The backend folds this
     /// device's anonymous session into the new account, so a backtest run
     /// before signing up is not lost.
     public func signUp(email: String, password: String, displayName: String?) async throws(SignInError) {
         let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard password.count >= Self.minimumPasswordLength else { throw .weakPassword }
         let name = displayName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard PasswordPolicy.violations(password, email: email, displayName: name).isEmpty else {
+            throw .weakPassword
+        }
         let output: Operations.PasswordSignupApiAuthPasswordSignupPost.Output
         do {
             output = try await client.passwordSignupApiAuthPasswordSignupPost(
@@ -158,7 +272,11 @@ public final class AppSession {
         switch output {
         case .created(let created):
             guard case .json(let token) = created.body else { throw .server(status: 201) }
-            adopt(token, email: email)
+            adopt(token: token.sessionToken, user: token.user, email: email)
+            offerBiometrics(SavedCredential(email: email, password: password))
+        case .badRequest(let refused):
+            guard case .json(let reason) = refused.body else { throw .server(status: 400) }
+            throw .passwordRejected(reason.detail)
         case .unprocessableContent:
             throw .invalidInput
         case .undocumented(let status, _):
@@ -166,13 +284,8 @@ public final class AppSession {
         }
     }
 
-    private func adopt(_ token: Components.Schemas.TokenResponse, email: String) {
-        let session = StoredSession(
-            token: token.sessionToken,
-            userID: token.user.id,
-            email: email,
-            displayName: token.user.displayName
-        )
+    private func adopt(token: String, user: Components.Schemas.UserPublic, email: String) {
+        let session = StoredSession(token: token, userID: user.id, email: email, displayName: user.displayName)
         // A Keychain failure must not strand the user on the sign-in screen
         // with correct credentials: they are signed in for this launch and
         // asked again on the next.
@@ -185,6 +298,7 @@ public final class AppSession {
         store.clear()
         tokens.set(nil)
         tier = nil
+        biometricOffer = nil
         inbox.reset()
         brokerageLink.reset()
         state = .signedOut

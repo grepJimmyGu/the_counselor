@@ -10,6 +10,7 @@ filter:
   paths:
     - /api/auth/password/login
     - /api/auth/password/signup
+    - /api/auth/oauth/google/callback
     - /api/me/entitlements
     - /api/live/quotes
     # Research (slice 2)

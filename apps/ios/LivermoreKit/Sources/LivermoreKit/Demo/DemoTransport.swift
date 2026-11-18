@@ -252,7 +252,11 @@ extension AppSession {
     /// A session signed in as a made-up user, answering account calls from
     /// `DemoData`. Debug builds only.
     public static func demo() -> AppSession {
-        let session = AppSession(store: InMemorySessionStore(DemoData.session), transport: DemoTransport())
+        let session = AppSession(
+            store: InMemorySessionStore(DemoData.session),
+            biometrics: InMemoryBiometricStore(),
+            transport: DemoTransport()
+        )
         session.isDemo = true
         return session
     }

@@ -17,7 +17,7 @@ What the app does, and how far each part has been checked.
 | Act on a strategy | Buy at your broker from a strategy or company page; tell Livermore about a position you hold so its exits are watched | Sample data only |
 | Actions | Exits a strategy signalled, each resolved by selling at the broker, recording a sale made elsewhere, or keeping the position; notices | Sample data only |
 | Brokerage | Link Robinhood, Schwab or another SnapTrade broker; accounts and holdings; order ticket (fill in → broker's numbers → confirm → receipt) | Sample data only |
-| Account | Sign in, create an account, sign out | Wrong-password path against production; nothing that creates or uses a real account |
+| Account | Sign in with a password, Face ID or Google; create an account under the password rules; sign out | Sign-up, the breach refusal, show/hide and Face ID on the simulator against a local backend. Google, the iPhone's suggested password and automatic saving are not yet seen working: see "Signing in" |
 
 **"Sample data only" means the screens and the full flow run, but against
 fixtures.** Launching a debug build with `-demo` signs in a made-up user and
@@ -144,6 +144,29 @@ value, a discount rate, net cash and a share count, with a sensitivity grid.
 The sample account passes public market data (quotes, daily history, the
 overview) through to the live API, so the Price tab is live in `-demo` too.
 
+## Signing in
+
+| What | How it works | What it still needs |
+|---|---|---|
+| Password rules | 12 to 64 characters with a lowercase letter, an uppercase letter, a number and a symbol; no character three times in a row; no run of four (1234, abcd); not your name, your email handle or "Livermore"; typed twice. `PasswordPolicy` ticks the rules off as you type and repeats what is missing just above the keyboard. The backend applies the same rules and also refuses a password found in breach data | Backend PR for the server side. Until it deploys, the app enforces the rules and production does not |
+| Seeing what you type | A new password is shown as typed; the eye hides it. A sign-in password is hidden; the eye shows it. Either way the box is an ASCII keyboard with no suggestions, so a shown password is never fed to the keyboard's dictionary or an input method | Nothing |
+| AutoFill | The email and password boxes are tagged for the iPhone's password manager, so the Passwords key appears above the keyboard | Suggesting *this account's* saved password needs the associated domain below |
+| iPhone-suggested password | The new-password box is tagged `newPassword` and carries `PasswordPolicy.generatorRules`, so what the iPhone proposes passes the rules | An associated domain: the Associated Domains entitlement (`webcredentials:livermorealpha.com`) and an `apple-app-site-association` file on that domain naming `<Team ID>.com.livermorealpha.app`. Both need an Apple Developer Program team. Apple's documentation says the suggestion is offered only "in apps that have an associated domain". Not built, because there is no Team ID yet |
+| Face ID | After a typed sign-in the app asks once whether to keep the password. It is stored in the Keychain behind `biometryCurrentSet`, on this device only; "Sign in with Face ID" then reads it after the face check. Turned off from Account, which deletes it. A password the account no longer accepts is deleted on first use | Nothing. Google accounts have no password, so there is nothing to keep for them |
+| Google | `GoogleSignIn` runs Google's installed-app flow (authorization code with PKCE) in the system browser sheet and hands the ID token to the backend. No Google SDK | An iOS OAuth client ID from Google Cloud in `APIEnvironment.googleClientID`, and the same value as `GOOGLE_IOS_CLIENT_ID` on the backend. Without the ID there is no Google button |
+
+To try Google sign-in before the client ID is committed, or to point the app
+at a backend on this Mac (debug builds only):
+
+```bash
+xcrun simctl launch booted com.livermorealpha.app -googleClientID <id>.apps.googleusercontent.com
+xcrun simctl launch booted com.livermorealpha.app -serverURL http://127.0.0.1:8000
+```
+
+The password rules exist twice, in `PasswordPolicy.swift` and the backend's
+`password_policy.py`. Their tests check the same list of passwords for the
+same verdicts; change both together.
+
 ## How orders work
 
 Livermore is a guide; the user's broker executes. Three rules are built into
@@ -217,7 +240,7 @@ apps/ios/
       Brokerage/                    SnapTrade link, holdings, order tickets
       Demo/                         the sample account (debug builds only)
     Sources/LivermoreUI/          SwiftUI screens, same folders
-    Tests/LivermoreKitTests/      146 tests; `swift test` runs them in a second
+    Tests/LivermoreKitTests/      169 tests; `swift test` runs them in a second
   scripts/refresh_openapi.py      refreshes openapi.json from the backend
   scripts/gen_scoring_golden.mjs  regenerates the scoring parity fixture
   scripts/gen_templates.mjs       regenerates the strategy templates
@@ -345,8 +368,12 @@ belongs in `LivermoreKit/` instead.
 - **The market strip shows index ETFs** (SPY, QQQ, DIA, IWM), not the indices
   themselves, and says so.
 
-- **Sign-in is email and password only.** Google sign-in needs an iOS client
-  id; Sign in with Apple needs an Apple Developer account.
+- **There is no way to reset a forgotten password**, here or on the website.
+- **Google sign-in refuses an address whose account has a password and has
+  never used Google** (the backend's rule; the website's Google sign-in links
+  such an account instead).
+- **No Sign in with Apple.** The App Store requires it alongside Google
+  sign-in; it needs an Apple Developer account.
 - **Sessions last 30 days.** The backend's token refresh endpoint is
   server-only, so an expired token signs the user out.
 - **No push notifications.** They need an Apple Developer Program membership

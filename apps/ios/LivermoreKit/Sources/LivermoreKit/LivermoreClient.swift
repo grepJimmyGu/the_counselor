@@ -9,6 +9,12 @@ public enum APIEnvironment {
     /// The FastAPI backend. The app talks to it directly — the website on
     /// Vercel is not in the path.
     public static let production = URL(string: "https://thecounselor-production.up.railway.app")!
+
+    /// The iOS OAuth client ID from Google Cloud ("....apps.googleusercontent.com").
+    /// Not a secret: every copy of the app carries it. While it is nil the
+    /// sign-in screen has no Google button. The backend must be given the same
+    /// value as GOOGLE_IOS_CLIENT_ID or it will refuse the app's tokens.
+    public static let googleClientID: String? = nil
 }
 
 /// Holds the bearer token the middleware attaches. A lock rather than an actor
