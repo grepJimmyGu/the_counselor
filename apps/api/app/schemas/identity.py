@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, EmailStr
 
@@ -83,6 +83,19 @@ class AnonymousEntitlements(BaseModel):
 class TokenResponse(BaseModel):
     user: UserPublic
     session_token: str
+
+
+class GoogleTokenResponse(TokenResponse):
+    # True when this sign-in created the account.
+    is_new: bool
+
+
+class PasswordRejected(BaseModel):
+    """Why a sign-up's password was refused. `detail` is written for the user."""
+    detail: str
+    code: Literal["weak_password", "breached_password"]
+    # The password_policy rule codes that failed; empty for a breached password.
+    failed: List[str] = []
 
 
 class SignupRequest(BaseModel):

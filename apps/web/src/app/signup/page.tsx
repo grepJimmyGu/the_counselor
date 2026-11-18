@@ -30,8 +30,8 @@ function SignupForm() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.");
+    if (password.length < 12) {
+      setError("Password must be at least 12 characters.");
       return;
     }
     setLoading(true);
@@ -46,6 +46,14 @@ function SignupForm() {
 
       if (res.status === 409) {
         setError("An account with this email already exists.");
+        setLoading(false);
+        return;
+      }
+      if (res.status === 400) {
+        // The password broke a rule or has appeared in a breach; the backend
+        // says which, in words written for the user.
+        const body = await res.json().catch(() => null);
+        setError(typeof body?.detail === "string" ? body.detail : "Choose a stronger password.");
         setLoading(false);
         return;
       }
@@ -128,11 +136,15 @@ function SignupForm() {
               type="password"
               autoComplete="new-password"
               required
-              minLength={8}
+              minLength={12}
+              maxLength={64}
               value={password}
               onChange={e => setPassword(e.target.value)}
-              placeholder="min. 8 characters"
+              placeholder="12 or more characters"
             />
+            <p className="text-xs text-muted-foreground">
+              12 to 64 characters with an uppercase letter, a lowercase letter, a number and a symbol.
+            </p>
           </div>
           <div className="space-y-1">
             <label htmlFor="locale" className="text-sm font-medium">Language</label>

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import List, Optional
 
 import bcrypt
 from jose import JWTError, jwt
@@ -56,6 +56,13 @@ def decode_session_token(token: str) -> dict:
 
 # ── Google ID token ───────────────────────────────────────────────────────────
 
+def google_audiences() -> List[str]:
+    """The OAuth client IDs whose ID tokens this server accepts: the website's
+    and the iOS app's. Unset ones are left out."""
+    settings = get_settings()
+    return [cid for cid in (settings.google_client_id, settings.google_ios_client_id) if cid]
+
+
 def verify_google_id_token(id_token: str) -> dict:
     """Verify a Google ID token and return its payload.
     Raises ValueError on failure."""
@@ -63,11 +70,13 @@ def verify_google_id_token(id_token: str) -> dict:
         from google.oauth2 import id_token as google_id_token
         from google.auth.transport import requests as google_requests
 
-        settings = get_settings()
+        audiences = google_audiences()
+        if not audiences:
+            # google-auth skips the audience check when given an empty one,
+            # which would accept a token minted for any app on the internet.
+            raise ValueError("Google sign-in is not configured on this server.")
         request = google_requests.Request()
-        payload = google_id_token.verify_oauth2_token(
-            id_token, request, settings.google_client_id
-        )
+        payload = google_id_token.verify_oauth2_token(id_token, request, audiences)
         return payload
     except Exception as exc:
         raise ValueError(f"Invalid Google ID token: {exc}") from exc

@@ -2,17 +2,20 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Optional
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.anonymous_session import AnonymousSession
 from app.models.user import User, Plan
 from app.schemas.identity import (
+    GoogleTokenResponse,
     LoginRequest,
     OAuthGoogleRequest,
+    PasswordRejected,
     PatchMeRequest,
     SignupRequest,
     TokenResponse,
@@ -20,6 +23,8 @@ from app.schemas.identity import (
 )
 from app.services.anonymous_service import COOKIE_NAME as ANON_COOKIE_NAME
 from app.services.anonymous_service import merge_anonymous_into_user
+from app.services import password_policy
+from app.services.pwned_passwords import breach_count
 from app.services.auth_service import (
     create_session_token,
     hash_password,
@@ -155,15 +160,35 @@ def _try_send_welcome_email(db: Session, user: User) -> None:
 
 # ── Password signup / login ───────────────────────────────────────────────────
 
-@router.post("/password/signup", status_code=201)
+def _password_rejected(code: str, detail: str, failed: Optional[List[str]] = None) -> JSONResponse:
+    body = PasswordRejected(detail=detail, code=code, failed=failed or [])
+    return JSONResponse(status_code=400, content=body.model_dump())
+
+
+@router.post(
+    "/password/signup",
+    status_code=201,
+    response_model=TokenResponse,
+    responses={400: {"model": PasswordRejected}},
+)
 def password_signup(
     body: SignupRequest,
     request: Request,
     db: Session = Depends(get_db),
-) -> TokenResponse:
+):
+    failed = password_policy.violations(body.password, body.email, body.display_name)
+    if failed:
+        detail = " ".join(password_policy.MESSAGES[code] for code in failed)
+        return _password_rejected("weak_password", detail, failed)
     existing = _get_user_by_email(db, body.email)
     if existing:
         raise HTTPException(status_code=409, detail="An account with this email already exists.")
+    # After the 409 so that an address that is already taken costs no lookup.
+    if breach_count(body.password):
+        return _password_rejected(
+            "breached_password",
+            "That password has appeared in a known data breach. Choose a different one.",
+        )
     hashed = hash_password(body.password)
     user = _create_user_with_plan(
         db,
@@ -198,7 +223,7 @@ def password_login(body: LoginRequest, db: Session = Depends(get_db)) -> TokenRe
 
 # ── Google OAuth callback ─────────────────────────────────────────────────────
 
-@router.post("/oauth/google/callback")
+@router.post("/oauth/google/callback", response_model=GoogleTokenResponse)
 def google_oauth_callback(
     body: OAuthGoogleRequest,
     request: Request,
