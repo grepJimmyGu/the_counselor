@@ -169,7 +169,9 @@ struct ForgotPasswordView: View {
                 code = ""
                 step = .code
             } catch {
-                errorMessage = error == .invalidInput ? "Enter a valid email address." : error.message
+                errorMessage = error == .invalidInput
+                    ? "Enter a valid email address."
+                    : error.message(whileTryingTo: "send the code")
             }
         }
     }
@@ -181,7 +183,7 @@ struct ForgotPasswordView: View {
                 try await session.resetPassword(email: email, code: code, newPassword: password)
                 dismiss()
             } catch {
-                errorMessage = error.message
+                errorMessage = error.message(whileTryingTo: "set the new password")
             }
         }
     }

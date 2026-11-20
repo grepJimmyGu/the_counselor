@@ -502,3 +502,30 @@ struct ChangePasswordTests {
     }
 }
 
+@Suite("errors on screens that are not signing in")
+struct TaskErrorMessageTests {
+    @Test("a 404 says the server is behind the app, and does not say to try again")
+    func serverBehind() {
+        // Seen 2026-11-19: the reset screen against a backend without the
+        // reset endpoints said "couldn't sign you in (error 404). Try again
+        // in a moment", which was wrong on both counts.
+        let message = SignInError.server(status: 404).message(whileTryingTo: "send the code")
+        #expect(message.contains("send the code"))
+        #expect(message.contains("server update"))
+        #expect(!message.contains("sign you in"))
+        #expect(!message.contains("Try again in a moment"))
+    }
+
+    @Test("other server faults name the task and are worth retrying")
+    func otherFaults() {
+        let message = SignInError.server(status: 503).message(whileTryingTo: "change your password")
+        #expect(message == "Livermore couldn't change your password (error 503). Try again in a moment.")
+    }
+
+    @Test("every other error keeps its own words")
+    func unchanged() {
+        #expect(SignInError.network.message(whileTryingTo: "send the code") == SignInError.network.message)
+        #expect(SignInError.passwordRejected("No.").message(whileTryingTo: "send the code") == "No.")
+    }
+}
+

@@ -97,7 +97,7 @@ struct ChangePasswordView: View {
                 try await session.changePassword(current: current, new: password)
                 didChange = true
             } catch {
-                errorMessage = error.message
+                errorMessage = error.message(whileTryingTo: "change your password")
             }
             isBusy = false
         }

@@ -52,6 +52,25 @@ public enum SignInError: Error, Equatable, Sendable {
     }
 }
 
+extension SignInError {
+    /// The message on a screen that is doing something other than signing in,
+    /// named by `task` ("send the code", "change your password").
+    ///
+    /// A 404 there means the backend the app is talking to is older than the
+    /// app and has no such endpoint. "Try again in a moment" would be wrong:
+    /// trying again cannot help until the server is updated.
+    public func message(whileTryingTo task: String) -> String {
+        switch self {
+        case .server(status: 404):
+            "Livermore's server doesn't support this yet, so the app can't \(task). It needs a server update, not another try."
+        case .server(let status):
+            "Livermore couldn't \(task) (error \(status)). Try again in a moment."
+        default:
+            message
+        }
+    }
+}
+
 /// The signed-in user and the API client every screen shares.
 @MainActor
 @Observable
