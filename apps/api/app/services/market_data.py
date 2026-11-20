@@ -1,18 +1,37 @@
 from __future__ import annotations
 
+import time
 from datetime import date
-from typing import Optional
+from typing import Dict, Optional
 
 import pandas as pd
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
+from app.core.concurrency import SingleFlight
 from app.core.config import get_settings
 from app.models.price_bar import PriceBar
 from app.schemas.market_data import PriceBarResponse, SymbolSearchItem
 from app.services.alpha_vantage import AlphaVantageClient
 from app.services.price_data_service import PriceDataService
 from app.services.symbol_service import SymbolService
+
+# A forced refresh downloads a symbol's whole daily history and writes
+# thousands of rows. It used to run inside every request that found the
+# symbol more than three days behind, with nothing shared: on 2026-11-20 six
+# simultaneous watchlist loads with four such symbols took 39 s in production
+# and held the health check up for 3 s, each request repeating the same four
+# downloads. Now one refresh per symbol is shared by everyone waiting on it,
+# and a symbol is not tried again for ten minutes. The second part matters on
+# the first trading day after a long weekend, when every symbol is "more than
+# three days behind" all day and no refresh can change that until the close.
+_DISPLAY_REFRESH_EVERY_SECONDS = 600.0
+_display_refresh_attempts: Dict[str, float] = {}
+_display_refreshes = SingleFlight()
+
+
+def _now() -> float:
+    return time.monotonic()
 
 
 class MarketDataService:
@@ -37,17 +56,37 @@ class MarketDataService:
         """Force a refresh when the cached bar is more than 2 business days behind today.
         Used by the homepage market overview where display freshness matters more than
         avoiding extra API calls. Falls back gracefully if the fetch fails."""
-        latest = self._price_data.cache_svc.get_latest_date(db, symbol.upper())
+        sym = symbol.upper()
+        cache_svc = self._price_data.cache_svc
+        latest = cache_svc.get_latest_date(db, sym)
         today = date.today()
         # Allow up to 3 calendar days stale (covers Mon showing Fri close).
         # More than 3 days stale means we've missed at least one trading day.
-        if latest is None or (today - latest).days > 3:
+        if latest is not None and (today - latest).days <= 3:
+            return
+
+        key = ("display", sym)
+        if not _display_refreshes.is_running(key):
+            last = _display_refresh_attempts.get(sym)
+            if last is not None and _now() - last < _DISPLAY_REFRESH_EVERY_SECONDS:
+                return  # tried recently; serve what is cached
+            _display_refresh_attempts[sym] = _now()
+
+        # The shared refresh outlives the request that started it, so it
+        # writes through its own session on the caller's engine.
+        bind = db.get_bind()
+
+        async def refresh() -> None:
+            own = sessionmaker(bind=bind, autoflush=False, autocommit=False, future=True)()
             try:
-                await self._price_data.cache_svc.ensure_history(
-                    db, symbol.upper(), today, force=True
-                )
-            except Exception:
-                pass  # Serve cached data if refresh fails
+                await cache_svc.ensure_history(own, sym, today, force=True)
+            finally:
+                own.close()
+
+        try:
+            await _display_refreshes.run(key, refresh)
+        except Exception:
+            pass  # Serve cached data if refresh fails
 
     async def get_price_frame(
         self,
@@ -64,13 +103,17 @@ class MarketDataService:
     async def search_symbols(self, db: Session, query: str) -> list[SymbolSearchItem]:
         return await self._symbol_svc.search(db, query)
 
-    async def get_cached_bars(self, db: Session, symbol: str, end_date: date) -> list[PriceBarResponse]:
+    async def get_cached_bars(
+        self, db: Session, symbol: str, end_date: date, start_date: Optional[date] = None,
+    ) -> list[PriceBarResponse]:
+        """Daily bars for a symbol, oldest first; from `start_date` on when
+        one is given. A long-listed stock has 27 years of them (1.2 MB of
+        JSON), and a phone chart reads five."""
         await self._price_data.cache_svc.ensure_history(db, symbol.upper(), end_date)
-        rows = db.execute(
-            select(PriceBar)
-            .where(PriceBar.symbol == symbol.upper())
-            .order_by(PriceBar.trading_date.asc())
-        ).scalars().all()
+        query = select(PriceBar).where(PriceBar.symbol == symbol.upper())
+        if start_date is not None:
+            query = query.where(PriceBar.trading_date >= start_date)
+        rows = db.execute(query.order_by(PriceBar.trading_date.asc())).scalars().all()
         return [
             PriceBarResponse(
                 symbol=row.symbol,

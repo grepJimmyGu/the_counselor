@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import copy
 from typing import Optional
 
 from app.services.fmp_client import FMPClient, FMPNotConfiguredError, FMPRateLimitError
@@ -174,21 +176,37 @@ class FinancialValidationService:
     def __init__(self) -> None:
         self._client = FMPClient()
 
-    async def compute(self, symbol: str, key_metrics: dict) -> FinancialCheckMetrics:
-        m = FinancialCheckMetrics()
+    async def statement_metrics(self, symbol: str) -> Optional[FinancialCheckMetrics]:
+        """Everything that comes from the three financial statements, or None
+        when FMP is not configured or is rate-limiting us.
+
+        The statements are independent, so they are fetched together. None of
+        this depends on the share price, which is why callers can keep the
+        result for hours and add the valuation figures to a copy.
+        """
         sym = symbol.upper()
         try:
-            income = await self._client.get_income_statement(sym, limit=5)
-            cashflow = await self._client.get_cash_flow(sym, limit=5)
-            balance = await self._client.get_balance_sheet(sym, limit=3)
+            income, cashflow, balance = await asyncio.gather(
+                self._client.get_income_statement(sym, limit=5),
+                self._client.get_cash_flow(sym, limit=5),
+                self._client.get_balance_sheet(sym, limit=3),
+            )
         except (FMPNotConfiguredError, FMPRateLimitError):
-            return m  # return empty metrics if FMP not available
-
+            return None
+        m = FinancialCheckMetrics()
         _extract_income_metrics(income, m)
         _extract_cashflow_metrics(cashflow, income, m)
         _extract_balance_sheet_metrics(balance, m)
+        return m
 
-        # Valuation from key_metrics dict
+    @staticmethod
+    def with_valuation(base: Optional[FinancialCheckMetrics], key_metrics: dict) -> FinancialCheckMetrics:
+        """`base` plus the price-dependent figures from FMP's key metrics.
+        Works on a copy, so a cached `base` is never changed."""
+        m = copy.deepcopy(base) if base is not None else FinancialCheckMetrics()
+        if base is None:
+            return m  # FMP unavailable: empty metrics, as before
+
         def _kf(k: str) -> Optional[float]:
             v = key_metrics.get(k)
             try:
@@ -208,3 +226,6 @@ class FinancialValidationService:
             m.peg_ratio = m.pe_ratio / (m.eps_yoy * 100)
 
         return m
+
+    async def compute(self, symbol: str, key_metrics: dict) -> FinancialCheckMetrics:
+        return self.with_valuation(await self.statement_metrics(symbol), key_metrics)

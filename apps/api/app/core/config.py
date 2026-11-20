@@ -55,6 +55,17 @@ class Settings(BaseSettings):
     # The portfolio agent's scheduled scans. A kill switch: with it off the
     # agent still answers when a user asks it to look.
     agent_monitor_enabled: bool = True
+    # Scans of one user's watchlist and holdings that may run at once, across
+    # the scheduled job and "Check now". Each takes a database connection and
+    # may read the broker, so this is also the most connections the agent's
+    # checks can hold. The scheduled job keeps two of these free for people.
+    agent_scan_concurrency: int = 8
+    # Agent conversations streaming at once. Past this a new one is told the
+    # agent is busy rather than left to queue behind the model provider.
+    agent_chat_max_concurrent: int = 40
+    # The scheduled job stops starting new scans this long after it began, so
+    # one run can never run into the next (they are 30 minutes apart).
+    agent_monitor_budget_seconds: int = 25 * 60
     google_client_id: str = ""
     # The iOS app's OAuth client. Its ID tokens carry this as their audience,
     # not the website's client ID.
@@ -108,6 +119,16 @@ class Settings(BaseSettings):
     llm_model: str = ""
     llm_timeout_seconds: float = 45.0
     database_url: str = "sqlite:///./strategylab_ai.db"
+    # Postgres connections. SQLAlchemy's defaults are 5 + 10 overflow = 15,
+    # and FastAPI runs up to 40 plain-`def` routes at once, each holding one
+    # for its whole request: the sixteenth waits 30 s and then fails. 10 + 20
+    # leaves room for the scheduler's jobs and for the agent's scans, and two
+    # containers during a deploy (60) still fit under Postgres's default 100.
+    db_pool_size: int = 10
+    db_max_overflow: int = 20
+    # Connections older than this are replaced rather than reused, so one a
+    # proxy has silently dropped is not handed to a request.
+    db_pool_recycle_seconds: int = 1800
     api_timeout_seconds: float = 20.0
     price_cache_stale_hours: int = 24
     allowed_origins: Union[str, list[str]] = [

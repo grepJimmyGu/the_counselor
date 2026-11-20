@@ -783,10 +783,11 @@ async def lifespan(_: FastAPI):
         "feature_flags gating_enabled=%s app_env=%s",
         _s.gating_enabled, _s.app_env,
     )
-    # The agent's scheduled scans run on this loop, not the scheduler's
-    # thread: they use the live quote service, whose locks live here.
-    from app.services.agent import monitor as _agent_monitor
-    _agent_monitor.set_main_loop(asyncio.get_running_loop())
+    # Record the loop that serves requests. The agent's scheduled scans are
+    # handed to it from the scheduler's thread, and the FMP client keeps its
+    # shared connection pool on it and on no other loop (trap 22).
+    from app.core import concurrency as _concurrency
+    _concurrency.set_main_loop(asyncio.get_running_loop())
     _start_scheduler()
     # Warmups run on dedicated threads (see `_run_async_in_thread` above) so
     # their internal SYNCHRONOUS DB calls can't block the main event loop —
@@ -803,7 +804,12 @@ async def lifespan(_: FastAPI):
     # 80-second cold-cache cost. Its own thread + event loop (trap #21); gates
     # its first tick on `_db_ready` + the one-shots so it can't race boot writes.
     asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _warmup_market_pulse_loop()))
-    yield
+    try:
+        yield
+    finally:
+        from app.services.fmp_client import close_shared_client
+        await close_shared_client()
+        _concurrency.set_main_loop(None)
 
 
 settings = get_settings()

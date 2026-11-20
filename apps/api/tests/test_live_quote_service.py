@@ -221,3 +221,153 @@ def test_from_fmp_payload_rejects_missing_price() -> None:
 
 def test_from_fmp_payload_rejects_missing_symbol() -> None:
     assert _from_fmp_payload({"price": 100.0}, fetched_at=time.monotonic()) is None
+
+
+# ── many callers at once (2026-11-20) ────────────────────────────────────────
+#
+# Symptom: 40 simultaneous requests to /api/live/quotes across 12 symbols took
+# 6.9 s in production, with the server otherwise idle.
+# Cause: the service took one asyncio.Lock per stale symbol and held them all
+# across the FMP call, so two callers with any symbol in common ran one after
+# the other, each paying a full FMP round trip. Five different symbol sets
+# meant five calls end to end.
+# Fix: stale symbols go on one queue; one FMP call at a time carries whatever
+# is queued; a symbol already asked for is waited on, not asked for again.
+
+
+def test_overlapping_callers_are_answered_by_two_calls_not_one_each(
+    service: LiveQuoteService, mock_fmp: AsyncMock,
+) -> None:
+    symbols = ["AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA", "JPM", "V", "UNH", "XOM", "WMT"]
+    batches: list[list[str]] = []
+    in_flight = 0
+    most_in_flight = 0
+
+    async def slow_batch(batch: list[str]) -> list[dict]:
+        nonlocal in_flight, most_in_flight
+        batches.append(list(batch))
+        in_flight += 1
+        most_in_flight = max(most_in_flight, in_flight)
+        await asyncio.sleep(0.02)
+        in_flight -= 1
+        return [_quote_payload(s) for s in batch]
+
+    mock_fmp.get_quotes_batch.side_effect = slow_batch
+
+    async def forty_callers():
+        # Five different lists, each sharing symbols with the others.
+        return await asyncio.gather(*(
+            service.get_quotes(symbols[i % 5:i % 5 + 8]) for i in range(40)
+        ))
+
+    results = asyncio.run(forty_callers())
+
+    for i, result in enumerate(results):
+        assert set(result) == set(symbols[i % 5:i % 5 + 8])
+    # The old code made five calls here, strictly one after another.
+    assert len(batches) <= 2
+    # Every symbol went to FMP exactly once.
+    sent = [s for batch in batches for s in batch]
+    assert sorted(sent) == sorted(symbols)
+    # And never two FMP quote calls at the same time (trap 15).
+    assert most_in_flight == 1
+
+
+def test_symbols_asked_for_during_a_call_ride_on_the_next_one(
+    service: LiveQuoteService, mock_fmp: AsyncMock,
+) -> None:
+    batches: list[list[str]] = []
+
+    async def scenario():
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def batch_call(batch: list[str]) -> list[dict]:
+            batches.append(list(batch))
+            if len(batches) == 1:
+                started.set()
+                await release.wait()
+            return [_quote_payload(s) for s in batch]
+
+        mock_fmp.get_quotes_batch.side_effect = batch_call
+        first = asyncio.ensure_future(service.get_quotes(["AAPL"]))
+        await started.wait()
+        # While AAPL is out: one caller wants AAPL again, two want new symbols.
+        again = asyncio.ensure_future(service.get_quotes(["AAPL"]))
+        others = [asyncio.ensure_future(service.get_quotes([s])) for s in ("MSFT", "NVDA")]
+        await asyncio.sleep(0)
+        release.set()
+        return await asyncio.gather(first, again, *others)
+
+    results = asyncio.run(scenario())
+    assert [set(r) for r in results] == [{"AAPL"}, {"AAPL"}, {"MSFT"}, {"NVDA"}]
+    assert batches == [["AAPL"], ["MSFT", "NVDA"]]
+
+
+def test_a_failed_call_reaches_its_callers_and_the_next_request_tries_again(
+    service: LiveQuoteService, mock_fmp: AsyncMock,
+) -> None:
+    mock_fmp.get_quotes_batch.side_effect = RuntimeError("FMP is down")
+
+    async def two_callers():
+        return await asyncio.gather(
+            service.get_quotes(["AAPL"]), service.get_quotes(["AAPL", "MSFT"]),
+            return_exceptions=True,
+        )
+
+    results = asyncio.run(two_callers())
+    assert all(isinstance(r, RuntimeError) for r in results)
+
+    mock_fmp.get_quotes_batch.side_effect = None
+    mock_fmp.get_quotes_batch.return_value = [_quote_payload("AAPL", 201.0)]
+    assert asyncio.run(service.get_quotes(["AAPL"]))["AAPL"].price == 201.0
+
+
+def test_a_caller_that_gives_up_does_not_strand_the_others(
+    service: LiveQuoteService, mock_fmp: AsyncMock,
+) -> None:
+    async def scenario():
+        release = asyncio.Event()
+
+        async def batch_call(batch: list[str]) -> list[dict]:
+            await release.wait()
+            return [_quote_payload(s) for s in batch]
+
+        mock_fmp.get_quotes_batch.side_effect = batch_call
+        leaver = asyncio.ensure_future(service.get_quotes(["AAPL"]))
+        await asyncio.sleep(0)
+        stayer = asyncio.ensure_future(service.get_quotes(["AAPL"]))
+        await asyncio.sleep(0)
+        leaver.cancel()
+        release.set()
+        return await stayer
+
+    assert set(asyncio.run(scenario())) == {"AAPL"}
+
+
+def test_the_service_works_from_a_second_event_loop_after_a_first_used_it(
+    service: LiveQuoteService, mock_fmp: AsyncMock,
+) -> None:
+    """Trap 22, the 2026-06-07 Market Pulse outage: the locks this service
+    used to keep were bound to whichever loop touched them first. It keeps
+    nothing loop-bound across loops now, so a second loop simply works."""
+    async def batch_call(batch: list[str]) -> list[dict]:
+        await asyncio.sleep(0)
+        return [_quote_payload(s) for s in batch]
+
+    mock_fmp.get_quotes_batch.side_effect = batch_call
+    assert set(asyncio.run(service.get_quotes(["AAPL"]))) == {"AAPL"}
+    assert set(asyncio.run(service.get_quotes(["MSFT"]))) == {"MSFT"}
+
+
+def test_cached_returns_the_last_quote_without_fetching(
+    service: LiveQuoteService, mock_fmp: AsyncMock,
+) -> None:
+    assert service.cached("AAPL") is None
+    mock_fmp.get_quotes_batch.return_value = [_quote_payload("AAPL", 200.0)]
+    asyncio.run(service.get_quotes(["AAPL"]))
+    mock_fmp.get_quotes_batch.reset_mock()
+
+    assert service.cached("aapl").price == 200.0
+    assert service.cached("AAPL", max_age=0) is None
+    assert mock_fmp.get_quotes_batch.await_count == 0
