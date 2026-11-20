@@ -16,6 +16,7 @@ class AgentProfileView(BaseModel):
     move_alert_pct: float
     max_position_pct: float
     notes: str
+    email_alerts: bool = True
     last_scan_at: Optional[datetime] = None
     # False when no language model is configured on this server. The monitor
     # and its insights work without one; the conversation does not.
@@ -26,6 +27,7 @@ class AgentProfileUpdate(BaseModel):
     """Only the fields sent are changed."""
 
     enabled: Optional[bool] = None
+    email_alerts: Optional[bool] = None
     watchlist: Optional[List[str]] = None
     move_alert_pct: Optional[float] = Field(default=None, ge=1, le=50)
     max_position_pct: Optional[float] = Field(default=None, ge=5, le=100)

@@ -66,11 +66,13 @@ public final class AgentStore {
     }
 
     public func update(
-        enabled: Bool? = nil, moveAlertPct: Double? = nil, maxPositionPct: Double? = nil, notes: String? = nil
+        enabled: Bool? = nil, emailAlerts: Bool? = nil,
+        moveAlertPct: Double? = nil, maxPositionPct: Double? = nil, notes: String? = nil
     ) async {
         await run {
             self.profile = try await self.service.update(
-                enabled: enabled, moveAlertPct: moveAlertPct, maxPositionPct: maxPositionPct, notes: notes
+                enabled: enabled, emailAlerts: emailAlerts,
+                moveAlertPct: moveAlertPct, maxPositionPct: maxPositionPct, notes: notes
             )
         }
     }

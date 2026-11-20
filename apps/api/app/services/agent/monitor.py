@@ -54,6 +54,8 @@ class ScanResult:
     brokerage_linked: bool = False
     # Things the scan could not do, in words for the user.
     notes: List[str] = field(default_factory=list)
+    # The findings this scan stored for the first time.
+    new_findings: List[Finding] = field(default_factory=list)
 
 
 @dataclass
@@ -152,9 +154,9 @@ def _gather(user_id: str) -> _Inputs:
     return _Inputs(watchlist, move_alert_pct, max_position_pct, holdings, linked, exits, notes)
 
 
-def _persist(user_id: str, findings: List[Finding], checked_at: datetime) -> int:
-    """Store the findings that are not already known. Returns how many were new."""
-    new = 0
+def _persist(user_id: str, findings: List[Finding], checked_at: datetime) -> List[Finding]:
+    """Store the findings that are not already known, and return those."""
+    new: List[Finding] = []
     with SessionLocal() as db:
         known = set(db.execute(
             select(AgentInsight.dedupe_key).where(
@@ -179,7 +181,7 @@ def _persist(user_id: str, findings: List[Finding], checked_at: datetime) -> int
                 action=finding.action,
                 created_at=checked_at,
             ))
-            new += 1
+            new.append(finding)
         profile = db.get(AgentProfile, user_id)
         if profile is not None:
             profile.last_scan_at = checked_at
@@ -241,8 +243,50 @@ async def scan_user(user_id: str) -> ScanResult:
     new = await asyncio.to_thread(_persist, user_id, findings, checked_at)
     return ScanResult(
         checked_at=checked_at,
-        new_insights=new,
+        new_insights=len(new),
+        new_findings=new,
         symbols_checked=len(symbols),
         brokerage_linked=inputs.brokerage_linked,
         notes=notes,
     )
+
+
+def email_new_findings(user_id: str, findings: List[Finding]) -> bool:
+    """Email the user what a scheduled check just found, if they want that.
+
+    One email per check, and only for findings marked to watch: a stock that
+    is merely up on the day can wait until the app is opened. Each finding is
+    stored once, so it is emailed once.
+    """
+    worth = [f for f in findings if f.severity == "watch"]
+    if not worth:
+        return False
+    from app.models.user import User
+    from app.services.email_service import send_email
+
+    with SessionLocal() as db:
+        profile = db.get(AgentProfile, user_id)
+        user = db.get(User, user_id)
+        if profile is None or user is None or not profile.email_alerts:
+            return False
+        count = len(worth)
+        subject = worth[0].title if count == 1 else "Your agent found %d things to look at" % count
+        lines = ["%s\n%s" % (f.title, f.body) for f in worth]
+        footer = ("Open the Livermore app and go to Agent to act on these. Your agent reports what "
+                  "happened under limits you set; it does not place orders.\n"
+                  "To stop these emails: Agent, then settings, then turn off email.")
+        text = "\n\n".join(lines) + "\n\n" + footer
+        html = (
+            '<div style="font-family:-apple-system,Segoe UI,Helvetica,Arial,sans-serif;font-size:16px;'
+            'line-height:1.5;color:#111;max-width:520px">'
+            + "".join('<p><strong>%s</strong><br>%s</p>' % (_escape(f.title), _escape(f.body)) for f in worth)
+            + '<p style="color:#666;font-size:13px">%s</p></div>' % _escape(footer).replace("\n", "<br>")
+        )
+        return send_email(db, user, template="agent_findings", subject=subject, html=html, text=text,
+                          category="transactional")
+
+
+def _escape(text: str) -> str:
+    import html
+    return html.escape(text)
+

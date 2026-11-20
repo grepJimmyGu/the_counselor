@@ -40,6 +40,7 @@ def _profile_view(profile: AgentProfile) -> AgentProfileView:
         move_alert_pct=profile.move_alert_pct,
         max_position_pct=profile.max_position_pct,
         notes=profile.notes or "",
+        email_alerts=profile.email_alerts,
         last_scan_at=profile.last_scan_at,
         chat_available=get_llm_gateway().is_enabled,
     )

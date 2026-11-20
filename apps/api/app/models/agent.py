@@ -31,6 +31,9 @@ class AgentProfile(Base):
     move_alert_pct: Mapped[float] = mapped_column(Float, default=4.0, nullable=False)
     # The most one holding may be of the portfolio, in percent.
     max_position_pct: Mapped[float] = mapped_column(Float, default=25.0, nullable=False)
+    # Email what a scheduled check finds. The app cannot be reached while it
+    # is closed, so without this the user learns nothing until they open it.
+    email_alerts: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     # The user's own words about how they invest. Given to the agent in chat.
     notes: Mapped[str] = mapped_column(Text, default="", nullable=False)
     last_scan_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)

@@ -40,6 +40,12 @@ def agent_monitor_job() -> dict:
             result = future.result(timeout=_SCAN_TIMEOUT_SECONDS)
             scanned += 1
             new += result.new_insights
+            # Only from here, never from a check the user asked for: they are
+            # looking at the screen when they ask.
+            try:
+                monitor.email_new_findings(user_id, result.new_findings)
+            except Exception:  # noqa: BLE001
+                logger.exception("agent monitor: email failed user=%s", user_id)
         except Exception:  # noqa: BLE001 — one user's failure must not stop the rest
             failed += 1
             logger.exception("agent monitor: scan failed user=%s", user_id)

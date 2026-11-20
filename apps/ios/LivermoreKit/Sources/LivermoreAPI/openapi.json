@@ -11147,6 +11147,11 @@
       "type": "string",
       "title": "Notes"
      },
+     "email_alerts": {
+      "type": "boolean",
+      "title": "Email Alerts",
+      "default": true
+     },
      "last_scan_at": {
       "title": "Last Scan At",
       "type": "string",
@@ -11172,6 +11177,10 @@
     "properties": {
      "enabled": {
       "title": "Enabled",
+      "type": "boolean"
+     },
+     "email_alerts": {
+      "title": "Email Alerts",
       "type": "boolean"
      },
      "watchlist": {

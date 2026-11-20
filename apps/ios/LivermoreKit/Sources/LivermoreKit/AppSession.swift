@@ -112,6 +112,10 @@ public final class AppSession {
     /// Where the API lives. The agent's conversation streams from it directly.
     public let serverURL: URL
 
+    /// Replaces the network for the agent's conversation. The sample account
+    /// sets it; nothing else does.
+    var agentChatOpener: AgentChatService.Opener?
+
     /// Google sign-in, or nil in a build with no Google client ID.
     public let google: GoogleSignIn?
 
@@ -180,7 +184,9 @@ public final class AppSession {
     /// A new conversation with the portfolio agent.
     public func newAgentConversation() -> AgentConversation {
         let tokens = tokens
-        return AgentConversation(service: AgentChatService(serverURL: serverURL, token: { tokens.get() }))
+        return AgentConversation(service: AgentChatService(
+            serverURL: serverURL, token: { tokens.get() }, open: agentChatOpener ?? AgentChatService.urlSession
+        ))
     }
 
     /// The user's linked brokerage: accounts, holdings, order tickets.

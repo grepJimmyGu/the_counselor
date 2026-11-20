@@ -333,3 +333,58 @@ def test_the_scheduled_job_scans_only_users_who_turned_the_agent_on(make_user, a
         thread.join(timeout=5)
     assert scanned == [on.id]
     assert summary == {"users": 1, "scanned": 1, "new_insights": 2, "failed": 0}
+
+
+# ── Email from scheduled checks ───────────────────────────────────────────────
+
+def _finding(severity: str, title: str = "AAPL is 50% of your holdings, over your 25% limit") -> checks.Finding:
+    return checks.Finding(kind="concentration", severity=severity, title=title,
+                          body="Selling about $26,667 would bring it to 25%.", dedupe_key=title)
+
+
+def test_new_watch_findings_are_emailed_once_as_one_message(make_user, agent_db: Session) -> None:
+    user = make_user(email="mail@example.com")
+    monitor.get_or_create_profile(agent_db, user.id)
+    findings = [_finding("watch"), _finding("watch", "2 exits are waiting on your decision"), _finding("info", "MSFT is up 4.2% today")]
+    with patch("app.services.email_service.send_email", return_value=True) as send:
+        assert monitor.email_new_findings(user.id, findings) is True
+    send.assert_called_once()
+    kwargs = send.call_args.kwargs
+    assert kwargs["subject"] == "Your agent found 2 things to look at"
+    assert "AAPL is 50%" in kwargs["text"] and "2 exits are waiting" in kwargs["text"]
+    # Something that is only informational waits for the app to be opened.
+    assert "MSFT" not in kwargs["text"]
+    assert "does not place orders" in kwargs["text"] and "turn off email" in kwargs["text"]
+    assert "http" not in kwargs["text"]
+
+
+def test_one_finding_is_its_own_subject_and_nothing_to_watch_sends_nothing(make_user, agent_db: Session) -> None:
+    user = make_user(email="one@example.com")
+    monitor.get_or_create_profile(agent_db, user.id)
+    with patch("app.services.email_service.send_email", return_value=True) as send:
+        monitor.email_new_findings(user.id, [_finding("watch")])
+        assert send.call_args.kwargs["subject"] == "AAPL is 50% of your holdings, over your 25% limit"
+        send.reset_mock()
+        assert monitor.email_new_findings(user.id, [_finding("info")]) is False
+        assert monitor.email_new_findings(user.id, []) is False
+    send.assert_not_called()
+
+
+def test_email_is_not_sent_to_a_user_who_turned_it_off(make_user, agent_db: Session) -> None:
+    user = make_user(email="quiet@example.com")
+    monitor.get_or_create_profile(agent_db, user.id).email_alerts = False
+    agent_db.commit()
+    with patch("app.services.email_service.send_email") as send:
+        assert monitor.email_new_findings(user.id, [_finding("watch")]) is False
+    send.assert_not_called()
+
+
+def test_a_check_the_user_asked_for_does_not_email_them(make_user, agent_db: Session) -> None:
+    user = make_user(email="asked@example.com")
+    monitor.get_or_create_profile(agent_db, user.id)
+    holdings = [Holding("AAPL", 100, 400.0), Holding("MSFT", 10, 100.0)]
+    with patch("app.services.email_service.send_email") as send:
+        result = _scan(user.id, holdings=holdings)
+    assert [f.kind for f in result.new_findings] == ["concentration"]
+    send.assert_not_called()
+

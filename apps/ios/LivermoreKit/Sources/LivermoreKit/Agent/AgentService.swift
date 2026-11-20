@@ -95,6 +95,7 @@ public struct AgentService: Sendable {
     /// Changes the settings that are given and leaves the rest alone.
     public func update(
         enabled: Bool? = nil,
+        emailAlerts: Bool? = nil,
         watchlist: [String]? = nil,
         moveAlertPct: Double? = nil,
         maxPositionPct: Double? = nil,
@@ -102,7 +103,7 @@ public struct AgentService: Sendable {
     ) async throws(APIFailure) -> AgentProfile {
         let output = try await APIFailure.perform {
             try await client.updateProfileApiAgentProfilePut(body: .json(.init(
-                enabled: enabled, watchlist: watchlist, moveAlertPct: moveAlertPct,
+                enabled: enabled, emailAlerts: emailAlerts, watchlist: watchlist, moveAlertPct: moveAlertPct,
                 maxPositionPct: maxPositionPct, notes: notes
             )))
         }
