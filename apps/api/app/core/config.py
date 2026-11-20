@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     reddit_user_agent: str = "livermore-research/1.0"
     internal_api_key: str = ""  # shared secret for Next.js → FastAPI internal calls
     nextauth_secret: str = ""   # signs session JWTs; must match NEXTAUTH_SECRET in Next.js
+    # The portfolio agent's scheduled scans. A kill switch: with it off the
+    # agent still answers when a user asks it to look.
+    agent_monitor_enabled: bool = True
     google_client_id: str = ""
     # The iOS app's OAuth client. Its ID tokens carry this as their audience,
     # not the website's client ID.

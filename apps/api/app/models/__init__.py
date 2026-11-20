@@ -1,3 +1,4 @@
+from app.models.agent import AgentInsight, AgentProfile  # noqa: F401
 from app.models.anonymous_session import AnonymousSession  # noqa: F401
 from app.models.attribution_visit import AttributionVisit  # noqa: F401
 from app.models.backtest import BacktestRecord
