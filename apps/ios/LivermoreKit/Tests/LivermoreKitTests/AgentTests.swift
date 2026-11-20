@@ -238,6 +238,16 @@ struct AgentConversationTests {
         await behind.send("hi")
         #expect(behind.messages[1].failure?.contains("server update") == true)
 
+        // Under load the server refuses rather than queues: one answer per
+        // person at a time, and a cap on conversations overall.
+        let twice = AgentConversation(service: service(lines: [], status: 429))
+        await twice.send("hi")
+        #expect(twice.messages[1].failure == "Your agent is still answering your last message.")
+
+        let busy = AgentConversation(service: service(lines: [], status: 503))
+        await busy.send("hi")
+        #expect(busy.messages[1].failure == "Your agent is busy right now. Try again in a moment.")
+
         let cut = AgentConversation(service: service(lines: [#"data: {"type":"token","text":"AAPL"}"#]))
         await cut.send("hi")
         #expect(cut.messages[1].text == "AAPL")

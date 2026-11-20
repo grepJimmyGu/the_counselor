@@ -30,7 +30,9 @@ private actor FakeQuotes {
 
 @MainActor
 private func makeStore(_ fake: FakeQuotes, interval: Duration = .seconds(3600)) -> QuoteStore {
-    QuoteStore(interval: interval, now: { Date(timeIntervalSince1970: 1_800_000_000) }) { symbols in
+    QuoteStore(
+        interval: interval, now: { Date(timeIntervalSince1970: 1_800_000_000) }, isTrading: { _ in true }
+    ) { symbols in
         try await fake.fetch(symbols)
     }
 }
@@ -154,5 +156,45 @@ struct QuoteStoreTests {
         #expect(await eventually { store.quotes.count == 230 })
         #expect(await fake.calls.map(\.count) == [100, 100, 30])
         store.unwatch(symbols)
+    }
+
+    // Polling was every 10 seconds around the clock. Outside US trading
+    // hours the price is the last trade and cannot change.
+    @Test("prices are checked less often when no US session is open")
+    func idlePolling() async {
+        let fake = FakeQuotes(prices: ["AAPL": 210.5])
+        let open = Date(timeIntervalSince1970: 1_800_000_000)
+        let store = QuoteStore(
+            interval: .milliseconds(20), idleInterval: .seconds(3600),
+            now: { open }, isTrading: { _ in false }
+        ) { symbols in
+            try await fake.fetch(symbols)
+        }
+        #expect(store.currentInterval == .seconds(3600))
+        store.watch(["AAPL"])
+        #expect(await eventually { store.quotes["AAPL"]?.price == 210.5 })
+        // Several of the fast interval go by and it has still asked only once.
+        try? await Task.sleep(for: .milliseconds(120))
+        #expect(await fake.calls.count == 1)
+        store.unwatch(["AAPL"])
+    }
+
+    @Test("a US session is open on weekdays from pre-market to after-hours")
+    func marketHours() {
+        func newYork(_ text: String) -> Date {
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.timeZone = TimeZone(identifier: "America/New_York")
+            formatter.dateFormat = "yyyy-MM-dd HH:mm"
+            return formatter.date(from: text)!
+        }
+        #expect(MarketHours.isOpen(at: newYork("2026-11-20 03:59")) == false)  // Friday, before pre-market
+        #expect(MarketHours.isOpen(at: newYork("2026-11-20 04:00")))
+        #expect(MarketHours.isOpen(at: newYork("2026-11-20 12:30")))
+        #expect(MarketHours.isOpen(at: newYork("2026-11-20 19:59")))
+        #expect(MarketHours.isOpen(at: newYork("2026-11-20 20:00")) == false)  // after-hours over
+        #expect(MarketHours.isOpen(at: newYork("2026-11-21 12:30")) == false)  // Saturday
+        #expect(MarketHours.isOpen(at: newYork("2026-11-22 12:30")) == false)  // Sunday
+        #expect(MarketHours.isOpen(at: newYork("2026-11-23 09:30")))            // Monday
     }
 }

@@ -100,6 +100,12 @@ public final class AppSession {
     /// Daily price histories for the charts, kept while the app runs.
     public let priceHistory: PriceHistory
 
+    /// Company pages, trends and filing analyses the user looked at in the
+    /// last few minutes, so going back to one is immediate.
+    public let recentOverviews = RecentValues<CompanyOverview>()
+    public let recentTrends = RecentValues<CompanyTrend>()
+    public let recentFilings = RecentValues<FilingAnalysis>()
+
     /// Exits waiting on a decision and unread notices.
     public let inbox: ActionInbox
 
@@ -428,6 +434,7 @@ public final class AppSession {
         // asked again on the next.
         try? store.save(session)
         tokens.set(session.token)
+        forgetRecentResearch()
         state = .signedIn(session)
     }
 
@@ -439,7 +446,16 @@ public final class AppSession {
         inbox.reset()
         brokerageLink.reset()
         agent.reset()
+        forgetRecentResearch()
         state = .signedOut
+    }
+
+    /// What a plan may see differs by plan, so nothing looked at under one
+    /// sign-in is shown under another.
+    private func forgetRecentResearch() {
+        recentOverviews.removeAll()
+        recentTrends.removeAll()
+        recentFilings.removeAll()
     }
 
     /// Loads the plan tier. A 401 here means the stored token has expired

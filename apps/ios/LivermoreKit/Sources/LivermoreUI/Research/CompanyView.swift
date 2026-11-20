@@ -90,28 +90,44 @@ struct CompanyView: View {
     // The calls are independent, so they run together and each part of the
     // page appears as its own data arrives. The overview is the slow one.
     private func load() async {
-        phase = .loading
-        trend = nil
         trendFailed = false
         let research = session.research
-        async let trendResult: CompanyTrend? = try? research.trend(symbol)
+        // A company looked at in the last few minutes is shown from memory:
+        // no skeleton, and no request for an answer that cannot have changed.
+        let recentTrend = session.recentTrends.value(for: symbol)
+        trend = recentTrend
+        async let trendResult: CompanyTrend? = recentTrend == nil ? try? research.trend(symbol) : recentTrend
 
-        do throws(ResearchError) {
-            let overview = try await research.overview(symbol)
-            phase = .loaded(overview)
-            session.watchlist.viewed(symbol, name: overview.name)
-        } catch {
-            phase = .failed(error)
+        if let recent = session.recentOverviews.value(for: symbol) {
+            phase = .loaded(recent)
+            session.watchlist.viewed(symbol, name: recent.name)
+        } else {
+            phase = .loading
+            do throws(ResearchError) {
+                let overview = try await research.overview(symbol)
+                session.recentOverviews.store(overview, for: symbol)
+                phase = .loaded(overview)
+                session.watchlist.viewed(symbol, name: overview.name)
+            } catch {
+                phase = .failed(error)
+            }
         }
         trend = await trendResult
         trendFailed = trend == nil
+        if recentTrend == nil, let trend { session.recentTrends.store(trend, for: symbol) }
     }
 
     private func loadFilings() async {
         if case .loaded(let analysis) = filings, analysis.symbol == symbol.uppercased() { return }
+        if let recent = session.recentFilings.value(for: symbol) {
+            filings = .loaded(recent)
+            return
+        }
         filings = .loading
         do throws(ResearchError) {
-            filings = .loaded(try await session.research.filings(symbol))
+            let analysis = try await session.research.filings(symbol)
+            session.recentFilings.store(analysis, for: symbol)
+            filings = .loaded(analysis)
         } catch {
             // The backend explains a company it cannot read (a foreign filer,
             // one the SEC does not list); anything else is just "not now".

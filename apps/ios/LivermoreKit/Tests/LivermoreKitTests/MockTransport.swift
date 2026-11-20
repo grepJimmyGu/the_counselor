@@ -8,6 +8,8 @@ final class MockTransport: ClientTransport, @unchecked Sendable {
         let operationID: String
         let authorization: String?
         let body: String
+        /// The path and query as sent, e.g. "/api/data/daily/NVDA?start=2020-11-20".
+        var path: String = ""
     }
 
     enum Reply: Sendable {
@@ -41,7 +43,8 @@ final class MockTransport: ClientTransport, @unchecked Sendable {
             recorded.append(.init(
                 operationID: operationID,
                 authorization: request.headerFields[.authorization],
-                body: sent
+                body: sent,
+                path: request.path ?? ""
             ))
             return replies[operationID]
         }

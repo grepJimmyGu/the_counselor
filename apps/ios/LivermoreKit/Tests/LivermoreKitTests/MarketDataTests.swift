@@ -38,6 +38,52 @@ struct MarketDataTests {
         #expect(rows.last?.date == day("2026-11-16"))
     }
 
+    // A stock listed since 1999 has 27 years of daily bars: 1.2 MB of JSON
+    // per company page, twice with the benchmark, for charts that read five.
+    @Test("a history is asked for six years back, not from the listing day")
+    func dailyClosesAreBounded() async throws {
+        let (service, transport) = make()
+        transport.stub("get_daily_prices_api_data_daily__symbol__get", .json(status: 200, "[]"))
+        _ = try await service.dailyCloses("NVDA", now: day("2026-11-20"))
+        #expect(transport.requests.last?.path == "/api/data/daily/NVDA?start=2020-11-20")
+        #expect(PriceHistory.yearsKept > BracketTest.years)
+    }
+
+    @Test("something looked at a moment ago is kept, then let go")
+    func recentValues() {
+        var clock = Date(timeIntervalSince1970: 1_800_000_000)
+        let recent = RecentValues<String>(lifetime: 300, capacity: 2, now: { clock })
+        #expect(recent.value(for: "NVDA") == nil)
+
+        recent.store("nvidia", for: "nvda")
+        clock.addTimeInterval(299)
+        #expect(recent.value(for: "NVDA") == "nvidia")
+        clock.addTimeInterval(2)
+        #expect(recent.value(for: "NVDA") == nil)
+
+        // Only the most recently stored are kept.
+        recent.store("a", for: "A")
+        recent.store("b", for: "B")
+        recent.store("c", for: "C")
+        #expect(recent.value(for: "A") == nil)
+        #expect(recent.value(for: "B") == "b" && recent.value(for: "C") == "c")
+
+        recent.removeAll()
+        #expect(recent.value(for: "C") == nil)
+    }
+
+    @Test("what was looked at under one sign-in is not shown under another")
+    func recentResearchIsPerSignIn() async throws {
+        let transport = MockTransport()
+        let session = AppSession(serverURL: server, store: InMemorySessionStore(), transport: transport)
+        transport.stub("get_company_trend_api_company__symbol__trend_get", .json(status: 200, "{}"))
+        let trend = try await session.research.trend("NVDA")
+        session.recentTrends.store(trend, for: "NVDA")
+        #expect(session.recentTrends.value(for: "nvda") != nil)
+        session.signOut()
+        #expect(session.recentTrends.value(for: "NVDA") == nil)
+    }
+
     @Test("a period's return and the benchmark's cover exactly the same days")
     func performance() {
         let stock = closes([("2026-08-14", 90), ("2026-10-16", 100), ("2026-10-30", 110), ("2026-11-16", 125)])

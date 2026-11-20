@@ -139,12 +139,18 @@ public struct PerformanceSeries: Equatable, Sendable {
 }
 
 /// Daily price histories, fetched once per symbol and kept while the app
-/// runs. A history is ~200 KB, so the handful a session looks at is cheap to
-/// hold and expensive to refetch on every range change.
+/// runs: cheap to hold for the handful a session looks at, and expensive to
+/// refetch on every range change.
 @MainActor
 public final class PriceHistory {
     public static let benchmarkSymbol = "SPY"
     static let capacity = 8
+    /// How far back a history is asked for. The longest chart range and the
+    /// plan test both read five years; the sixth is room for a range that
+    /// starts just before the first bar. A stock listed since 1999 has 27
+    /// years of bars (1.2 MB of JSON), which the app was downloading and
+    /// decoding for every company page, twice, with the benchmark.
+    public nonisolated static let yearsKept = 6
 
     private let fetch: @Sendable (String) async throws -> [DailyClose]
     private var cache: [String: [DailyClose]] = [:]
@@ -200,10 +206,23 @@ extension ResearchService {
         return result
     }
 
-    /// Every daily close the backend has for `symbol`, oldest first.
-    public func dailyCloses(_ symbol: String) async throws(ResearchError) -> [DailyClose] {
+    /// The first day to ask for: `years` before `now`, as the backend reads dates.
+    static func historyStart(years: Int, now: Date) -> String {
+        let calendar = PerformanceSeries.utc
+        let start = calendar.date(byAdding: .year, value: -years, to: now) ?? now
+        let parts = calendar.dateComponents([.year, .month, .day], from: start)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 1, parts.day ?? 1)
+    }
+
+    /// The daily closes for `symbol` over the last `years` years, oldest first.
+    public func dailyCloses(
+        _ symbol: String, years: Int = PriceHistory.yearsKept, now: Date = .now
+    ) async throws(ResearchError) -> [DailyClose] {
+        let start = Self.historyStart(years: years, now: now)
         let output = try await APIFailure.perform {
-            try await client.getDailyPricesApiDataDailySymbolGet(path: .init(symbol: symbol))
+            try await client.getDailyPricesApiDataDailySymbolGet(
+                path: .init(symbol: symbol), query: .init(start: start)
+            )
         }
         switch output {
         case .ok(let ok):
