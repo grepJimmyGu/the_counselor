@@ -13,6 +13,7 @@ from app.api.routes.backtest import router as backtest_router
 from app.api.routes.cn_company import router as cn_company_router
 from app.api.routes.cn_market import router as cn_market_router
 from app.api.routes.company_overview import router as company_overview_router
+from app.api.routes.agent import router as agent_router
 from app.api.routes.filings import router as filings_router
 from app.api.routes.fundamental import router as fundamental_router
 from app.api.routes.insights import router as insights_router
@@ -562,6 +563,18 @@ def _start_scheduler() -> None:
             # Worth catching up on after a restart; the refresh is idempotent.
             misfire_grace_time=3600,
         )
+        # The portfolio agent, for users who have turned it on: every half
+        # hour through the US session, and once after the close. The job
+        # hands each scan to the main event loop (see agent_monitor_job).
+        from app.jobs.agent_monitor_job import agent_monitor_job
+        scheduler.add_job(
+            agent_monitor_job, "cron",
+            day_of_week="mon-fri", hour="9-16", minute="5,35",
+            timezone="America/New_York",
+            id="agent_monitor",
+            max_instances=1,
+            coalesce=True,
+        )
         scheduler.start()
     except Exception as exc:
         logger.warning("APScheduler failed to start: %s", exc)
@@ -770,6 +783,10 @@ async def lifespan(_: FastAPI):
         "feature_flags gating_enabled=%s app_env=%s",
         _s.gating_enabled, _s.app_env,
     )
+    # The agent's scheduled scans run on this loop, not the scheduler's
+    # thread: they use the live quote service, whose locks live here.
+    from app.services.agent import monitor as _agent_monitor
+    _agent_monitor.set_main_loop(asyncio.get_running_loop())
     _start_scheduler()
     # Warmups run on dedicated threads (see `_run_async_in_thread` above) so
     # their internal SYNCHRONOUS DB calls can't block the main event loop —
@@ -819,6 +836,7 @@ app.include_router(screener_router)
 app.include_router(screen_router)
 app.include_router(company_overview_router)
 app.include_router(filings_router)
+app.include_router(agent_router)
 app.include_router(insights_router)
 app.include_router(mirror_router)
 app.include_router(rules_router)

@@ -111,6 +111,29 @@ public enum DemoData {
      {"account_id":"acct-1","symbol":"SPAXX","units":1520.33,"average_purchase_price":1.0,"last_price":1.0,"open_pnl":0,"cash_equivalent":true}]
     """
 
+    // The agent's findings for the sample account, worked from its holdings
+    // above with the backend's own arithmetic: AAPL is 25 x $352.78 = $8,819.50
+    // of $18,173.04 held, 48.5%, and (8,819.50 - 25% x 18,173.04) / 75% =
+    // $5,701.65, which is 16 whole shares.
+    nonisolated(unsafe) static let agentInsights: [[String: Any]] = [
+        ["id": "demo-insight-1", "kind": "concentration", "severity": "watch", "symbol": "AAPL",
+         "title": "AAPL is 49% of your holdings, over your 25% limit",
+         "body": "AAPL is worth $8,820 of $18,173 held. Selling about $5,702 (16 shares at $352.78) would bring it to 25%.",
+         "facts": ["weight_pct": 48.53, "limit_pct": 25.0, "units_to_limit": 16],
+         "action": ["type": "review_order", "symbol": "AAPL", "side": "sell", "units": 16],
+         "created_at": "2026-11-20T15:05:00", "dismissed": false],
+        ["id": "demo-insight-2", "kind": "exits_waiting", "severity": "watch",
+         "title": "2 exits are waiting on your decision",
+         "body": "Your strategies signalled an exit on AMD, NVDA. Each stays open until you sell or choose to hold.",
+         "facts": ["count": 2], "action": ["type": "open_actions"],
+         "created_at": "2026-11-20T15:05:00", "dismissed": false],
+        ["id": "demo-insight-3", "kind": "filing", "severity": "watch", "symbol": "NVDA",
+         "title": "NVDA's Q3 FY2027 filing has 1 thing to check",
+         "body": "Inventory changed +22.4% in the quarter while cost of revenue changed +9.1%.",
+         "facts": ["period": "Q3 FY2027"], "action": ["type": "open_company", "symbol": "NVDA"],
+         "created_at": "2026-11-20T14:35:00", "dismissed": false],
+    ]
+
     static let replies: [String: String] = [
         "get_my_entitlements_api_me_entitlements_get": entitlements,
         "list_saved_strategies_api_saved_strategies_get": strategies,
@@ -152,6 +175,26 @@ final class DemoState: @unchecked Sendable {
     func resolve(position: String) { lock.withLock { _ = resolvedPositions.insert(position) } }
     func acknowledge(_ id: Int) { lock.withLock { _ = acknowledged.insert(id) } }
 
+    private var dismissedInsights = Set<String>()
+    private var agentProfile: [String: Any] = [
+        "enabled": true, "watchlist": [String](), "move_alert_pct": 4.0, "max_position_pct": 25.0,
+        "notes": "", "email_alerts": true, "last_scan_at": "2026-11-20T15:05:00", "chat_available": true,
+    ]
+
+    func dismissInsight(_ id: String) { lock.withLock { _ = dismissedInsights.insert(id) } }
+
+    var insights: [[String: Any]] {
+        let gone = lock.withLock { dismissedInsights }
+        return DemoData.agentInsights.filter { !gone.contains($0["id"] as? String ?? "") }
+    }
+
+    func profile(merging changes: [String: Any] = [:]) -> [String: Any] {
+        lock.withLock {
+            agentProfile.merge(changes) { _, new in new }
+            return agentProfile
+        }
+    }
+
     var exits: [[String: Any]] {
         let resolved = lock.withLock { resolvedPositions }
         return DemoData.unresolvedExits.filter { !resolved.contains($0["position_id"] as? String ?? "") }
@@ -160,6 +203,44 @@ final class DemoState: @unchecked Sendable {
     var notices: [[String: Any]] {
         let seen = lock.withLock { acknowledged }
         return DemoData.notices.filter { !seen.contains($0["id"] as? Int ?? -1) }
+    }
+}
+
+extension DemoData {
+    /// The sample account's agent conversation: a made-up answer about the
+    /// sample holdings, streamed in the backend's own format so the screen
+    /// behaves as it does for real. It says it is a sample.
+    static let agentChat: AgentChatService.Opener = { request in
+        let asked = (request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?["content"] as? String ?? ""
+        let wantsOrder = ["trim", "sell", "limit", "order"].contains { asked.lowercased().contains($0) }
+        var lines = [
+            #"data: {"type":"tool_call_start","call_id":"c1","name":"agent_overview","arguments":{}}"#,
+            #"data: {"type":"tool_result","call_id":"c1","name":"agent_overview"}"#,
+        ]
+        let answer: String
+        if wantsOrder {
+            lines.append(#"data: {"type":"tool_call_start","call_id":"c2","name":"agent_draft_order","arguments":{}}"#)
+            lines.append(#"data: {"type":"tool_result","call_id":"c2","name":"agent_draft_order","client":{"type":"review_order","symbol":"AAPL","side":"sell","units":16,"reason":"Brings AAPL back to your 25% limit."}}"#)
+            answer = "Sample answer. AAPL is 49% of your holdings against your 25% limit. Selling 16 shares at $352.78 would bring it to 25%. I have drafted that order below; nothing has been sent, and it is yours to review and confirm."
+        } else {
+            answer = "Sample answer. You hold NVDA, AAPL and MSFT, worth $18,173. AAPL is 49% of that, over your 25% limit. Two exits your strategies signalled are waiting on you in Actions, and NVDA's latest filing has one item to check."
+        }
+        for word in answer.split(separator: " ") {
+            lines.append(#"data: {"type":"token","text":"\#(word) "}"#)
+        }
+        lines.append(#"data: {"type":"done","finish_reason":"stop"}"#)
+        let script = lines
+        let stream = AsyncThrowingStream<String, Error> { continuation in
+            let task = Task {
+                for line in script {
+                    try? await Task.sleep(for: .milliseconds(line.contains("token") ? 35 : 400))
+                    continuation.yield(line)
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+        return (stream, 200)
     }
 }
 
@@ -214,6 +295,21 @@ struct DemoTransport: ClientTransport {
         }
 
         switch operationID {
+        case "get_profile_api_agent_profile_get":
+            return Self.json(state.profile())
+        case "update_profile_api_agent_profile_put":
+            return Self.json(state.profile(merging: sent))
+        case "list_insights_api_agent_insights_get":
+            return Self.json(state.insights)
+        case "scan_now_api_agent_scan_post":
+            return Self.json([
+                "checked_at": "2026-11-20T15:05:00", "new_insights": 0, "symbols_checked": 10,
+                "brokerage_linked": true, "notes": [String](), "insights": state.insights,
+            ] as [String: Any])
+        case "dismiss_insight_api_agent_insights__insight_id__dismiss_post":
+            let id = Self.segment(after: "insights", in: request) ?? ""
+            state.dismissInsight(id)
+            return Self.json(DemoData.agentInsights.first { $0["id"] as? String == id } ?? [:])
         case "list_unresolved_exits_api_saved_strategies_unresolved_exits_get":
             return Self.json(state.exits)
         case "list_pending_banners_api_me_notifications_pending_get":
@@ -258,6 +354,7 @@ extension AppSession {
             transport: DemoTransport()
         )
         session.isDemo = true
+        session.agentChatOpener = DemoData.agentChat
         return session
     }
 }

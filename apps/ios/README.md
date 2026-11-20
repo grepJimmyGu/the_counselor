@@ -144,6 +144,33 @@ value, a discount rate, net cash and a share count, with a sensitivity grid.
 The sample account passes public market data (quotes, daily history, the
 overview) through to the live API, so the Price tab is live in `-demo` too.
 
+## The portfolio agent
+
+A fifth tab, Agent, between Strategies and Actions. Nothing that existed was
+changed: the agent opens the screens that were already there.
+
+| Part | What it does |
+|---|---|
+| Watching | The backend checks each user's watchlist and broker holdings. With "Watch around the clock" on, it does so twice an hour through the US session whether or not the app is open; "Check now" does it on request |
+| What it reports | A day's move past the user's threshold; a holding larger than the user's limit, with the sale that would bring it back; a filing from the last 30 days with items to check; exits waiting on a decision |
+| Acting | Each finding offers a screen that already exists: the company page, the Actions tab, or the order ticket with the symbol and size filled in. The ticket still shows the broker's price and still needs the user's confirmation. The agent cannot send an order |
+| Asking | "Ask your agent" is a conversation. The agent reads the user's portfolio, their trading record (the website's behaviour analysis), and filings through tools, and can draft an order for review |
+| Per user | The move threshold, the position limit, an email switch, and notes in the user's own words that the agent reads before answering |
+| While the app is closed | New findings from scheduled checks are emailed, one message per check. There are no push notifications |
+
+Three rules are built in, on the backend: every number comes from code, not
+from the model; the agent drafts and the user decides; it reports what
+happened under the user's own limits and does not say what they should do.
+
+The watchlist lives on the device, so the app sends it to the backend when it
+changes; that list is what the agent watches.
+
+Needs on the backend: the agent endpoints (`/api/agent/*`), and for the
+conversation a language model (`LLM_PROVIDER`, `LLM_API_KEY`, `LLM_MODEL`).
+Without a model the checks and findings still work and the conversation says
+it is not switched on. `-demo` shows the tab with sample findings and a
+scripted sample conversation.
+
 ## Signing in
 
 | What | How it works | What it still needs |
@@ -257,7 +284,7 @@ apps/ios/
       Brokerage/                    SnapTrade link, holdings, order tickets
       Demo/                         the sample account (debug builds only)
     Sources/LivermoreUI/          SwiftUI screens, same folders
-    Tests/LivermoreKitTests/      180 tests; `swift test` runs them in a second
+    Tests/LivermoreKitTests/      198 tests; `swift test` runs them in a second
   scripts/refresh_openapi.py      refreshes openapi.json from the backend
   scripts/gen_scoring_golden.mjs  regenerates the scoring parity fixture
   scripts/gen_templates.mjs       regenerates the strategy templates

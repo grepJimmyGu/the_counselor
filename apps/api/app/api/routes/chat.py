@@ -298,6 +298,10 @@ async def _run_tool_loop(
     anon_session_id: Optional[str] = None,
     tier: str = "unknown",
     user_message: str = "",
+    # Tools that exist only for one caller and are not in TOOL_REGISTRY, as
+    # name -> ToolDefinition. The portfolio agent passes its own here so they
+    # never appear in the general chat. None changes nothing.
+    extra_tools: Optional[dict] = None,
 ) -> AsyncIterator[str]:
     """Core orchestration: call LLM, dispatch tool calls, re-invoke until done.
 
@@ -337,6 +341,7 @@ async def _run_tool_loop(
             tool_whitelist=tool_whitelist,
             user_id=user_id, anon_session_id=anon_session_id,
             tier=tier, user_message=user_message,
+            extra_tools=extra_tools,
         ):
             yield frame
     finally:
@@ -354,11 +359,17 @@ async def _run_tool_loop_inner(
     anon_session_id: Optional[str],
     tier: str,
     user_message: str,
+    extra_tools: Optional[dict] = None,
 ) -> AsyncIterator[str]:
     """The original loop body. Wrapped in _run_tool_loop above so the
     fresh-session bracket is enforced even when callers forget."""
     gateway = get_llm_gateway()
-    all_specs = get_openai_tool_specs()
+    all_specs = get_openai_tool_specs() + [
+        {"type": "function", "function": {
+            "name": t["name"], "description": t["description"], "parameters": t["parameters"],
+        }}
+        for t in (extra_tools or {}).values()
+    ]
     if tool_whitelist is None:
         tools = all_specs
     else:
@@ -441,6 +452,7 @@ async def _run_tool_loop_inner(
         })
 
         for tc in tool_calls:
+            client_payload = None
             try:
                 # Whitelist check: enforce even if the LLM picked a tool we
                 # didn't advertise (defense against hallucinated tool names).
@@ -449,8 +461,15 @@ async def _run_tool_loop_inner(
                         f"Tool '{tc.name}' not available in this context. "
                         f"Allowed: {sorted(tool_whitelist)}"
                     )
-                result = await dispatch_tool_call(tc.name, tc.arguments)
+                if extra_tools and tc.name in extra_tools:
+                    result = await extra_tools[tc.name]["handler"](**tc.arguments)
+                else:
+                    result = await dispatch_tool_call(tc.name, tc.arguments)
                 result_text = _serialize_tool_result(result)
+                # An extra tool may hand the client something to show, such
+                # as a draft order to review. It rides on the tool_result event.
+                if extra_tools and tc.name in extra_tools and isinstance(result, dict) and "client" in result:
+                    client_payload = result["client"]
             except UnknownToolError as exc:
                 result_text = json.dumps({"error": str(exc)})
             except Exception as exc:  # pragma: no cover — defensive
@@ -468,7 +487,10 @@ async def _run_tool_loop_inner(
                 "tool_call_id": tc.call_id,
                 "content": result_text,
             })
-            yield _sse("tool_result", {"call_id": tc.call_id, "name": tc.name})
+            result_event = {"call_id": tc.call_id, "name": tc.name}
+            if client_payload is not None:
+                result_event["client"] = client_payload
+            yield _sse("tool_result", result_event)
 
         # Loop back — LLM will synthesize tool results into a final response.
 
