@@ -150,7 +150,7 @@ def agent_db(db: Session):
 
     with patch.object(monitor, "SessionLocal", factory), \
          patch.object(agent_routes, "SessionLocal", factory), \
-         patch.object(monitor.asyncio, "to_thread", inline):
+         patch.object(monitor, "run_blocking", inline):
         yield db
 
 
@@ -332,7 +332,7 @@ def test_the_scheduled_job_scans_only_users_who_turned_the_agent_on(make_user, a
         loop.call_soon_threadsafe(loop.stop)
         thread.join(timeout=5)
     assert scanned == [on.id]
-    assert summary == {"users": 1, "scanned": 1, "new_insights": 2, "failed": 0}
+    assert summary == {"users": 1, "scanned": 1, "new_insights": 2, "failed": 0, "not_reached": 0}
 
 
 # ── Email from scheduled checks ───────────────────────────────────────────────
@@ -388,3 +388,188 @@ def test_a_check_the_user_asked_for_does_not_email_them(make_user, agent_db: Ses
     assert [f.kind for f in result.new_findings] == ["concentration"]
     send.assert_not_called()
 
+
+
+# ── Many users (2026-11-20) ───────────────────────────────────────────────────
+#
+# The scheduled job scanned one user at a time and waited for each. At a few
+# seconds a scan that is a few hundred users in the half hour between runs,
+# and everyone after that was simply never reached. Scans now run several at
+# a time under one limit shared with "Check now".
+
+
+def test_scans_run_several_at_a_time_and_never_more_than_allowed() -> None:
+    running = most = 0
+    order = []
+
+    async def fake_scan(user_id):
+        nonlocal running, most
+        running += 1
+        most = max(most, running)
+        await asyncio.sleep(0.01)
+        running -= 1
+        order.append(user_id)
+        return monitor.ScanResult(checked_at=datetime.utcnow(), new_insights=1)
+
+    users = ["u%d" % n for n in range(20)]
+    with patch.object(monitor, "scan_user", fake_scan):
+        results = asyncio.run(monitor.scan_many(users, at_once=6))
+
+    assert most == 6
+    assert [user_id for user_id, _ in results] == users  # reported in the order given
+    assert all(result is not None for _, result in results)
+
+
+def test_one_users_failed_or_stuck_scan_does_not_stop_the_others() -> None:
+    async def fake_scan(user_id):
+        if user_id == "broken":
+            raise RuntimeError("their broker returned nonsense")
+        if user_id == "stuck":
+            await asyncio.sleep(30)
+        return monitor.ScanResult(checked_at=datetime.utcnow())
+
+    with patch.object(monitor, "scan_user", fake_scan):
+        results = dict(asyncio.run(monitor.scan_many(["a", "broken", "stuck", "b"], at_once=2, timeout=0.05)))
+
+    assert results["broken"] is None and results["stuck"] is None
+    assert results["a"] is not None and results["b"] is not None
+
+
+def test_a_person_asking_now_shares_the_limit_with_the_scheduled_job(monkeypatch) -> None:
+    """One limit on scans, however they start: that is what bounds the
+    connections and broker calls the agent can make at once."""
+    running = most = 0
+
+    async def fake_scan(user_id):
+        nonlocal running, most
+        running += 1
+        most = max(most, running)
+        await asyncio.sleep(0.01)
+        running -= 1
+        return monitor.ScanResult(checked_at=datetime.utcnow())
+
+    settings = SimpleNamespace(agent_scan_concurrency=3)
+    monkeypatch.setattr(monitor, "get_settings", lambda: settings)
+    monkeypatch.setattr(monitor, "_SCAN_SLOTS", monitor.PerLoop(lambda: asyncio.Semaphore(3)))
+    monkeypatch.setattr(monitor, "_scan", fake_scan)
+
+    async def job_and_people():
+        job = monitor.scan_many(["j%d" % n for n in range(10)], at_once=10)
+        people = [monitor.scan_user("p%d" % n) for n in range(5)]
+        await asyncio.gather(job, *people)
+
+    asyncio.run(job_and_people())
+    assert most == 3
+
+
+def test_the_scheduled_job_stops_starting_scans_when_its_time_is_up(make_user, agent_db: Session, monkeypatch) -> None:
+    """A run must never run into the next one. Whoever it did not reach is
+    counted, and is first in line next time (least recently scanned first)."""
+    from app.jobs import agent_monitor_job as job
+
+    users = [make_user(email="many%d@example.com" % n) for n in range(5)]
+    for n, user in enumerate(users):
+        profile = monitor.get_or_create_profile(agent_db, user.id)
+        profile.enabled = True
+        # users[0] was scanned most recently, users[4] never.
+        profile.last_scan_at = None if n == 4 else datetime(2026, 11, 20, 12, 0) - timedelta(minutes=n)
+    agent_db.commit()
+    scanned = []
+
+    async def fake_scan(user_id):
+        scanned.append(user_id)
+        return monitor.ScanResult(checked_at=datetime.utcnow())
+
+    clock = {"t": 0.0}
+
+    def tick() -> float:
+        clock["t"] += 10.0  # every look at the clock costs ten seconds
+        return clock["t"]
+
+    monkeypatch.setattr(job, "_BATCH", 2)
+    monkeypatch.setattr(job, "_now", tick)  # the job's own clock, not the event loop's
+    monkeypatch.setattr(job, "get_settings", lambda: SimpleNamespace(
+        agent_monitor_enabled=True, agent_scan_concurrency=4, agent_monitor_budget_seconds=25,
+    ))
+
+    loop = asyncio.new_event_loop()
+    import threading
+    thread = threading.Thread(target=loop.run_forever, daemon=True)
+    thread.start()
+    try:
+        with patch.object(job, "SessionLocal", _SameSession(agent_db)), \
+             patch.object(monitor, "scan_user", fake_scan), \
+             patch.object(monitor, "main_loop", return_value=loop):
+            summary = job.agent_monitor_job()
+    finally:
+        loop.call_soon_threadsafe(loop.stop)
+        thread.join(timeout=5)
+
+    # The clock read 10 when the deadline (35) was set, 20 before the first
+    # batch and 30 before the second, 40 before the third: two batches ran.
+    assert summary == {"users": 5, "scanned": 4, "new_insights": 0, "failed": 0, "not_reached": 1}
+    # Never-scanned first, then oldest scan first; the most recent is the one left.
+    assert scanned[0] == users[4].id
+    assert set(scanned) == {users[4].id, users[3].id, users[2].id, users[1].id}
+
+
+def test_filings_for_a_watchlist_are_read_together_and_reported_in_order() -> None:
+    today = datetime.now(timezone.utc).date()
+    reading = most = 0
+
+    async def fake(symbol):
+        nonlocal reading, most
+        reading += 1
+        most = max(most, reading)
+        # The first symbol is the slowest, so order is not just arrival order.
+        await asyncio.sleep(0.03 if symbol == "AAA" else 0.005)
+        reading -= 1
+        if symbol == "FUND":
+            raise LookupError("no filings")
+        quarter = SimpleNamespace(label="Q3 FY2026", filed=today - timedelta(days=3))
+        finding = SimpleNamespace(severity="watch", title="Debt rose", detail="Debt rose.")
+        return SimpleNamespace(quarters=[quarter], findings=[finding])
+
+    async def run():
+        with patch("app.services.sec_company_facts.filing_analysis", fake):
+            return await monitor._filing_findings(["AAA", "FUND", "BBB", "CCC"], today)
+
+    found = asyncio.run(run())
+    assert most > 1
+    assert [f.symbol for f in found] == ["AAA", "BBB", "CCC"]
+
+
+def test_the_agents_blocking_work_has_its_own_threads(monkeypatch) -> None:
+    """Not the server's shared pool: a wave of scans must not take the threads
+    the rest of the app's database work runs on."""
+    import threading
+
+    monkeypatch.setattr(monitor, "_pool", None)
+    name = asyncio.run(monitor.run_blocking(lambda: threading.current_thread().name))
+    assert name.startswith("agent")
+    assert monitor._pool._max_workers == 2 * monitor.get_settings().agent_scan_concurrency
+
+
+def test_reading_the_broker_does_not_hold_the_profile_session(make_user, agent_db: Session) -> None:
+    """Trap 13: the settings read gives its connection back before the broker,
+    which can take seconds, is asked anything."""
+    user = make_user(email="sessions@example.com")
+    opened = []
+
+    class Counting(_SameSession):
+        def __enter__(self):
+            opened.append("open")
+            return super().__enter__()
+
+        def __exit__(self, *exc):
+            opened.append("close")
+            return super().__exit__(*exc)
+
+    def fake_read_holdings(db, user_id):
+        opened.append("broker")
+        return None
+
+    with patch.object(monitor, "SessionLocal", Counting(agent_db)), \
+         patch.object(monitor, "read_holdings", fake_read_holdings):
+        monitor._gather(user.id)
+    assert opened == ["open", "close", "open", "broker", "close"]

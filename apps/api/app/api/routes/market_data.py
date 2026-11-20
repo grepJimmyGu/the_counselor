@@ -64,7 +64,7 @@ async def get_daily_prices(
     db: Session = Depends(get_db),
 ) -> list[PriceBarResponse]:
     end_date = end or date.today()
-    return await market_data_service.get_cached_bars(db, symbol.upper(), end_date)
+    return await market_data_service.get_cached_bars(db, symbol.upper(), end_date, start_date=start)
 
 
 @router.post("/data/warmup", response_model=WarmupResponse)

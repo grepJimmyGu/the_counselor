@@ -1,9 +1,10 @@
 """The portfolio agent's endpoints: its settings, what it found, and a scan on request."""
 from __future__ import annotations
 
+import asyncio
 import time
 from datetime import datetime, timezone
-from typing import AsyncIterator, Dict, List
+from typing import AsyncIterator, Dict, List, Set
 
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
@@ -11,6 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
+from app.core.config import get_settings
 from app.db.session import SessionLocal, get_db
 from app.models.agent import AgentInsight, AgentProfile
 from app.models.user import User
@@ -31,6 +33,18 @@ router = APIRouter(prefix="/api/agent", tags=["agent"])
 _MIN_SECONDS_BETWEEN_SCANS = 20
 _last_scan: Dict[str, float] = {}
 _INSIGHT_LIMIT = 60
+
+# Who is in a conversation with the agent right now. One at a time per user:
+# a second message while the first is still being answered would run the
+# model twice over the same history. The total is capped in settings.
+_chatting: Set[str] = set()
+
+
+def _forget_old_scans(now: float) -> None:
+    """Keep the throttle's memory to people who scanned recently."""
+    if len(_last_scan) > 5000:
+        for user_id in [u for u, at in _last_scan.items() if now - at > _MIN_SECONDS_BETWEEN_SCANS]:
+            _last_scan.pop(user_id, None)
 
 
 def _profile_view(profile: AgentProfile) -> AgentProfileView:
@@ -119,14 +133,18 @@ async def scan_now(user: User = Depends(get_current_user)) -> AgentScanView:
     if now - _last_scan.get(user_id, -1e9) < _MIN_SECONDS_BETWEEN_SCANS:
         raise HTTPException(status_code=429, detail="The agent just checked. Try again in a few seconds.")
     _last_scan[user_id] = now
-    result = await monitor.scan_user(user_id)
+    _forget_old_scans(now)
+    try:
+        result = await asyncio.wait_for(monitor.scan_user(user_id), monitor.SCAN_TIMEOUT_SECONDS)
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=503, detail="The check took too long. Try again in a moment.",
+                            headers={"Retry-After": "30"})
 
     def _read() -> List[AgentInsightView]:
         with SessionLocal() as db:
             return _open_insights(db, user_id)
 
-    import asyncio
-    insights = await asyncio.to_thread(_read)
+    insights = await monitor.run_blocking(_read)
     return AgentScanView(
         checked_at=result.checked_at,
         new_insights=result.new_insights,
@@ -156,6 +174,13 @@ async def agent_chat(
 
     if user.plan is None:  # pragma: no cover
         raise HTTPException(status_code=500, detail="User plan missing — please retry.")
+    # Refused before anything is stored or counted against the user's quota.
+    if user.id in _chatting:
+        raise HTTPException(status_code=429, detail="Your agent is still answering your last message.",
+                            headers={"Retry-After": "5"})
+    if len(_chatting) >= get_settings().agent_chat_max_concurrent:
+        raise HTTPException(status_code=503, detail="Your agent is busy right now. Try again in a moment.",
+                            headers={"Retry-After": "10"})
     chat_engine._check_chat_quota(db, user.id, user.plan.tier)
     conversation = chat_engine._get_or_create_conversation(
         db, conversation_id=conversation_id, user_id=user.id,
@@ -176,6 +201,10 @@ async def agent_chat(
     whitelist = set(agent_tools.AGENT_TOOLS) | agent_tools.SHARED_TOOLS
 
     async def event_stream() -> AsyncIterator[str]:
+        # Marked here, inside the stream, so that it is always unmarked: the
+        # `finally` below runs when the stream ends or the phone goes away,
+        # which is not true of anything set before the stream starts.
+        _chatting.add(user_id)
         # The agent's tools read this, and only this, to know whose data to load.
         token = agent_tools.current_user_id.set(user_id)
         try:
@@ -188,6 +217,7 @@ async def agent_chat(
             ):
                 yield frame
         finally:
+            _chatting.discard(user_id)
             agent_tools.current_user_id.reset(token)
 
     return StreamingResponse(

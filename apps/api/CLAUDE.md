@@ -776,6 +776,18 @@ either (a) must not call that service, or (b) the service must be
 refactored to not share primitives across loops (e.g. lock-free, or per-
 loop lock dicts keyed by `id(asyncio.get_running_loop())`).
 
+**The ready-made way to do (b): `app/core/concurrency.py`** (2026-11-20).
+`PerLoop(factory)` hands each event loop its own object, so a singleton can
+keep `PerLoop(asyncio.Lock)` or `PerLoop(lambda: asyncio.Semaphore(3))`
+safely. `SingleFlight` and `TTLCache` in the same file share in-flight work
+and cached answers on top of it; `live_quote_service` and the company page
+use them. Reach for these before writing another lock dict by hand.
+
+One related mistake to avoid in tests: never `monkeypatch.setattr(time,
+"monotonic", ...)`. The event loop schedules on that clock, so freezing it
+hangs every `await asyncio.sleep(...)` in the test. Give the code under test
+its own `_now()` and patch that.
+
 To find existing singletons that hold asyncio primitives:
 ```bash
 grep -rn "asyncio\.\(Lock\|Semaphore\|Queue\|Event\)\(\)" apps/api/app/services/

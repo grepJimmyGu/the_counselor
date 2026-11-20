@@ -12,6 +12,11 @@ import Observation
 /// quote endpoint caches each symbol (30 seconds at the time of writing), so
 /// polling faster than that only narrows the gap between the cache refreshing
 /// and the screen noticing.
+///
+/// When no US session is open (nights, weekends) the price is the last trade
+/// and is not going to change, so the store polls at `idleInterval` instead.
+/// That is most of the week, and it is the single largest stream of requests
+/// the app makes.
 @MainActor
 @Observable
 public final class QuoteStore {
@@ -27,7 +32,10 @@ public final class QuoteStore {
     /// `interval` suggests.
     public private(set) var lastRefreshFailed = false
 
+    /// Between refreshes while a US session, pre-market through after-hours, is open.
     public let interval: Duration
+    /// Between refreshes the rest of the time.
+    public let idleInterval: Duration
 
     /// The quote endpoint's cap on symbols per request.
     static let batchSize = 100
@@ -37,16 +45,24 @@ public final class QuoteStore {
     @ObservationIgnored private var isActive = true
     private let fetch: Fetch
     private let now: @Sendable () -> Date
+    private let isTrading: @Sendable (Date) -> Bool
 
     public init(
         interval: Duration = .seconds(10),
+        idleInterval: Duration = .seconds(60),
         now: @escaping @Sendable () -> Date = { .now },
+        isTrading: @escaping @Sendable (Date) -> Bool = MarketHours.isOpen(at:),
         fetch: @escaping Fetch
     ) {
         self.interval = interval
+        self.idleInterval = idleInterval
         self.now = now
+        self.isTrading = isTrading
         self.fetch = fetch
     }
+
+    /// How long to wait before the next refresh, as things stand now.
+    public var currentInterval: Duration { isTrading(now()) ? interval : idleInterval }
 
     public var watchedSymbols: [String] { watchers.keys.sorted() }
 
@@ -110,10 +126,13 @@ public final class QuoteStore {
         loop?.cancel()
         loop = nil
         guard isActive, !watchers.isEmpty else { return }
-        loop = Task { [weak self, interval] in
+        loop = Task { [weak self] in
             while !Task.isCancelled {
-                await self?.refresh()
-                try? await Task.sleep(for: interval)
+                guard let self else { return }
+                await self.refresh()
+                // Read each time round: a session opens and closes while the
+                // app is running.
+                try? await Task.sleep(for: self.currentInterval)
             }
         }
     }
@@ -121,5 +140,19 @@ public final class QuoteStore {
     private func stop() {
         loop?.cancel()
         loop = nil
+    }
+}
+
+/// When US stock prices can change.
+public enum MarketHours {
+    /// Monday to Friday, 4:00 to 20:00 New York time: pre-market through
+    /// after-hours. Market holidays are not known here and count as open,
+    /// which only means polling at the faster rate on a day nothing moves.
+    public static func isOpen(at date: Date) -> Bool {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(identifier: "America/New_York") ?? .gmt
+        let parts = calendar.dateComponents([.weekday, .hour], from: date)
+        guard let weekday = parts.weekday, let hour = parts.hour else { return true }
+        return (2...6).contains(weekday) && (4..<20).contains(hour)
     }
 }

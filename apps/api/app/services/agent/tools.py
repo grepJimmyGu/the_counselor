@@ -52,8 +52,8 @@ def _open_insights(user_id: str) -> List[Dict[str, Any]]:
 async def agent_overview() -> Dict[str, Any]:
     """Everything the agent watches for this user, as it stands now."""
     user_id = _user_id()
-    inputs = await asyncio.to_thread(monitor._gather, user_id)
-    insights = await asyncio.to_thread(_open_insights, user_id)
+    inputs = await monitor.run_blocking(monitor._gather, user_id)
+    insights = await monitor.run_blocking(_open_insights, user_id)
     held = sorted(inputs.holdings, key=lambda h: h.value, reverse=True)
     symbols = list(dict.fromkeys([h.symbol for h in held] + inputs.watchlist))[:monitor.MAX_SYMBOLS]
     quotes: Dict[str, Dict[str, float]] = {}
@@ -114,7 +114,7 @@ def _behavior(user_id: str) -> Dict[str, Any]:
 async def agent_trading_behavior() -> Dict[str, Any]:
     """The user's own trading record, measured: the same analysis the
     brokerage page shows on the website."""
-    return await asyncio.to_thread(_behavior, _user_id())
+    return await monitor.run_blocking(_behavior, _user_id())
 
 
 async def agent_filing(symbol: str) -> Dict[str, Any]:

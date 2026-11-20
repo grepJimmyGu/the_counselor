@@ -110,6 +110,10 @@ public struct AgentChatService: Sendable {
         case 401: "Your session has ended. Sign in again to talk to your agent."
         case 402: "You've used today's conversations on your plan. They reset tomorrow."
         case 404: "Livermore's server doesn't have the agent yet. It needs a server update."
+        // The server answers one message per person at a time, and caps how
+        // many conversations run at once.
+        case 429: "Your agent is still answering your last message."
+        case 503: "Your agent is busy right now. Try again in a moment."
         default: "Your agent couldn't answer (error \(status)). Try again in a moment."
         }
     }

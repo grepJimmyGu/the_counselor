@@ -348,6 +348,7 @@ def sec_stub(monkeypatch):
     monkeypatch.setattr(sec, "_get_json", fake_get_json)
     monkeypatch.setattr(sec, "_tickers", {})
     monkeypatch.setattr(sec, "_analyses", {})
+    monkeypatch.setattr(sec, "_no_data", {})
     monkeypatch.setattr(ff, "MAX_LATEST_AGE_DAYS", 10_000)   # the fixture does not age
     return calls
 
@@ -404,3 +405,60 @@ def test_an_unreachable_sec_is_a_502_not_a_404(monkeypatch):
     with pytest.raises(HTTPException) as failure:
         asyncio.run(get_company_filings("NVDA"))
     assert failure.value.status_code == 502
+
+
+# ── Many readers at once (the portfolio agent) ───────────────────────────────
+
+
+def test_scans_reading_the_same_company_at_once_download_it_once(sec_stub, monkeypatch):
+    """Most watchlists hold the same few names. Eight scans starting together
+    used to download the same 4 MB eight times: nothing was shared until the
+    first download had finished and been stored."""
+    real = sec._get_json
+
+    async def slow(url: str):
+        await asyncio.sleep(0.01)
+        return await real(url)
+
+    monkeypatch.setattr(sec, "_get_json", slow)
+
+    async def eight():
+        return await asyncio.gather(*(sec.filing_analysis("NVDA") for _ in range(8)))
+
+    analyses = asyncio.run(eight())
+    assert len({id(a) for a in analyses}) == 1
+    assert len([url for url in sec_stub if "companyfacts" in url]) == 1
+
+
+def test_a_company_with_no_quarterly_data_is_not_asked_about_again(sec_stub):
+    """A fund or a foreign filer on a watchlist was a fresh request to the SEC
+    on every scan of every user who watched it."""
+    for _ in range(3):
+        with pytest.raises(ff.NoQuarterlyData):
+            asyncio.run(sec.filing_analysis("BRK.B"))
+    assert len([url for url in sec_stub if "companyfacts" in url]) == 1
+
+
+def test_no_more_than_four_downloads_go_to_the_sec_at_once(monkeypatch):
+    at_once = most = 0
+
+    async def fake_get_json(url: str):
+        nonlocal at_once, most
+        if url.endswith("company_tickers.json"):
+            return {str(n): {"cik_str": 1000 + n, "ticker": "T%d" % n, "title": "T"} for n in range(12)}
+        at_once += 1
+        most = max(most, at_once)
+        await asyncio.sleep(0.01)
+        at_once -= 1
+        return None  # no data: enough to exercise the limit
+
+    monkeypatch.setattr(sec, "_get_json", fake_get_json)
+    monkeypatch.setattr(sec, "_tickers", {})
+    monkeypatch.setattr(sec, "_analyses", {})
+    monkeypatch.setattr(sec, "_no_data", {})
+
+    async def twelve():
+        return await asyncio.gather(*(sec.filing_analysis("T%d" % n) for n in range(12)), return_exceptions=True)
+
+    asyncio.run(twelve())
+    assert most == sec._MAX_FETCHES_AT_ONCE

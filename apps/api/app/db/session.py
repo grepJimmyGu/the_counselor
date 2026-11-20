@@ -25,6 +25,11 @@ elif database_url.startswith("postgres://"):
 engine_kwargs = {"future": True}
 if database_url.startswith("sqlite"):
     engine_kwargs["connect_args"] = {"check_same_thread": False}
+else:
+    # Sized in config.py, where the reasoning is. SQLite keeps its own pool.
+    engine_kwargs["pool_size"] = settings.db_pool_size
+    engine_kwargs["max_overflow"] = settings.db_max_overflow
+    engine_kwargs["pool_recycle"] = settings.db_pool_recycle_seconds
 engine = create_engine(database_url, **engine_kwargs)
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 

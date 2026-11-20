@@ -10,18 +10,24 @@ trap #14); the second is the fixture in tests/test_filing_financials.py.
 
 The raw facts for a large company are ~4 MB of JSON, so they are parsed,
 reduced to a `FilingAnalysis`, and dropped — only the small result is kept.
-Nothing here touches the database, and nothing holds an asyncio primitive
-(trap #22): the caches are plain dicts, and a duplicated fetch under a race
-costs one extra request, not correctness.
+Nothing here touches the database. The caches are plain dicts; the only
+asyncio state is the sharing of an in-flight fetch, and that is kept per
+event loop (trap #22).
+
+A fetch is shared because the portfolio agent reads filings for many users in
+the same minute, and most watchlists have the same few names on them: without
+sharing, eight scans starting together each download Apple's 4 MB.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Optional
 
 import httpx
 
+from app.core.concurrency import PerLoop, SingleFlight
 from app.services.filing_financials import FilingAnalysis, NoQuarterlyData, analyse
 from app.services.sec_edgar_client import _HEADERS
 
@@ -35,11 +41,22 @@ _TIMEOUT = 30.0
 # 10-Q shows up the same day without asking the SEC on every page view.
 ANALYSIS_TTL_SECONDS = 6 * 3600
 TICKERS_TTL_SECONDS = 24 * 3600
-_MAX_CACHED = 256
+# An analysis is about 12 KB once the raw facts are dropped, so this is ~25 MB
+# at most. It was 256, which the agent's scans would cycle through and refetch
+# once a few hundred different symbols were being watched.
+_MAX_CACHED = 2048
+# The SEC asks for no more than ten requests a second from one client.
+_MAX_FETCHES_AT_ONCE = 4
+# A ticker the SEC lists but has no quarterly data for (a fund, a foreign
+# filer) is remembered too, so it is not asked about again on every scan.
+NO_DATA_TTL_SECONDS = 6 * 3600
 
 _tickers: dict[str, str] = {}
 _tickers_loaded_at = 0.0
 _analyses: dict[str, tuple[float, FilingAnalysis]] = {}
+_no_data: dict[str, float] = {}
+_fetches = SingleFlight()
+_fetch_slots: "PerLoop[asyncio.Semaphore]" = PerLoop(lambda: asyncio.Semaphore(_MAX_FETCHES_AT_ONCE))
 
 
 class UnknownTicker(LookupError):
@@ -93,10 +110,20 @@ async def filing_analysis(symbol: str) -> FilingAnalysis:
     cached: Optional[tuple[float, FilingAnalysis]] = _analyses.get(key)
     if cached and time.monotonic() - cached[0] < ANALYSIS_TTL_SECONDS:
         return cached[1]
+    known_empty = _no_data.get(key)
+    if known_empty is not None and time.monotonic() - known_empty < NO_DATA_TTL_SECONDS:
+        raise NoQuarterlyData(f"The SEC has no XBRL financial data for {symbol.upper()}.")
+    return await _fetches.run(key, lambda: _fetch_analysis(symbol, key))
 
+
+async def _fetch_analysis(symbol: str, key: str) -> FilingAnalysis:
     cik = await cik_for(symbol)
-    facts = await _get_json(_FACTS_URL.format(cik=cik))
+    async with _fetch_slots.get():
+        facts = await _get_json(_FACTS_URL.format(cik=cik))
     if facts is None:
+        if len(_no_data) >= _MAX_CACHED:
+            _no_data.clear()
+        _no_data[key] = time.monotonic()
         raise NoQuarterlyData(f"The SEC has no XBRL financial data for {symbol.upper()}.")
     analysis = analyse(facts, symbol, cik)
 
