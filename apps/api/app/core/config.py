@@ -53,6 +53,9 @@ class Settings(BaseSettings):
     internal_api_key: str = ""  # shared secret for Next.js → FastAPI internal calls
     nextauth_secret: str = ""   # signs session JWTs; must match NEXTAUTH_SECRET in Next.js
     google_client_id: str = ""
+    # The iOS app's OAuth client. Its ID tokens carry this as their audience,
+    # not the website's client ID.
+    google_ios_client_id: str = ""
     google_client_secret: str = ""
     # Stage 2 — Stripe
     stripe_secret_key: str = ""

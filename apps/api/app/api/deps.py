@@ -8,7 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.user import User, Plan
-from app.services.auth_service import decode_session_token
+from app.services.auth_service import decode_session_token, token_predates_password_change
 
 _LEGACY_USER_ID = "legacy-anon-0000"
 
@@ -40,6 +40,10 @@ def get_current_user(
     user = _load_user(db, user_id)
     if not user:
         raise HTTPException(status_code=401, detail="User not found.")
+    if token_predates_password_change(payload, user.password_changed_at):
+        # Same words as an expired token: to the client it is one, and the
+        # remedy is the same, signing in again.
+        raise HTTPException(status_code=401, detail="Invalid or expired session token.")
     return user
 
 
@@ -58,7 +62,7 @@ def get_current_user_or_anonymous(
             payload = decode_session_token(token)
             user_id: str = payload["sub"]
             user = _load_user(db, user_id)
-            if user:
+            if user and not token_predates_password_change(payload, user.password_changed_at):
                 return user
         except (JWTError, KeyError):
             pass  # fall through to anonymous

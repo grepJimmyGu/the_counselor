@@ -31,6 +31,9 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    # Set by a password reset. A session token issued before it is refused,
+    # which is how a reset signs out whoever else was signed in.
+    password_changed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
 
     # Stage 8 v0 — flips to True after the first-time signal-alert opt-in modal
     # has been shown across any of this user's saved strategies. The cross-dialect

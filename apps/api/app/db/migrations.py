@@ -47,6 +47,7 @@ def _run_stage1_isolated_ddl(engine: Engine, is_sqlite: bool) -> None:
         ("email_verified_at", "TIMESTAMP"),
         ("password_hash",     "VARCHAR(255)"),
         ("last_login_at",     "TIMESTAMP"),
+        ("password_changed_at", "TIMESTAMP"),
     ]
     for col_name, col_type in users_new_cols:
         try:

@@ -163,7 +163,10 @@ export const { handlers, signIn, signOut, auth } = NextAuth({
                 "Content-Type": "application/json",
                 "X-Internal-Key": internalKey,
               },
-              body: JSON.stringify({ email: token.email }),
+              // The token being replaced goes with the request so the backend
+              // can refuse to renew a session that a password reset signed out.
+              // On a refusal the old token stays, and stays rejected.
+              body: JSON.stringify({ email: token.email, current_token: token.backendToken }),
             });
             if (res.ok) {
               const data = await res.json();
