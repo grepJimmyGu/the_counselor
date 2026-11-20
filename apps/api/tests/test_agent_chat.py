@@ -190,3 +190,70 @@ def test_an_unlinked_brokerage_has_no_portfolio_value_rather_than_zero() -> None
     assert overview["brokerage_linked"] is False
     assert overview["portfolio_value"] is None
     assert overview["could_not_check"] == ["No brokerage is linked, so holdings were not checked."]
+
+
+# ── Many conversations at once ────────────────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_a_second_message_while_the_agent_is_answering_is_refused(db: Session, make_user) -> None:
+    from fastapi import HTTPException
+
+    from app.api.routes import agent as agent_routes
+
+    user = make_user(email="twice@example.com", password="pw")
+    seen: List[dict] = []
+    fake = _fake_gateway([[ChatToken(text="Looking."), ChatDone(finish_reason="stop")]], seen)
+
+    with patch("app.api.routes.chat.get_llm_gateway", return_value=fake):
+        response = await agent_chat("conv-twice", AgentChatRequest(content="What changed today?"), user=user, db=db)
+        stream = response.body_iterator.__aiter__()
+        await stream.__anext__()  # the first answer has started
+        assert user.id in agent_routes._chatting
+
+        with pytest.raises(HTTPException) as refused:
+            await agent_chat("conv-twice", AgentChatRequest(content="And now?"), user=user, db=db)
+        assert refused.value.status_code == 429
+
+        async for _ in stream:
+            pass
+    # Finished: the user can speak again.
+    assert user.id not in agent_routes._chatting
+
+
+@pytest.mark.asyncio
+async def test_past_the_limit_a_new_conversation_is_told_the_agent_is_busy(db: Session, make_user, monkeypatch) -> None:
+    from types import SimpleNamespace
+
+    from fastapi import HTTPException
+
+    from app.api.routes import agent as agent_routes
+
+    user = make_user(email="busy@example.com", password="pw")
+    monkeypatch.setattr(agent_routes, "get_settings", lambda: SimpleNamespace(agent_chat_max_concurrent=2))
+    monkeypatch.setattr(agent_routes, "_chatting", {"someone", "someone-else"})
+
+    with pytest.raises(HTTPException) as refused:
+        await agent_chat("conv-busy", AgentChatRequest(content="Hello"), user=user, db=db)
+    assert refused.value.status_code == 503
+    assert refused.value.headers["Retry-After"] == "10"
+    # Refused before anything was stored: no message, nothing against their quota.
+    from app.models.chat import ChatMessage
+    assert db.query(ChatMessage).count() == 0
+
+
+@pytest.mark.asyncio
+async def test_a_phone_that_goes_away_mid_answer_frees_its_place(db: Session, make_user) -> None:
+    from app.api.routes import agent as agent_routes
+
+    user = make_user(email="gone@example.com", password="pw")
+    seen: List[dict] = []
+    fake = _fake_gateway([[ChatToken(text="Looking."), ChatToken(text=" Still."), ChatDone(finish_reason="stop")]], seen)
+
+    with patch("app.api.routes.chat.get_llm_gateway", return_value=fake):
+        response = await agent_chat("conv-gone", AgentChatRequest(content="Hello"), user=user, db=db)
+        stream = response.body_iterator.__aiter__()
+        await stream.__anext__()
+        assert user.id in agent_routes._chatting
+        await stream.aclose()  # what the server does when the client disconnects
+    assert user.id not in agent_routes._chatting
