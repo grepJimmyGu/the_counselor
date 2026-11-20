@@ -9,6 +9,7 @@ from app.models.data_fetch_log import DataFetchLog
 from app.models.intraday_bar import IntradayBar  # noqa: F401
 from app.models.mark_as_executed_event import MarkAsExecutedEvent  # noqa: F401
 from app.models.notification_banner import NotificationBannerEntry  # noqa: F401
+from app.models.password_reset import PasswordResetCode  # noqa: F401
 from app.models.position_state import PositionState  # noqa: F401
 from app.models.rule import Rule  # noqa: F401
 from app.models.price_bar import PriceBar

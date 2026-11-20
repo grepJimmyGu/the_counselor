@@ -98,6 +98,28 @@ class PasswordRejected(BaseModel):
     failed: List[str] = []
 
 
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetAccepted(BaseModel):
+    """Always the same, whether or not the address has an account."""
+    detail: str
+
+
+class PasswordResetConfirm(BaseModel):
+    email: EmailStr
+    code: str
+    new_password: str
+
+
+class PasswordResetRejected(BaseModel):
+    """Why a reset did not go through. `detail` is written for the user."""
+    detail: str
+    code: Literal["invalid_code", "weak_password", "breached_password"]
+    failed: List[str] = []
+
+
 class SignupRequest(BaseModel):
     email: EmailStr
     password: str

@@ -4,11 +4,11 @@ import logging
 from datetime import datetime
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from app.db.session import get_db
+from app.db.session import SessionLocal, get_db
 from app.models.anonymous_session import AnonymousSession
 from app.models.user import User, Plan
 from app.schemas.identity import (
@@ -16,6 +16,10 @@ from app.schemas.identity import (
     LoginRequest,
     OAuthGoogleRequest,
     PasswordRejected,
+    PasswordResetAccepted,
+    PasswordResetConfirm,
+    PasswordResetRejected,
+    PasswordResetRequest,
     PatchMeRequest,
     SignupRequest,
     TokenResponse,
@@ -23,10 +27,12 @@ from app.schemas.identity import (
 )
 from app.services.anonymous_service import COOKIE_NAME as ANON_COOKIE_NAME
 from app.services.anonymous_service import merge_anonymous_into_user
-from app.services import password_policy
+from app.services import password_policy, password_reset
 from app.services.pwned_passwords import breach_count
 from app.services.auth_service import (
     create_session_token,
+    decode_session_token_ignoring_expiry,
+    token_predates_password_change,
     hash_password,
     new_user_id,
     validate_handle,
@@ -185,10 +191,7 @@ def password_signup(
         raise HTTPException(status_code=409, detail="An account with this email already exists.")
     # After the 409 so that an address that is already taken costs no lookup.
     if breach_count(body.password):
-        return _password_rejected(
-            "breached_password",
-            "That password has appeared in a known data breach. Choose a different one.",
-        )
+        return _password_rejected("breached_password", _BREACHED)
     hashed = hash_password(body.password)
     user = _create_user_with_plan(
         db,
@@ -219,6 +222,129 @@ def password_login(body: LoginRequest, db: Session = Depends(get_db)) -> TokenRe
     existing.last_login_at = datetime.utcnow()
     db.commit()
     return _make_token_response(existing)
+
+
+# ── Password reset ────────────────────────────────────────────────────────────
+
+_BREACHED = "That password has appeared in a known data breach. Choose a different one."
+
+
+def _reset_rejected(code: str, detail: str, failed: Optional[List[str]] = None) -> JSONResponse:
+    body = PasswordResetRejected(detail=detail, code=code, failed=failed or [])
+    return JSONResponse(status_code=400, content=body.model_dump())
+
+
+def _send_reset_code(db: Session, email: str) -> None:
+    """Email a reset code to `email` if it has an account and has not been
+    sent too many. Says nothing to its caller either way."""
+    user = _get_user_by_email(db, email)
+    if user is None:
+        return
+    code = password_reset.issue_code(db, user)
+    if code is None:
+        return
+    from app.emails.password_reset import render_reset_code
+    from app.services.email_service import send_email
+    rendered = render_reset_code(user, code)
+    sent = send_email(
+        db, user,
+        template="password_reset",
+        subject=rendered["subject"],
+        html=rendered["html"],
+        text=rendered["text"],
+        category="transactional",
+    )
+    if not sent:
+        # send_email is a silent no-op without RESEND_API_KEY. Here that means
+        # a user is waiting for a code that will never arrive.
+        logging.getLogger("livermore.auth").error(
+            "password reset code NOT emailed (is RESEND_API_KEY set?): user_id=%s", user.id,
+        )
+
+
+def _send_reset_code_after_reply(email: str) -> None:
+    # The request's own session is gone by the time this runs.
+    with SessionLocal() as db:
+        try:
+            _send_reset_code(db, email)
+        except Exception:
+            logging.getLogger("livermore.auth").exception("password reset request failed")
+
+
+def _send_password_changed_after_reply(user_id: str) -> None:
+    from app.emails.password_reset import render_password_changed
+    from app.services.email_service import send_email
+    with SessionLocal() as db:
+        try:
+            user = db.get(User, user_id)
+            if user is None:
+                return
+            rendered = render_password_changed(user)
+            send_email(
+                db, user,
+                template="password_changed",
+                subject=rendered["subject"],
+                html=rendered["html"],
+                text=rendered["text"],
+                category="transactional",
+            )
+        except Exception:
+            logging.getLogger("livermore.auth").exception("password-changed notice failed")
+
+
+@router.post("/password/reset/request", status_code=202, response_model=PasswordResetAccepted)
+def request_password_reset(
+    body: PasswordResetRequest,
+    background_tasks: BackgroundTasks,
+) -> PasswordResetAccepted:
+    """Ask for a reset code by email.
+
+    The reply is the same for every address and is sent before the account
+    is even looked up, so neither its words nor how long it takes says
+    whether the address is registered.
+    """
+    background_tasks.add_task(_send_reset_code_after_reply, body.email)
+    return PasswordResetAccepted(
+        detail="If that address has a Livermore account, a reset code is on its way.",
+    )
+
+
+@router.post(
+    "/password/reset/confirm",
+    response_model=TokenResponse,
+    responses={400: {"model": PasswordResetRejected}},
+)
+def confirm_password_reset(
+    body: PasswordResetConfirm,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db),
+):
+    """Set a new password with the emailed code, and sign in.
+
+    Works for an account that has only ever used Google: the code proves the
+    same thing a Google sign-in does, control of the mailbox, and afterwards
+    the account can sign in either way.
+    """
+    user = _get_user_by_email(db, body.email)
+    failed = password_policy.violations(
+        body.new_password, body.email, user.display_name if user else None,
+    )
+    if failed:
+        # Before the code is looked at, so a typo in the password does not
+        # cost one of the code's guesses.
+        detail = " ".join(password_policy.MESSAGES[code] for code in failed)
+        return _reset_rejected("weak_password", detail, failed)
+    # One answer for a wrong code, an expired one, a used one and an address
+    # with no account.
+    used = password_reset.check_code(db, user, body.code) if user else None
+    if used is None:
+        return _reset_rejected("invalid_code", "That code is wrong or has expired. Ask for a new one.")
+    # The code stays open, so a different password can be tried with it.
+    if breach_count(body.new_password):
+        return _reset_rejected("breached_password", _BREACHED)
+    password_reset.set_password(db, user, used, body.new_password)
+    background_tasks.add_task(_send_password_changed_after_reply, user.id)
+    return _make_token_response(user)
 
 
 # ── Google OAuth callback ─────────────────────────────────────────────────────
@@ -423,6 +549,10 @@ def sync_user(body: _SyncUserRequest, db: Session = Depends(get_db)) -> _UserRes
 
 class _RefreshSessionTokenRequest(BaseModel):
     email: str
+    # The token the caller holds now, expired or not. Optional so a website
+    # deployed before 2026-11-19 keeps working; without it a session that a
+    # password reset signed out cannot be told from any other.
+    current_token: Optional[str] = None
 
 
 class _RefreshSessionTokenResponse(BaseModel):
@@ -456,6 +586,13 @@ def refresh_session_token(
     user = _get_user_by_email(db, body.email)
     if not user:
         raise HTTPException(status_code=404, detail="User not found.")
+
+    # A password reset signs out every session that existed before it. The
+    # website's session would otherwise outlive that: its cookie rolls forward
+    # on its own, and this endpoint would hand it a new backend token on request.
+    held = decode_session_token_ignoring_expiry(body.current_token) if body.current_token else None
+    if held is not None and token_predates_password_change(held, user.password_changed_at):
+        raise HTTPException(status_code=401, detail="This session was signed out by a password reset.")
 
     # An orphaned User without a Plan would AttributeError on `.tier`. `sync-user`
     # heals that row; this endpoint stays read-only and falls back to the same
