@@ -11121,6 +11121,191 @@
     ],
     "title": "PasswordChangeRejected",
     "description": "Why a password change did not go through. `detail` is written for the user."
+   },
+   "AgentProfileView": {
+    "properties": {
+     "enabled": {
+      "type": "boolean",
+      "title": "Enabled"
+     },
+     "watchlist": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Watchlist"
+     },
+     "move_alert_pct": {
+      "type": "number",
+      "title": "Move Alert Pct"
+     },
+     "max_position_pct": {
+      "type": "number",
+      "title": "Max Position Pct"
+     },
+     "notes": {
+      "type": "string",
+      "title": "Notes"
+     },
+     "last_scan_at": {
+      "title": "Last Scan At",
+      "type": "string",
+      "format": "date-time"
+     },
+     "chat_available": {
+      "type": "boolean",
+      "title": "Chat Available",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "enabled",
+     "watchlist",
+     "move_alert_pct",
+     "max_position_pct",
+     "notes"
+    ],
+    "title": "AgentProfileView"
+   },
+   "AgentProfileUpdate": {
+    "properties": {
+     "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+     },
+     "watchlist": {
+      "title": "Watchlist",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "move_alert_pct": {
+      "title": "Move Alert Pct",
+      "type": "number",
+      "maximum": 50.0,
+      "minimum": 1.0
+     },
+     "max_position_pct": {
+      "title": "Max Position Pct",
+      "type": "number",
+      "maximum": 100.0,
+      "minimum": 5.0
+     },
+     "notes": {
+      "title": "Notes",
+      "type": "string",
+      "maxLength": 1000
+     }
+    },
+    "type": "object",
+    "title": "AgentProfileUpdate",
+    "description": "Only the fields sent are changed."
+   },
+   "AgentInsightView": {
+    "properties": {
+     "id": {
+      "type": "string",
+      "title": "Id"
+     },
+     "kind": {
+      "type": "string",
+      "title": "Kind"
+     },
+     "severity": {
+      "type": "string",
+      "title": "Severity"
+     },
+     "symbol": {
+      "title": "Symbol",
+      "type": "string"
+     },
+     "title": {
+      "type": "string",
+      "title": "Title"
+     },
+     "body": {
+      "type": "string",
+      "title": "Body"
+     },
+     "facts": {
+      "additionalProperties": true,
+      "type": "object",
+      "title": "Facts",
+      "default": {}
+     },
+     "action": {
+      "title": "Action",
+      "additionalProperties": true,
+      "type": "object"
+     },
+     "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Created At"
+     },
+     "dismissed": {
+      "type": "boolean",
+      "title": "Dismissed",
+      "default": false
+     }
+    },
+    "type": "object",
+    "required": [
+     "id",
+     "kind",
+     "severity",
+     "title",
+     "body",
+     "created_at"
+    ],
+    "title": "AgentInsightView"
+   },
+   "AgentScanView": {
+    "properties": {
+     "checked_at": {
+      "type": "string",
+      "format": "date-time",
+      "title": "Checked At"
+     },
+     "new_insights": {
+      "type": "integer",
+      "title": "New Insights"
+     },
+     "symbols_checked": {
+      "type": "integer",
+      "title": "Symbols Checked"
+     },
+     "brokerage_linked": {
+      "type": "boolean",
+      "title": "Brokerage Linked"
+     },
+     "notes": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Notes",
+      "default": []
+     },
+     "insights": {
+      "items": {
+       "$ref": "#/components/schemas/AgentInsightView"
+      },
+      "type": "array",
+      "title": "Insights",
+      "default": []
+     }
+    },
+    "type": "object",
+    "required": [
+     "checked_at",
+     "new_insights",
+     "symbols_checked",
+     "brokerage_linked"
+    ],
+    "title": "AgentScanView"
    }
   }
  },
@@ -19084,6 +19269,156 @@
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/agent/profile": {
+   "get": {
+    "tags": [
+     "agent"
+    ],
+    "summary": "Get Profile",
+    "operationId": "get_profile_api_agent_profile_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AgentProfileView"
+        }
+       }
+      }
+     }
+    }
+   },
+   "put": {
+    "tags": [
+     "agent"
+    ],
+    "summary": "Update Profile",
+    "operationId": "update_profile_api_agent_profile_put",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AgentProfileUpdate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AgentProfileView"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/agent/insights": {
+   "get": {
+    "tags": [
+     "agent"
+    ],
+    "summary": "List Insights",
+    "description": "What the agent has found and the user has not dismissed, newest first.",
+    "operationId": "list_insights_api_agent_insights_get",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/AgentInsightView"
+         },
+         "type": "array",
+         "title": "Response List Insights Api Agent Insights Get"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/agent/insights/{insight_id}/dismiss": {
+   "post": {
+    "tags": [
+     "agent"
+    ],
+    "summary": "Dismiss Insight",
+    "operationId": "dismiss_insight_api_agent_insights__insight_id__dismiss_post",
+    "parameters": [
+     {
+      "name": "insight_id",
+      "in": "path",
+      "required": true,
+      "schema": {
+       "type": "string",
+       "title": "Insight Id"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AgentInsightView"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/agent/scan": {
+   "post": {
+    "tags": [
+     "agent"
+    ],
+    "summary": "Scan Now",
+    "description": "Run the agent's checks now and return what it holds afterwards.\n\nWorks whether or not the agent is turned on: turning it on is what makes\nit run by itself; asking it to look is always allowed.",
+    "operationId": "scan_now_api_agent_scan_post",
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AgentScanView"
         }
        }
       }

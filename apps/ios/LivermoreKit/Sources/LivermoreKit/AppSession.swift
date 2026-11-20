@@ -106,6 +106,12 @@ public final class AppSession {
     /// The linked brokerage, as last read.
     public let brokerageLink: BrokerageLink
 
+    /// The portfolio agent: its settings and what it has found.
+    public let agent: AgentStore
+
+    /// Where the API lives. The agent's conversation streams from it directly.
+    public let serverURL: URL
+
     /// Google sign-in, or nil in a build with no Google client ID.
     public let google: GoogleSignIn?
 
@@ -144,6 +150,8 @@ public final class AppSession {
         }
         self.inbox = ActionInbox(service: ActionService(client: client))
         self.brokerageLink = BrokerageLink(service: BrokerageService(client: client))
+        self.agent = AgentStore(service: AgentService(client: client))
+        self.serverURL = serverURL
         if let saved = store.load() {
             tokens.set(saved.token)
             state = .signedIn(saved)
@@ -154,6 +162,7 @@ public final class AppSession {
         // is discovered, rather than leaving every screen to fail on its own.
         inbox.onSessionExpired = { [weak self] in self?.signOut() }
         brokerageLink.onSessionExpired = { [weak self] in self?.signOut() }
+        agent.onSessionExpired = { [weak self] in self?.signOut() }
     }
 
     /// Company research calls, sharing this session's client and token.
@@ -167,6 +176,12 @@ public final class AppSession {
 
     /// Exits waiting on a decision, and notices. Needs a signed-in session.
     public var actions: ActionService { ActionService(client: client) }
+
+    /// A new conversation with the portfolio agent.
+    public func newAgentConversation() -> AgentConversation {
+        let tokens = tokens
+        return AgentConversation(service: AgentChatService(serverURL: serverURL, token: { tokens.get() }))
+    }
 
     /// The user's linked brokerage: accounts, holdings, order tickets.
     public var brokerage: BrokerageService { BrokerageService(client: client) }
@@ -417,6 +432,7 @@ public final class AppSession {
         biometricOffer = nil
         inbox.reset()
         brokerageLink.reset()
+        agent.reset()
         state = .signedOut
     }
 
