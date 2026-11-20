@@ -17,6 +17,9 @@ class AgentProfileView(BaseModel):
     max_position_pct: float
     notes: str
     last_scan_at: Optional[datetime] = None
+    # False when no language model is configured on this server. The monitor
+    # and its insights work without one; the conversation does not.
+    chat_available: bool = False
 
 
 class AgentProfileUpdate(BaseModel):
@@ -55,6 +58,10 @@ class AgentInsightView(BaseModel):
     action: Optional[Dict[str, Any]] = None
     created_at: datetime
     dismissed: bool = False
+
+
+class AgentChatRequest(BaseModel):
+    content: str = Field(min_length=1, max_length=4000)
 
 
 class AgentScanView(BaseModel):
