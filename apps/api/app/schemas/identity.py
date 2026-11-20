@@ -120,6 +120,18 @@ class PasswordResetRejected(BaseModel):
     failed: List[str] = []
 
 
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class PasswordChangeRejected(BaseModel):
+    """Why a password change did not go through. `detail` is written for the user."""
+    detail: str
+    code: Literal["wrong_password", "no_password", "same_password", "weak_password", "breached_password"]
+    failed: List[str] = []
+
+
 class SignupRequest(BaseModel):
     email: EmailStr
     password: str

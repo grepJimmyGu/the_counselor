@@ -8,6 +8,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
+from app.api.deps import get_current_user
 from app.db.session import SessionLocal, get_db
 from app.models.anonymous_session import AnonymousSession
 from app.models.user import User, Plan
@@ -15,6 +16,8 @@ from app.schemas.identity import (
     GoogleTokenResponse,
     LoginRequest,
     OAuthGoogleRequest,
+    PasswordChangeRejected,
+    PasswordChangeRequest,
     PasswordRejected,
     PasswordResetAccepted,
     PasswordResetConfirm,
@@ -344,6 +347,60 @@ def confirm_password_reset(
         return _reset_rejected("breached_password", _BREACHED)
     password_reset.set_password(db, user, used, body.new_password)
     background_tasks.add_task(_send_password_changed_after_reply, user.id)
+    return _make_token_response(user)
+
+
+# ── Changing the password while signed in ─────────────────────────────────────
+
+def _change_rejected(code: str, detail: str, failed: Optional[List[str]] = None) -> JSONResponse:
+    body = PasswordChangeRejected(detail=detail, code=code, failed=failed or [])
+    return JSONResponse(status_code=400, content=body.model_dump())
+
+
+@router.post(
+    "/password/change",
+    response_model=TokenResponse,
+    responses={400: {"model": PasswordChangeRejected}},
+)
+def change_password(
+    body: PasswordChangeRequest,
+    background_tasks: BackgroundTasks,
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Replace the signed-in user's password.
+
+    Being signed in is not enough: the current password is asked for again,
+    so a session left open on a borrowed phone, or a stolen token, cannot be
+    turned into lasting control of the account.
+
+    Every other session is signed out. This one would be too, since its token
+    is older than the change, so the reply carries a new token to carry on with.
+    """
+    if user.password_hash is None:
+        # Signed in through Google, with no password to confirm. Setting one
+        # from here would let a stolen session add its own way in; the reset
+        # by email proves the mailbox instead.
+        return _change_rejected(
+            "no_password",
+            "This account signs in with Google and has no password yet. "
+            "Sign out and use Forgot password to set one.",
+        )
+    if not verify_password_safe(body.current_password, user.password_hash):
+        return _change_rejected("wrong_password", "That is not your current password.")
+    if body.new_password == body.current_password:
+        return _change_rejected("same_password", "Choose a password you are not already using.")
+    failed = password_policy.violations(body.new_password, user.email, user.display_name)
+    if failed:
+        detail = " ".join(password_policy.MESSAGES[code] for code in failed)
+        return _change_rejected("weak_password", detail, failed)
+    if breach_count(body.new_password):
+        return _change_rejected("breached_password", _BREACHED)
+    # Plain values now: the commit below expires `user`.
+    user_id = user.id
+    password_reset.replace_password(db, user, body.new_password)
+    db.commit()
+    background_tasks.add_task(_send_password_changed_after_reply, user_id)
     return _make_token_response(user)
 
 

@@ -110,13 +110,23 @@ def check_code(db: Session, user: User, code: str, now: Optional[datetime] = Non
     return None
 
 
-def set_password(db: Session, user: User, used: PasswordResetCode, new_password: str, now: Optional[datetime] = None) -> None:
-    """Give `user` the new password and close the code that allowed it."""
+def replace_password(db: Session, user: User, new_password: str, now: Optional[datetime] = None) -> datetime:
+    """Give `user` a new password and sign out every session that existed
+    before it. Does not commit. Returns the moment it took effect."""
     # Whole seconds, because that is all a session token records: a token
-    # minted later in this same second must not look older than the reset.
+    # minted later in this same second must not look older than the change.
     now = (now or datetime.utcnow()).replace(microsecond=0)
     user.password_hash = hash_password(new_password)
     user.password_changed_at = now
+    # A code emailed before the change must not be able to undo it.
+    for code in _open_codes(db, user.id, now):
+        code.closed_at = now
+    return now
+
+
+def set_password(db: Session, user: User, used: PasswordResetCode, new_password: str, now: Optional[datetime] = None) -> None:
+    """Give `user` the new password and close the code that allowed it."""
+    now = replace_password(db, user, new_password, now)
     # Typing back a code sent to the address is proof the address is theirs.
     if user.email_verified_at is None:
         user.email_verified_at = now

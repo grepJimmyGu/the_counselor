@@ -309,3 +309,82 @@ def test_a_refresh_without_the_held_token_still_works(user, db: Session) -> None
     _confirm(db, code)
     assert refresh_session_token(_RefreshSessionTokenRequest(email=EMAIL), db=db).session_token
 
+
+# ── Changing the password while signed in ─────────────────────────────────────
+
+def _change(db: Session, user, current: str = OLD, new: str = NEW, breaches=0):
+    from app.api.routes.auth import change_password
+    from app.schemas.identity import PasswordChangeRequest
+
+    tasks = BackgroundTasks()
+    with patch("app.api.routes.auth.breach_count", return_value=breaches):
+        result = change_password(
+            PasswordChangeRequest(current_password=current, new_password=new), tasks, user=user, db=db,
+        )
+    return result, tasks
+
+
+def test_the_current_password_and_a_new_one_change_it(user, db: Session) -> None:
+    with patch("app.services.auth_service.datetime") as clock:
+        clock.utcnow.return_value = datetime.utcnow() - timedelta(hours=1)
+        elsewhere = create_session_token(user.id, "scout")
+
+    result, tasks = _change(db, user)
+
+    db.refresh(user)
+    assert verify_password(NEW, user.password_hash)
+    assert not verify_password(OLD, user.password_hash)
+    # Every other device is signed out...
+    with pytest.raises(HTTPException):
+        get_current_user(_request(elsewhere), db=db)
+    # ...and this one carries on with the token in the reply.
+    assert get_current_user(_request(result.session_token), db=db).id == user.id
+    # The "your password was changed" notice is queued.
+    assert len(tasks.tasks) == 1
+
+
+def test_being_signed_in_is_not_enough_to_change_it(user, db: Session) -> None:
+    result, tasks = _change(db, user, current="not-the-password")
+    assert _rejection(result)["code"] == "wrong_password"
+    db.refresh(user)
+    assert verify_password(OLD, user.password_hash)
+    assert user.password_changed_at is None
+    assert tasks.tasks == []
+
+
+def test_the_new_password_must_be_new_strong_and_unbreached(user, db: Session) -> None:
+    same, _ = _change(db, user, new=OLD)
+    assert _rejection(same)["code"] == "same_password"
+
+    weak, _ = _change(db, user, new="short")
+    body = _rejection(weak)
+    assert body["code"] == "weak_password" and "length" in body["failed"]
+    breached, _ = _change(db, user, breaches=40)
+    assert _rejection(breached)["code"] == "breached_password"
+    db.refresh(user)
+    assert verify_password(OLD, user.password_hash)
+
+
+def test_the_accounts_own_address_counts_against_the_new_password(make_user, db: Session) -> None:
+    jordan = make_user(email="jordan@example.com", password=OLD)
+    result, _ = _change(db, jordan, new="jordan-Tapgo4-zimqyr")
+    assert _rejection(result)["failed"] == ["personal"]
+
+
+def test_an_account_with_no_password_is_sent_to_the_reset(make_user, db: Session) -> None:
+    """A Google-only account has no password to confirm. Letting a signed-in
+    session set one would let a stolen session add its own way in."""
+    google = make_user(email="g@example.com", oauth_provider="google", oauth_subject="sub-1")
+    result, _ = _change(db, google, current="")
+    assert _rejection(result)["code"] == "no_password"
+    db.refresh(google)
+    assert google.password_hash is None
+
+
+def test_changing_the_password_closes_a_reset_code_already_sent(user, db: Session) -> None:
+    code = password_reset.issue_code(db, user)
+    _change(db, user)
+    # The emailed code could otherwise undo the change for fifteen minutes.
+    result, _ = _confirm(db, code, password="Other-Meadow4-finch")
+    assert _rejection(result)["code"] == "invalid_code"
+
