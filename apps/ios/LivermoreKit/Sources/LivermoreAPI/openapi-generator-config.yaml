@@ -11,6 +11,8 @@ filter:
     - /api/auth/password/login
     - /api/auth/password/signup
     - /api/auth/oauth/google/callback
+    - /api/auth/password/reset/request
+    - /api/auth/password/reset/confirm
     - /api/me/entitlements
     - /api/live/quotes
     # Research (slice 2)

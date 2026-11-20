@@ -10985,6 +10985,90 @@
      "is_new"
     ],
     "title": "GoogleTokenResponse"
+   },
+   "PasswordResetRequest": {
+    "properties": {
+     "email": {
+      "type": "string",
+      "format": "email",
+      "title": "Email"
+     }
+    },
+    "type": "object",
+    "required": [
+     "email"
+    ],
+    "title": "PasswordResetRequest"
+   },
+   "PasswordResetAccepted": {
+    "properties": {
+     "detail": {
+      "type": "string",
+      "title": "Detail"
+     }
+    },
+    "type": "object",
+    "required": [
+     "detail"
+    ],
+    "title": "PasswordResetAccepted",
+    "description": "Always the same, whether or not the address has an account."
+   },
+   "PasswordResetConfirm": {
+    "properties": {
+     "email": {
+      "type": "string",
+      "format": "email",
+      "title": "Email"
+     },
+     "code": {
+      "type": "string",
+      "title": "Code"
+     },
+     "new_password": {
+      "type": "string",
+      "title": "New Password"
+     }
+    },
+    "type": "object",
+    "required": [
+     "email",
+     "code",
+     "new_password"
+    ],
+    "title": "PasswordResetConfirm"
+   },
+   "PasswordResetRejected": {
+    "properties": {
+     "detail": {
+      "type": "string",
+      "title": "Detail"
+     },
+     "code": {
+      "type": "string",
+      "enum": [
+       "invalid_code",
+       "weak_password",
+       "breached_password"
+      ],
+      "title": "Code"
+     },
+     "failed": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Failed",
+      "default": []
+     }
+    },
+    "type": "object",
+    "required": [
+     "detail",
+     "code"
+    ],
+    "title": "PasswordResetRejected",
+    "description": "Why a reset did not go through. `detail` is written for the user."
    }
   }
  },
@@ -18807,6 +18891,100 @@
     "tags": [
      "company-filings"
     ]
+   }
+  },
+  "/api/auth/password/reset/request": {
+   "post": {
+    "tags": [
+     "auth"
+    ],
+    "summary": "Request Password Reset",
+    "description": "Ask for a reset code by email.\n\nThe reply is the same for every address and is sent before the account\nis even looked up, so neither its words nor how long it takes says\nwhether the address is registered.",
+    "operationId": "request_password_reset_api_auth_password_reset_request_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PasswordResetRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PasswordResetAccepted"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/auth/password/reset/confirm": {
+   "post": {
+    "tags": [
+     "auth"
+    ],
+    "summary": "Confirm Password Reset",
+    "description": "Set a new password with the emailed code, and sign in.\n\nWorks for an account that has only ever used Google: the code proves the\nsame thing a Google sign-in does, control of the mailbox, and afterwards\nthe account can sign in either way.",
+    "operationId": "confirm_password_reset_api_auth_password_reset_confirm_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PasswordResetConfirm"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TokenResponse"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "Bad Request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PasswordResetRejected"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
    }
   }
  }

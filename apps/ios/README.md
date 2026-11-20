@@ -17,7 +17,7 @@ What the app does, and how far each part has been checked.
 | Act on a strategy | Buy at your broker from a strategy or company page; tell Livermore about a position you hold so its exits are watched | Sample data only |
 | Actions | Exits a strategy signalled, each resolved by selling at the broker, recording a sale made elsewhere, or keeping the position; notices | Sample data only |
 | Brokerage | Link Robinhood, Schwab or another SnapTrade broker; accounts and holdings; order ticket (fill in → broker's numbers → confirm → receipt) | Sample data only |
-| Account | Sign in with a password, Face ID or Google; create an account under the password rules; sign out | Sign-up, the breach refusal, show/hide and Face ID on the simulator against a local backend. Google, the iPhone's suggested password and automatic saving are not yet seen working: see "Signing in" |
+| Account | Sign in with a password, Face ID or Google; create an account under the password rules; reset a forgotten password by emailed code; sign out | Sign-up, the breach refusal, show/hide and Face ID on the simulator against a local backend. Google, the iPhone's suggested password and automatic saving are not yet seen working: see "Signing in" |
 
 **"Sample data only" means the screens and the full flow run, but against
 fixtures.** Launching a debug build with `-demo` signs in a made-up user and
@@ -155,6 +155,15 @@ overview) through to the live API, so the Price tab is live in `-demo` too.
 | Face ID | After a typed sign-in the app asks once whether to keep the password. It is stored in the Keychain behind `biometryCurrentSet`, on this device only; "Sign in with Face ID" then reads it after the face check. Turned off from Account, which deletes it. A password the account no longer accepts is deleted on first use | Nothing. Google accounts have no password, so there is nothing to keep for them |
 | Google | `GoogleSignIn` runs Google's installed-app flow (authorization code with PKCE) in the system browser sheet and hands the ID token to the backend. No Google SDK | An iOS OAuth client ID from Google Cloud in `APIEnvironment.googleClientID`, and the same value as `GOOGLE_IOS_CLIENT_ID` on the backend. Without the ID there is no Google button |
 
+**Forgotten password.** "Forgot password?" on the sign-in screen asks for the
+address, the backend emails a six-digit code, and the next screen takes the
+code and a new password (same rules, same checklist). Finishing signs in and
+signs the app out everywhere else. The screen never says whether the address
+has an account, because the backend does not. It needs backend PR #377 and,
+on the backend, `RESEND_API_KEY`: without it no email is sent. Seen working
+on the simulator against #377 running locally, with the code read from the
+test database in place of the email; no real email has been sent.
+
 To try Google sign-in before the client ID is committed, or to point the app
 at a backend on this Mac (debug builds only):
 
@@ -240,7 +249,7 @@ apps/ios/
       Brokerage/                    SnapTrade link, holdings, order tickets
       Demo/                         the sample account (debug builds only)
     Sources/LivermoreUI/          SwiftUI screens, same folders
-    Tests/LivermoreKitTests/      169 tests; `swift test` runs them in a second
+    Tests/LivermoreKitTests/      175 tests; `swift test` runs them in a second
   scripts/refresh_openapi.py      refreshes openapi.json from the backend
   scripts/gen_scoring_golden.mjs  regenerates the scoring parity fixture
   scripts/gen_templates.mjs       regenerates the strategy templates
@@ -368,7 +377,8 @@ belongs in `LivermoreKit/` instead.
 - **The market strip shows index ETFs** (SPY, QQQ, DIA, IWM), not the indices
   themselves, and says so.
 
-- **There is no way to reset a forgotten password**, here or on the website.
+- **A password cannot be changed while signed in**, only reset from the
+  sign-in screen.
 - **Google sign-in refuses an address whose account has a password and has
   never used Google** (the backend's rule; the website's Google sign-in links
   such an account instead).

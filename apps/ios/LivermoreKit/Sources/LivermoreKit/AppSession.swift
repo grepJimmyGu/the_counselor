@@ -24,6 +24,9 @@ public enum SignInError: Error, Equatable, Sendable {
     case googleFailed
     /// Face ID sign-in: the saved password is no longer the account's password.
     case savedPasswordRejected
+    /// Password reset: the emailed code was wrong, used or out of date. The
+    /// backend gives one answer for all three, in its own words.
+    case resetCodeRejected(String)
     /// The user backed out. Nothing to report.
     case cancelled
     /// Any other HTTP status.
@@ -41,6 +44,7 @@ public enum SignInError: Error, Equatable, Sendable {
         case .emailHasPassword: "That email already has a Livermore account with a password. Sign in with the password instead."
         case .googleFailed: "Google sign-in didn't complete. Try again."
         case .savedPasswordRejected: "The saved password no longer works. Sign in with your current password."
+        case .resetCodeRejected(let reason): reason
         case .cancelled: ""
         case .server(let status): "Livermore couldn't sign you in (error \(status)). Try again in a moment."
         case .network: "Couldn't reach Livermore. Check your connection and try again."
@@ -200,6 +204,55 @@ public final class AppSession {
             case 400: throw .googleFailed
             default: throw .server(status: status)
             }
+        }
+    }
+
+    // MARK: Forgotten password
+
+    /// Asks for a reset code to be emailed. Succeeds whether or not the
+    /// address has an account: the backend deliberately does not say.
+    public func requestPasswordReset(email: String) async throws(SignInError) {
+        let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        let output: Operations.RequestPasswordResetApiAuthPasswordResetRequestPost.Output
+        do {
+            output = try await client.requestPasswordResetApiAuthPasswordResetRequestPost(
+                body: .json(.init(email: email))
+            )
+        } catch {
+            throw .network
+        }
+        switch output {
+        case .accepted: return
+        case .unprocessableContent: throw .invalidInput
+        case .undocumented(let status, _): throw .server(status: status)
+        }
+    }
+
+    /// Sets a new password with the emailed code, and signs in with it.
+    public func resetPassword(email: String, code: String, newPassword: String) async throws(SignInError) {
+        let email = email.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard PasswordPolicy.violations(newPassword, email: email).isEmpty else { throw .weakPassword }
+        let output: Operations.ConfirmPasswordResetApiAuthPasswordResetConfirmPost.Output
+        do {
+            output = try await client.confirmPasswordResetApiAuthPasswordResetConfirmPost(
+                body: .json(.init(email: email, code: code, newPassword: newPassword))
+            )
+        } catch {
+            throw .network
+        }
+        switch output {
+        case .ok(let ok):
+            guard case .json(let token) = ok.body else { throw .server(status: 200) }
+            adopt(token: token.sessionToken, user: token.user, email: email)
+            // A password already kept for Face ID is the old one; this replaces it.
+            offerBiometrics(SavedCredential(email: email, password: newPassword))
+        case .badRequest(let refused):
+            guard case .json(let reason) = refused.body else { throw .server(status: 400) }
+            throw reason.code == .invalidCode ? .resetCodeRejected(reason.detail) : .passwordRejected(reason.detail)
+        case .unprocessableContent:
+            throw .invalidInput
+        case .undocumented(let status, _):
+            throw .server(status: status)
         }
     }
 

@@ -321,3 +321,95 @@ struct AuthSessionTests {
         #expect(store.savedEmail == nil)
     }
 }
+
+@MainActor
+@Suite("forgotten password")
+struct PasswordResetTests {
+    private static let request = "request_password_reset_api_auth_password_reset_request_post"
+    private static let confirm = "confirm_password_reset_api_auth_password_reset_confirm_post"
+
+    private func make(
+        biometrics: InMemoryBiometricStore = InMemoryBiometricStore()
+    ) -> (AppSession, MockTransport, InMemorySessionStore) {
+        let transport = MockTransport()
+        let store = InMemorySessionStore()
+        return (AppSession(serverURL: server, store: store, biometrics: biometrics, transport: transport), transport, store)
+    }
+
+    private func sent(_ transport: MockTransport, _ index: Int = 0) throws -> [String: String]? {
+        try JSONSerialization.jsonObject(with: Data(transport.requests[index].body.utf8)) as? [String: String]
+    }
+
+    @Test("asking for a code sends the trimmed address and signs nobody in")
+    func ask() async throws {
+        let (session, transport, _) = make()
+        transport.stub(Self.request, .json(status: 202, #"{"detail":"If that address has a Livermore account, a reset code is on its way."}"#))
+
+        try await session.requestPasswordReset(email: "  kim@example.com ")
+
+        #expect(try sent(transport) == ["email": "kim@example.com"])
+        #expect(!session.isSignedIn)
+    }
+
+    @Test("an address the backend cannot read, a server fault and no connection are told apart")
+    func askFailures() async {
+        let (session, transport, _) = make()
+        transport.stub(Self.request, .json(status: 422, #"{"detail":[{"loc":["body","email"],"msg":"bad","type":"value_error"}]}"#))
+        await #expect(throws: SignInError.invalidInput) { try await session.requestPasswordReset(email: "nope") }
+        transport.stub(Self.request, .json(status: 503, "{}"))
+        await #expect(throws: SignInError.server(status: 503)) { try await session.requestPasswordReset(email: "kim@example.com") }
+        transport.stub(Self.request, .failure)
+        await #expect(throws: SignInError.network) { try await session.requestPasswordReset(email: "kim@example.com") }
+    }
+
+    @Test("the code and a new password sign the user in")
+    func reset() async throws {
+        let (session, transport, store) = make()
+        transport.stub(Self.confirm, .json(status: 200, Fixture.tokenResponse))
+
+        try await session.resetPassword(email: " kim@example.com", code: "482913", newPassword: good)
+
+        #expect(try sent(transport) == ["email": "kim@example.com", "code": "482913", "new_password": good])
+        #expect(session.isSignedIn)
+        #expect(store.load()?.email == "kim@example.com")
+    }
+
+    @Test("a wrong or expired code is reported in the backend's words")
+    func wrongCode() async {
+        let (session, transport, _) = make()
+        let reason = "That code is wrong or has expired. Ask for a new one."
+        transport.stub(Self.confirm, .json(status: 400, #"{"detail":"\#(reason)","code":"invalid_code","failed":[]}"#))
+        await #expect(throws: SignInError.resetCodeRejected(reason)) {
+            try await session.resetPassword(email: "kim@example.com", code: "000000", newPassword: good)
+        }
+        #expect(!session.isSignedIn)
+    }
+
+    @Test("a password that breaks a rule is stopped on the device; one the backend refuses is reported")
+    func badPassword() async {
+        let (session, transport, _) = make()
+        await #expect(throws: SignInError.weakPassword) {
+            try await session.resetPassword(email: "kim@example.com", code: "482913", newPassword: "short")
+        }
+        #expect(transport.requests.isEmpty)
+
+        let reason = "That password has appeared in a known data breach. Choose a different one."
+        transport.stub(Self.confirm, .json(status: 400, #"{"detail":"\#(reason)","code":"breached_password","failed":[]}"#))
+        await #expect(throws: SignInError.passwordRejected(reason)) {
+            try await session.resetPassword(email: "kim@example.com", code: "482913", newPassword: good)
+        }
+    }
+
+    @Test("a password kept for Face ID is replaced by the new one")
+    func replacesSavedPassword() async throws {
+        let biometrics = InMemoryBiometricStore(biometry: .faceID, saved: SavedCredential(email: "kim@example.com", password: "old"))
+        let (session, transport, _) = make(biometrics: biometrics)
+        transport.stub(Self.confirm, .json(status: 200, Fixture.tokenResponse))
+
+        try await session.resetPassword(email: "kim@example.com", code: "482913", newPassword: good)
+
+        // Already chosen for this account: updated without asking again.
+        #expect(session.biometricOffer == nil)
+        #expect(try await biometrics.load(reason: "") == SavedCredential(email: "kim@example.com", password: good))
+    }
+}
