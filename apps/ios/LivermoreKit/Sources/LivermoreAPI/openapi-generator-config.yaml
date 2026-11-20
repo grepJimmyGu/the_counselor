@@ -13,6 +13,7 @@ filter:
     - /api/auth/oauth/google/callback
     - /api/auth/password/reset/request
     - /api/auth/password/reset/confirm
+    - /api/auth/password/change
     - /api/me/entitlements
     - /api/live/quotes
     # Research (slice 2)

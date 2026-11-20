@@ -413,3 +413,92 @@ struct PasswordResetTests {
         #expect(try await biometrics.load(reason: "") == SavedCredential(email: "kim@example.com", password: good))
     }
 }
+
+@MainActor
+@Suite("changing the password")
+struct ChangePasswordTests {
+    private static let change = "change_password_api_auth_password_change_post"
+    private static let reply = """
+    {"user":{"id":"u-9","handle":null,"display_name":null,"avatar_url":null,"locale":"en"},"session_token":"tok-new"}
+    """
+
+    private func make(
+        biometrics: InMemoryBiometricStore = InMemoryBiometricStore()
+    ) -> (AppSession, MockTransport, InMemorySessionStore) {
+        let transport = MockTransport()
+        let store = InMemorySessionStore(Fixture.saved)
+        return (AppSession(serverURL: server, store: store, biometrics: biometrics, transport: transport), transport, store)
+    }
+
+    @Test("the change is sent with the old session and the reply's session replaces it")
+    func change() async throws {
+        let (session, transport, store) = make()
+        transport.stub(Self.change, .json(status: 200, Self.reply))
+        transport.stub(Fixture.entitlements, .json(status: 200, Fixture.strategistEntitlements))
+
+        try await session.changePassword(current: "old-pw", new: good)
+
+        let sent = try JSONSerialization.jsonObject(with: Data(transport.requests[0].body.utf8)) as? [String: String]
+        #expect(sent == ["current_password": "old-pw", "new_password": good])
+        #expect(transport.requests[0].authorization == "Bearer saved-tok")
+        // Still signed in, as the same address, on the new session.
+        #expect(store.load()?.token == "tok-new")
+        #expect(store.load()?.email == "saved@example.com")
+        await session.refreshEntitlements()
+        #expect(transport.requests[1].authorization == "Bearer tok-new")
+    }
+
+    @Test("a refusal is reported in the backend's words and the session is kept")
+    func refused() async {
+        let (session, transport, store) = make()
+        let reason = "That is not your current password."
+        transport.stub(Self.change, .json(status: 400, #"{"detail":"\#(reason)","code":"wrong_password","failed":[]}"#))
+        await #expect(throws: SignInError.passwordRejected(reason)) {
+            try await session.changePassword(current: "nope", new: good)
+        }
+        #expect(store.load()?.token == "saved-tok")
+        #expect(session.isSignedIn)
+    }
+
+    @Test("a new password that breaks a rule is stopped on the device")
+    func weak() async {
+        let (session, transport, _) = make()
+        await #expect(throws: SignInError.weakPassword) {
+            try await session.changePassword(current: "old-pw", new: "short")
+        }
+        // The account's own address counts against it.
+        await #expect(throws: SignInError.weakPassword) {
+            try await session.changePassword(current: "old-pw", new: "saved-Tapgo4-zimqyr")
+        }
+        #expect(transport.requests.isEmpty)
+    }
+
+    @Test("a session that has ended signs the app out instead of reporting an error")
+    func sessionEnded() async {
+        let (session, transport, store) = make()
+        transport.stub(Self.change, .json(status: 401, #"{"detail":"Invalid or expired session token."}"#))
+        await #expect(throws: SignInError.cancelled) {
+            try await session.changePassword(current: "old-pw", new: good)
+        }
+        #expect(!session.isSignedIn)
+        #expect(store.load() == nil)
+    }
+
+    @Test("a password kept for Face ID follows the change; a device that keeps none is not asked")
+    func faceID() async throws {
+        let saved = SavedCredential(email: "saved@example.com", password: "old-pw")
+        let biometrics = InMemoryBiometricStore(biometry: .faceID, saved: saved)
+        let (session, transport, _) = make(biometrics: biometrics)
+        transport.stub(Self.change, .json(status: 200, Self.reply))
+        try await session.changePassword(current: "old-pw", new: good)
+        #expect(try await biometrics.load(reason: "") == SavedCredential(email: "saved@example.com", password: good))
+
+        let none = InMemoryBiometricStore(biometry: .faceID)
+        let (other, otherTransport, _) = make(biometrics: none)
+        otherTransport.stub(Self.change, .json(status: 200, Self.reply))
+        try await other.changePassword(current: "old-pw", new: good)
+        #expect(other.biometricOffer == nil)
+        #expect(none.savedEmail == nil)
+    }
+}
+

@@ -37,6 +37,16 @@ struct AccountView: View {
                 } footer: {
                     Text("Link Robinhood, Charles Schwab or another broker to see your holdings and send orders you have confirmed.")
                 }
+                if session.isSignedIn, !session.isDemo {
+                    Section {
+                        NavigationLink {
+                            ChangePasswordView()
+                        } label: {
+                            Label("Change password", systemImage: "key")
+                        }
+                        .accessibilityIdentifier("change-password-link")
+                    }
+                }
                 if let saved = session.biometricEmail {
                     let biometry = session.biometry
                     Section {

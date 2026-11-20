@@ -11069,6 +11069,58 @@
     ],
     "title": "PasswordResetRejected",
     "description": "Why a reset did not go through. `detail` is written for the user."
+   },
+   "PasswordChangeRequest": {
+    "properties": {
+     "current_password": {
+      "type": "string",
+      "title": "Current Password"
+     },
+     "new_password": {
+      "type": "string",
+      "title": "New Password"
+     }
+    },
+    "type": "object",
+    "required": [
+     "current_password",
+     "new_password"
+    ],
+    "title": "PasswordChangeRequest"
+   },
+   "PasswordChangeRejected": {
+    "properties": {
+     "detail": {
+      "type": "string",
+      "title": "Detail"
+     },
+     "code": {
+      "type": "string",
+      "enum": [
+       "wrong_password",
+       "no_password",
+       "same_password",
+       "weak_password",
+       "breached_password"
+      ],
+      "title": "Code"
+     },
+     "failed": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array",
+      "title": "Failed",
+      "default": []
+     }
+    },
+    "type": "object",
+    "required": [
+     "detail",
+     "code"
+    ],
+    "title": "PasswordChangeRejected",
+    "description": "Why a password change did not go through. `detail` is written for the user."
    }
   }
  },
@@ -18970,6 +19022,58 @@
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/PasswordResetRejected"
+        }
+       }
+      }
+     },
+     "422": {
+      "description": "Validation Error",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      }
+     }
+    }
+   }
+  },
+  "/api/auth/password/change": {
+   "post": {
+    "tags": [
+     "auth"
+    ],
+    "summary": "Change Password",
+    "description": "Replace the signed-in user's password.\n\nBeing signed in is not enough: the current password is asked for again,\nso a session left open on a borrowed phone, or a stolen token, cannot be\nturned into lasting control of the account.\n\nEvery other session is signed out. This one would be too, since its token\nis older than the change, so the reply carries a new token to carry on with.",
+    "operationId": "change_password_api_auth_password_change_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PasswordChangeRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "description": "Successful Response",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TokenResponse"
+        }
+       }
+      }
+     },
+     "400": {
+      "description": "Bad Request",
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PasswordChangeRejected"
         }
        }
       }

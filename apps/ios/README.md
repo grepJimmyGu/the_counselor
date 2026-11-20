@@ -17,7 +17,7 @@ What the app does, and how far each part has been checked.
 | Act on a strategy | Buy at your broker from a strategy or company page; tell Livermore about a position you hold so its exits are watched | Sample data only |
 | Actions | Exits a strategy signalled, each resolved by selling at the broker, recording a sale made elsewhere, or keeping the position; notices | Sample data only |
 | Brokerage | Link Robinhood, Schwab or another SnapTrade broker; accounts and holdings; order ticket (fill in → broker's numbers → confirm → receipt) | Sample data only |
-| Account | Sign in with a password, Face ID or Google; create an account under the password rules; reset a forgotten password by emailed code; sign out | Sign-up, the breach refusal, show/hide and Face ID on the simulator against a local backend. Google, the iPhone's suggested password and automatic saving are not yet seen working: see "Signing in" |
+| Account | Sign in with a password, Face ID or Google; create an account under the password rules; reset a forgotten password by emailed code; change the password; sign out | Sign-up, the breach refusal, show/hide and Face ID on the simulator against a local backend. Google, the iPhone's suggested password and automatic saving are not yet seen working: see "Signing in" |
 
 **"Sample data only" means the screens and the full flow run, but against
 fixtures.** Launching a debug build with `-demo` signs in a made-up user and
@@ -164,6 +164,14 @@ on the backend, `RESEND_API_KEY`: without it no email is sent. Seen working
 on the simulator against #377 running locally, with the code read from the
 test database in place of the email; no real email has been sent.
 
+**Changing the password.** Account → Change password asks for the current
+password and a new one (same rules, same checklist). The backend signs out
+every other device and hands this one a new session, so it stays signed in;
+a password kept for Face ID is replaced with the new one. An account that
+signs in with Google has no current password and is told to use Forgot
+password instead. Needs backend PR #377. Seen working on the simulator
+against #377 running locally.
+
 To try Google sign-in before the client ID is committed, or to point the app
 at a backend on this Mac (debug builds only):
 
@@ -249,7 +257,7 @@ apps/ios/
       Brokerage/                    SnapTrade link, holdings, order tickets
       Demo/                         the sample account (debug builds only)
     Sources/LivermoreUI/          SwiftUI screens, same folders
-    Tests/LivermoreKitTests/      175 tests; `swift test` runs them in a second
+    Tests/LivermoreKitTests/      180 tests; `swift test` runs them in a second
   scripts/refresh_openapi.py      refreshes openapi.json from the backend
   scripts/gen_scoring_golden.mjs  regenerates the scoring parity fixture
   scripts/gen_templates.mjs       regenerates the strategy templates
@@ -377,8 +385,6 @@ belongs in `LivermoreKit/` instead.
 - **The market strip shows index ETFs** (SPY, QQQ, DIA, IWM), not the indices
   themselves, and says so.
 
-- **A password cannot be changed while signed in**, only reset from the
-  sign-in screen.
 - **Google sign-in refuses an address whose account has a password and has
   never used Google** (the backend's rule; the website's Google sign-in links
   such an account instead).

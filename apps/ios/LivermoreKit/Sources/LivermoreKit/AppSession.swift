@@ -256,6 +256,50 @@ public final class AppSession {
         }
     }
 
+    // MARK: Changing the password
+
+    /// Replaces the signed-in user's password. The backend asks for the
+    /// current one again, signs out every other device, and replies with a
+    /// new session for this one.
+    public func changePassword(current: String, new: String) async throws(SignInError) {
+        guard case .signedIn(let stored) = state else { throw .cancelled }
+        let email = stored.email.isEmpty ? nil : stored.email
+        guard PasswordPolicy.violations(new, email: email, displayName: stored.displayName).isEmpty else {
+            throw .weakPassword
+        }
+        let output: Operations.ChangePasswordApiAuthPasswordChangePost.Output
+        do {
+            output = try await client.changePasswordApiAuthPasswordChangePost(
+                body: .json(.init(currentPassword: current, newPassword: new))
+            )
+        } catch {
+            throw .network
+        }
+        switch output {
+        case .ok(let ok):
+            guard case .json(let token) = ok.body else { throw .server(status: 200) }
+            adopt(token: token.sessionToken, user: token.user, email: stored.email)
+            // A password kept for Face ID is now the old one. Replace it; a
+            // device that keeps none is not asked to start here.
+            if biometricEmail == stored.email {
+                let saved = SavedCredential(email: stored.email, password: new)
+                if (try? biometrics.save(saved)) == nil { biometricEmail = nil }
+            }
+        case .badRequest(let refused):
+            guard case .json(let reason) = refused.body else { throw .server(status: 400) }
+            throw .passwordRejected(reason.detail)
+        case .unprocessableContent:
+            throw .invalidInput
+        case .undocumented(statusCode: 401, _):
+            // The session ended while the screen was open; there is nothing
+            // to change a password on. The app returns to sign-in.
+            signOut()
+            throw .cancelled
+        case .undocumented(let status, _):
+            throw .server(status: status)
+        }
+    }
+
     // MARK: Face ID sign-in
 
     /// Signs in with the saved password, after the device's biometric check.
