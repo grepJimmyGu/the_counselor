@@ -235,8 +235,11 @@ brokerage app, then record it here" — never a button that would fail.
 ## How live prices work
 
 `QuoteStore` polls `GET /api/live/quotes` for the union of symbols the visible
-screens are showing, every 10 seconds, and stops in the background. Views opt
-in with `.liveQuotes([...])` and read `session.quotes.quotes`.
+screens are showing, and stops in the background. It asks every 10 seconds
+while a US session is open (weekdays, 4:00 to 20:00 New York, pre-market
+through after-hours) and once a minute the rest of the time, when the price is
+the last trade and cannot change (`MarketHours`). Views opt in with
+`.liveQuotes([...])` and read `session.quotes.quotes`.
 
 How fresh a price can be is set by the backend's per-symbol cache — 30 seconds
 today — not by the poll. PR #374 (`feat(api): fresher live quotes`) makes that
@@ -284,7 +287,7 @@ apps/ios/
       Brokerage/                    SnapTrade link, holdings, order tickets
       Demo/                         the sample account (debug builds only)
     Sources/LivermoreUI/          SwiftUI screens, same folders
-    Tests/LivermoreKitTests/      198 tests; `swift test` runs them in a second
+    Tests/LivermoreKitTests/      203 tests; `swift test` runs them in a second
   scripts/refresh_openapi.py      refreshes openapi.json from the backend
   scripts/gen_scoring_golden.mjs  regenerates the scoring parity fixture
   scripts/gen_templates.mjs       regenerates the strategy templates
@@ -406,9 +409,15 @@ belongs in `LivermoreKit/` instead.
   chart or trade log.**
 - **Supply chain shows the summary and chokepoint tests only**, not the
   supplier and customer graph.
-- **The price chart downloads the whole daily history** (about 200 KB
-  compressed) because `/api/data/daily/{symbol}` ignores its `start`
-  parameter. It is fetched once per symbol per launch.
+- **The price chart asks for six years of daily history**
+  (`PriceHistory.yearsKept`): the longest range and the plan test read five.
+  A backend older than 2026-11-20 ignores `start` and sends everything, which
+  the app handles; it is just a bigger download. Fetched once per symbol per
+  launch.
+- **A company looked at in the last five minutes opens from memory**
+  (`RecentValues` on `AppSession`): no skeleton and no request. The backend
+  keeps a company page for ten minutes itself, so a second request in that
+  time could only return what the first did. Signing in or out clears it.
 - **The market strip shows index ETFs** (SPY, QQQ, DIA, IWM), not the indices
   themselves, and says so.
 

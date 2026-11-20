@@ -8,6 +8,57 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-11-20 — Speed and volume: the company page is built once, quotes stop queueing, the agent scans in parallel
+
+One PR. Jimmy's ask: make the app load faster and make the portfolio agent hold up under many requests.
+Measured first, against production, with small read-only bursts.
+
+| What was measured in production | Before |
+|---|---|
+| One view of a company page (`/api/company/AMD/overview`) | 2.9 s, every view |
+| 12 different companies opened at once | 20 s for the last |
+| 12 views of the same company at once | 27 s for the last |
+| 40 quote requests at once across 12 symbols | 6.9 s |
+| 6 watchlist loads at once, 4 symbols behind | 39 s each, health check held 3 s |
+| Daily history for one stock | 1.2 MB, 6,802 rows back to 1999 |
+
+**Causes, each traced in code.** The company page made six FMP calls one after another, on six new
+connections, and kept nothing; a call on a new connection costs 0.44 s and on a kept-alive one 0.09 s.
+The quote service held one lock per symbol across the FMP call, so any two requests with a symbol in
+common ran end to end. `ensure_display_fresh` downloaded a symbol's whole history inside every request
+that found it behind. `/api/data/daily` declared `start` and ignored it. The agent's scheduled job
+scanned one user at a time.
+
+**What changed.** `app/core/concurrency.py` (per-loop primitives, single-flight, a TTL cache with
+stale-while-revalidate) and its uses: the company page kept ten minutes and shared; one kept-alive pool
+to FMP on the request loop; quotes on one shared queue; one history refresh per symbol; `start`
+honoured. The agent: scans several at a time under one limit shared with "Check now", on its own
+threads; filings read once and shared; one conversation per user and a cap on conversations; a larger,
+configurable database pool. The app asks for six years of prices, polls quotes once a minute when no US
+session is open, and keeps the last few company pages for five minutes.
+
+**Same script, old code and new, against a stand-in provider** (0.09 s per call, +0.35 s per new
+connection, no rate limit, so the old numbers are kinder than production's):
+
+| | Before | After |
+|---|---|---|
+| Company page, first view | 2.75 s, 6 calls | 0.50 s, 6 calls |
+| Company page, second view | 2.72 s, 6 calls | 0.00 s, 0 calls |
+| 12 different companies at once | 2.97 s, 72 calls | 0.97 s, 68 calls |
+| 12 views of one company at once | 3.02 s, 72 calls | 0.12 s, 6 calls |
+| 40 quote requests at once | 2.27 s, 5 calls | 0.12 s, 1 call |
+| Agent run, 60 users, 1 s broker read each | 90 s | 13 s |
+
+**Not done, and why.** One server process: every cache here is in that process's memory, so a second
+process would need Redis first. The general chat has no cap like the agent's. SnapTrade's rate limit is
+unknown, and it is what bounds the agent's run once there are thousands of linked accounts.
+
+**Two lessons from the session.** A test that patches `time.monotonic` freezes the event loop, which
+runs on it: give the code its own `_now()` and patch that. And `cat > tests/x.py` replaced an existing
+test file of the same name; `git status` showing `M` on a file meant to be new is what caught it.
+
+---
+
 ## 2026-08-28 — The Quant Engine gets its middle: reconstruction, the Timing Engine, and rules that outlive the tab (#355 → #359)
 
 Five PRs. The packet went from "43a shipped, both lenses blocked" to **levels 0, 1 and 2 of the maturity ladder live end to end** — the Mirror measures your record, the Timing Engine measures your entries and exits against it, and a finding can be saved as a rule that survives the tab closing.
