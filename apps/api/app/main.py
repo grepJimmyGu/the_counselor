@@ -13,6 +13,7 @@ from app.api.routes.backtest import router as backtest_router
 from app.api.routes.cn_company import router as cn_company_router
 from app.api.routes.cn_market import router as cn_market_router
 from app.api.routes.company_overview import router as company_overview_router
+from app.api.routes.filings import router as filings_router
 from app.api.routes.fundamental import router as fundamental_router
 from app.api.routes.insights import router as insights_router
 from app.api.routes.mirror import router as mirror_router
@@ -817,6 +818,7 @@ app.include_router(fundamental_router)
 app.include_router(screener_router)
 app.include_router(screen_router)
 app.include_router(company_overview_router)
+app.include_router(filings_router)
 app.include_router(insights_router)
 app.include_router(mirror_router)
 app.include_router(rules_router)
