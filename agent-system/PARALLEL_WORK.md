@@ -6,50 +6,37 @@ Multiple AI agent sessions (Claude Code, codex, etc.) operate on this repo concu
 
 ---
 
-## Master merger (designated 2026-05-21)
+## Who merges
 
-**`deepseek-main` is the current master merger** (as of 2026-06-01). Previously
-`claude-main` held this role. Only the active master merger runs `gh pr merge`
-against `main`.
+*Rewritten 2026-11-20 to match what actually happens.*
 
-> ### Verbal handshake — the master merger addresses Jimmy as "Mr Gu"
->
-> The role rotates between sessions, and the doc in git is sometimes a tick
-> behind the current state. To make the active master merger visible at a
-> glance, **the session acting as master merger addresses Jimmy as "Mr Gu"**
-> in its first reply each turn (and may continue using "Mr Gu" throughout).
-> Non-master sessions stick to "Jimmy" or no greeting.
->
-> Reading the room:
-> - **"Hi Mr Gu — ..."** in the first reply → that session believes it IS
->   the master merger this turn.
-> - **"Hey Jimmy — ..."** or no greeting → that session is NOT acting as
->   master merger; it'll open PRs and wait for the master merger (or for
->   Jimmy to authorize a one-off merge).
->
-> If a session greets Jimmy as "Mr Gu" but isn't actually the master merger
-> for the turn — it has misread the role. Jimmy can correct in one line
-> ("Actually deepseek-main is master merger this turn"). The session should
-> immediately drop back to "Jimmy" and open PRs instead of merging.
->
-> Jimmy can promote any session to master merger for a turn by replying
-> with the role transfer in plain English; the session then adopts "Mr Gu"
-> from its next reply.
+**A session merges a PR only when Jimmy names that PR** in his message
+("merge #381"). One named PR is one merge; it does not carry to the next one.
+No session merges on its own judgement, its own docs included. Otherwise: push
+the branch, open the PR, and stop.
 
-Other sessions push branches and **open** PRs, but do **not** merge them. The master merger:
+Whoever merges does the check the old gate existed for:
 
-1. **Diff sanity check** — reads the PR diff, verifies files match the title/body, scans for muddy commits (unrelated files snuck in via the cross-session collisions we've seen).
-2. **Detects no-op PRs** — if a PR's branch content is already on `main` (e.g., its commits got picked up by a sibling muddy PR), the master merger closes it with a comment rather than merging an empty squash.
-3. **Self-merges its own work** under the same diff-sanity rigor.
+1. **Read the diff against the title.** Files that do not belong to the PR's
+   stated change are the failure this rule was written for.
+2. **Close a no-op PR instead of merging it.** If the branch's content is
+   already on `main`, say so in a comment and close it.
+3. **Squash-merge.** The branch is deleted automatically (repository setting,
+   on since 2026-11-20); the PR page can restore it.
 
-**Why this exists:** between 2026-05-21 morning and afternoon, three separate PRs (#27, #29, #30) merged with unintended files attached because multiple `gh pr merge` calls fired from sessions that had drifted off their intended branches. Funneling all merges through one agent eliminates the class.
+**A standing master merger is optional, not the default.** Jimmy can appoint
+one session to merge without per-PR naming for a stretch; he last did on
+2026-08-09. That session addresses him as **"Mr Gu"** so the role is visible
+at a glance, and every other session says "Jimmy". Nobody holds the role
+unless he says so in that session: do not ask about it on boot, do not assume
+it, and do not greet him as "Mr Gu" otherwise.
 
-If you're a non-master session and want a PR merged:
-- Push your branch and open the PR yourself (titles + bodies as normal)
-- Leave it alone — don't call `gh pr merge`
-- `deepseek-main` (current master merger) reviews + merges; if no-op, closes with a comment so you see why
-
-If `claude-main` isn't reachable and you need to merge urgently, fall back to Jimmy. Don't bypass the master merger silently.
+**Why the gate existed:** on 2026-05-21, three PRs (#27, #29, #30) merged with
+unintended files attached, because several sessions that had drifted off their
+branches each ran `gh pr merge`. Routing every merge through one session
+(`claude-main`, then `deepseek-main` from 2026-06-01) removed the class. In
+practice the single merger stopped being a running session, and Jimmy's naming
+a PR became the gate. The diff check above is the part that still matters.
 
 ---
 
@@ -60,7 +47,7 @@ If `claude-main` isn't reachable and you need to merge urgently, fall back to Ji
 Every branch starts with an agent prefix. No exceptions:
 
 ```
-deepseek/feat/<slug>    # deepseek-main (master merger, canonical root)
+deepseek/feat/<slug>    # sessions on the DeepSeek backend
 claude/feat/<slug>      # Claude Code sessions
 codex/feat/<slug>       # codex
 human/feat/<slug>       # Jimmy hand-coding
@@ -79,16 +66,25 @@ This prevents the collision class above. Two agents that both want `feat/chat-bu
 Each concurrent session works in its own `git worktree`. Same `.git` store, separate file checkouts. Eliminates "wait, what branch am I on" + "where did this file come from."
 
 ```bash
-# From the canonical repo root:
-git worktree add ../the_counselor-<session-tag> -b claude/feat/<slug> main
+git fetch origin
+git worktree add ../the_counselor-<session-tag> -b claude/feat/<slug> origin/main
 
-# Tear down when done:
+# Tear down once the PR has merged:
 git worktree remove ../the_counselor-<session-tag>
 ```
 
+**Branch from `origin/main`, never from local `main`.** On 2026-11-20 the
+canonical root's `main` was 17 PRs behind `origin/main`, and its files were
+older than that. A worktree cut from it starts months stale.
+
+**Tear down is part of the job.** By 2026-11-20 there were 33 worktrees, 167
+local branches and 59 remote ones, almost all for PRs long merged. The remote
+side now cleans itself (GitHub deletes a branch when its PR merges); the
+worktree and the local branch are yours to remove.
+
 Path convention: `../the_counselor-<session-tag>/`. The tag is short and describes what the session is doing (e.g., `chat-v2-p2`, `tier-audit`, `qa-tripwires`).
 
-The canonical repo root (`/Users/jimmygu/the_counselor`) stays on `main` and is the **default landing point for new sessions**. Sessions move out of it into their own worktree before doing real work.
+The canonical repo root (`/Users/jimmygu/the_counselor`) is where a new session lands. Move out of it into your own worktree before doing real work, and do not treat its files as current: check `git status` and `git log -1` there before trusting anything you read in it.
 
 ### 3. State lives in git
 
@@ -100,62 +96,27 @@ If another session needs to know something, **commit it**. Slack messages, conve
 
 ### On session boot
 
-**First, ask Jimmy who's the current master merger.** The role rotates between sessions and the file in git can be a tick behind. Your first response should include one short line:
-
-> *"Hi Jimmy — quick check: who's the master merger this session?"*
-
-Jimmy's answer is the source of truth for the turn:
-- If he tells you that you ARE the master merger → switch to addressing him as "Mr Gu" from your next reply (the verbal handshake above), and you're authorized to run `gh pr merge`.
-- If he tells you someone else holds the role → keep using "Jimmy", open PRs but don't merge, and let the named session handle the merge.
-- If he tells you to act as master merger for just this PR / this turn → adopt "Mr Gu" for the duration, drop it after.
-
-Then run the boot commands:
-
 ```bash
 cd /Users/jimmygu/the_counselor
 git fetch origin                                    # see what's new
-git worktree list                                   # see what's in flight
-cat agent-system/PARALLEL_WORK.md                   # this file
+git log --oneline -15 origin/main                   # what landed recently
+gh pr list --state open                             # what is in flight
+git worktree list                                   # where other sessions are working
 ```
 
-Update the **Active sessions** table below — claim your slot. If you see a slot with someone else's name, leave it alone.
+Open PRs and the worktree list are the record of what is in flight. There is
+no table to claim a row in: the one this file used to keep was last accurate
+in September and nobody was reading it.
 
-### On commit / push
-
-After each push, update the row's commit hash + a one-line status. Push the doc update along with your work.
+Then say in your first reply whether you are an executing or a planning
+session (CLAUDE.md "Session roles"), and create your worktree.
 
 ### On session end / when you walk away
 
-Either:
-- **Done** — the branch landed in a PR. Update status to `merged-to-main` or `pending-review`. The worktree can be removed.
-- **Pause** — leave a note in your row: "paused at <state>, resume by <next step>." Branch and worktree stay.
-
----
-
-## Active sessions
-
-| Session | Worktree path | Branch | HEAD | Status |
-|---|---|---|---|---|
-| **deepseek-main** (master merger) | `/Users/jimmygu/the_counselor` | rotating per-task | latest | Active 2026-06-01 — current master merger. Runs on DeepSeek backend; uses `deepseek/` prefix. Owns all `gh pr merge` to `main`. |
-| claude-main (former master merger) | — | — | — | Retired 2026-06-01. Master-merger role handed off to deepseek-main. |
-| **claude-belowfold** (master merger this session) | `/Users/jimmygu/the_counselor` + per-task worktrees | `claude/` prefix, rotating per task | `4d535f2` | Active 2026-08-07→09. PRD-29 below-the-fold blocks 1–4, fundamental-screening repair, query vocabulary. **Jimmy designated this session master merger on 2026-08-09** — adopted the "Mr Gu" handshake from that point. Merged #283–#295. |
-| **claude-planner** (planning & analysis) | `/Users/jimmygu/the_counselor-planner` | `claude/docs/planner-role-and-roadmap` | `172c2ca` | Active 2026-09-10. **Planning & analysis role — does not write application code, does not merge.** Owns `docs/QUANT_ENGINE_MAP.md`, WORK_LOG's roadmap, and read-only evaluation of shipped work against the live system. Any change it wants in `apps/` goes to an executing session as a written plan. See CLAUDE.md "Session roles". |
-| codex-chatbuilder | `/private/tmp/the_counselor_chatbuilder_test` | `codex/improve-chat-builder` | `0932c75` | abandoned 2026-05-19; rebase or delete |
-| deepseek-overlay-expansion | — | — | — | Merged 2026-06-01 — PRD-13c: 3 new portfolio overlay strategies (dual momentum, defense-first, stability tilt). |
-
-The old `claude-chat-v2-p7-widget` row was retired 2026-05-22. The
-`claude-flow-runtime` and `claude-portfolio-mode` rows were retired
-2026-06-01 (PRs #117, #125 merged and deployed).
-
-When you start, **add a row.** When you finish, **delete it** (history is in git).
-
-### Open feature branches not currently driven by a session
-
-These exist on origin but no session is actively working on them. Sometimes a PR was opened and the session moved on; sometimes the branch was abandoned. Keep this list short:
-
-- `claude/feat/market-pulse-v2-preview` — PR [#41](https://github.com/grepJimmyGu/the_counselor/pull/41) open. **Phase 0a SIGNED OFF 2026-05-21.** Holds the full Market Pulse v2 redesign as a preview at `/uiux/market-pulse-v2`. Waiting on Phase 1a (claude-main will lift to `/stocks` and delete the preview route).
-
-A new session was reported spinning up its own worktree on 2026-05-21; Active Sessions row not yet visible on origin. Add row when first commit lands.
+- **Done** — the PR is open or merged. Once it has merged, remove the
+  worktree and delete the local branch.
+- **Paused** — say where you stopped in the PR description, or in
+  `agent-system/WORK_LOG.md` if there is no PR yet. Branch and worktree stay.
 
 ---
 
