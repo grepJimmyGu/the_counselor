@@ -8,6 +8,47 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-11-20 — Options builder: a first-time user plans a call or a put and takes it to their broker
+
+One PR, PRD-44 step 1. Jimmy's ask: call and put strategies users can model and carry into their own
+trading app, built "for simplest interpretation" so a first-time user can learn it and finish with no
+bottleneck. Nothing for options existed in the app before.
+
+**What a user does.** Company page → Options → one of four goals (it will go up, it will go down, earn
+income on shares I own, protect shares I own) → a plan already filled in from the real chain: one
+sentence, four numbers each with its own sentence, a payoff chart, and controls for expiry, strike and
+size → the order written out in broker wording with the steps to enter it. Four taps, no typing.
+Saved plans appear in a new section of the Strategies tab.
+
+**Built on facts only.** Every number is arithmetic on quoted prices (`OptionPayoff`): no pricing model,
+no probability of profit. The one market reading is the shaded band, what the at-the-money call and put
+cost together either side of the price, labelled as not a forecast.
+
+**What the real provider taught, 2026-11-20, with the project's own key:**
+
+| Finding | What the code does |
+|---|---|
+| The live-options endpoint is not on the plan, and answers with a notice plus made-up rows (symbol XXYYZZ) | Anything but a plain success is an error |
+| Class shares are spelled with no separator: BRK-B fails, BRKB works | `option_root` |
+| AAPL's and SPY's full chains arrived with every call and no puts; NVDA, MSFT, AMD, KO, JPM were whole | A one-sided expiry is fetched again on its own, which returns both sides |
+| A provider error's text can carry the request URL, and so the API key | Only the kind of failure is logged; a test pins it |
+
+**Measured, in process against the provider:** twelve requests at once for each of AAPL, NVDA, BRK-B and
+SPY made one provider fetch per symbol and returned identical answers, 0.8–1.4 s the first time and
+2–3 ms after. A screen is sent 7–31 KB, not the 3 MB chain.
+
+**Found in the simulator:** dragging across the payoff chart closed the screen, because iOS 26 takes a
+sideways drag on a pushed screen as "go back". The chart is read with a slider under it instead.
+
+**Tests.** Backend +31; iOS +32 (235). The app's decoder was run over the four real responses and built
+all four plans on each. One backend test file, `test_market_pulse_warmup_no_live_overlay.py`, stalls in a
+fresh worktree on unchanged `main` as well, and was run apart from the rest.
+
+**Not checked:** the app against the deployed backend with a real account (the endpoints do not exist in
+production until this merges); the ticket's wording against a real broker's option screen.
+
+---
+
 ## 2026-11-20 — Speed and volume: the company page is built once, quotes stop queueing, the agent scans in parallel
 
 One PR. Jimmy's ask: make the app load faster and make the portfolio agent hold up under many requests.
