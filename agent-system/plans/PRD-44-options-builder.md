@@ -114,6 +114,11 @@ Per contract of 100 shares, with P = premium, K = strike, S0 = the close:
 | Covered call | receive 100·P | 100·(S0 − P) | 100·(K − S0 + P) | S0 − P |
 | Protective put | pay 100·P | 100·(S0 − K + P) | no limit | S0 + P |
 
+A bought put's maximum, 100·(K − P), is reached only with the stock at $0,
+so the app does not headline it (changed 2026-11-20 after Jimmy's first
+look). That tile reads "What you can make: $100 per $1 fall" and keeps the
+maximum as small print under it.
+
 Covered call and protective put measure the shares from the close.
 Measuring from the user's own cost basis is step 3, when holdings are in.
 

@@ -8,6 +8,26 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-11-20 — Options builder goes live, and the put's "most you can make" stops headlining $0
+
+#381 merged and deployed the same evening; on Jimmy's account the AAPL plans load from production with
+real prices, puts included (so the production Alpha Vantage key serves chains). Saving a plan and
+simultaneous signed-in requests were not exercised on production.
+
+Jimmy's first look found a misleading tile. **Symptom:** a put expiring in three days showed "Most you
+can make $34,197 — If AAPL falls to $0", in large green type. **Cause:** `OptionPlan.figures` printed the
+payoff's mathematical maximum for every strategy, and for a bought put that maximum sits at a share
+price of $0, which is not an outcome anyone should read as reachable by the expiry. **Fix:** the put's
+tile is now "What you can make — $100 per $1 fall" (the plan's shares), and the sentence under it states
+the price it starts from and keeps the ceiling as small print ("It tops out at $33,040, only if AAPL
+went to $0"). The other three strategies are unchanged. The test that asserted the old wording was
+changed openly, with the reason in its docstring.
+
+Left as it was, and raised with Jimmy: a covered call's "Most you can lose" is also the $0 case. It is
+the true worst case of holding the shares, so it stays until he says otherwise.
+
+---
+
 ## 2026-11-20 — Options builder: a first-time user plans a call or a put and takes it to their broker
 
 One PR, PRD-44 step 1. Jimmy's ask: call and put strategies users can model and carry into their own

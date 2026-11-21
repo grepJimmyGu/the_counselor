@@ -132,7 +132,7 @@ public struct OptionPlan: Equatable, Sendable {
         }
     }
 
-    /// Cost, the most that can be lost, the most that can be made, and the breakeven.
+    /// Cost, the most that can be lost, what can be made, and the breakeven.
     public var figures: [OptionFigure] {
         let k = OptionText.strike(strike), day = OptionText.shortDay(expiration)
         let cash = OptionText.dollars(cashNow), today = OptionText.price(underlyingPrice)
@@ -144,6 +144,7 @@ public struct OptionPlan: Equatable, Sendable {
             detail: "\(OptionText.contracts(contracts)) × 100 shares × \(OptionText.price(option.price))"
         )
         let loss: String, gain: String, evenDetail: String
+        var gainFigure: OptionFigure?
         switch strategy {
         case .longCall:
             loss = "If \(symbol) is at or below \(k) on \(day)"
@@ -151,7 +152,16 @@ public struct OptionPlan: Equatable, Sendable {
             evenDetail = "\(symbol) needs to rise \(move) from \(today)"
         case .longPut:
             loss = "If \(symbol) is at or above \(k) on \(day)"
-            gain = "If \(symbol) falls to $0"
+            // A put's gain tops out only with the stock at $0, which is not
+            // an outcome to headline. Lead with what each $1 of fall is worth
+            // and leave the ceiling in the small print.
+            let ceiling = maxGain.map(OptionText.dollars) ?? "—"
+            gain = "For each $1 \(symbol) is below \(even) on \(day). It tops out at \(ceiling), only if \(symbol) went to $0."
+            gainFigure = OptionFigure(
+                label: "What you can make",
+                value: "\(OptionText.dollars(Double(shares))) per $1 fall",
+                detail: gain
+            )
             evenDetail = "\(symbol) needs to fall \(move) from \(today)"
         case .coveredCall:
             loss = "If \(symbol) falls to $0. The \(cash) is yours either way"
@@ -165,7 +175,7 @@ public struct OptionPlan: Equatable, Sendable {
         return [
             cost,
             OptionFigure(label: "Most you can lose", value: maxLoss.map(OptionText.dollars) ?? "No limit", detail: loss),
-            OptionFigure(label: "Most you can make", value: maxGain.map(OptionText.dollars) ?? "No limit", detail: gain),
+            gainFigure ?? OptionFigure(label: "Most you can make", value: maxGain.map(OptionText.dollars) ?? "No limit", detail: gain),
             OptionFigure(label: "Breakeven", value: even, detail: evenDetail),
         ]
     }

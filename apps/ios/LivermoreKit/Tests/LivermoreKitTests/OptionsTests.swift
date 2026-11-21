@@ -196,9 +196,23 @@ struct OptionPlanTests {
     func longPut() throws {
         let plan = try draft(.longPut).plan
         #expect(plan.headline == "Pay $1,240 now. You profit if NVDA is below $112.60 on Jan 15, 2027.")
-        #expect(plan.figures.map(\.value) == ["$1,240", "$1,240", "$11,260", "$112.60"])
-        #expect(plan.figures[2].detail == "If NVDA falls to $0")
+        #expect(plan.figures.map(\.value) == ["$1,240", "$1,240", "$100 per $1 fall", "$112.60"])
         #expect(plan.figures[3].detail == "NVDA needs to fall 10.3% from $125.53")
+    }
+
+    /// Changed on purpose (2026-11-20): this used to assert the tile read
+    /// "$11,260 — If NVDA falls to $0". Jimmy pointed out that a share price
+    /// of $0 by the expiry is not a real outcome, so the big number misled.
+    @Test("a put's gain is stated per $1 of fall, with the $0 ceiling in the small print")
+    func longPutGainIsNotHeadlinedAtZero() throws {
+        let gain = try draft(.longPut).plan.figures[2]
+        #expect(gain.label == "What you can make")
+        #expect(gain.value == "$100 per $1 fall")
+        #expect(gain.detail == "For each $1 NVDA is below $112.60 on Jan 15. It tops out at $11,260, only if NVDA went to $0.")
+
+        var three = try draft(.longPut)
+        three.contracts = 3
+        #expect(three.plan.figures[2].value == "$300 per $1 fall")
     }
 
     @Test("a covered call says what is received and what is agreed to")
