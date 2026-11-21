@@ -52,6 +52,7 @@ from app.api.routes.saved_strategies import router as saved_strategies_router
 from app.api.routes.snaptrade import router as snaptrade_router
 from app.api.routes.signals import router as signals_router
 from app.api.routes.notifications import router as notifications_router
+from app.api.routes.options import router as options_router
 from app.api.routes.signal_primitives import router as signal_primitives_router
 from app.api.routes.signals_card import router as signals_card_router  # PRD-25 — unified signal card
 from app.api.routes.search import router as search_router  # PRD-27 — unified smart search
@@ -843,6 +844,7 @@ app.include_router(screen_router)
 app.include_router(company_overview_router)
 app.include_router(filings_router)
 app.include_router(agent_router)
+app.include_router(options_router)  # PRD-44 — options builder
 app.include_router(insights_router)
 app.include_router(mirror_router)
 app.include_router(rules_router)
