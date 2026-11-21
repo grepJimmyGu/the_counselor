@@ -1,0 +1,80 @@
+name: ios-ci
+
+# The iOS app had no check of its own: its tests ran only on a developer's
+# machine. Two jobs, because they catch different things:
+#   - `swift test` runs the package's tests (on macOS, so quickly);
+#   - the simulator build compiles the code that only exists on iOS
+#     (`#if os(iOS)`), which `swift test` never sees.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/ios/**"
+      - ".github/workflows/ios-ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/ios/**"
+      - ".github/workflows/ios-ci.yml"
+
+concurrency:
+  group: ios-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  package-tests:
+    name: iOS package tests
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        working-directory: apps/ios/LivermoreKit
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Toolchain
+        run: |
+          xcodebuild -version
+          swift --version
+
+      # The API client is generated at build time by swift-openapi-generator,
+      # which is itself built from source. Keeping `.build` saves most of that.
+      - name: Cache SwiftPM build
+        uses: actions/cache@v4
+        with:
+          path: apps/ios/LivermoreKit/.build
+          key: spm-${{ runner.os }}-${{ hashFiles('apps/ios/LivermoreKit/Package.resolved') }}
+          restore-keys: |
+            spm-${{ runner.os }}-
+
+      - name: Run tests
+        run: swift test
+
+  app-build:
+    name: iOS app build (simulator)
+    runs-on: macos-latest
+    timeout-minutes: 30
+
+    defaults:
+      run:
+        working-directory: apps/ios
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build for the iOS Simulator
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -project Livermore.xcodeproj \
+            -scheme Livermore \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath "$RUNNER_TEMP/dd" \
+            -skipPackagePluginValidation \
+            -skipMacroValidation \
+            CODE_SIGNING_ALLOWED=NO \
+            | tail -n 60

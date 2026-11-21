@@ -1,0 +1,59 @@
+name: web-ci
+
+# The site's only build check used to be Vercel's preview deploy. With that
+# unavailable, nothing told a PR whether the site still built. This runs the
+# unit tests and a production build on every PR that touches the site.
+#
+# Lint is not here on purpose: `npm run lint` reports 92 existing errors on
+# main (2026-11-20). Add it once those are cleared, or it would fail every PR.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "packages/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/web-ci.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/web/**"
+      - "packages/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".github/workflows/web-ci.yml"
+
+concurrency:
+  group: web-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    name: Web tests and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    env:
+      NEXT_TELEMETRY_DISABLED: "1"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      # The root lockfile is the one in use: `apps/web` is an npm workspace.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Unit tests
+        run: npm --prefix apps/web test
+
+      - name: Production build
+        run: npm --prefix apps/web run build
