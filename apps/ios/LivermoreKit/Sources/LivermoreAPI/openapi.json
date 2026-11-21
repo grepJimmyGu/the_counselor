@@ -15,6 +15,215 @@
     "title": "AcknowledgeResponse",
     "type": "object"
    },
+   "AgentChatRequest": {
+    "properties": {
+     "content": {
+      "maxLength": 4000,
+      "minLength": 1,
+      "title": "Content",
+      "type": "string"
+     }
+    },
+    "required": [
+     "content"
+    ],
+    "title": "AgentChatRequest",
+    "type": "object"
+   },
+   "AgentInsightView": {
+    "properties": {
+     "action": {
+      "additionalProperties": true,
+      "title": "Action",
+      "type": "object"
+     },
+     "body": {
+      "title": "Body",
+      "type": "string"
+     },
+     "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+     },
+     "dismissed": {
+      "default": false,
+      "title": "Dismissed",
+      "type": "boolean"
+     },
+     "facts": {
+      "additionalProperties": true,
+      "default": {},
+      "title": "Facts",
+      "type": "object"
+     },
+     "id": {
+      "title": "Id",
+      "type": "string"
+     },
+     "kind": {
+      "title": "Kind",
+      "type": "string"
+     },
+     "severity": {
+      "title": "Severity",
+      "type": "string"
+     },
+     "symbol": {
+      "title": "Symbol",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "kind",
+     "severity",
+     "title",
+     "body",
+     "created_at"
+    ],
+    "title": "AgentInsightView",
+    "type": "object"
+   },
+   "AgentProfileUpdate": {
+    "description": "Only the fields sent are changed.",
+    "properties": {
+     "email_alerts": {
+      "title": "Email Alerts",
+      "type": "boolean"
+     },
+     "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+     },
+     "max_position_pct": {
+      "maximum": 100.0,
+      "minimum": 5.0,
+      "title": "Max Position Pct",
+      "type": "number"
+     },
+     "move_alert_pct": {
+      "maximum": 50.0,
+      "minimum": 1.0,
+      "title": "Move Alert Pct",
+      "type": "number"
+     },
+     "notes": {
+      "maxLength": 1000,
+      "title": "Notes",
+      "type": "string"
+     },
+     "watchlist": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Watchlist",
+      "type": "array"
+     }
+    },
+    "title": "AgentProfileUpdate",
+    "type": "object"
+   },
+   "AgentProfileView": {
+    "properties": {
+     "chat_available": {
+      "default": false,
+      "title": "Chat Available",
+      "type": "boolean"
+     },
+     "email_alerts": {
+      "default": true,
+      "title": "Email Alerts",
+      "type": "boolean"
+     },
+     "enabled": {
+      "title": "Enabled",
+      "type": "boolean"
+     },
+     "last_scan_at": {
+      "format": "date-time",
+      "title": "Last Scan At",
+      "type": "string"
+     },
+     "max_position_pct": {
+      "title": "Max Position Pct",
+      "type": "number"
+     },
+     "move_alert_pct": {
+      "title": "Move Alert Pct",
+      "type": "number"
+     },
+     "notes": {
+      "title": "Notes",
+      "type": "string"
+     },
+     "watchlist": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Watchlist",
+      "type": "array"
+     }
+    },
+    "required": [
+     "enabled",
+     "watchlist",
+     "move_alert_pct",
+     "max_position_pct",
+     "notes"
+    ],
+    "title": "AgentProfileView",
+    "type": "object"
+   },
+   "AgentScanView": {
+    "properties": {
+     "brokerage_linked": {
+      "title": "Brokerage Linked",
+      "type": "boolean"
+     },
+     "checked_at": {
+      "format": "date-time",
+      "title": "Checked At",
+      "type": "string"
+     },
+     "insights": {
+      "default": [],
+      "items": {
+       "$ref": "#/components/schemas/AgentInsightView"
+      },
+      "title": "Insights",
+      "type": "array"
+     },
+     "new_insights": {
+      "title": "New Insights",
+      "type": "integer"
+     },
+     "notes": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Notes",
+      "type": "array"
+     },
+     "symbols_checked": {
+      "title": "Symbols Checked",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "checked_at",
+     "new_insights",
+     "symbols_checked",
+     "brokerage_linked"
+    ],
+    "title": "AgentScanView",
+    "type": "object"
+   },
    "AnnualReturnItem": {
     "properties": {
      "return_pct": {
@@ -2697,6 +2906,204 @@
     "title": "FeedResponse",
     "type": "object"
    },
+   "FilingAnalysisResponse": {
+    "properties": {
+     "cik": {
+      "title": "Cik",
+      "type": "string"
+     },
+     "company_name": {
+      "title": "Company Name",
+      "type": "string"
+     },
+     "computed_at": {
+      "title": "Computed At",
+      "type": "string"
+     },
+     "findings": {
+      "items": {
+       "$ref": "#/components/schemas/FilingFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+     },
+     "latest": {
+      "$ref": "#/components/schemas/FilingQuarter"
+     },
+     "metrics": {
+      "items": {
+       "$ref": "#/components/schemas/FilingMetric"
+      },
+      "title": "Metrics",
+      "type": "array"
+     },
+     "quarters": {
+      "items": {
+       "$ref": "#/components/schemas/FilingQuarter"
+      },
+      "title": "Quarters",
+      "type": "array"
+     },
+     "source": {
+      "default": "SEC EDGAR XBRL company facts (10-Q and 10-K filings)",
+      "title": "Source",
+      "type": "string"
+     },
+     "symbol": {
+      "title": "Symbol",
+      "type": "string"
+     }
+    },
+    "required": [
+     "symbol",
+     "company_name",
+     "cik",
+     "latest",
+     "quarters",
+     "metrics",
+     "findings",
+     "computed_at"
+    ],
+    "title": "FilingAnalysisResponse",
+    "type": "object"
+   },
+   "FilingFinding": {
+    "description": "Something in the latest quarter that moved enough to state.",
+    "properties": {
+     "category": {
+      "title": "Category",
+      "type": "string"
+     },
+     "detail": {
+      "title": "Detail",
+      "type": "string"
+     },
+     "metrics": {
+      "items": {
+       "type": "string"
+      },
+      "title": "Metrics",
+      "type": "array"
+     },
+     "severity": {
+      "title": "Severity",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     }
+    },
+    "required": [
+     "severity",
+     "category",
+     "title",
+     "detail"
+    ],
+    "title": "FilingFinding",
+    "type": "object"
+   },
+   "FilingMetric": {
+    "description": "One figure, with how it has moved.\n\nThe series itself is `quarters[i].values[key]` \u2014 one place for every\nnumber, and a quarter with no figure simply lacks the key, so no client\nhas to decode a list with holes in it.",
+    "properties": {
+     "better": {
+      "title": "Better",
+      "type": "string"
+     },
+     "change_kind": {
+      "title": "Change Kind",
+      "type": "string"
+     },
+     "change_qoq": {
+      "title": "Change Qoq",
+      "type": "number"
+     },
+     "change_yoy": {
+      "title": "Change Yoy",
+      "type": "number"
+     },
+     "group": {
+      "title": "Group",
+      "type": "string"
+     },
+     "key": {
+      "title": "Key",
+      "type": "string"
+     },
+     "label": {
+      "title": "Label",
+      "type": "string"
+     },
+     "latest": {
+      "title": "Latest",
+      "type": "number"
+     },
+     "note": {
+      "title": "Note",
+      "type": "string"
+     },
+     "unit": {
+      "title": "Unit",
+      "type": "string"
+     }
+    },
+    "required": [
+     "key",
+     "label",
+     "group",
+     "unit",
+     "better",
+     "change_kind"
+    ],
+    "title": "FilingMetric",
+    "type": "object"
+   },
+   "FilingQuarter": {
+    "description": "One fiscal quarter, and the filing it was reported in.",
+    "properties": {
+     "filed": {
+      "title": "Filed",
+      "type": "string"
+     },
+     "filing_url": {
+      "title": "Filing Url",
+      "type": "string"
+     },
+     "fiscal_period": {
+      "title": "Fiscal Period",
+      "type": "string"
+     },
+     "fiscal_year": {
+      "title": "Fiscal Year",
+      "type": "integer"
+     },
+     "form": {
+      "title": "Form",
+      "type": "string"
+     },
+     "label": {
+      "title": "Label",
+      "type": "string"
+     },
+     "period_end": {
+      "title": "Period End",
+      "type": "string"
+     },
+     "values": {
+      "additionalProperties": {
+       "type": "number"
+      },
+      "title": "Values",
+      "type": "object"
+     }
+    },
+    "required": [
+     "label",
+     "period_end"
+    ],
+    "title": "FilingQuarter",
+    "type": "object"
+   },
    "FinancialCheckSection": {
     "properties": {
      "balance_sheet_summary": {
@@ -2991,6 +3398,28 @@
      "metrics"
     ],
     "title": "FundamentalSummary",
+    "type": "object"
+   },
+   "GoogleTokenResponse": {
+    "properties": {
+     "is_new": {
+      "title": "Is New",
+      "type": "boolean"
+     },
+     "session_token": {
+      "title": "Session Token",
+      "type": "string"
+     },
+     "user": {
+      "$ref": "#/components/schemas/UserPublic"
+     }
+    },
+    "required": [
+     "user",
+     "session_token",
+     "is_new"
+    ],
+    "title": "GoogleTokenResponse",
     "type": "object"
    },
    "HTTPValidationError": {
@@ -4220,15 +4649,305 @@
    "OAuthGoogleRequest": {
     "properties": {
      "id_token": {
-      "type": "string",
-      "title": "Id Token"
+      "title": "Id Token",
+      "type": "string"
      }
     },
-    "type": "object",
     "required": [
      "id_token"
     ],
-    "title": "OAuthGoogleRequest"
+    "title": "OAuthGoogleRequest",
+    "type": "object"
+   },
+   "OptionChainView": {
+    "description": "One expiry of a stock's option chain, near the stock's price.",
+    "properties": {
+     "as_of": {
+      "format": "date",
+      "title": "As Of",
+      "type": "string"
+     },
+     "contracts": {
+      "items": {
+       "$ref": "#/components/schemas/OptionContractView"
+      },
+      "title": "Contracts",
+      "type": "array"
+     },
+     "default_expiration": {
+      "format": "date",
+      "title": "Default Expiration",
+      "type": "string"
+     },
+     "expiration": {
+      "format": "date",
+      "title": "Expiration",
+      "type": "string"
+     },
+     "expirations": {
+      "items": {
+       "$ref": "#/components/schemas/OptionExpirationView"
+      },
+      "title": "Expirations",
+      "type": "array"
+     },
+     "symbol": {
+      "title": "Symbol",
+      "type": "string"
+     },
+     "underlying_price": {
+      "title": "Underlying Price",
+      "type": "number"
+     }
+    },
+    "required": [
+     "symbol",
+     "as_of",
+     "underlying_price",
+     "expirations",
+     "default_expiration",
+     "expiration",
+     "contracts"
+    ],
+    "title": "OptionChainView",
+    "type": "object"
+   },
+   "OptionContractView": {
+    "properties": {
+     "ask": {
+      "title": "Ask",
+      "type": "number"
+     },
+     "bid": {
+      "title": "Bid",
+      "type": "number"
+     },
+     "contract_id": {
+      "title": "Contract Id",
+      "type": "string"
+     },
+     "kind": {
+      "enum": [
+       "call",
+       "put"
+      ],
+      "title": "Kind",
+      "type": "string"
+     },
+     "last": {
+      "title": "Last",
+      "type": "number"
+     },
+     "mid": {
+      "title": "Mid",
+      "type": "number"
+     },
+     "open_interest": {
+      "title": "Open Interest",
+      "type": "integer"
+     },
+     "strike": {
+      "title": "Strike",
+      "type": "number"
+     },
+     "volume": {
+      "title": "Volume",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "contract_id",
+     "kind",
+     "strike",
+     "bid",
+     "ask",
+     "mid",
+     "volume",
+     "open_interest"
+    ],
+    "title": "OptionContractView",
+    "type": "object"
+   },
+   "OptionExpirationView": {
+    "properties": {
+     "date": {
+      "format": "date",
+      "title": "Date",
+      "type": "string"
+     },
+     "days": {
+      "title": "Days",
+      "type": "integer"
+     },
+     "implied_move_pct": {
+      "title": "Implied Move Pct",
+      "type": "number"
+     },
+     "monthly": {
+      "title": "Monthly",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "date",
+     "days",
+     "monthly"
+    ],
+    "title": "OptionExpirationView",
+    "type": "object"
+   },
+   "OptionLeg": {
+    "description": "One line of a plan: shares, or contracts of one option.",
+    "properties": {
+     "contract_id": {
+      "maxLength": 32,
+      "title": "Contract Id",
+      "type": "string"
+     },
+     "expiration": {
+      "format": "date",
+      "title": "Expiration",
+      "type": "string"
+     },
+     "kind": {
+      "enum": [
+       "stock",
+       "call",
+       "put"
+      ],
+      "title": "Kind",
+      "type": "string"
+     },
+     "price": {
+      "maximum": 1000000.0,
+      "minimum": 0.0,
+      "title": "Price",
+      "type": "number"
+     },
+     "quantity": {
+      "maximum": 100000.0,
+      "minimum": 1.0,
+      "title": "Quantity",
+      "type": "integer"
+     },
+     "side": {
+      "enum": [
+       "buy",
+       "sell"
+      ],
+      "title": "Side",
+      "type": "string"
+     },
+     "strike": {
+      "exclusiveMinimum": 0.0,
+      "maximum": 1000000.0,
+      "title": "Strike",
+      "type": "number"
+     }
+    },
+    "required": [
+     "kind",
+     "side",
+     "quantity",
+     "price"
+    ],
+    "title": "OptionLeg",
+    "type": "object"
+   },
+   "OptionPlanCreate": {
+    "properties": {
+     "as_of": {
+      "format": "date",
+      "title": "As Of",
+      "type": "string"
+     },
+     "legs": {
+      "items": {
+       "$ref": "#/components/schemas/OptionLeg"
+      },
+      "maxItems": 4,
+      "minItems": 1,
+      "title": "Legs",
+      "type": "array"
+     },
+     "strategy": {
+      "enum": [
+       "long_call",
+       "long_put",
+       "covered_call",
+       "protective_put"
+      ],
+      "title": "Strategy",
+      "type": "string"
+     },
+     "symbol": {
+      "title": "Symbol",
+      "type": "string"
+     },
+     "underlying_price": {
+      "exclusiveMinimum": 0.0,
+      "maximum": 1000000.0,
+      "title": "Underlying Price",
+      "type": "number"
+     }
+    },
+    "required": [
+     "symbol",
+     "strategy",
+     "legs",
+     "underlying_price",
+     "as_of"
+    ],
+    "title": "OptionPlanCreate",
+    "type": "object"
+   },
+   "OptionPlanView": {
+    "properties": {
+     "as_of": {
+      "format": "date",
+      "title": "As Of",
+      "type": "string"
+     },
+     "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+     },
+     "id": {
+      "title": "Id",
+      "type": "string"
+     },
+     "legs": {
+      "items": {
+       "$ref": "#/components/schemas/OptionLeg"
+      },
+      "title": "Legs",
+      "type": "array"
+     },
+     "strategy": {
+      "title": "Strategy",
+      "type": "string"
+     },
+     "symbol": {
+      "title": "Symbol",
+      "type": "string"
+     },
+     "underlying_price": {
+      "title": "Underlying Price",
+      "type": "number"
+     }
+    },
+    "required": [
+     "id",
+     "symbol",
+     "strategy",
+     "legs",
+     "underlying_price",
+     "as_of",
+     "created_at"
+    ],
+    "title": "OptionPlanView",
+    "type": "object"
    },
    "OutputKind": {
     "description": "Semantic shape of the signal a primitive emits at each timestep.\n\nPRD-22a. Drives the composer rule-builder dispatch (PRD-22c) and the\nKB-lookup Jaccard enrichment (PRD-22b). Defaults to VALUE so every v1\nprimitive stays backward-compatible \u2014 the composer's existing\n`[primitive] [< | >] [threshold]` widget is the VALUE widget.\n\n`str, Enum` (matching `SignalCategory`) so it JSON-serializes to its\nstring value in the catalog payload.",
@@ -4403,6 +5122,173 @@
      "query"
     ],
     "title": "ParseResult",
+    "type": "object"
+   },
+   "PasswordChangeRejected": {
+    "description": "Why a password change did not go through. `detail` is written for the user.",
+    "properties": {
+     "code": {
+      "enum": [
+       "wrong_password",
+       "no_password",
+       "same_password",
+       "weak_password",
+       "breached_password"
+      ],
+      "title": "Code",
+      "type": "string"
+     },
+     "detail": {
+      "title": "Detail",
+      "type": "string"
+     },
+     "failed": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Failed",
+      "type": "array"
+     }
+    },
+    "required": [
+     "detail",
+     "code"
+    ],
+    "title": "PasswordChangeRejected",
+    "type": "object"
+   },
+   "PasswordChangeRequest": {
+    "properties": {
+     "current_password": {
+      "title": "Current Password",
+      "type": "string"
+     },
+     "new_password": {
+      "title": "New Password",
+      "type": "string"
+     }
+    },
+    "required": [
+     "current_password",
+     "new_password"
+    ],
+    "title": "PasswordChangeRequest",
+    "type": "object"
+   },
+   "PasswordRejected": {
+    "description": "Why a sign-up's password was refused. `detail` is written for the user.",
+    "properties": {
+     "code": {
+      "enum": [
+       "weak_password",
+       "breached_password"
+      ],
+      "title": "Code",
+      "type": "string"
+     },
+     "detail": {
+      "title": "Detail",
+      "type": "string"
+     },
+     "failed": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Failed",
+      "type": "array"
+     }
+    },
+    "required": [
+     "detail",
+     "code"
+    ],
+    "title": "PasswordRejected",
+    "type": "object"
+   },
+   "PasswordResetAccepted": {
+    "description": "Always the same, whether or not the address has an account.",
+    "properties": {
+     "detail": {
+      "title": "Detail",
+      "type": "string"
+     }
+    },
+    "required": [
+     "detail"
+    ],
+    "title": "PasswordResetAccepted",
+    "type": "object"
+   },
+   "PasswordResetConfirm": {
+    "properties": {
+     "code": {
+      "title": "Code",
+      "type": "string"
+     },
+     "email": {
+      "format": "email",
+      "title": "Email",
+      "type": "string"
+     },
+     "new_password": {
+      "title": "New Password",
+      "type": "string"
+     }
+    },
+    "required": [
+     "email",
+     "code",
+     "new_password"
+    ],
+    "title": "PasswordResetConfirm",
+    "type": "object"
+   },
+   "PasswordResetRejected": {
+    "description": "Why a reset did not go through. `detail` is written for the user.",
+    "properties": {
+     "code": {
+      "enum": [
+       "invalid_code",
+       "weak_password",
+       "breached_password"
+      ],
+      "title": "Code",
+      "type": "string"
+     },
+     "detail": {
+      "title": "Detail",
+      "type": "string"
+     },
+     "failed": {
+      "default": [],
+      "items": {
+       "type": "string"
+      },
+      "title": "Failed",
+      "type": "array"
+     }
+    },
+    "required": [
+     "detail",
+     "code"
+    ],
+    "title": "PasswordResetRejected",
+    "type": "object"
+   },
+   "PasswordResetRequest": {
+    "properties": {
+     "email": {
+      "format": "email",
+      "title": "Email",
+      "type": "string"
+     }
+    },
+    "required": [
+     "email"
+    ],
+    "title": "PasswordResetRequest",
     "type": "object"
    },
    "PatchMeRequest": {
@@ -10492,6 +11378,10 @@
    },
    "_RefreshSessionTokenRequest": {
     "properties": {
+     "current_token": {
+      "title": "Current Token",
+      "type": "string"
+     },
      "email": {
       "title": "Email",
       "type": "string"
@@ -10733,877 +11623,6 @@
      "warnings"
     ],
     "title": "SavedStrategyResponse",
-    "type": "object"
-   },
-   "FilingAnalysisResponse": {
-    "properties": {
-     "cik": {
-      "title": "Cik",
-      "type": "string"
-     },
-     "company_name": {
-      "title": "Company Name",
-      "type": "string"
-     },
-     "computed_at": {
-      "title": "Computed At",
-      "type": "string"
-     },
-     "findings": {
-      "items": {
-       "$ref": "#/components/schemas/FilingFinding"
-      },
-      "title": "Findings",
-      "type": "array"
-     },
-     "latest": {
-      "$ref": "#/components/schemas/FilingQuarter"
-     },
-     "metrics": {
-      "items": {
-       "$ref": "#/components/schemas/FilingMetric"
-      },
-      "title": "Metrics",
-      "type": "array"
-     },
-     "quarters": {
-      "items": {
-       "$ref": "#/components/schemas/FilingQuarter"
-      },
-      "title": "Quarters",
-      "type": "array"
-     },
-     "source": {
-      "default": "SEC EDGAR XBRL company facts (10-Q and 10-K filings)",
-      "title": "Source",
-      "type": "string"
-     },
-     "symbol": {
-      "title": "Symbol",
-      "type": "string"
-     }
-    },
-    "required": [
-     "symbol",
-     "company_name",
-     "cik",
-     "latest",
-     "quarters",
-     "metrics",
-     "findings",
-     "computed_at"
-    ],
-    "title": "FilingAnalysisResponse",
-    "type": "object"
-   },
-   "FilingQuarter": {
-    "description": "One fiscal quarter, and the filing it was reported in.",
-    "properties": {
-     "filed": {
-      "title": "Filed",
-      "type": "string"
-     },
-     "filing_url": {
-      "title": "Filing Url",
-      "type": "string"
-     },
-     "fiscal_period": {
-      "title": "Fiscal Period",
-      "type": "string"
-     },
-     "fiscal_year": {
-      "title": "Fiscal Year",
-      "type": "integer"
-     },
-     "form": {
-      "title": "Form",
-      "type": "string"
-     },
-     "label": {
-      "title": "Label",
-      "type": "string"
-     },
-     "period_end": {
-      "title": "Period End",
-      "type": "string"
-     },
-     "values": {
-      "additionalProperties": {
-       "type": "number"
-      },
-      "title": "Values",
-      "type": "object"
-     }
-    },
-    "required": [
-     "label",
-     "period_end"
-    ],
-    "title": "FilingQuarter",
-    "type": "object"
-   },
-   "FilingMetric": {
-    "description": "One figure, with how it has moved.\n\nThe series itself is `quarters[i].values[key]` \u2014 one place for every\nnumber, and a quarter with no figure simply lacks the key, so no client\nhas to decode a list with holes in it.",
-    "properties": {
-     "better": {
-      "title": "Better",
-      "type": "string"
-     },
-     "change_kind": {
-      "title": "Change Kind",
-      "type": "string"
-     },
-     "change_qoq": {
-      "title": "Change Qoq",
-      "type": "number"
-     },
-     "change_yoy": {
-      "title": "Change Yoy",
-      "type": "number"
-     },
-     "group": {
-      "title": "Group",
-      "type": "string"
-     },
-     "key": {
-      "title": "Key",
-      "type": "string"
-     },
-     "label": {
-      "title": "Label",
-      "type": "string"
-     },
-     "latest": {
-      "title": "Latest",
-      "type": "number"
-     },
-     "note": {
-      "title": "Note",
-      "type": "string"
-     },
-     "unit": {
-      "title": "Unit",
-      "type": "string"
-     }
-    },
-    "required": [
-     "key",
-     "label",
-     "group",
-     "unit",
-     "better",
-     "change_kind"
-    ],
-    "title": "FilingMetric",
-    "type": "object"
-   },
-   "FilingFinding": {
-    "description": "Something in the latest quarter that moved enough to state.",
-    "properties": {
-     "category": {
-      "title": "Category",
-      "type": "string"
-     },
-     "detail": {
-      "title": "Detail",
-      "type": "string"
-     },
-     "metrics": {
-      "items": {
-       "type": "string"
-      },
-      "title": "Metrics",
-      "type": "array"
-     },
-     "severity": {
-      "title": "Severity",
-      "type": "string"
-     },
-     "title": {
-      "title": "Title",
-      "type": "string"
-     }
-    },
-    "required": [
-     "severity",
-     "category",
-     "title",
-     "detail"
-    ],
-    "title": "FilingFinding",
-    "type": "object"
-   },
-   "PasswordRejected": {
-    "properties": {
-     "detail": {
-      "type": "string",
-      "title": "Detail"
-     },
-     "code": {
-      "type": "string",
-      "enum": [
-       "weak_password",
-       "breached_password"
-      ],
-      "title": "Code"
-     },
-     "failed": {
-      "items": {
-       "type": "string"
-      },
-      "type": "array",
-      "title": "Failed",
-      "default": []
-     }
-    },
-    "type": "object",
-    "required": [
-     "detail",
-     "code"
-    ],
-    "title": "PasswordRejected",
-    "description": "Why a sign-up's password was refused. `detail` is written for the user."
-   },
-   "GoogleTokenResponse": {
-    "properties": {
-     "user": {
-      "$ref": "#/components/schemas/UserPublic"
-     },
-     "session_token": {
-      "type": "string",
-      "title": "Session Token"
-     },
-     "is_new": {
-      "type": "boolean",
-      "title": "Is New"
-     }
-    },
-    "type": "object",
-    "required": [
-     "user",
-     "session_token",
-     "is_new"
-    ],
-    "title": "GoogleTokenResponse"
-   },
-   "PasswordResetRequest": {
-    "properties": {
-     "email": {
-      "type": "string",
-      "format": "email",
-      "title": "Email"
-     }
-    },
-    "type": "object",
-    "required": [
-     "email"
-    ],
-    "title": "PasswordResetRequest"
-   },
-   "PasswordResetAccepted": {
-    "properties": {
-     "detail": {
-      "type": "string",
-      "title": "Detail"
-     }
-    },
-    "type": "object",
-    "required": [
-     "detail"
-    ],
-    "title": "PasswordResetAccepted",
-    "description": "Always the same, whether or not the address has an account."
-   },
-   "PasswordResetConfirm": {
-    "properties": {
-     "email": {
-      "type": "string",
-      "format": "email",
-      "title": "Email"
-     },
-     "code": {
-      "type": "string",
-      "title": "Code"
-     },
-     "new_password": {
-      "type": "string",
-      "title": "New Password"
-     }
-    },
-    "type": "object",
-    "required": [
-     "email",
-     "code",
-     "new_password"
-    ],
-    "title": "PasswordResetConfirm"
-   },
-   "PasswordResetRejected": {
-    "properties": {
-     "detail": {
-      "type": "string",
-      "title": "Detail"
-     },
-     "code": {
-      "type": "string",
-      "enum": [
-       "invalid_code",
-       "weak_password",
-       "breached_password"
-      ],
-      "title": "Code"
-     },
-     "failed": {
-      "items": {
-       "type": "string"
-      },
-      "type": "array",
-      "title": "Failed",
-      "default": []
-     }
-    },
-    "type": "object",
-    "required": [
-     "detail",
-     "code"
-    ],
-    "title": "PasswordResetRejected",
-    "description": "Why a reset did not go through. `detail` is written for the user."
-   },
-   "PasswordChangeRequest": {
-    "properties": {
-     "current_password": {
-      "type": "string",
-      "title": "Current Password"
-     },
-     "new_password": {
-      "type": "string",
-      "title": "New Password"
-     }
-    },
-    "type": "object",
-    "required": [
-     "current_password",
-     "new_password"
-    ],
-    "title": "PasswordChangeRequest"
-   },
-   "PasswordChangeRejected": {
-    "properties": {
-     "detail": {
-      "type": "string",
-      "title": "Detail"
-     },
-     "code": {
-      "type": "string",
-      "enum": [
-       "wrong_password",
-       "no_password",
-       "same_password",
-       "weak_password",
-       "breached_password"
-      ],
-      "title": "Code"
-     },
-     "failed": {
-      "items": {
-       "type": "string"
-      },
-      "type": "array",
-      "title": "Failed",
-      "default": []
-     }
-    },
-    "type": "object",
-    "required": [
-     "detail",
-     "code"
-    ],
-    "title": "PasswordChangeRejected",
-    "description": "Why a password change did not go through. `detail` is written for the user."
-   },
-   "AgentProfileView": {
-    "properties": {
-     "enabled": {
-      "type": "boolean",
-      "title": "Enabled"
-     },
-     "watchlist": {
-      "items": {
-       "type": "string"
-      },
-      "type": "array",
-      "title": "Watchlist"
-     },
-     "move_alert_pct": {
-      "type": "number",
-      "title": "Move Alert Pct"
-     },
-     "max_position_pct": {
-      "type": "number",
-      "title": "Max Position Pct"
-     },
-     "notes": {
-      "type": "string",
-      "title": "Notes"
-     },
-     "email_alerts": {
-      "type": "boolean",
-      "title": "Email Alerts",
-      "default": true
-     },
-     "last_scan_at": {
-      "title": "Last Scan At",
-      "type": "string",
-      "format": "date-time"
-     },
-     "chat_available": {
-      "type": "boolean",
-      "title": "Chat Available",
-      "default": false
-     }
-    },
-    "type": "object",
-    "required": [
-     "enabled",
-     "watchlist",
-     "move_alert_pct",
-     "max_position_pct",
-     "notes"
-    ],
-    "title": "AgentProfileView"
-   },
-   "AgentProfileUpdate": {
-    "properties": {
-     "enabled": {
-      "title": "Enabled",
-      "type": "boolean"
-     },
-     "email_alerts": {
-      "title": "Email Alerts",
-      "type": "boolean"
-     },
-     "watchlist": {
-      "title": "Watchlist",
-      "items": {
-       "type": "string"
-      },
-      "type": "array"
-     },
-     "move_alert_pct": {
-      "title": "Move Alert Pct",
-      "type": "number",
-      "maximum": 50.0,
-      "minimum": 1.0
-     },
-     "max_position_pct": {
-      "title": "Max Position Pct",
-      "type": "number",
-      "maximum": 100.0,
-      "minimum": 5.0
-     },
-     "notes": {
-      "title": "Notes",
-      "type": "string",
-      "maxLength": 1000
-     }
-    },
-    "type": "object",
-    "title": "AgentProfileUpdate",
-    "description": "Only the fields sent are changed."
-   },
-   "AgentInsightView": {
-    "properties": {
-     "id": {
-      "type": "string",
-      "title": "Id"
-     },
-     "kind": {
-      "type": "string",
-      "title": "Kind"
-     },
-     "severity": {
-      "type": "string",
-      "title": "Severity"
-     },
-     "symbol": {
-      "title": "Symbol",
-      "type": "string"
-     },
-     "title": {
-      "type": "string",
-      "title": "Title"
-     },
-     "body": {
-      "type": "string",
-      "title": "Body"
-     },
-     "facts": {
-      "additionalProperties": true,
-      "type": "object",
-      "title": "Facts",
-      "default": {}
-     },
-     "action": {
-      "title": "Action",
-      "additionalProperties": true,
-      "type": "object"
-     },
-     "created_at": {
-      "type": "string",
-      "format": "date-time",
-      "title": "Created At"
-     },
-     "dismissed": {
-      "type": "boolean",
-      "title": "Dismissed",
-      "default": false
-     }
-    },
-    "type": "object",
-    "required": [
-     "id",
-     "kind",
-     "severity",
-     "title",
-     "body",
-     "created_at"
-    ],
-    "title": "AgentInsightView"
-   },
-   "AgentScanView": {
-    "properties": {
-     "checked_at": {
-      "type": "string",
-      "format": "date-time",
-      "title": "Checked At"
-     },
-     "new_insights": {
-      "type": "integer",
-      "title": "New Insights"
-     },
-     "symbols_checked": {
-      "type": "integer",
-      "title": "Symbols Checked"
-     },
-     "brokerage_linked": {
-      "type": "boolean",
-      "title": "Brokerage Linked"
-     },
-     "notes": {
-      "items": {
-       "type": "string"
-      },
-      "type": "array",
-      "title": "Notes",
-      "default": []
-     },
-     "insights": {
-      "items": {
-       "$ref": "#/components/schemas/AgentInsightView"
-      },
-      "type": "array",
-      "title": "Insights",
-      "default": []
-     }
-    },
-    "type": "object",
-    "required": [
-     "checked_at",
-     "new_insights",
-     "symbols_checked",
-     "brokerage_linked"
-    ],
-    "title": "AgentScanView"
-   },
-   "OptionChainView": {
-    "description": "One expiry of a stock's option chain, near the stock's price.",
-    "properties": {
-     "as_of": {
-      "format": "date",
-      "title": "As Of",
-      "type": "string"
-     },
-     "contracts": {
-      "items": {
-       "$ref": "#/components/schemas/OptionContractView"
-      },
-      "title": "Contracts",
-      "type": "array"
-     },
-     "default_expiration": {
-      "format": "date",
-      "title": "Default Expiration",
-      "type": "string"
-     },
-     "expiration": {
-      "format": "date",
-      "title": "Expiration",
-      "type": "string"
-     },
-     "expirations": {
-      "items": {
-       "$ref": "#/components/schemas/OptionExpirationView"
-      },
-      "title": "Expirations",
-      "type": "array"
-     },
-     "symbol": {
-      "title": "Symbol",
-      "type": "string"
-     },
-     "underlying_price": {
-      "title": "Underlying Price",
-      "type": "number"
-     }
-    },
-    "required": [
-     "symbol",
-     "as_of",
-     "underlying_price",
-     "expirations",
-     "default_expiration",
-     "expiration",
-     "contracts"
-    ],
-    "title": "OptionChainView",
-    "type": "object"
-   },
-   "OptionContractView": {
-    "properties": {
-     "ask": {
-      "title": "Ask",
-      "type": "number"
-     },
-     "bid": {
-      "title": "Bid",
-      "type": "number"
-     },
-     "contract_id": {
-      "title": "Contract Id",
-      "type": "string"
-     },
-     "kind": {
-      "enum": [
-       "call",
-       "put"
-      ],
-      "title": "Kind",
-      "type": "string"
-     },
-     "last": {
-      "title": "Last",
-      "type": "number"
-     },
-     "mid": {
-      "title": "Mid",
-      "type": "number"
-     },
-     "open_interest": {
-      "title": "Open Interest",
-      "type": "integer"
-     },
-     "strike": {
-      "title": "Strike",
-      "type": "number"
-     },
-     "volume": {
-      "title": "Volume",
-      "type": "integer"
-     }
-    },
-    "required": [
-     "contract_id",
-     "kind",
-     "strike",
-     "bid",
-     "ask",
-     "mid",
-     "volume",
-     "open_interest"
-    ],
-    "title": "OptionContractView",
-    "type": "object"
-   },
-   "OptionExpirationView": {
-    "properties": {
-     "date": {
-      "format": "date",
-      "title": "Date",
-      "type": "string"
-     },
-     "days": {
-      "title": "Days",
-      "type": "integer"
-     },
-     "implied_move_pct": {
-      "title": "Implied Move Pct",
-      "type": "number"
-     },
-     "monthly": {
-      "title": "Monthly",
-      "type": "boolean"
-     }
-    },
-    "required": [
-     "date",
-     "days",
-     "monthly"
-    ],
-    "title": "OptionExpirationView",
-    "type": "object"
-   },
-   "OptionLeg": {
-    "description": "One line of a plan: shares, or contracts of one option.",
-    "properties": {
-     "contract_id": {
-      "maxLength": 32,
-      "title": "Contract Id",
-      "type": "string"
-     },
-     "expiration": {
-      "format": "date",
-      "title": "Expiration",
-      "type": "string"
-     },
-     "kind": {
-      "enum": [
-       "stock",
-       "call",
-       "put"
-      ],
-      "title": "Kind",
-      "type": "string"
-     },
-     "price": {
-      "maximum": 1000000.0,
-      "minimum": 0.0,
-      "title": "Price",
-      "type": "number"
-     },
-     "quantity": {
-      "maximum": 100000.0,
-      "minimum": 1.0,
-      "title": "Quantity",
-      "type": "integer"
-     },
-     "side": {
-      "enum": [
-       "buy",
-       "sell"
-      ],
-      "title": "Side",
-      "type": "string"
-     },
-     "strike": {
-      "exclusiveMinimum": 0.0,
-      "maximum": 1000000.0,
-      "title": "Strike",
-      "type": "number"
-     }
-    },
-    "required": [
-     "kind",
-     "side",
-     "quantity",
-     "price"
-    ],
-    "title": "OptionLeg",
-    "type": "object"
-   },
-   "OptionPlanCreate": {
-    "properties": {
-     "as_of": {
-      "format": "date",
-      "title": "As Of",
-      "type": "string"
-     },
-     "legs": {
-      "items": {
-       "$ref": "#/components/schemas/OptionLeg"
-      },
-      "maxItems": 4,
-      "minItems": 1,
-      "title": "Legs",
-      "type": "array"
-     },
-     "strategy": {
-      "enum": [
-       "long_call",
-       "long_put",
-       "covered_call",
-       "protective_put"
-      ],
-      "title": "Strategy",
-      "type": "string"
-     },
-     "symbol": {
-      "title": "Symbol",
-      "type": "string"
-     },
-     "underlying_price": {
-      "exclusiveMinimum": 0.0,
-      "maximum": 1000000.0,
-      "title": "Underlying Price",
-      "type": "number"
-     }
-    },
-    "required": [
-     "symbol",
-     "strategy",
-     "legs",
-     "underlying_price",
-     "as_of"
-    ],
-    "title": "OptionPlanCreate",
-    "type": "object"
-   },
-   "OptionPlanView": {
-    "properties": {
-     "as_of": {
-      "format": "date",
-      "title": "As Of",
-      "type": "string"
-     },
-     "created_at": {
-      "format": "date-time",
-      "title": "Created At",
-      "type": "string"
-     },
-     "id": {
-      "title": "Id",
-      "type": "string"
-     },
-     "legs": {
-      "items": {
-       "$ref": "#/components/schemas/OptionLeg"
-      },
-      "title": "Legs",
-      "type": "array"
-     },
-     "strategy": {
-      "title": "Strategy",
-      "type": "string"
-     },
-     "symbol": {
-      "title": "Symbol",
-      "type": "string"
-     },
-     "underlying_price": {
-      "title": "Underlying Price",
-      "type": "number"
-     }
-    },
-    "required": [
-     "id",
-     "symbol",
-     "strategy",
-     "legs",
-     "underlying_price",
-     "as_of",
-     "created_at"
-    ],
-    "title": "OptionPlanView",
     "type": "object"
    }
   }
@@ -12065,6 +12084,207 @@
     ]
    }
   },
+  "/api/agent/chat/{conversation_id}/messages": {
+   "post": {
+    "description": "Talk to the agent. Streams the same events as the general chat\n(`started`, `token`, `tool_call_start`, `tool_result`, `done`, `error`).\n\nBuilt on the general chat's engine so that its quota, history, tool loop\nand guardrails apply here unchanged. What differs is what the model is\ntold it is, and which tools it is given: the agent's own, which read this\nuser's portfolio, plus two general ones.",
+    "operationId": "agent_chat_api_agent_chat__conversation_id__messages_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "conversation_id",
+      "required": true,
+      "schema": {
+       "title": "Conversation Id",
+       "type": "string"
+      }
+     }
+    ],
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AgentChatRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {}
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Agent Chat",
+    "tags": [
+     "agent"
+    ]
+   }
+  },
+  "/api/agent/insights": {
+   "get": {
+    "description": "What the agent has found and the user has not dismissed, newest first.",
+    "operationId": "list_insights_api_agent_insights_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/AgentInsightView"
+         },
+         "title": "Response List Insights Api Agent Insights Get",
+         "type": "array"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "List Insights",
+    "tags": [
+     "agent"
+    ]
+   }
+  },
+  "/api/agent/insights/{insight_id}/dismiss": {
+   "post": {
+    "operationId": "dismiss_insight_api_agent_insights__insight_id__dismiss_post",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "insight_id",
+      "required": true,
+      "schema": {
+       "title": "Insight Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AgentInsightView"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Dismiss Insight",
+    "tags": [
+     "agent"
+    ]
+   }
+  },
+  "/api/agent/profile": {
+   "get": {
+    "operationId": "get_profile_api_agent_profile_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AgentProfileView"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Get Profile",
+    "tags": [
+     "agent"
+    ]
+   },
+   "put": {
+    "operationId": "update_profile_api_agent_profile_put",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/AgentProfileUpdate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AgentProfileView"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Update Profile",
+    "tags": [
+     "agent"
+    ]
+   }
+  },
+  "/api/agent/scan": {
+   "post": {
+    "description": "Run the agent's checks now and return what it holds afterwards.\n\nWorks whether or not the agent is turned on: turning it on is what makes\nit run by itself; asking it to look is always allowed.",
+    "operationId": "scan_now_api_agent_scan_post",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/AgentScanView"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Scan Now",
+    "tags": [
+     "agent"
+    ]
+   }
+  },
   "/api/anonymous/backtest/run": {
    "post": {
     "operationId": "anonymous_backtest_run_api_anonymous_backtest_run_post",
@@ -12287,10 +12507,6 @@
   },
   "/api/auth/oauth/google/callback": {
    "post": {
-    "tags": [
-     "auth"
-    ],
-    "summary": "Google Oauth Callback",
     "operationId": "google_oauth_callback_api_auth_oauth_google_callback_post",
     "requestBody": {
      "content": {
@@ -12304,26 +12520,82 @@
     },
     "responses": {
      "200": {
-      "description": "Successful Response",
       "content": {
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/GoogleTokenResponse"
         }
        }
-      }
+      },
+      "description": "Successful Response"
      },
      "422": {
-      "description": "Validation Error",
       "content": {
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/HTTPValidationError"
         }
        }
-      }
+      },
+      "description": "Validation Error"
      }
-    }
+    },
+    "summary": "Google Oauth Callback",
+    "tags": [
+     "auth"
+    ]
+   }
+  },
+  "/api/auth/password/change": {
+   "post": {
+    "description": "Replace the signed-in user's password.\n\nBeing signed in is not enough: the current password is asked for again,\nso a session left open on a borrowed phone, or a stolen token, cannot be\nturned into lasting control of the account.\n\nEvery other session is signed out. This one would be too, since its token\nis older than the change, so the reply carries a new token to carry on with.",
+    "operationId": "change_password_api_auth_password_change_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PasswordChangeRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TokenResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PasswordChangeRejected"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Change Password",
+    "tags": [
+     "auth"
+    ]
    }
   },
   "/api/auth/password/login": {
@@ -12367,12 +12639,102 @@
     ]
    }
   },
-  "/api/auth/password/signup": {
+  "/api/auth/password/reset/confirm": {
    "post": {
+    "description": "Set a new password with the emailed code, and sign in.\n\nWorks for an account that has only ever used Google: the code proves the\nsame thing a Google sign-in does, control of the mailbox, and afterwards\nthe account can sign in either way.",
+    "operationId": "confirm_password_reset_api_auth_password_reset_confirm_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PasswordResetConfirm"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/TokenResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "400": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PasswordResetRejected"
+        }
+       }
+      },
+      "description": "Bad Request"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Confirm Password Reset",
     "tags": [
      "auth"
-    ],
-    "summary": "Password Signup",
+    ]
+   }
+  },
+  "/api/auth/password/reset/request": {
+   "post": {
+    "description": "Ask for a reset code by email.\n\nThe reply is the same for every address and is sent before the account\nis even looked up, so neither its words nor how long it takes says\nwhether the address is registered.",
+    "operationId": "request_password_reset_api_auth_password_reset_request_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/PasswordResetRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "202": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/PasswordResetAccepted"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Request Password Reset",
+    "tags": [
+     "auth"
+    ]
+   }
+  },
+  "/api/auth/password/signup": {
+   "post": {
     "operationId": "password_signup_api_auth_password_signup_post",
     "requestBody": {
      "content": {
@@ -12386,36 +12748,40 @@
     },
     "responses": {
      "201": {
-      "description": "Successful Response",
       "content": {
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/TokenResponse"
         }
        }
-      }
+      },
+      "description": "Successful Response"
      },
      "400": {
-      "description": "Bad Request",
       "content": {
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/PasswordRejected"
         }
        }
-      }
+      },
+      "description": "Bad Request"
      },
      "422": {
-      "description": "Validation Error",
       "content": {
        "application/json": {
         "schema": {
          "$ref": "#/components/schemas/HTTPValidationError"
         }
        }
-      }
+      },
+      "description": "Validation Error"
      }
-    }
+    },
+    "summary": "Password Signup",
+    "tags": [
+     "auth"
+    ]
    }
   },
   "/api/auth/refresh-session-token": {
@@ -14452,6 +14818,48 @@
     ]
    }
   },
+  "/api/company/{symbol}/filings": {
+   "get": {
+    "operationId": "get_company_filings_api_company__symbol__filings_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "symbol",
+      "required": true,
+      "schema": {
+       "title": "Symbol",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/FilingAnalysisResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Company Filings",
+    "tags": [
+     "company-filings"
+    ]
+   }
+  },
   "/api/company/{symbol}/overview": {
    "get": {
     "description": "Full company overview including health, valuation, business map, market position.\n\nGated: Scout + anonymous \u2192 S&P 500 only. Strategist+ \u2192 all US tickers.",
@@ -15715,6 +16123,159 @@
     "summary": "Get Market News",
     "tags": [
      "news"
+    ]
+   }
+  },
+  "/api/options/plans": {
+   "get": {
+    "description": "The user's saved plans, newest first.",
+    "operationId": "list_plans_api_options_plans_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/OptionPlanView"
+         },
+         "title": "Response List Plans Api Options Plans Get",
+         "type": "array"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "List Plans",
+    "tags": [
+     "options"
+    ]
+   },
+   "post": {
+    "operationId": "save_plan_api_options_plans_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/OptionPlanCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/OptionPlanView"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Save Plan",
+    "tags": [
+     "options"
+    ]
+   }
+  },
+  "/api/options/plans/{plan_id}": {
+   "delete": {
+    "operationId": "delete_plan_api_options_plans__plan_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "plan_id",
+      "required": true,
+      "schema": {
+       "title": "Plan Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Delete Plan",
+    "tags": [
+     "options"
+    ]
+   }
+  },
+  "/api/options/{symbol}/chain": {
+   "get": {
+    "description": "One expiry of `symbol`'s option chain, and the list of every expiry.\n\nWithout `expiration` it is the default one: the first monthly expiry at\nleast 30 days out. 404 when the stock has no listed options, 503 when the\nprices cannot be fetched right now.",
+    "operationId": "get_chain_api_options__symbol__chain_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "symbol",
+      "required": true,
+      "schema": {
+       "title": "Symbol",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "expiration",
+      "required": false,
+      "schema": {
+       "format": "date",
+       "title": "Expiration",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/OptionChainView"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Chain",
+    "tags": [
+     "options"
     ]
    }
   },
@@ -19384,497 +19945,6 @@
     "summary": "Triage Context",
     "tags": [
      "internal"
-    ]
-   }
-  },
-  "/api/company/{symbol}/filings": {
-   "get": {
-    "operationId": "get_company_filings_api_company__symbol__filings_get",
-    "parameters": [
-     {
-      "in": "path",
-      "name": "symbol",
-      "required": true,
-      "schema": {
-       "title": "Symbol",
-       "type": "string"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/FilingAnalysisResponse"
-        }
-       }
-      },
-      "description": "Successful Response"
-     },
-     "422": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      },
-      "description": "Validation Error"
-     }
-    },
-    "summary": "Get Company Filings",
-    "tags": [
-     "company-filings"
-    ]
-   }
-  },
-  "/api/auth/password/reset/request": {
-   "post": {
-    "tags": [
-     "auth"
-    ],
-    "summary": "Request Password Reset",
-    "description": "Ask for a reset code by email.\n\nThe reply is the same for every address and is sent before the account\nis even looked up, so neither its words nor how long it takes says\nwhether the address is registered.",
-    "operationId": "request_password_reset_api_auth_password_reset_request_post",
-    "requestBody": {
-     "content": {
-      "application/json": {
-       "schema": {
-        "$ref": "#/components/schemas/PasswordResetRequest"
-       }
-      }
-     },
-     "required": true
-    },
-    "responses": {
-     "202": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/PasswordResetAccepted"
-        }
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/auth/password/reset/confirm": {
-   "post": {
-    "tags": [
-     "auth"
-    ],
-    "summary": "Confirm Password Reset",
-    "description": "Set a new password with the emailed code, and sign in.\n\nWorks for an account that has only ever used Google: the code proves the\nsame thing a Google sign-in does, control of the mailbox, and afterwards\nthe account can sign in either way.",
-    "operationId": "confirm_password_reset_api_auth_password_reset_confirm_post",
-    "requestBody": {
-     "content": {
-      "application/json": {
-       "schema": {
-        "$ref": "#/components/schemas/PasswordResetConfirm"
-       }
-      }
-     },
-     "required": true
-    },
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/TokenResponse"
-        }
-       }
-      }
-     },
-     "400": {
-      "description": "Bad Request",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/PasswordResetRejected"
-        }
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/auth/password/change": {
-   "post": {
-    "tags": [
-     "auth"
-    ],
-    "summary": "Change Password",
-    "description": "Replace the signed-in user's password.\n\nBeing signed in is not enough: the current password is asked for again,\nso a session left open on a borrowed phone, or a stolen token, cannot be\nturned into lasting control of the account.\n\nEvery other session is signed out. This one would be too, since its token\nis older than the change, so the reply carries a new token to carry on with.",
-    "operationId": "change_password_api_auth_password_change_post",
-    "requestBody": {
-     "content": {
-      "application/json": {
-       "schema": {
-        "$ref": "#/components/schemas/PasswordChangeRequest"
-       }
-      }
-     },
-     "required": true
-    },
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/TokenResponse"
-        }
-       }
-      }
-     },
-     "400": {
-      "description": "Bad Request",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/PasswordChangeRejected"
-        }
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/agent/profile": {
-   "get": {
-    "tags": [
-     "agent"
-    ],
-    "summary": "Get Profile",
-    "operationId": "get_profile_api_agent_profile_get",
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/AgentProfileView"
-        }
-       }
-      }
-     }
-    }
-   },
-   "put": {
-    "tags": [
-     "agent"
-    ],
-    "summary": "Update Profile",
-    "operationId": "update_profile_api_agent_profile_put",
-    "requestBody": {
-     "content": {
-      "application/json": {
-       "schema": {
-        "$ref": "#/components/schemas/AgentProfileUpdate"
-       }
-      }
-     },
-     "required": true
-    },
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/AgentProfileView"
-        }
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/agent/insights": {
-   "get": {
-    "tags": [
-     "agent"
-    ],
-    "summary": "List Insights",
-    "description": "What the agent has found and the user has not dismissed, newest first.",
-    "operationId": "list_insights_api_agent_insights_get",
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {
-         "items": {
-          "$ref": "#/components/schemas/AgentInsightView"
-         },
-         "type": "array",
-         "title": "Response List Insights Api Agent Insights Get"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/agent/insights/{insight_id}/dismiss": {
-   "post": {
-    "tags": [
-     "agent"
-    ],
-    "summary": "Dismiss Insight",
-    "operationId": "dismiss_insight_api_agent_insights__insight_id__dismiss_post",
-    "parameters": [
-     {
-      "name": "insight_id",
-      "in": "path",
-      "required": true,
-      "schema": {
-       "type": "string",
-       "title": "Insight Id"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/AgentInsightView"
-        }
-       }
-      }
-     },
-     "422": {
-      "description": "Validation Error",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/agent/scan": {
-   "post": {
-    "tags": [
-     "agent"
-    ],
-    "summary": "Scan Now",
-    "description": "Run the agent's checks now and return what it holds afterwards.\n\nWorks whether or not the agent is turned on: turning it on is what makes\nit run by itself; asking it to look is always allowed.",
-    "operationId": "scan_now_api_agent_scan_post",
-    "responses": {
-     "200": {
-      "description": "Successful Response",
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/AgentScanView"
-        }
-       }
-      }
-     }
-    }
-   }
-  },
-  "/api/options/plans": {
-   "get": {
-    "description": "The user's saved plans, newest first.",
-    "operationId": "list_plans_api_options_plans_get",
-    "responses": {
-     "200": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "items": {
-          "$ref": "#/components/schemas/OptionPlanView"
-         },
-         "title": "Response List Plans Api Options Plans Get",
-         "type": "array"
-        }
-       }
-      },
-      "description": "Successful Response"
-     }
-    },
-    "summary": "List Plans",
-    "tags": [
-     "options"
-    ]
-   },
-   "post": {
-    "operationId": "save_plan_api_options_plans_post",
-    "requestBody": {
-     "content": {
-      "application/json": {
-       "schema": {
-        "$ref": "#/components/schemas/OptionPlanCreate"
-       }
-      }
-     },
-     "required": true
-    },
-    "responses": {
-     "201": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/OptionPlanView"
-        }
-       }
-      },
-      "description": "Successful Response"
-     },
-     "422": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      },
-      "description": "Validation Error"
-     }
-    },
-    "summary": "Save Plan",
-    "tags": [
-     "options"
-    ]
-   }
-  },
-  "/api/options/plans/{plan_id}": {
-   "delete": {
-    "operationId": "delete_plan_api_options_plans__plan_id__delete",
-    "parameters": [
-     {
-      "in": "path",
-      "name": "plan_id",
-      "required": true,
-      "schema": {
-       "title": "Plan Id",
-       "type": "string"
-      }
-     }
-    ],
-    "responses": {
-     "204": {
-      "description": "Successful Response"
-     },
-     "422": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      },
-      "description": "Validation Error"
-     }
-    },
-    "summary": "Delete Plan",
-    "tags": [
-     "options"
-    ]
-   }
-  },
-  "/api/options/{symbol}/chain": {
-   "get": {
-    "description": "One expiry of `symbol`'s option chain, and the list of every expiry.\n\nWithout `expiration` it is the default one: the first monthly expiry at\nleast 30 days out. 404 when the stock has no listed options, 503 when the\nprices cannot be fetched right now.",
-    "operationId": "get_chain_api_options__symbol__chain_get",
-    "parameters": [
-     {
-      "in": "path",
-      "name": "symbol",
-      "required": true,
-      "schema": {
-       "title": "Symbol",
-       "type": "string"
-      }
-     },
-     {
-      "in": "query",
-      "name": "expiration",
-      "required": false,
-      "schema": {
-       "format": "date",
-       "title": "Expiration",
-       "type": "string"
-      }
-     }
-    ],
-    "responses": {
-     "200": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/OptionChainView"
-        }
-       }
-      },
-      "description": "Successful Response"
-     },
-     "422": {
-      "content": {
-       "application/json": {
-        "schema": {
-         "$ref": "#/components/schemas/HTTPValidationError"
-        }
-       }
-      },
-      "description": "Validation Error"
-     }
-    },
-    "summary": "Get Chain",
-    "tags": [
-     "options"
     ]
    }
   }
