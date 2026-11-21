@@ -183,6 +183,25 @@ final class DemoState: @unchecked Sendable {
 
     func dismissInsight(_ id: String) { lock.withLock { _ = dismissedInsights.insert(id) } }
 
+    private var optionPlans: [[String: Any]] = []
+
+    /// Saved option plans, newest first, as the backend lists them.
+    var plans: [[String: Any]] { lock.withLock { optionPlans } }
+
+    func savePlan(_ sent: [String: Any]) -> [String: Any] {
+        lock.withLock {
+            var plan = sent
+            plan["id"] = "sample-plan-\(optionPlans.count + 1)"
+            plan["created_at"] = "2026-11-20T21:30:00"
+            optionPlans.insert(plan, at: 0)
+            return plan
+        }
+    }
+
+    func deletePlan(_ id: String) {
+        lock.withLock { optionPlans.removeAll { $0["id"] as? String == id } }
+    }
+
     var insights: [[String: Any]] {
         let gone = lock.withLock { dismissedInsights }
         return DemoData.agentInsights.filter { !gone.contains($0["id"] as? String ?? "") }
@@ -241,6 +260,20 @@ extension DemoData {
             continuation.onTermination = { _ in task.cancel() }
         }
         return (stream, 200)
+    }
+}
+
+extension DemoData {
+    /// NVIDIA's real option chain at the close on 2026-11-20, cut to five
+    /// expiries: one expiry of it as the backend would send it, or the
+    /// default expiry when none is asked for. Nil for an expiry it lacks.
+    public static func optionChain(expiration: String? = nil) -> Data? {
+        guard let url = Bundle.module.url(forResource: "option-chains-nvda", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let all = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let chain = all[expiration ?? "default"]
+        else { return nil }
+        return try? JSONSerialization.data(withJSONObject: chain)
     }
 }
 
@@ -310,6 +343,21 @@ struct DemoTransport: ClientTransport {
             let id = Self.segment(after: "insights", in: request) ?? ""
             state.dismissInsight(id)
             return Self.json(DemoData.agentInsights.first { $0["id"] as? String == id } ?? [:])
+        case "get_chain_api_options__symbol__chain_get":
+            let symbol = (Self.segment(after: "options", in: request) ?? "").uppercased()
+            let query = (request.path ?? "").split(separator: "?").dropFirst().first.map(String.init) ?? ""
+            let expiration = query.split(separator: "&").first { $0.hasPrefix("expiration=") }?.dropFirst("expiration=".count)
+            guard symbol == "NVDA", let chain = DemoData.optionChain(expiration: expiration.map(String.init)) else {
+                return Self.json(["detail": "The sample account has options for NVDA only."], status: .notFound)
+            }
+            return (HTTPResponse(status: .ok, headerFields: [.contentType: "application/json"]), HTTPBody(chain))
+        case "list_plans_api_options_plans_get":
+            return Self.json(state.plans)
+        case "save_plan_api_options_plans_post":
+            return Self.json(state.savePlan(sent), status: .created)
+        case "delete_plan_api_options_plans__plan_id__delete":
+            state.deletePlan(Self.segment(after: "plans", in: request) ?? "")
+            return (HTTPResponse(status: .noContent), nil)
         case "list_unresolved_exits_api_saved_strategies_unresolved_exits_get":
             return Self.json(state.exits)
         case "list_pending_banners_api_me_notifications_pending_get":

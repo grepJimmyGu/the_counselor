@@ -37,7 +37,10 @@ let package = Package(
             ],
             // The website's strategy templates, exported by scripts/gen_templates.mjs.
             // The second is sample data for the debug build's demo account.
-            resources: [.process("Builder/templates.json"), .process("Demo/filings-nvda.json")]
+            resources: [
+                .process("Builder/templates.json"), .process("Demo/filings-nvda.json"),
+                .process("Demo/option-chains-nvda.json"),
+            ]
         ),
         .target(name: "LivermoreUI", dependencies: ["LivermoreKit", "LivermoreAPI"]),
         .testTarget(
