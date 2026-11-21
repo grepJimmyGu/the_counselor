@@ -239,6 +239,11 @@ struct CompanyView: View {
             NavigationLink { SupplyChainView(symbol: overview.symbol) } label: {
                 MoreRow(title: "Supply chain", detail: "Where it sits and what could choke it", systemImage: "point.3.connected.trianglepath.dotted")
             }
+            Divider()
+            NavigationLink { OptionGoalView(symbol: overview.symbol) } label: {
+                MoreRow(title: "Options", detail: "What a call or put would make or lose", systemImage: "arrow.triangle.branch")
+            }
+            .accessibilityIdentifier("company-options")
         }
         .buttonStyle(.plain)
     }

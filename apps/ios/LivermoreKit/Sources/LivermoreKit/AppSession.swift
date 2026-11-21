@@ -198,6 +198,9 @@ public final class AppSession {
     /// The user's linked brokerage: accounts, holdings, order tickets.
     public var brokerage: BrokerageService { BrokerageService(client: client) }
 
+    /// Option chains and saved option plans. Needs a signed-in session.
+    public var options: OptionsService { OptionsService(client: client) }
+
     public var isSignedIn: Bool {
         if case .signedIn = state { true } else { false }
     }

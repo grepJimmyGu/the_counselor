@@ -15,6 +15,7 @@ struct StrategiesView: View {
     @State private var phase: Phase = .loading
     @State private var strategies: [SavedStrategy] = []
     @State private var positions: [TrackedPosition] = []
+    @State private var optionPlans: [SavedOptionPlan] = []
     @State private var loadedAt: Date?
 
     var body: some View {
@@ -61,6 +62,9 @@ struct StrategiesView: View {
             .navigationDestination(for: SavedStrategy.self) { strategy in
                 StrategyDetailView(strategy: strategy, trackedPositions: positions.filter { $0.strategyId == strategy.id })
             }
+            .navigationDestination(for: SavedOptionPlan.self) { saved in
+                SavedOptionPlanView(saved: saved) { optionPlans.removeAll { $0.id == saved.id } }
+            }
         }
         // Keyed on the signed-in state so signing in (or out) reloads, while
         // returning from a pushed screen with data already shown does not.
@@ -68,6 +72,7 @@ struct StrategiesView: View {
             guard session.isSignedIn else {
                 strategies = []
                 positions = []
+                optionPlans = []
                 phase = .loading
                 return
             }
@@ -126,6 +131,23 @@ struct StrategiesView: View {
                     }
                 }
             }
+
+            Section {
+                if optionPlans.isEmpty {
+                    Text("No option plans yet. Open a company, tap Options, and save the plan you build.")
+                        .font(.subheadline).foregroundStyle(.secondary)
+                } else {
+                    ForEach(optionPlans, id: \.id) { saved in
+                        NavigationLink(value: saved) { SavedOptionPlanRow(saved: saved) }
+                    }
+                }
+            } header: {
+                Text("Option plans")
+            } footer: {
+                if !optionPlans.isEmpty {
+                    Text("Each plan shows the prices from the day it was built.")
+                }
+            }
         }
         .liveQuotes(positions.map(\.symbol))
         .refreshable {
@@ -143,10 +165,17 @@ struct StrategiesView: View {
         async let positionRows = Result<[TrackedPosition], APIFailure>.capture { () async throws(APIFailure) in
             try await service.openPositions()
         }
+        // Option plans are an addition to this screen: if they cannot be
+        // read, the strategies and positions still show.
+        let options = session.options
+        async let planRows = Result<[SavedOptionPlan], APIFailure>.capture { () async throws(APIFailure) in
+            try await options.plans()
+        }
         switch (await strategyRows, await positionRows) {
         case (.success(let loadedStrategies), .success(let loadedPositions)):
             strategies = loadedStrategies
             positions = loadedPositions
+            optionPlans = (try? await planRows.get()) ?? []
             loadedAt = .now
             phase = .loaded
         case (.failure(let error), _), (_, .failure(let error)):

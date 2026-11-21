@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-from datetime import datetime
+import re
+from datetime import date, datetime
+from typing import Optional
 
 import httpx
 
@@ -14,6 +16,16 @@ class AlphaVantageError(RuntimeError):
 
 class AlphaVantageRateLimitError(AlphaVantageError):
     pass
+
+
+def option_root(symbol: str) -> str:
+    """The symbol as option contracts spell it: letters and digits only.
+
+    Class shares lose their separator (BRK-B and BRK.B are both BRKB); the
+    option endpoints answer "Invalid/empty symbol" to either spelling with
+    one. Checked against the live endpoint 2026-11-20.
+    """
+    return re.sub(r"[^A-Z0-9]", "", symbol.upper())
 
 
 class AlphaVantageClient:
@@ -79,6 +91,32 @@ class AlphaVantageClient:
                 }
             )
         return sorted(bars, key=lambda item: item["trading_date"])
+
+    async def fetch_option_chain(self, symbol: str, expiration: Optional[date] = None) -> list[dict]:
+        """Listed option contracts for `symbol` at the last close, as sent.
+
+        HISTORICAL_OPTIONS with no date: the latest trading session, with bid,
+        ask, volume and open interest per contract. Every expiry by default,
+        or just `expiration`. An unknown symbol, or one with no listed
+        options, is an empty list.
+
+        Anything but a plain success is an error. The provider answers a call
+        the plan does not cover with a notice AND made-up sample rows (symbol
+        XXYYZZ), which must never be mistaken for a chain.
+        """
+        params = {"function": "HISTORICAL_OPTIONS", "symbol": option_root(symbol)}
+        if expiration is not None:
+            params["expiration"] = expiration.isoformat()
+        payload = await self._request(params)
+        message = str(payload.get("message", ""))
+        if message.lower().startswith("invalid/empty symbol"):
+            return []
+        if message != "success":
+            raise AlphaVantageError(
+                f"Option chain for {symbol} was not returned: {message[:120] or 'no message'}"
+            )
+        rows = payload.get("data")
+        return rows if isinstance(rows, list) else []
 
     async def fetch_commodity_spot(
         self,

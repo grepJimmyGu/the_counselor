@@ -11315,6 +11315,296 @@
      "brokerage_linked"
     ],
     "title": "AgentScanView"
+   },
+   "OptionChainView": {
+    "description": "One expiry of a stock's option chain, near the stock's price.",
+    "properties": {
+     "as_of": {
+      "format": "date",
+      "title": "As Of",
+      "type": "string"
+     },
+     "contracts": {
+      "items": {
+       "$ref": "#/components/schemas/OptionContractView"
+      },
+      "title": "Contracts",
+      "type": "array"
+     },
+     "default_expiration": {
+      "format": "date",
+      "title": "Default Expiration",
+      "type": "string"
+     },
+     "expiration": {
+      "format": "date",
+      "title": "Expiration",
+      "type": "string"
+     },
+     "expirations": {
+      "items": {
+       "$ref": "#/components/schemas/OptionExpirationView"
+      },
+      "title": "Expirations",
+      "type": "array"
+     },
+     "symbol": {
+      "title": "Symbol",
+      "type": "string"
+     },
+     "underlying_price": {
+      "title": "Underlying Price",
+      "type": "number"
+     }
+    },
+    "required": [
+     "symbol",
+     "as_of",
+     "underlying_price",
+     "expirations",
+     "default_expiration",
+     "expiration",
+     "contracts"
+    ],
+    "title": "OptionChainView",
+    "type": "object"
+   },
+   "OptionContractView": {
+    "properties": {
+     "ask": {
+      "title": "Ask",
+      "type": "number"
+     },
+     "bid": {
+      "title": "Bid",
+      "type": "number"
+     },
+     "contract_id": {
+      "title": "Contract Id",
+      "type": "string"
+     },
+     "kind": {
+      "enum": [
+       "call",
+       "put"
+      ],
+      "title": "Kind",
+      "type": "string"
+     },
+     "last": {
+      "title": "Last",
+      "type": "number"
+     },
+     "mid": {
+      "title": "Mid",
+      "type": "number"
+     },
+     "open_interest": {
+      "title": "Open Interest",
+      "type": "integer"
+     },
+     "strike": {
+      "title": "Strike",
+      "type": "number"
+     },
+     "volume": {
+      "title": "Volume",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "contract_id",
+     "kind",
+     "strike",
+     "bid",
+     "ask",
+     "mid",
+     "volume",
+     "open_interest"
+    ],
+    "title": "OptionContractView",
+    "type": "object"
+   },
+   "OptionExpirationView": {
+    "properties": {
+     "date": {
+      "format": "date",
+      "title": "Date",
+      "type": "string"
+     },
+     "days": {
+      "title": "Days",
+      "type": "integer"
+     },
+     "implied_move_pct": {
+      "title": "Implied Move Pct",
+      "type": "number"
+     },
+     "monthly": {
+      "title": "Monthly",
+      "type": "boolean"
+     }
+    },
+    "required": [
+     "date",
+     "days",
+     "monthly"
+    ],
+    "title": "OptionExpirationView",
+    "type": "object"
+   },
+   "OptionLeg": {
+    "description": "One line of a plan: shares, or contracts of one option.",
+    "properties": {
+     "contract_id": {
+      "maxLength": 32,
+      "title": "Contract Id",
+      "type": "string"
+     },
+     "expiration": {
+      "format": "date",
+      "title": "Expiration",
+      "type": "string"
+     },
+     "kind": {
+      "enum": [
+       "stock",
+       "call",
+       "put"
+      ],
+      "title": "Kind",
+      "type": "string"
+     },
+     "price": {
+      "maximum": 1000000.0,
+      "minimum": 0.0,
+      "title": "Price",
+      "type": "number"
+     },
+     "quantity": {
+      "maximum": 100000.0,
+      "minimum": 1.0,
+      "title": "Quantity",
+      "type": "integer"
+     },
+     "side": {
+      "enum": [
+       "buy",
+       "sell"
+      ],
+      "title": "Side",
+      "type": "string"
+     },
+     "strike": {
+      "exclusiveMinimum": 0.0,
+      "maximum": 1000000.0,
+      "title": "Strike",
+      "type": "number"
+     }
+    },
+    "required": [
+     "kind",
+     "side",
+     "quantity",
+     "price"
+    ],
+    "title": "OptionLeg",
+    "type": "object"
+   },
+   "OptionPlanCreate": {
+    "properties": {
+     "as_of": {
+      "format": "date",
+      "title": "As Of",
+      "type": "string"
+     },
+     "legs": {
+      "items": {
+       "$ref": "#/components/schemas/OptionLeg"
+      },
+      "maxItems": 4,
+      "minItems": 1,
+      "title": "Legs",
+      "type": "array"
+     },
+     "strategy": {
+      "enum": [
+       "long_call",
+       "long_put",
+       "covered_call",
+       "protective_put"
+      ],
+      "title": "Strategy",
+      "type": "string"
+     },
+     "symbol": {
+      "title": "Symbol",
+      "type": "string"
+     },
+     "underlying_price": {
+      "exclusiveMinimum": 0.0,
+      "maximum": 1000000.0,
+      "title": "Underlying Price",
+      "type": "number"
+     }
+    },
+    "required": [
+     "symbol",
+     "strategy",
+     "legs",
+     "underlying_price",
+     "as_of"
+    ],
+    "title": "OptionPlanCreate",
+    "type": "object"
+   },
+   "OptionPlanView": {
+    "properties": {
+     "as_of": {
+      "format": "date",
+      "title": "As Of",
+      "type": "string"
+     },
+     "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+     },
+     "id": {
+      "title": "Id",
+      "type": "string"
+     },
+     "legs": {
+      "items": {
+       "$ref": "#/components/schemas/OptionLeg"
+      },
+      "title": "Legs",
+      "type": "array"
+     },
+     "strategy": {
+      "title": "Strategy",
+      "type": "string"
+     },
+     "symbol": {
+      "title": "Symbol",
+      "type": "string"
+     },
+     "underlying_price": {
+      "title": "Underlying Price",
+      "type": "number"
+     }
+    },
+    "required": [
+     "id",
+     "symbol",
+     "strategy",
+     "legs",
+     "underlying_price",
+     "as_of",
+     "created_at"
+    ],
+    "title": "OptionPlanView",
+    "type": "object"
    }
   }
  },
@@ -19433,6 +19723,159 @@
       }
      }
     }
+   }
+  },
+  "/api/options/plans": {
+   "get": {
+    "description": "The user's saved plans, newest first.",
+    "operationId": "list_plans_api_options_plans_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "items": {
+          "$ref": "#/components/schemas/OptionPlanView"
+         },
+         "title": "Response List Plans Api Options Plans Get",
+         "type": "array"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "List Plans",
+    "tags": [
+     "options"
+    ]
+   },
+   "post": {
+    "operationId": "save_plan_api_options_plans_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/OptionPlanCreate"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "201": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/OptionPlanView"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Save Plan",
+    "tags": [
+     "options"
+    ]
+   }
+  },
+  "/api/options/plans/{plan_id}": {
+   "delete": {
+    "operationId": "delete_plan_api_options_plans__plan_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "plan_id",
+      "required": true,
+      "schema": {
+       "title": "Plan Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Delete Plan",
+    "tags": [
+     "options"
+    ]
+   }
+  },
+  "/api/options/{symbol}/chain": {
+   "get": {
+    "description": "One expiry of `symbol`'s option chain, and the list of every expiry.\n\nWithout `expiration` it is the default one: the first monthly expiry at\nleast 30 days out. 404 when the stock has no listed options, 503 when the\nprices cannot be fetched right now.",
+    "operationId": "get_chain_api_options__symbol__chain_get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "symbol",
+      "required": true,
+      "schema": {
+       "title": "Symbol",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "expiration",
+      "required": false,
+      "schema": {
+       "format": "date",
+       "title": "Expiration",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/OptionChainView"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Chain",
+    "tags": [
+     "options"
+    ]
    }
   }
  }

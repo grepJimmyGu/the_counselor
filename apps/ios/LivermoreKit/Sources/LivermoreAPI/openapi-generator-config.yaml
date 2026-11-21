@@ -52,3 +52,7 @@ filter:
     - /api/data/daily/{symbol}
     # Quarterly filing analysis (10-Q / 10-K)
     - /api/company/{symbol}/filings
+    # Options builder (PRD-44)
+    - /api/options/{symbol}/chain
+    - /api/options/plans
+    - /api/options/plans/{plan_id}

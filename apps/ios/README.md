@@ -17,6 +17,7 @@ What the app does, and how far each part has been checked.
 | Act on a strategy | Buy at your broker from a strategy or company page; tell Livermore about a position you hold so its exits are watched | Sample data only |
 | Actions | Exits a strategy signalled, each resolved by selling at the broker, recording a sale made elsewhere, or keeping the position; notices | Sample data only |
 | Brokerage | Link Robinhood, Schwab or another SnapTrade broker; accounts and holdings; order ticket (fill in → broker's numbers → confirm → receipt) | Sample data only |
+| Options | From a company page: pick what you want from the stock (up, down, income on shares held, protection for them); the app fills in a real call or put and shows cost, the most you can lose and make, the breakeven and a payoff chart; change expiry, strike and size; save the plan; get the order written out for your own broker, with the steps to enter it | Sample data only; the backend against the real provider |
 | Account | Sign in with a password, Face ID or Google; create an account under the password rules; reset a forgotten password by emailed code; change the password; sign out | Sign-up, the breach refusal, show/hide and Face ID on the simulator against a local backend. Google, the iPhone's suggested password and automatic saving are not yet seen working: see "Signing in" |
 
 **"Sample data only" means the screens and the full flow run, but against
@@ -62,6 +63,23 @@ Conventions the screens follow:
 - **Loading shows the page's shape** (`SkeletonBlock`), not a spinner.
 - **Long explanations are collapsed to their first sentence** with the rest a
   tap away ("Why", "Before you rely on it").
+
+### How an option plan's numbers are worked out
+
+`OptionPayoff` is arithmetic on a plan's legs and nothing else: profit at
+expiry is a line with corners at the strikes, so the most that can be lost or
+made and the breakevens come from those corners. There is no pricing model
+and no probability anywhere on the screen. The one thing read off the market
+rather than the plan is the shaded band on the chart: what the call and the
+put at the stock's price cost together, either side of that price.
+
+Every price on a plan is from one close, the stock's included, and the date
+is the first line of the screen. The chart is read with a slider under it
+rather than by dragging on it: on iOS 26 a sideways drag on a pushed screen
+is the system's "go back", and it closed the plan.
+
+In `-demo` the builder runs on NVIDIA's real chain from 2026-11-20
+(`Demo/option-chains-nvda.json`), cut to five expiries.
 
 ### Where the price chart's numbers come from
 
@@ -285,9 +303,10 @@ apps/ios/
       Strategies/                   saved strategies, positions, signals
       Actions/                      exits waiting on the user, notices
       Brokerage/                    SnapTrade link, holdings, order tickets
+      Options/                      option chains, the payoff engine, plans, tickets
       Demo/                         the sample account (debug builds only)
     Sources/LivermoreUI/          SwiftUI screens, same folders
-    Tests/LivermoreKitTests/      203 tests; `swift test` runs them in a second
+    Tests/LivermoreKitTests/      235 tests; `swift test` runs them in a second
   scripts/refresh_openapi.py      refreshes openapi.json from the backend
   scripts/gen_scoring_golden.mjs  regenerates the scoring parity fixture
   scripts/gen_templates.mjs       regenerates the strategy templates
