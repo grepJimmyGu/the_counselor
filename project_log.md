@@ -8,6 +8,46 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-11-20 — The setup gets a review: a 20-minute test, three new checks, and rules that match practice
+
+Jimmy asked whether the feature and repo setup was optimised. The answer was no: it was tuned for
+building quickly, not for knowing that what shipped works. He approved four of the six recommendations
+to start; this is those four. (The other two, proving shipped features with a real account and getting
+the site deploying again, need him.)
+
+**CI (#383).** The backend run took 22 minutes. One file, `test_market_pulse_warmup_no_live_overlay.py`,
+was 1,200 s of a 1,304 s suite: #254 (2026-07-21) made the pulse warmup loop wait on two startup gates
+with 300 s timeouts, the tests call the loop without running startup, so each test sat through both.
+The same file "hung" locally and had been run apart from the suite for that reason. With the gates
+opened in a fixture the file takes 2 s and the suite 54 s. A 15-minute job limit and `--durations=10`
+make the next one visible. Two new workflows: `ios-ci.yml` (`swift test` and a simulator build; the
+app's tests had only ever run on a developer's machine) and `web-ci.yml` (unit tests and a production
+build; Vercel's preview was the only build check and it is unavailable). Lint stays out: 92 existing
+errors on `main`, up from 26 when it was last counted.
+
+**API contract (#384).** `refresh_openapi.py` could only fetch the schema from production, which does
+not have a new endpoint until its PR merges, so #378 and #381 merged their endpoints into the file by
+hand. It now builds the schema from the checkout's backend code (`--local`) and has a `--check` mode
+that CI runs: it fails when the file disagrees with the backend for the paths the app uses, or when
+the file has been hand-edited. Regenerating once in sorted form moved two call sites, because the
+generated initialisers take arguments in file order. Two environment facts surfaced: the signal routes
+mount only when `SIGNAL_ALERTS_ENABLED` is on, and the machine's default `python3` is 3.9 with FastAPI
+0.128 rather than the pinned 0.115.12, which changes the schema's shape.
+
+**Rules (this PR).** `CLAUDE.md` and `PARALLEL_WORK.md` said one named session ran every merge. In
+practice Jimmy names a PR and the session he is talking to merges it; eight this month. The rule now
+says that, and keeps the diff-against-title check the old gate existed for. The Active Sessions table,
+last accurate in September, is gone: open PRs and `git worktree list` are the record. Worktrees are cut
+from `origin/main`, not local `main`. `WORK_LOG.md`'s current state was dated 2026-09-10 and is
+rewritten for today.
+
+**Branches.** 44 remote branches, 135 local branches and 14 worktrees whose PRs had merged were
+removed (about 6 GB), each checked against its PR's head commit first, and GitHub now deletes a branch
+on merge. Left for Jimmy: branches of closed, unmerged PRs; worktrees with uncommitted files; and the
+canonical root, whose `main` was 17 PRs behind with about 200 entries in `git status`.
+
+---
+
 ## 2026-11-20 — Options builder goes live, and the put's "most you can make" stops headlining $0
 
 #381 merged and deployed the same evening; on Jimmy's account the AAPL plans load from production with
