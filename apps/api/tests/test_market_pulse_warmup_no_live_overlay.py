@@ -44,7 +44,30 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+import app.main as main_module
 from app.main import _warmup_market_pulse_loop
+
+
+@pytest.fixture(autouse=True)
+def _startup_gates_open():
+    """Open the two startup gates the warmup loop waits on before its first read.
+
+    The loop does `_db_ready.wait(timeout=300)` then
+    `_startup_warmups_done.wait(timeout=300)`. Those events are set by the
+    app's startup, which these tests never run, so each test sat through both
+    timeouts: 10 minutes a test, 20 minutes for this file, on every CI run
+    (2026-11-20: 1,200 s of a 1,304 s suite). The gates have their own tests
+    in `test_startup_warmup_sequencing.py`; here they are simply open, as they
+    are in production by the time the loop reads.
+    """
+    gates = (main_module._db_ready, main_module._startup_warmups_done)
+    was_set = [gate.is_set() for gate in gates]
+    for gate in gates:
+        gate.set()
+    yield
+    for gate, state in zip(gates, was_set):
+        if not state:
+            gate.clear()
 
 
 @pytest.mark.asyncio
