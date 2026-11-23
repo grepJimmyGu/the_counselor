@@ -73,13 +73,17 @@ public struct BrokerageService: Sendable {
     }
 
     /// A one-time address where the user signs in to their own broker.
-    public func connectionURL() async throws(APIFailure) -> URL {
+    ///
+    /// A link starts read-only. Passing `tradingFor` (one of the user's own
+    /// account ids) returns the address that re-authorises that account's
+    /// link with permission to place orders.
+    public func connectionURL(tradingFor accountID: String? = nil) async throws(APIFailure) -> URL {
         let output = try await APIFailure.perform {
             // The broker sends the user back to the website's brokerage page
             // when they finish; the app re-reads the status when the sheet
             // closes, whichever page it ended on.
             try await client.snaptradeConnectApiSnaptradeConnectPost(
-                body: .json(.init(returnPath: "/account/brokerage"))
+                body: .json(.init(returnPath: "/account/brokerage", tradingAccountId: accountID))
             )
         }
         switch output {

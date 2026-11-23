@@ -8,6 +8,40 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-11-23 — "Your brokerage didn't answer": it had, and no link could ever trade
+
+Jimmy sent the share ticket on his Schwab account showing "Your brokerage didn't answer. Try again in a
+moment.", and asked what was behind it and whether the path from a plan to an order is connected.
+
+**Symptom.** `POST /api/snaptrade/orders/preview` returned 502 for a $1,000 NVDA buy.
+
+**What was actually said.** Reproduced on his account with a local build that printed the hidden text
+(preview only; nothing sent): SnapTrade answered 403, code 3007, "Trading permissions have not been
+enabled. Please reconnect to enable trade permission."
+
+**Cause, three layers.**
+1. `connection_portal_url` never sent `connection_type`. SnapTrade's default is `read`, so every link
+   made through Livermore was read-only and every order preview was refused, for every user. The order
+   path had never run against the live API, which is how it went unseen.
+2. The route answered with `detail=str(exc)`: status line, response headers and body. The app rightly
+   will not print that, and fell back to a sentence that blamed the broker for silence.
+3. For Schwab in particular, asking for trading is not enough. On a commercial key Schwab is read-only
+   until Livermore itself is approved for Schwab's commercial Trader API. Fidelity, Robinhood,
+   Interactive Brokers and Vanguard are read-only with no such route.
+
+**Fix (PR, not merged).** The connect link can re-authorise one account's link with trading asked for
+(`reconnect` + `connection_type="trade"`, SnapTrade's documented upgrade), only for an account that is
+the user's own. A refused preview now says which refusal it was: 409 when the link can be upgraded
+(the ticket shows "Turn on trading for this account"), 400 with "Schwab doesn't take orders from
+Livermore…" when the broker does not trade through the link at all, and otherwise the broker's own
+sentence. A first-time link stays read-only; that is a product decision left with Jimmy.
+
+**Not proven.** No trading link exists to test against, so the upgrade link, and what `allows_trading`
+reports for Schwab on our keys, are from the docs and the SDK, pinned by the contract test, and
+unexercised. The option ticket was not walked through a real broker; that needs Jimmy's own login.
+
+---
+
 ## 2026-11-20 — Options builder goes live, and the put's "most you can make" stops headlining $0
 
 #381 merged and deployed the same evening; on Jimmy's account the AAPL plans load from production with

@@ -52,6 +52,10 @@ class ConnectRequest(BaseModel):
     URL here would be an open redirect on the step where we have just asked
     someone to trust us with a brokerage login."""
     return_path: Optional[str] = None
+    # Set to one of the user's own account ids to re-authorise that account's
+    # connection WITH permission to place orders. Connections are read-only
+    # until this is done; see `connection_portal_url`.
+    trading_account_id: Optional[str] = None
 
 
 class ConnectResponse(BaseModel):
@@ -134,10 +138,15 @@ def snaptrade_connect(
             redirect_uri=st.connection_portal_url(
                 db, current_user.id,
                 return_path=payload.return_path if payload else None,
+                trading_account_id=payload.trading_account_id if payload else None,
             )
         )
     except st.SnapTradeNotConfigured:
         raise HTTPException(status_code=503, detail="Brokerage connections aren't available right now.")
+    except st.TradingDisabled:
+        raise HTTPException(status_code=503, detail="Order placement isn't enabled.")
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         _log.exception("snaptrade: connect failed user=%s", current_user.id)
         raise HTTPException(
@@ -703,6 +712,12 @@ class PlaceOrderResponse(BaseModel):
     brokerage_order_id: Optional[str] = None
 
 
+READ_ONLY_LINK = (
+    "Your link to this account can read it but can't place orders yet. "
+    "Turn on trading for it to continue."
+)
+
+
 def _require_trading() -> None:
     _require_configured()
     if not st.is_trading_enabled():
@@ -744,7 +759,32 @@ def preview_order(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except Exception as exc:  # noqa: BLE001
         _log.exception("snaptrade: preview failed user=%s", current_user.id)
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+        if st.is_trading_not_permitted(exc):
+            try:
+                allows, broker = st.trading_support(db, current_user.id, payload.account_id)
+            except Exception:  # noqa: BLE001 - the lookup is a courtesy, not the answer
+                _log.exception("snaptrade: trading support lookup failed user=%s", current_user.id)
+                allows, broker = None, None
+            if allows is False:
+                # The broker does not offer trading here at all. Saying "turn
+                # on trading" would send the user to a login that cannot help.
+                raise HTTPException(
+                    status_code=400, detail=st.trading_unsupported_message(broker),
+                ) from exc
+            # 409: nothing is wrong with the order. The link to this account
+            # was authorised to read it, not to trade in it, and the user can
+            # change that. The app offers the re-authorisation on this status.
+            raise HTTPException(status_code=409, detail=READ_ONLY_LINK) from exc
+        # The broker's own sentence when it gave one ("Insufficient buying
+        # power"), never the raw exception: that is headers and a body dump.
+        # Our own errors ("NVDA is not tradable in this account.") are already
+        # sentences; only an SDK error needs the sentence dug out of it.
+        from_sdk = hasattr(exc, "body")
+        reason = st.broker_reason(exc) if from_sdk else str(exc)
+        raise HTTPException(
+            status_code=502,
+            detail=reason or "Couldn't price this order with your brokerage.",
+        ) from exc
 
 
 @router.post("/orders/place", response_model=PlaceOrderResponse)

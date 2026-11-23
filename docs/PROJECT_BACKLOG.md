@@ -225,6 +225,8 @@ Phase 1 is essentially done — only 1g and the LLM prompt rewrite remain.
 
 | Item | Source | Effort | Trigger |
 |---|---|---|---|
+| After linking a broker in the iOS app, the sign-in sheet lands on a dead page | `return_url_for` sends the user back to `livermorealpha.com/account/brokerage`, and the site answers 402 while Vercel has it paused (2026-11-23). The link itself succeeds; the user has to close the sheet themselves. The app should be the return target (a URL scheme), as SnapTrade's mobile guide describes | ~half a day | Before anyone outside the team links a broker from the phone |
+| Whether a first-time link should ask for trading | Links are read-only and trading is turned on per account from the order ticket (2026-11-23). Asking at first connect saves a second broker login for people who came to trade and asks more of people who only wanted to see holdings. `connection_type="trade-if-available"` is the one-line switch | Decision, then minutes | Jimmy's call |
 | Frontend lint debt (26 errors across 22 files) | [DEFERRED.md](DEFERRED.md) | ~1-2h batch | When touching one of the affected files for a real feature |
 | Rate-limit the public `POST /api/search/parse` | Unauthenticated and LLM-backed on the fallback path — real cost/abuse exposure. Noted repeatedly since 2026-07-30. | ~1h | Before any public launch push, or on the first anomalous spend |
 | Chinese queries silently fall through to the LLM | The 中文 toggle switches UI copy only; `screen_rule_parser`/`screen_filter_parser` are English-only regex, so 均线多头排列 extracts nothing. **Jimmy explicitly declined to invest in Chinese parsing 2026-08-07.** `tests/test_query_vocabulary.py` documents the gap. | Own project | Only if CN becomes a priority — do NOT start this as a "fix" |
@@ -322,6 +324,7 @@ rather than wiring — but that is a read-through, not an assumption.
 | Item | Blocking on | Effort once unblocked |
 |---|---|---|
 | Alpha Vantage: commercial terms for option data | Jimmy to ask Alpha Vantage. Their notice describes live option data as for "personal non-professional use" and sends commercial users to sales; the options builder shows last-close option prices to users. Live prices also need their 600 or 1,200 requests/min plan. | None for last-close prices. Live prices: a small client change (PRD-44 §5) |
+| **Schwab: orders from the app** | Jimmy to apply for Schwab's commercial Trader API (developer.schwab.com, "Accounts and Trading", callback `https://connect.snaptrade.com/oauth/callback`), then send the keys to SnapTrade. Schwab decides case by case. Until then a Schwab link is read-only and the app says so; Fidelity, Robinhood, Interactive Brokers and Vanguard are read-only on SnapTrade with no such route | None in code: the "turn on trading" path already exists |
 | Reddit API credentials (`REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET`) | Reddit approval (applied; awaiting response) | 1 min env var set on Railway |
 
 ---
