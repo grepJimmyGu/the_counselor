@@ -16,6 +16,7 @@ struct OrderTicketView: View {
 
     @Environment(AppSession.self) private var session
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
 
     let symbol: String
     let side: Side
@@ -29,11 +30,20 @@ struct OrderTicketView: View {
     @State private var ticket = OrderTicketState()
     @State private var failure: APIFailure?
     @State private var isConfirming = false
+    /// The broker's page for turning on trading, while it is open.
+    @State private var tradingAccess: BrowserDestination?
+    @State private var isOpeningTradingAccess = false
     @FocusState private var amountFocused: Bool
 
     private var phase: OrderTicketState.Phase { ticket.phase }
     private var link: BrokerageLink { session.brokerageLink }
     private var isSell: Bool { if case .sell = side { true } else { false } }
+
+    /// The link to this account reads it but cannot place orders. Not an
+    /// error in the order: something the user can switch on at their broker.
+    private var linkIsReadOnly: Bool {
+        if case .readOnlyLink = failure { true } else { false }
+    }
 
     private var heldShares: Double? {
         if case .sell(let holding, _) = side { holding.units } else { nil }
@@ -110,6 +120,13 @@ struct OrderTicketView: View {
             }
             .liveQuotes([symbol])
             .task { await prepare() }
+            #if os(iOS)
+            // Back from the broker: the refusal no longer describes the link,
+            // so it is cleared and the user prices the order again.
+            .sheet(item: $tradingAccess, onDismiss: { failure = nil; Task { await link.refresh() } }) { destination in
+                SafariSheet(url: destination.url).ignoresSafeArea()
+            }
+            #endif
             .interactiveDismissDisabled(ticket.isBusy)
         }
     }
@@ -194,6 +211,17 @@ struct OrderTicketView: View {
         Section {
             switch phase {
             case .editing, .pricing:
+                if linkIsReadOnly {
+                    Button(action: turnOnTrading) {
+                        HStack {
+                            Text("Turn on trading for this account").fontWeight(.semibold)
+                            Spacer()
+                            if isOpeningTradingAccess { ProgressView() }
+                        }
+                    }
+                    .disabled(isOpeningTradingAccess)
+                    .accessibilityIdentifier("turn-on-trading")
+                }
                 Button(action: price) {
                     HStack {
                         Text(phase == .pricing ? "Asking your broker…" : "See the cost before sending")
@@ -221,7 +249,12 @@ struct OrderTicketView: View {
             }
         } footer: {
             VStack(alignment: .leading, spacing: 4) {
-                if let failure {
+                if linkIsReadOnly, let failure {
+                    // Amber, not red: nothing failed. The link was set up to
+                    // read the account, and the user decides whether it trades.
+                    Text(failure.message).foregroundStyle(.caution)
+                    Text("You'll sign in at your broker and approve it there. Then price the order again.")
+                } else if let failure {
                     Text(failure.message).foregroundStyle(.loss)
                 } else if let problem, amount != nil {
                     Text(problem).foregroundStyle(.caution)
@@ -279,6 +312,27 @@ struct OrderTicketView: View {
                 failure = error
                 ticket.pricingFailed()
             }
+        }
+    }
+
+    /// Opens the broker's page that re-authorises this account's link with
+    /// permission to place orders. Nothing about the order is sent.
+    private func turnOnTrading() {
+        isOpeningTradingAccess = true
+        let accountID = accountID
+        Task {
+            do throws(APIFailure) {
+                let url = try await session.brokerage.connectionURL(tradingFor: accountID)
+                #if os(iOS)
+                tradingAccess = BrowserDestination(url: url)
+                #else
+                openURL(url)
+                #endif
+            } catch {
+                if error == .notSignedIn { session.signOut() }
+                failure = error
+            }
+            isOpeningTradingAccess = false
         }
     }
 

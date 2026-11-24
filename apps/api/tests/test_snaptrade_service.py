@@ -9,6 +9,7 @@ Every SnapTrade call is injected, so nothing here touches the network.
 
 from __future__ import annotations
 
+import json
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -1353,3 +1354,232 @@ def test_a_genuinely_empty_account_is_not_an_error(db: Session, make_user, confi
     api = _api()
     api.account_information.get_all_account_positions.return_value = []
     assert st.list_positions(db, user.id, client=api) == []
+
+
+# ── a read-only link, and turning trading on for it (2026-11-23) ───────────
+#
+# PRODUCTION BUG. Every order preview failed for every user, with "Your
+# brokerage didn't answer. Try again in a moment." on the ticket.
+#
+# SYMPTOM: `POST /api/snaptrade/orders/preview` returned 502 on Jimmy's own
+# Schwab account. The brokerage HAD answered: SnapTrade's body was
+# `{"detail": "Trading permissions have not been enabled. Please reconnect to
+# enable trade permission.", "status_code": 403, "code": "3007"}`.
+#
+# CAUSE, two parts. (1) `connection_portal_url` never sent `connection_type`,
+# and SnapTrade's default is `read`, so no connection made through Livermore
+# could ever place an order. The order path had "never executed against the
+# live API" (test_snaptrade_sdk_contract.py), which is how this went unseen.
+# (2) The route answered with `detail=str(exc)`: the status line, every
+# response header and the body. The app rightly refuses to print that, so it
+# fell back to a sentence that blamed the broker for silence.
+#
+# FIX: the connect link can re-authorise an account's connection with trading
+# asked for (SnapTrade's documented upgrade: `reconnect` + `trade`), and the
+# preview route says which refusal it got, in a sentence.
+
+
+class _SdkRefusal(Exception):
+    """Shaped like the SDK's `ApiException`: a status, and a parsed body."""
+
+    def __init__(self, status: int, body) -> None:
+        super().__init__(f"({status})\nReason: Forbidden\nHTTP response headers: ...")
+        self.status = status
+        self.body = body
+
+
+_READ_ONLY = {
+    "detail": "Trading permissions have not been enabled. "
+              "Please reconnect to enable trade permission.",
+    "status_code": 403,
+    "code": "3007",
+}
+
+
+def _linked_api() -> MagicMock:
+    api = _trading_api()
+    api.account_information.list_user_accounts.return_value = [
+        {"id": "acct-1", "brokerage_authorization": "conn-schwab"},
+        {"id": "acct-2", "brokerage_authorization": {"id": "conn-fidelity"}},
+    ]
+    return api
+
+
+def test_REGRESSION_a_plain_connect_still_asks_for_read_only(
+    make_user, db: Session, configured, trading,
+) -> None:
+    """Asking for the right to trade is opt-in, per account, by the user."""
+    user = make_user(email="st-read-default@test.com")
+    api = _linked_api()
+    st.connection_portal_url(db, user.id, client=api)
+    kwargs = api.authentication.login_snap_trade_user.call_args.kwargs
+    assert "connection_type" not in kwargs and "reconnect" not in kwargs
+
+
+def test_turning_on_trading_reauthorises_the_same_connection(
+    make_user, db: Session, configured, trading,
+) -> None:
+    user = make_user(email="st-upgrade@test.com")
+    api = _linked_api()
+    st.connection_portal_url(db, user.id, trading_account_id="acct-1", client=api)
+    kwargs = api.authentication.login_snap_trade_user.call_args.kwargs
+    assert kwargs["connection_type"] == "trade"
+    # The SAME connection, not a new one: a new one would give the user a
+    # second copy of every account.
+    assert kwargs["reconnect"] == "conn-schwab"
+
+
+def test_the_connection_id_is_read_from_either_shape_the_api_sends(
+    make_user, db: Session, configured, trading,
+) -> None:
+    user = make_user(email="st-upgrade-shape@test.com")
+    api = _linked_api()
+    st.connection_portal_url(db, user.id, trading_account_id="acct-2", client=api)
+    assert api.authentication.login_snap_trade_user.call_args.kwargs["reconnect"] == "conn-fidelity"
+
+
+def test_trading_cannot_be_turned_on_for_an_account_that_is_not_yours(
+    make_user, db: Session, configured, trading,
+) -> None:
+    user = make_user(email="st-upgrade-foreign@test.com")
+    api = _linked_api()
+    with pytest.raises(ValueError, match="isn't one of your linked accounts"):
+        st.connection_portal_url(db, user.id, trading_account_id="someone-elses", client=api)
+    api.authentication.login_snap_trade_user.assert_not_called()
+
+
+def test_trading_cannot_be_turned_on_while_order_placement_is_off(
+    make_user, db: Session, configured,
+) -> None:
+    user = make_user(email="st-upgrade-off@test.com")
+    api = _linked_api()
+    with pytest.raises(st.TradingDisabled):
+        st.connection_portal_url(db, user.id, trading_account_id="acct-1", client=api)
+    api.authentication.login_snap_trade_user.assert_not_called()
+
+
+@pytest.mark.parametrize("body", [_READ_ONLY, json.dumps(_READ_ONLY), json.dumps(_READ_ONLY).encode()])
+def test_a_read_only_refusal_is_recognised_however_the_body_arrives(body) -> None:
+    exc = _SdkRefusal(403, body)
+    assert st.is_trading_not_permitted(exc) is True
+    assert st.broker_reason(exc).startswith("Trading permissions have not been enabled")
+
+
+def test_other_failures_are_not_mistaken_for_a_read_only_link() -> None:
+    assert st.is_trading_not_permitted(RuntimeError("boom")) is False
+    assert st.is_trading_not_permitted(_SdkRefusal(400, {"detail": "Insufficient buying power", "code": "1119"})) is False
+    assert st.broker_reason(RuntimeError("boom")) is None
+    assert st.broker_reason(_SdkRefusal(500, "<html>gateway</html>")) is None
+
+
+def _preview_error(make_user, db, api, email: str):
+    from fastapi import HTTPException
+
+    from app.api.routes.snaptrade import PreviewOrderRequest, preview_order
+
+    user = make_user(email=email)
+    st.register_user(db, user.id, client=api)
+    with patch.object(st, "_client", return_value=api):
+        with pytest.raises(HTTPException) as caught:
+            preview_order(
+                payload=PreviewOrderRequest(
+                    account_id="acct-1", symbol="NVDA", action="BUY", notional=1000.0,
+                ),
+                current_user=user, db=db,
+            )
+    return caught.value
+
+
+def test_REGRESSION_a_read_only_link_is_named_not_reported_as_silence(
+    make_user, db: Session, configured, trading,
+) -> None:
+    from app.api.routes.snaptrade import READ_ONLY_LINK
+
+    api = _linked_api()
+    api.trading.get_order_impact.side_effect = _SdkRefusal(403, _READ_ONLY)
+    error = _preview_error(make_user, db, api, "st-readonly-409@test.com")
+    # 409, not 502: the app offers to turn trading on when it sees this.
+    assert error.status_code == 409
+    assert error.detail == READ_ONLY_LINK
+
+
+def test_REGRESSION_a_brokers_refusal_reaches_the_user_as_its_own_sentence(
+    make_user, db: Session, configured, trading,
+) -> None:
+    api = _linked_api()
+    api.trading.get_order_impact.side_effect = _SdkRefusal(
+        400, {"detail": "Insufficient buying power for this order.", "code": "1119"},
+    )
+    error = _preview_error(make_user, db, api, "st-refusal@test.com")
+    assert error.status_code == 502
+    assert error.detail == "Insufficient buying power for this order."
+    # Never the exception's own text: that is headers and a body dump.
+    assert "HTTP response" not in error.detail and "Reason:" not in error.detail
+
+
+def test_a_failure_with_no_sentence_gets_one_that_does_not_blame_the_broker_for_silence(
+    make_user, db: Session, configured, trading,
+) -> None:
+    api = _linked_api()
+    api.trading.get_order_impact.side_effect = _SdkRefusal(500, None)
+    error = _preview_error(make_user, db, api, "st-nosentence@test.com")
+    assert (error.status_code, error.detail) == (502, "Couldn't price this order with your brokerage.")
+
+
+def test_our_own_reason_for_refusing_is_still_shown(
+    make_user, db: Session, configured, trading,
+) -> None:
+    api = _linked_api()
+    api.reference_data.symbol_search_user_account.return_value = []
+    error = _preview_error(make_user, db, api, "st-untradable@test.com")
+    assert (error.status_code, error.detail) == (502, "NVDA is not tradable in this account.")
+
+
+def _broker(api: MagicMock, name: str, allows) -> MagicMock:
+    api.connections.detail_brokerage_authorization.return_value = {
+        "id": "conn-schwab", "type": "read",
+        "brokerage": {"display_name": name, "allows_trading": allows},
+    }
+    return api
+
+
+def test_a_broker_that_does_not_trade_here_is_said_plainly_with_no_dead_end(
+    make_user, db: Session, configured, trading,
+) -> None:
+    """Schwab on a commercial key is read-only until Schwab approves the app.
+    Offering "turn on trading" there sends the user to a login for nothing."""
+    api = _broker(_linked_api(), "Schwab", False)
+    api.trading.get_order_impact.side_effect = _SdkRefusal(403, _READ_ONLY)
+    error = _preview_error(make_user, db, api, "st-unsupported@test.com")
+    assert error.status_code == 400
+    assert error.detail == (
+        "Schwab doesn't take orders from Livermore. "
+        "Plan the order here, then enter it at Schwab."
+    )
+
+
+def test_a_broker_that_does_trade_here_gets_the_offer_to_turn_it_on(
+    make_user, db: Session, configured, trading,
+) -> None:
+    api = _broker(_linked_api(), "Webull", True)
+    api.trading.get_order_impact.side_effect = _SdkRefusal(403, _READ_ONLY)
+    assert _preview_error(make_user, db, api, "st-supported@test.com").status_code == 409
+
+
+def test_a_failed_lookup_does_not_hide_the_read_only_answer(
+    make_user, db: Session, configured, trading,
+) -> None:
+    api = _linked_api()
+    api.connections.detail_brokerage_authorization.side_effect = RuntimeError("down")
+    api.trading.get_order_impact.side_effect = _SdkRefusal(403, _READ_ONLY)
+    assert _preview_error(make_user, db, api, "st-lookup-down@test.com").status_code == 409
+
+
+def test_no_trading_link_is_made_for_a_broker_that_does_not_trade_here(
+    make_user, db: Session, configured, trading,
+) -> None:
+    user = make_user(email="st-upgrade-unsupported@test.com")
+    api = _broker(_linked_api(), "Schwab", False)
+    with pytest.raises(ValueError, match="Schwab doesn't take orders from Livermore"):
+        st.connection_portal_url(db, user.id, trading_account_id="acct-1", client=api)
+    api.authentication.login_snap_trade_user.assert_not_called()

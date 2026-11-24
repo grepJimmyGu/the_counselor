@@ -1734,6 +1734,10 @@
      "return_path": {
       "title": "Return Path",
       "type": "string"
+     },
+     "trading_account_id": {
+      "title": "Trading Account Id",
+      "type": "string"
      }
     },
     "title": "ConnectRequest",

@@ -151,7 +151,7 @@ struct BrokerageServiceTests {
             try await session.brokerage.preview(OrderDraft(accountID: "a", symbol: "AAPL", size: .sell(shares: 1)))
         }
 
-        // The preview route forwards the aggregator's raw exception text.
+        // A raw exception in the body is never shown, whoever sent it.
         transport.stub(Op.preview, .json(status: 502, #"{"detail":"(400)\nReason: Bad Request\nHTTP response body: {\"code\":\"1063\"}"}"#))
         await #expect(throws: APIFailure.upstream(nil)) {
             try await session.brokerage.preview(OrderDraft(accountID: "a", symbol: "AAPL", size: .sell(shares: 1)))
@@ -167,6 +167,39 @@ struct BrokerageServiceTests {
             try await session.brokerage.preview(OrderDraft(accountID: "a", symbol: "AAPL", size: .sell(shares: 1)))
         }
         #expect(APIFailure.upstream(nil).message.contains("brokerage"))
+    }
+
+    /// 2026-11-23. Every order preview on Jimmy's Schwab account showed "Your
+    /// brokerage didn't answer". It had answered: the link was read-only
+    /// (SnapTrade 3007). The backend now says so with a 409 and the ticket
+    /// offers to turn trading on, instead of blaming the broker for silence.
+    @Test("a read-only link is its own answer, and carries the backend's sentence")
+    func readOnlyLink() async {
+        let (session, transport) = mocked()
+        let line = "Your link to this account can read it but can't place orders yet. Turn on trading for it to continue."
+        transport.stub(Op.preview, .json(status: 409, #"{"detail":"\#(line)"}"#))
+        await #expect(throws: APIFailure.readOnlyLink(line)) {
+            try await session.brokerage.preview(OrderDraft(accountID: "a", symbol: "NVDA", size: .buy(dollars: 1000)))
+        }
+        #expect(APIFailure.readOnlyLink(line).message == line)
+
+        // A broker's own refusal comes through as its sentence, not as silence.
+        transport.stub(Op.preview, .json(status: 502, #"{"detail":"Insufficient buying power for this order."}"#))
+        await #expect(throws: APIFailure.upstream("Insufficient buying power for this order.")) {
+            try await session.brokerage.preview(OrderDraft(accountID: "a", symbol: "NVDA", size: .buy(dollars: 1000)))
+        }
+    }
+
+    @Test("turning on trading asks for it on one named account, and nothing else changes")
+    func tradingAccessLink() async throws {
+        let (session, transport) = mocked()
+        transport.stub(Op.connect, .json(status: 200, #"{"redirect_uri":"https://app.snaptrade.com/snapTrade/redeemToken?x=1"}"#))
+
+        _ = try await session.brokerage.connectionURL()
+        #expect(try body(transport.requests[0])["trading_account_id"] == nil)
+
+        _ = try await session.brokerage.connectionURL(tradingFor: "acct-1")
+        #expect(try body(transport.requests[1])["trading_account_id"] as? String == "acct-1")
     }
 
     @Test("a brokerage link is only followed to an https address")
