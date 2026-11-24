@@ -122,9 +122,13 @@ def build_chart(
     raw_bars: List[dict],
     official_closes: Dict[date, float],
     today: date,
+    now: Optional[datetime] = None,
 ) -> IntradayChart:
     """The chart for `range_key` from FMP's bars (naive New York wall clock,
-    as `fetch_intraday_bars` returns them) and official daily closes."""
+    as `fetch_intraday_bars` returns them) and official daily closes.
+
+    `now` (timezone-aware) caps `as_of`: FMP includes the bar still being
+    made, and its end is in the future until it closes."""
     spec = RANGES[range_key]
     by_day = _regular_sessions(raw_bars)
     if not by_day:
@@ -164,6 +168,12 @@ def build_chart(
         sessions.append(Session(date=day, bars=bars, close=official_closes.get(day) if day < today else None))
 
     newest = sessions[-1].bars[-1]
+    # FMP sends the bar still in progress (seen on production 2026-11-24: at
+    # 15:07 the 1W chart's newest 30-minute bar was the one starting 15:00).
+    # Its close is the latest trade, not 15:30's, so the bars run to now.
+    as_of = newest.time + timedelta(minutes=spec.minutes)
+    if now is not None:
+        as_of = min(as_of, now.astimezone(timezone.utc))
     return IntradayChart(
         symbol=symbol,
         range=range_key,
@@ -171,7 +181,7 @@ def build_chart(
         sessions=sessions,
         previous_close=previous_close,
         previous_close_date=previous_date,
-        as_of=newest.time + timedelta(minutes=spec.minutes),
+        as_of=as_of,
         previous_close_source=source,
     )
 
@@ -197,7 +207,8 @@ class IntradayChartService:
 
     async def _load(self, symbol: str, range_key: str) -> IntradayChart:
         spec = RANGES[range_key]
-        today = self._now().astimezone(ET).date()
+        now = self._now()
+        today = now.astimezone(ET).date()
         start = today - timedelta(days=spec.lookback_days)
         try:
             raw = await self._client.fetch_intraday_bars(
@@ -210,7 +221,7 @@ class IntradayChartService:
             _log.warning("intraday chart: FMP bars failed for %s %s: %s", symbol, range_key, exc)
             raise IntradayUnavailable(symbol) from exc
         closes = await self._official_closes(symbol, today)
-        return build_chart(symbol, range_key, raw, closes, today)
+        return build_chart(symbol, range_key, raw, closes, today, now=now)
 
     async def _official_closes(self, symbol: str, today: date) -> Dict[date, float]:
         """The exchange's daily closes for the last three weeks, or {} when

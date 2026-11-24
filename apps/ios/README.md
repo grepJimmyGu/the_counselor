@@ -95,7 +95,9 @@ bars (FMP), with the official close they are measured from
 (`IntradaySeries`). The days sit side by side with no nights or weekends, a
 finished day ends on the exchange's close, and while today's session is open
 the line ends on the live quote, which is newer than the newest bar. The chart
-reloads every minute during the session; times are New York (ET).
+reloads every minute during the session; times are New York (ET). FMP's bars
+run about 2 minutes behind and include the bar still being made, which is
+drawn where it was read, never past now.
 
 `/api/market/sector-comparison/{symbol}` looks like the endpoint for this and
 is not used: for ranges longer than a month its series stops on 2026-09-10,

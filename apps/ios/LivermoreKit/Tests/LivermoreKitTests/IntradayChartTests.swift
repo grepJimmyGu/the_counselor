@@ -88,6 +88,27 @@ struct IntradayChartTests {
         #expect(!yesterday.endsLive && !yesterday.isToday)
     }
 
+    @Test("regression: the bar still in progress is drawn where it was read, and the live price still ends the line")
+    func barInProgress() async throws {
+        // Production, 2026-11-24 15:07 ET: FMP's newest 30-minute bar started
+        // at 15:00, so the line ran to 15:30, the caption said "to 3:30 PM",
+        // and the live price was never drawn because it looked older.
+        // Here the 9:40 bar is in progress at 9:42.
+        let json = today().replacingOccurrences(of: #""as_of":"2026-11-24T14:45:00Z""#, with: #""as_of":"2026-11-24T14:42:00Z""#)
+        let (chart, _) = try await chart(json)
+        let series = IntradaySeries(chart: chart, range: .oneDay, livePrice: 161, liveAt: iso("2026-11-24T14:42:30Z"), now: iso("2026-11-24T14:42:40Z"))
+        let bars = series.points.filter { !$0.isLive }
+        #expect(bars.last?.x == 2.4)
+        #expect(series.barsThrough == iso("2026-11-24T14:42:00Z"))
+        #expect(series.endsLive)
+
+        // A backend that still reports the bar's end is capped at now.
+        let (old, _) = try await self.chart(today())
+        let capped = IntradaySeries(chart: old, range: .oneDay, now: iso("2026-11-24T14:43:00Z"))
+        #expect(capped.points.last?.x == 2.6)
+        #expect(capped.barsThrough == iso("2026-11-24T14:43:00Z"))
+    }
+
     @Test("a finished day ends on the exchange's close, not its last bar")
     func officialClose() async throws {
         let (chart, _) = try await chart(today(close: "162.0"))

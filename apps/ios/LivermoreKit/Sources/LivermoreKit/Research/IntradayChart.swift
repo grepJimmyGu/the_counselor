@@ -152,6 +152,11 @@ public struct IntradaySeries: Equatable, Sendable {
         let newYork = Self.newYork
         let todayParts = newYork.dateComponents([.year, .month, .day], from: now)
 
+        // The newest bar can still be in progress: FMP sends it, and its end
+        // is in the future. It is drawn where its price was read (`asOf`),
+        // and never later than now.
+        let readUpTo = min(chart.asOf ?? now, now)
+
         var points: [Point] = []
         var starts: [SessionStart] = []
         var latestOpen: Date?
@@ -168,7 +173,7 @@ public struct IntradaySeries: Equatable, Sendable {
             // The session opens on its first bar's open.
             points.append(Point(x: origin, time: first.time, price: first.open, isLive: false))
             for (barIndex, bar) in session.bars.enumerated() {
-                let end = bar.time.addingTimeInterval(Double(interval) * 60)
+                let end = max(bar.time, min(bar.time.addingTimeInterval(Double(interval) * 60), readUpTo))
                 let x = origin + end.timeIntervalSince(open) / 60 / Double(interval)
                 // A finished day ends on the exchange's close, not its last trade.
                 let isLast = barIndex == session.bars.count - 1
@@ -182,7 +187,7 @@ public struct IntradaySeries: Equatable, Sendable {
                 && parts.year == todayParts.year && parts.month == todayParts.month && parts.day == todayParts.day
         }
 
-        let barsThrough = chart.asOf ?? points.last?.time
+        let barsThrough = points.isEmpty ? nil : min(chart.asOf ?? readUpTo, readUpTo)
         var endsLive = false
         if latestIsToday, let livePrice, let liveAt, let latestOpen,
            MarketHours.isRegularSession(at: liveAt),

@@ -115,6 +115,21 @@ def test_nothing_in_regular_hours_is_no_prices() -> None:
         build_chart("X", "1d", raw, {}, today=TUE)
 
 
+def test_REGRESSION_the_bar_still_in_progress_runs_to_now_not_to_its_end() -> None:
+    # Production, 2026-11-24 at 15:07 ET: the 1W chart's newest 30-minute bar
+    # was the one starting at 15:00, so the line was drawn to 15:30, the
+    # caption said "to 3:30 PM", and the live price was never added because
+    # it looked older than the bars.
+    tue = [r for r in _session(TUE, 30, 159.0) if r["bar_time"].hour < 15 or r["bar_time"].minute == 0 and r["bar_time"].hour == 15]
+    assert tue[-1]["bar_time"] == datetime(2026, 11, 24, 15, 0)
+    now = datetime(2026, 11, 24, 15, 7, tzinfo=ET)
+    chart = build_chart("NVDA", "1w", _session(MON, 30, 160.0) + tue, {}, today=TUE, now=now)
+    assert chart.as_of == datetime(2026, 11, 24, 20, 7, tzinfo=timezone.utc)
+    # A finished bar is untouched: after the close, the day ends at 16:00.
+    after = build_chart("NVDA", "1w", _session(MON, 30, 160.0), {}, today=TUE, now=now)
+    assert after.as_of == datetime(2026, 11, 23, 21, 0, tzinfo=timezone.utc)
+
+
 class FakeFMP:
     def __init__(self, bars=None, eod=None, bars_error=None, eod_error=None) -> None:
         self.bars, self.eod = bars or [], eod or []
