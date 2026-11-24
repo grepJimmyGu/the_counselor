@@ -425,6 +425,25 @@ struct PerformanceCard: View {
         return (trend?.pricePoints ?? []).map { PricePoint(date: $0.date, price: $0.price) }
     }
 
+    /// "Past year", or — when the stock's prices begin inside the period —
+    /// the days the chart really covers: "Since Nov 19 · 3 trading days".
+    private func chartTitle(_ series: PerformanceSeries?, usesHistory: Bool, first: Date?) -> String {
+        guard usesHistory, let series else { return "Last 90 days" }
+        guard series.isShorterThanRange, let first else { return range.title }
+        let days = series.tradingDays
+        return "Since \(Fmt.shortTradingDay(first)) · \(days) trading day\(days == 1 ? "" : "s")"
+    }
+
+    /// Axis labels for what is drawn, not for the range picked: a year chart
+    /// of a stock that listed last week labels days, not "Nov Nov Nov".
+    private static func axisFormat(spanning points: [PricePoint]) -> Date.FormatStyle {
+        guard let first = points.first?.date, let last = points.last?.date else { return Fmt.utc(.dateTime.month(.abbreviated)) }
+        let days = last.timeIntervalSince(first) / 86_400
+        if days <= 100 { return Fmt.utc(.dateTime.month(.abbreviated).day()) }
+        if days <= 800 { return Fmt.utc(.dateTime.month(.abbreviated)) }
+        return Fmt.utc(.dateTime.year())
+    }
+
     var body: some View {
         let series = series
         let points = pricePoints(series)
@@ -436,6 +455,11 @@ struct PerformanceCard: View {
         let change = (shown?.price).flatMap { last in first.map { last / $0 - 1 } }
         let color = (change ?? 0).changeColor
         let usesHistory = (series?.points.count ?? 0) > 1
+        let title = chartTitle(series, usesHistory: usesHistory, first: points.first?.date)
+        // A few days of prices: draw each day as a point joined by straight
+        // lines, and label the days themselves. A smoothed curve through
+        // three closes invents a path between them.
+        let isShort = points.count < 40
 
         Card {
             VStack(alignment: .leading, spacing: 2) {
@@ -443,7 +467,7 @@ struct PerformanceCard: View {
                     Text(Fmt.tradingDay(selected.date)).eyebrowStyle()
                     Text(Fmt.price(selected.price)).font(.title3.weight(.semibold).monospacedDigit())
                 } else {
-                    Text(usesHistory ? range.title : "Last 90 days").eyebrowStyle()
+                    Text(title).eyebrowStyle()
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Text(Fmt.percent(change, signed: true))
                             .font(.title3.weight(.semibold).monospacedDigit()).foregroundStyle(color)
@@ -468,11 +492,15 @@ struct PerformanceCard: View {
                             yEnd: .value("Price", point.price)
                         )
                         .foregroundStyle(LinearGradient(colors: [color.opacity(0.22), color.opacity(0)], startPoint: .top, endPoint: .bottom))
-                        .interpolationMethod(.monotone)
+                        .interpolationMethod(isShort ? .linear : .monotone)
                         LineMark(x: .value("Date", point.date), y: .value("Price", point.price))
                             .foregroundStyle(color)
                             .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                            .interpolationMethod(.monotone)
+                            .interpolationMethod(isShort ? .linear : .monotone)
+                        if points.count <= 12 {
+                            PointMark(x: .value("Date", point.date), y: .value("Price", point.price))
+                                .foregroundStyle(color).symbolSize(28)
+                        }
                     }
                     if let first {
                         RuleMark(y: .value("Start", first))
@@ -486,6 +514,9 @@ struct PerformanceCard: View {
                     }
                 }
                 .chartYScale(domain: (low - pad)...(high + pad))
+                // Room either side so the first and last day's labels are
+                // not clipped at the plot's edge.
+                .chartXScale(range: .plotDimension(padding: points.count <= 6 ? 24 : 0))
                 .chartYAxis {
                     AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { value in
                         AxisGridLine().foregroundStyle(Color.hairline.opacity(0.5))
@@ -495,14 +526,21 @@ struct PerformanceCard: View {
                     }
                 }
                 .chartXAxis {
-                    AxisMarks(values: .automatic(desiredCount: 4)) { _ in
-                        AxisValueLabel(format: range.axisFormat)
+                    if points.count <= 6 {
+                        // One label per trading day.
+                        AxisMarks(values: points.map(\.date)) { _ in
+                            AxisValueLabel(format: Fmt.utc(.dateTime.month(.abbreviated).day()))
+                        }
+                    } else {
+                        AxisMarks(values: .automatic(desiredCount: 4)) { _ in
+                            AxisValueLabel(format: Self.axisFormat(spanning: points))
+                        }
                     }
                 }
                 .chartXSelection(value: $selectedDate)
                 .frame(height: 200)
                 .sensoryFeedback(.selection, trigger: selected?.date)
-                .accessibilityLabel("\(symbol) price, \(range.title.lowercased())")
+                .accessibilityLabel("\(symbol) price, \(title.lowercased())")
             } else if historyFailed {
                 Notice(text: "The price history for this period isn't available right now.", systemImage: "chart.line.downtrend.xyaxis")
                     .frame(height: 200, alignment: .center)
@@ -546,13 +584,6 @@ private extension PerformanceRange {
         }
     }
 
-    var axisFormat: Date.FormatStyle {
-        switch self {
-        case .oneMonth, .threeMonths: .dateTime.month(.abbreviated).day()
-        case .sixMonths, .yearToDate, .oneYear: .dateTime.month(.abbreviated)
-        case .fiveYears: .dateTime.year()
-        }
-    }
 }
 
 // MARK: - Valuation
