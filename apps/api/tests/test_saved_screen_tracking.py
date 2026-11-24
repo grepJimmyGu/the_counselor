@@ -166,7 +166,7 @@ def _wire_cron(db, monkeypatch, scan_sequence, *, subscribed=True):
     _patch_scan(monkeypatch, scan_sequence)
     banners = []
     monkeypatch.setattr(
-        saved_screen_cron, "dispatch_in_app_banner", lambda ev: banners.append(ev) or True
+        saved_screen_cron, "dispatch_in_app_banner", lambda ev, **_: banners.append(ev) or True
     )
     monkeypatch.setattr(saved_screen_cron, "SessionLocal", lambda: _SessionCtx(db))
     return screen, banners

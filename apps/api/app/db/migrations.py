@@ -47,6 +47,7 @@ def _run_stage1_isolated_ddl(engine: Engine, is_sqlite: bool) -> None:
         ("email_verified_at", "TIMESTAMP"),
         ("password_hash",     "VARCHAR(255)"),
         ("last_login_at",     "TIMESTAMP"),
+        ("password_changed_at", "TIMESTAMP"),
     ]
     for col_name, col_type in users_new_cols:
         try:
@@ -190,6 +191,22 @@ def _run_stage1_isolated_ddl(engine: Engine, is_sqlite: bool) -> None:
                 c.execute(text(col_stmt_sqlite if is_sqlite else col_stmt_pg))
         except Exception:
             pass  # column already exists
+
+    # Notice sources and levels (2026-11-23): what sent a notice and how much
+    # it matters, so the inbox can group and rank. Nullable; old rows are
+    # classified on read. Trap #3/#6: one isolated statement each, branched
+    # on dialect.
+    for col, kind in (("source_kind", "VARCHAR(16)"), ("symbol", "VARCHAR(20)"), ("level", "VARCHAR(8)")):
+        try:
+            with engine.begin() as c:
+                if is_sqlite:
+                    c.execute(text(f"ALTER TABLE notification_banner_entries ADD COLUMN {col} {kind}"))
+                else:
+                    c.execute(text(
+                        f"ALTER TABLE notification_banner_entries ADD COLUMN IF NOT EXISTS {col} {kind}"
+                    ))
+        except Exception:
+            pass  # column already exists, or the table does not yet (create_all adds it)
 
     # ── 4. Indexes that depend on columns added above ─────────────────────────
     # These live here (not in main conn) because IF NOT EXISTS still aborts a Postgres

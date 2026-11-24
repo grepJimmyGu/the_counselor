@@ -8,6 +8,305 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-11-24 — The company chart gets 1D and 1W: today's prices, live
+
+**Why.** Jimmy: the price at the top of a company page is live, but the chart
+under it ended at yesterday's close, so today's move could not be seen. He
+asked for a 1D view and a 1W view.
+
+**What was there.** The quote is real-time: at 12:40 ET our NVDA price was
+$153.56 against Google Finance's $153.36 the same minute, with the same day
+high and low. The chart was daily closes only (1M to 5Y).
+
+**Built.**
+- Backend: `GET /api/data/intraday/{symbol}?range=1d|1w`
+  (`intraday_chart_service.py`). 1D is the latest regular session in
+  5-minute bars, 1W the latest five in 30-minute bars, from FMP's
+  `/historical-chart` (already used by the position monitor; now asked for an
+  explicit date window). Each comes with `previous_close`, the official close
+  of the session before, from FMP's `/historical-price-eod/full`; finished
+  sessions carry their own official close. No database, so no connection is
+  held across the FMP call (trap 13); `TTLCache` of a minute (trap 22).
+  Unknown symbol 404, FMP failure 502. `FMPNoDataError` separates "nothing
+  for this symbol" from an outage.
+- App: 1D and 1W ahead of 1M…5Y on the Price tab (`IntradaySeries`,
+  `IntradayChartSection`). Days sit side by side on a session-time axis; a
+  session under way keeps its full width so the line fills the day; while
+  today's session is open the line ends on the live quote, marked LIVE.
+  Caption says what the change is measured from and how far the bars go.
+- `-demo -serverURL` now points the sample account's live research calls at a
+  local backend, which is how this was seen before deploy.
+
+**Verified.** Backend tests for sessions, hours, UTC times, the close each
+range is measured from, caching and errors; app tests for the layout and when
+the live price is drawn; both ranges on the simulator against a local
+stand-in serving sample bars (the endpoint is not deployed yet).
+
+**Not yet known.** How far behind FMP's bars run on our plan (a code comment
+says ~15 minutes) and whether FMP labels bars by their start, as assumed.
+Both to be checked against production after deploy.
+
+## 2026-11-23 — Typing "ANT" finds Anthropic, and a three-day-old stock's chart says so
+
+**Symptom.** Jimmy could not find Anthropic (ANT) on his phone and could not
+see its daily prices.
+
+**Cause, search.** `SymbolService.search` read the first 10 rows whose ticker
+started with the query OR whose name contained it anywhere, with no order.
+"Warr*ant*s" contains "ant", so ten warrants filled the list and ANT never
+appeared. Searching "Anthropic" worked.
+
+**Cause, chart.** ANT listed on Nov 19; production has its three daily
+closes. The Price tab titled them "Past year −9.8%", smoothed three points
+into one curve, and labelled the axis "Nov Nov Nov Nov".
+
+**Fix.** Search ranks the exact ticker first, then tickers starting with the
+query (shortest first), then names with a word starting with it, then other
+name matches, each tier read separately so a broad one cannot crowd out a
+better one. The chart knows when a stock's prices begin inside the chosen
+period: it is titled "Since Nov 19 · 3 trading days", draws each day as a
+point joined by straight lines, and labels each day. Axis labels now follow
+the span drawn (not the range picked) and are formatted in UTC, the zone
+trading days are stored in.
+
+**Verified.** Backend tests for the ranking (the regression reproduces ten
+warrants ahead of ANT), app tests for short histories, and ANT's chart on the
+simulator against production data. Search waits on the deploy.
+
+**Noticed, not fixed.** NVDA's stored closes are $145.98 (Nov 19), $125.53
+(Nov 20), $165.05 (Nov 23): a 14% drop and a 31% jump that look like a bad
+Nov 20 bar. Backlog.
+
+## 2026-11-23 — The Actions tab's notices: grouped by source, read in bulk, muted per source
+
+**Why.** Jimmy: "too many notices and they trace back to screen and
+strategies we set up before". He wanted users to silence, read or avoid
+messages, trace each one to the strategy or screen behind it, and build it end
+to end (data → backend → UI). Decisions: mute covers email too; a page for
+saved screens comes later.
+
+**Found.** Five jobs write notices (strategy signal changes, screen entrants,
+followed-stock alerts, daily and intraday exits) into one table as a title, a
+sentence and the source's id. The app listed the newest 10 flat. No notice in
+the app could be muted; only emails could.
+
+**Built.** Each notice now records its kind, stock and level (act / changed /
+fyi); older rows are classified on read rather than rewritten in production.
+A per-source mute stops a strategy's or screen's notices and its
+signal-change emails; exits on held positions are never muted. New routes
+return notices grouped by source, one source's history, read by id or source,
+and mute/unmute; the website's banner route is unchanged. On the Actions tab,
+"Notices" becomes "Updates": one row per source, most important first, swipe
+to read or mute, a Muted list, and a page per source with Open strategy.
+Details: `agent-system/plans/PRD-45-notice-inbox.md`.
+
+**Verified.** Backend tests for grouping, legacy rows, read, mute (never an
+exit), mute stopping email, ownership, and the unchanged web route; app tests
+for the calls, the sample inbox and the wording; on the simulator's sample
+account: grouped list, a screen's page, mute, swipe-read, Open strategy.
+**Not verified:** Jimmy's real notices (needs the deploy); the new columns'
+migration on production Postgres runs at startup and is covered only by the
+Postgres CI check.
+
+## 2026-11-23 — An order typed in at Schwab is read back: the hand-off gets its last step
+
+**Why.** With #386 live, Jimmy priced an order on his Schwab account. The
+ticket now offered "Turn on trading for this account", and SnapTrade's page
+answered "Trading is not available for Schwab through this connection." He
+does not want to apply for Schwab's trading API for now. His standard instead:
+for a Robinhood or Schwab user, the copy action has to end in an order placed
+at the broker, and he wanted to check that end to end on his own phone.
+
+**What can and cannot be done without a trading API.** Nothing outside the
+broker can create or pre-fill an order there. What was verified:
+
+- Each broker publishes which web addresses open its app. Robinhood's opens
+  only at a stock's page (`robinhood.com/stocks/NVDA`); Schwab's opens the
+  trade ticket and the order-status page. Neither takes an order or a symbol.
+  Jimmy tapped the links on his phone: they opened Safari, on a screen with no
+  clear buy, nothing filled in. So opening the broker is a convenience, never
+  a step the flow depends on.
+- A read-only link can list an account's orders, pending ones and option
+  orders included. That is the one way Livermore can know an order entered by
+  hand exists.
+
+**What was built** (iOS + backend, one PR):
+
+- `GET /api/snaptrade/orders/option?contract=…` looks for one option contract
+  among the user's orders. Each account is read twice: the last 24 hours,
+  which SnapTrade always reads live, and the last week, which on most plans is
+  a once-a-day copy. The answer says which it could read, so "not there" is
+  never claimed off a stale list, and a read that failed everywhere is a 502,
+  not an empty answer (the `SnapTradeReadFailed` rule).
+- The option ticket gains **"Check my broker for this order"**. It reports
+  placed, filled, partly filled, ended, or an order for the same contract that
+  is not the plan's (wrong side, wrong size, a closing order), in the broker's
+  own figures.
+- **"Copy and open Schwab / Robinhood"** copies the order and asks iOS for
+  the broker's app only. If the phone would open a web page instead, nothing
+  opens and the ticket says the order is copied and to open the broker by hand.
+
+**Not proven yet.** No order of Jimmy's was read through this: it needs the
+backend deployed and an order resting at Schwab. Unknown until then: what
+SnapTrade returns for a pending Schwab option order, how the action is spelled
+(`BUY_OPEN`, `BUY_TO_OPEN`, `BUY`), and whether the 24-hour read works on his
+key. The app handles each spelling and an unknown status without guessing.
+Whether "Copy and open Schwab" lands in the app is also only testable on a
+real phone.
+
+**Found on the way.** The share ticket's "Turn on trading" button dead-ends
+for Schwab, because SnapTrade does not report Schwab as untradeable in
+advance (backlog). And once a Mac has a development certificate, every
+simulator build carries the team's app identifier, so a session saved by an
+earlier build is no longer readable: the simulator copy needs signing in
+again.
+
+## 2026-11-23 — "Your brokerage didn't answer": it had, and no link could ever trade
+
+Jimmy sent the share ticket on his Schwab account showing "Your brokerage didn't answer. Try again in a
+moment.", and asked what was behind it and whether the path from a plan to an order is connected.
+
+**Symptom.** `POST /api/snaptrade/orders/preview` returned 502 for a $1,000 NVDA buy.
+
+**What was actually said.** Reproduced on his account with a local build that printed the hidden text
+(preview only; nothing sent): SnapTrade answered 403, code 3007, "Trading permissions have not been
+enabled. Please reconnect to enable trade permission."
+
+**Cause, three layers.**
+1. `connection_portal_url` never sent `connection_type`. SnapTrade's default is `read`, so every link
+   made through Livermore was read-only and every order preview was refused, for every user. The order
+   path had never run against the live API, which is how it went unseen.
+2. The route answered with `detail=str(exc)`: status line, response headers and body. The app rightly
+   will not print that, and fell back to a sentence that blamed the broker for silence.
+3. For Schwab in particular, asking for trading is not enough. On a commercial key Schwab is read-only
+   until Livermore itself is approved for Schwab's commercial Trader API. Fidelity, Robinhood,
+   Interactive Brokers and Vanguard are read-only with no such route.
+
+**Fix (PR, not merged).** The connect link can re-authorise one account's link with trading asked for
+(`reconnect` + `connection_type="trade"`, SnapTrade's documented upgrade), only for an account that is
+the user's own. A refused preview now says which refusal it was: 409 when the link can be upgraded
+(the ticket shows "Turn on trading for this account"), 400 with "Schwab doesn't take orders from
+Livermore…" when the broker does not trade through the link at all, and otherwise the broker's own
+sentence. A first-time link stays read-only; that is a product decision left with Jimmy.
+
+**Not proven.** No trading link exists to test against, so the upgrade link, and what `allows_trading`
+reports for Schwab on our keys, are from the docs and the SDK, pinned by the contract test, and
+unexercised. The option ticket was not walked through a real broker; that needs Jimmy's own login.
+
+---
+
+## 2026-11-20 — Options builder goes live, and the put's "most you can make" stops headlining $0
+
+#381 merged and deployed the same evening; on Jimmy's account the AAPL plans load from production with
+real prices, puts included (so the production Alpha Vantage key serves chains). Saving a plan and
+simultaneous signed-in requests were not exercised on production.
+
+Jimmy's first look found a misleading tile. **Symptom:** a put expiring in three days showed "Most you
+can make $34,197 — If AAPL falls to $0", in large green type. **Cause:** `OptionPlan.figures` printed the
+payoff's mathematical maximum for every strategy, and for a bought put that maximum sits at a share
+price of $0, which is not an outcome anyone should read as reachable by the expiry. **Fix:** the put's
+tile is now "What you can make — $100 per $1 fall" (the plan's shares), and the sentence under it states
+the price it starts from and keeps the ceiling as small print ("It tops out at $33,040, only if AAPL
+went to $0"). The other three strategies are unchanged. The test that asserted the old wording was
+changed openly, with the reason in its docstring.
+
+Left as it was, and raised with Jimmy: a covered call's "Most you can lose" is also the $0 case. It is
+the true worst case of holding the shares, so it stays until he says otherwise.
+
+---
+
+## 2026-11-20 — Options builder: a first-time user plans a call or a put and takes it to their broker
+
+One PR, PRD-44 step 1. Jimmy's ask: call and put strategies users can model and carry into their own
+trading app, built "for simplest interpretation" so a first-time user can learn it and finish with no
+bottleneck. Nothing for options existed in the app before.
+
+**What a user does.** Company page → Options → one of four goals (it will go up, it will go down, earn
+income on shares I own, protect shares I own) → a plan already filled in from the real chain: one
+sentence, four numbers each with its own sentence, a payoff chart, and controls for expiry, strike and
+size → the order written out in broker wording with the steps to enter it. Four taps, no typing.
+Saved plans appear in a new section of the Strategies tab.
+
+**Built on facts only.** Every number is arithmetic on quoted prices (`OptionPayoff`): no pricing model,
+no probability of profit. The one market reading is the shaded band, what the at-the-money call and put
+cost together either side of the price, labelled as not a forecast.
+
+**What the real provider taught, 2026-11-20, with the project's own key:**
+
+| Finding | What the code does |
+|---|---|
+| The live-options endpoint is not on the plan, and answers with a notice plus made-up rows (symbol XXYYZZ) | Anything but a plain success is an error |
+| Class shares are spelled with no separator: BRK-B fails, BRKB works | `option_root` |
+| AAPL's and SPY's full chains arrived with every call and no puts; NVDA, MSFT, AMD, KO, JPM were whole | A one-sided expiry is fetched again on its own, which returns both sides |
+| A provider error's text can carry the request URL, and so the API key | Only the kind of failure is logged; a test pins it |
+
+**Measured, in process against the provider:** twelve requests at once for each of AAPL, NVDA, BRK-B and
+SPY made one provider fetch per symbol and returned identical answers, 0.8–1.4 s the first time and
+2–3 ms after. A screen is sent 7–31 KB, not the 3 MB chain.
+
+**Found in the simulator:** dragging across the payoff chart closed the screen, because iOS 26 takes a
+sideways drag on a pushed screen as "go back". The chart is read with a slider under it instead.
+
+**Tests.** Backend +31; iOS +32 (235). The app's decoder was run over the four real responses and built
+all four plans on each. One backend test file, `test_market_pulse_warmup_no_live_overlay.py`, stalls in a
+fresh worktree on unchanged `main` as well, and was run apart from the rest.
+
+**Not checked:** the app against the deployed backend with a real account (the endpoints do not exist in
+production until this merges); the ticket's wording against a real broker's option screen.
+
+---
+
+## 2026-11-20 — Speed and volume: the company page is built once, quotes stop queueing, the agent scans in parallel
+
+One PR. Jimmy's ask: make the app load faster and make the portfolio agent hold up under many requests.
+Measured first, against production, with small read-only bursts.
+
+| What was measured in production | Before |
+|---|---|
+| One view of a company page (`/api/company/AMD/overview`) | 2.9 s, every view |
+| 12 different companies opened at once | 20 s for the last |
+| 12 views of the same company at once | 27 s for the last |
+| 40 quote requests at once across 12 symbols | 6.9 s |
+| 6 watchlist loads at once, 4 symbols behind | 39 s each, health check held 3 s |
+| Daily history for one stock | 1.2 MB, 6,802 rows back to 1999 |
+
+**Causes, each traced in code.** The company page made six FMP calls one after another, on six new
+connections, and kept nothing; a call on a new connection costs 0.44 s and on a kept-alive one 0.09 s.
+The quote service held one lock per symbol across the FMP call, so any two requests with a symbol in
+common ran end to end. `ensure_display_fresh` downloaded a symbol's whole history inside every request
+that found it behind. `/api/data/daily` declared `start` and ignored it. The agent's scheduled job
+scanned one user at a time.
+
+**What changed.** `app/core/concurrency.py` (per-loop primitives, single-flight, a TTL cache with
+stale-while-revalidate) and its uses: the company page kept ten minutes and shared; one kept-alive pool
+to FMP on the request loop; quotes on one shared queue; one history refresh per symbol; `start`
+honoured. The agent: scans several at a time under one limit shared with "Check now", on its own
+threads; filings read once and shared; one conversation per user and a cap on conversations; a larger,
+configurable database pool. The app asks for six years of prices, polls quotes once a minute when no US
+session is open, and keeps the last few company pages for five minutes.
+
+**Same script, old code and new, against a stand-in provider** (0.09 s per call, +0.35 s per new
+connection, no rate limit, so the old numbers are kinder than production's):
+
+| | Before | After |
+|---|---|---|
+| Company page, first view | 2.75 s, 6 calls | 0.50 s, 6 calls |
+| Company page, second view | 2.72 s, 6 calls | 0.00 s, 0 calls |
+| 12 different companies at once | 2.97 s, 72 calls | 0.97 s, 68 calls |
+| 12 views of one company at once | 3.02 s, 72 calls | 0.12 s, 6 calls |
+| 40 quote requests at once | 2.27 s, 5 calls | 0.12 s, 1 call |
+| Agent run, 60 users, 1 s broker read each | 90 s | 13 s |
+
+**Not done, and why.** One server process: every cache here is in that process's memory, so a second
+process would need Redis first. The general chat has no cap like the agent's. SnapTrade's rate limit is
+unknown, and it is what bounds the agent's run once there are thousands of linked accounts.
+
+**Two lessons from the session.** A test that patches `time.monotonic` freezes the event loop, which
+runs on it: give the code its own `_now()` and patch that. And `cat > tests/x.py` replaced an existing
+test file of the same name; `git status` showing `M` on a file meant to be new is what caught it.
+
+---
+
 ## 2026-08-28 — The Quant Engine gets its middle: reconstruction, the Timing Engine, and rules that outlive the tab (#355 → #359)
 
 Five PRs. The packet went from "43a shipped, both lenses blocked" to **levels 0, 1 and 2 of the maturity ladder live end to end** — the Mirror measures your record, the Timing Engine measures your entries and exits against it, and a finding can be saved as a rule that survives the tab closing.

@@ -74,3 +74,37 @@ class WarmupResponse(BaseModel):
     queued: list[str]
     already_fresh: list[str]
     errors: dict[str, str]
+
+
+class IntradayBarView(BaseModel):
+    """One bar of a regular session: when it started (UTC) and its prices."""
+    time: datetime
+    open: float
+    close: float
+
+
+class IntradaySessionView(BaseModel):
+    date: date
+    bars: list[IntradayBarView]
+    close: Optional[float] = Field(
+        default=None,
+        description="The exchange's close for a session that has ended; null for today's.",
+    )
+
+
+class IntradayChartView(BaseModel):
+    """The company page's 1D (5-minute) and 1W (30-minute) chart."""
+    symbol: str
+    range: str
+    interval_minutes: int
+    sessions: list[IntradaySessionView]
+    previous_close: Optional[float] = Field(
+        default=None,
+        description="The close of the session before the first one shown; changes are measured from it.",
+    )
+    previous_close_date: Optional[date] = None
+    previous_close_source: Optional[str] = Field(
+        default=None,
+        description="'official' (the exchange's close) or 'last_bar' (that day's last bar, when the close isn't available).",
+    )
+    as_of: Optional[datetime] = Field(default=None, description="The end of the newest bar.")

@@ -89,3 +89,23 @@ async def test_skips_unparseable_rows() -> None:
     bars = await fmp.fetch_intraday_bars("msft", "15min")
     assert len(bars) == 1
     assert bars[0]["close"] == 1.2
+
+
+@pytest.mark.asyncio
+async def test_a_date_window_is_passed_as_from_and_to() -> None:
+    # The company page's 1D/1W charts (2026-11-24) bound the days asked for;
+    # callers that don't (the live monitor) send what they always sent.
+    fmp = FMPClient()
+    fmp._get = AsyncMock(return_value=[_row("2026-11-24 09:30:00", 1.0)])
+    await fmp.fetch_intraday_bars("nvda", "5min", "full", from_date="2026-11-17", to_date="2026-11-24")
+    assert fmp._get.call_args[0][1] == {"symbol": "NVDA", "from": "2026-11-17", "to": "2026-11-24"}
+
+
+@pytest.mark.asyncio
+async def test_an_empty_answer_is_no_data_not_an_outage() -> None:
+    from app.services.fmp_client import FMPNoDataError
+
+    fmp = FMPClient()
+    fmp._get = AsyncMock(return_value=[])
+    with pytest.raises(FMPNoDataError):
+        await fmp.fetch_intraday_bars("zzzz", "5min")
