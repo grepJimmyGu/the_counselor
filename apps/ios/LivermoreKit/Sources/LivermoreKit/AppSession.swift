@@ -284,7 +284,7 @@ public final class AppSession {
         let output: Operations.ConfirmPasswordResetApiAuthPasswordResetConfirmPost.Output
         do {
             output = try await client.confirmPasswordResetApiAuthPasswordResetConfirmPost(
-                body: .json(.init(email: email, code: code, newPassword: newPassword))
+                body: .json(.init(code: code, email: email, newPassword: newPassword))
             )
         } catch {
             throw .network

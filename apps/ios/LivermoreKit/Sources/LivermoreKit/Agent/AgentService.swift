@@ -103,8 +103,8 @@ public struct AgentService: Sendable {
     ) async throws(APIFailure) -> AgentProfile {
         let output = try await APIFailure.perform {
             try await client.updateProfileApiAgentProfilePut(body: .json(.init(
-                enabled: enabled, emailAlerts: emailAlerts, watchlist: watchlist, moveAlertPct: moveAlertPct,
-                maxPositionPct: maxPositionPct, notes: notes
+                emailAlerts: emailAlerts, enabled: enabled, maxPositionPct: maxPositionPct,
+                moveAlertPct: moveAlertPct, notes: notes, watchlist: watchlist
             )))
         }
         switch output {

@@ -345,11 +345,22 @@ LIVERMORE_LIVE_TESTS=1 swift test --filter LiveAPITests
 `swift-openapi-generator` turns it into the client at build time. A field the
 backend renames or retypes becomes a compile error here.
 
-To pick up backend changes:
+To pick up backend changes, build the file from the backend code in the same
+checkout. It needs no server, and it works before the backend change is
+deployed, which matters when one PR changes both sides:
 
 ```bash
-python3 apps/ios/scripts/refresh_openapi.py
+uv run --python 3.12 --with-requirements apps/api/requirements.txt python apps/ios/scripts/refresh_openapi.py --local
 ```
+
+Then build the app. The script writes keys in sorted order and the generated
+initialisers take their arguments in that order, so never edit the file by
+hand: a hand-merged block compiles until the next refresh reorders it.
+
+CI runs the same script with `--check` (`.github/workflows/api-contract.yml`)
+on every PR that touches the backend or this file. It fails when the file no
+longer matches the backend for the paths the app uses, and names what
+differs. A backend change the app does not call is ignored.
 
 Always use the script, never a plain download. FastAPI writes every optional
 field in a form the generator silently drops; the script rewrites them (559

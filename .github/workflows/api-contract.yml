@@ -1,0 +1,51 @@
+name: api-contract
+
+# The iOS client is generated from apps/ios/.../LivermoreAPI/openapi.json, a
+# copy of the backend's schema. Nothing used to check that copy against the
+# backend code, so a renamed field would compile on both sides and fail on a
+# phone. This rebuilds the schema from the PR's own backend code and compares
+# the paths the app uses.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/api/**"
+      - "apps/ios/LivermoreKit/Sources/LivermoreAPI/**"
+      - "apps/ios/scripts/refresh_openapi.py"
+      - ".github/workflows/api-contract.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "apps/api/**"
+      - "apps/ios/LivermoreKit/Sources/LivermoreAPI/**"
+      - "apps/ios/scripts/refresh_openapi.py"
+      - ".github/workflows/api-contract.yml"
+
+concurrency:
+  group: api-contract-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: App and backend agree on the API
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+          cache: pip
+          cache-dependency-path: apps/api/requirements.txt
+
+      - name: Install backend dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r apps/api/requirements.txt
+
+      - name: Compare openapi.json with the backend code
+        run: python apps/ios/scripts/refresh_openapi.py --local --check
