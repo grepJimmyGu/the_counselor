@@ -302,3 +302,68 @@ struct FilingAnalysisTests {
         }
     }
 }
+
+@Suite("Test an entry and exit: the + and − buttons")
+struct BracketPlanMoveTests {
+    /// The prices the card shows for a plan, from the price now.
+    private func prices(_ plan: BracketPlan, price: Double = 278.02) -> (entry: Double, stop: Double, target: Double) {
+        let entry = price * (1 - plan.entryDiscount)
+        return (entry, entry * (1 - plan.stop), entry * (1 + plan.target))
+    }
+
+    @Test("regression: + raises the price shown on every row, and − lowers it")
+    func plusRaisesEveryPrice() {
+        // Jimmy, 2026-11-24: + on "Buy at" and "Stop" lowered the price,
+        // because it added to the distance below.
+        let start = BracketPlan(entryDiscount: 0.05, stop: 0.09, target: 0.18)
+        let before = prices(start)
+
+        var plan = start
+        plan.moveEntry(up: true)
+        #expect(prices(plan).entry > before.entry)
+        plan = start
+        plan.moveEntry(up: false)
+        #expect(prices(plan).entry < before.entry)
+
+        plan = start
+        plan.moveStop(up: true)
+        #expect(prices(plan).stop > before.stop)
+        plan = start
+        plan.moveStop(up: false)
+        #expect(prices(plan).stop < before.stop)
+
+        plan = start
+        plan.moveTarget(up: true)
+        #expect(prices(plan).target > before.target)
+        plan = start
+        plan.moveTarget(up: false)
+        #expect(prices(plan).target < before.target)
+    }
+
+    @Test("a price at its limit cannot move further, and its button says so")
+    func limits() {
+        // Buying at the price now: the buy price cannot go above it.
+        var plan = BracketPlan(entryDiscount: 0, stop: 0.005, target: 1.00)
+        #expect(!plan.canMoveEntry(up: true) && plan.canMoveEntry(up: false))
+        #expect(!plan.canMoveStop(up: true) && plan.canMoveStop(up: false))
+        #expect(!plan.canMoveTarget(up: true) && plan.canMoveTarget(up: false))
+        plan.moveEntry(up: true)
+        plan.moveStop(up: true)
+        plan.moveTarget(up: true)
+        #expect(plan == BracketPlan(entryDiscount: 0, stop: 0.005, target: 1.00))
+
+        plan = BracketPlan(entryDiscount: 0.20, stop: 0.40, target: 0.01)
+        #expect(!plan.canMoveEntry(up: false) && !plan.canMoveStop(up: false) && !plan.canMoveTarget(up: false))
+    }
+
+    @Test("steps stay on whole numbers: 1% for the buy price and target, half a percent for the stop")
+    func steps() {
+        var plan = BracketPlan(entryDiscount: 0.03, stop: 0.09, target: 0.18)
+        for _ in 0..<3 { plan.moveEntry(up: true) }
+        plan.moveStop(up: true)
+        plan.moveTarget(up: true)
+        #expect(plan.entryDiscount == 0)
+        #expect(plan.stop == 0.085)
+        #expect(plan.target == 0.19)
+    }
+}

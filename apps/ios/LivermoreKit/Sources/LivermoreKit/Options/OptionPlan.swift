@@ -180,12 +180,65 @@ public struct OptionPlan: Equatable, Sendable {
         ]
     }
 
-    /// "If NVDA is at $160 on Jan 15, you make $2,077."
+    /// What the plan comes to with the stock at `price` on the expiry, with
+    /// the parts that make it up: "If REGN is at $995.00 on Jan 15, the call is
+    /// worth $4,500. You paid $4,685, so you lose $185."
+    ///
+    /// The parts are there so the result can be checked by eye. Jimmy,
+    /// 2026-11-24: "at $995 you lose $185" on a $950 call read as wrong; it was
+    /// right, because the call cost more ($46.85 a share) than the $45 it is
+    /// worth at $995, and the sentence did not say so.
+    ///
+    /// The total is the sum of the whole-dollar parts shown, so the sentence
+    /// always adds up; it can differ by $1 from the chart's exact figure when
+    /// a premium has a half cent.
     public func outcome(at price: Double) -> String {
-        let result = payoff.profit(at: price).rounded()
         let at = "If \(symbol) is at \(OptionText.price(price)) on \(OptionText.shortDay(expiration))"
-        if result == 0 { return "\(at), you break even." }
-        return "\(at), you \(result > 0 ? "make" : "lose") \(OptionText.dollars(abs(result)))."
+        let n = Double(shares)
+        let fee = (option.price * n).rounded()
+        let worth = (option.value(at: price) * n).rounded()
+        let name = option.kind.rawValue
+        let today = OptionText.price(underlyingPrice)
+        let total: Double
+        let story: String
+        switch strategy {
+        case .longCall, .longPut:
+            total = worth - fee
+            let value = worth == 0 ? "the \(name) expires worthless" : "the \(name) is worth \(OptionText.dollars(worth))"
+            story = "\(at), \(value). You paid \(OptionText.dollars(fee)), so"
+        case .coveredCall:
+            if worth == 0 {
+                let shares = ((price - underlyingPrice) * n).rounded()
+                total = shares + fee
+                story = "\(at), the call expires worthless. Your shares are \(Self.change(shares)) from \(today) and you keep the \(OptionText.dollars(fee)) you received, so"
+            } else {
+                let sold = ((strike - underlyingPrice) * n).rounded()
+                total = sold + fee
+                story = "\(at), your shares are sold at \(OptionText.strike(strike)), \(Self.gap(sold)) \(today), and you keep the \(OptionText.dollars(fee)) you received, so"
+            }
+        case .protectivePut:
+            if worth == 0 {
+                let shares = ((price - underlyingPrice) * n).rounded()
+                total = shares - fee
+                story = "\(at), the put expires worthless. Your shares are \(Self.change(shares)) from \(today) and the put cost \(OptionText.dollars(fee)), so"
+            } else {
+                let sold = ((strike - underlyingPrice) * n).rounded()
+                total = sold - fee
+                story = "\(at), the put lets you sell your shares at \(OptionText.strike(strike)), \(Self.gap(sold)) \(today). The put cost \(OptionText.dollars(fee)), so"
+            }
+        }
+        if total == 0 { return "\(story) you break even." }
+        return "\(story) you \(total > 0 ? "make" : "lose") \(OptionText.dollars(abs(total)))."
+    }
+
+    /// "up $447", "down $1,553", "unchanged".
+    private static func change(_ amount: Double) -> String {
+        amount == 0 ? "unchanged" : "\(amount > 0 ? "up" : "down") \(OptionText.dollars(abs(amount)))"
+    }
+
+    /// "$947 above", "$553 below", "the same as".
+    private static func gap(_ amount: Double) -> String {
+        amount == 0 ? "the same as" : "\(OptionText.dollars(abs(amount))) \(amount > 0 ? "above" : "below")"
     }
 
     /// Something the user should know that the numbers do not show.

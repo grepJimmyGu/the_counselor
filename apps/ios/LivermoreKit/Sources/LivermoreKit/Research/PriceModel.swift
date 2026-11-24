@@ -205,6 +205,51 @@ public struct BracketPlan: Equatable, Sendable {
     /// even, ignoring the ones that time out: arithmetic on the two distances.
     public var breakevenWinRate: Double { stop + target > 0 ? stop / (stop + target) : 0 }
 
+    // MARK: Moving a price
+    //
+    // The plan keeps distances (below the close, below the entry, above the
+    // entry), but the screen shows prices, and + must raise the price shown
+    // whichever way its distance runs. Jimmy, 2026-11-24: + on "Buy at" and
+    // "Stop" lowered the price, because it added to the distance below.
+
+    public static let entryDiscountLimits = 0.0...0.20
+    public static let stopLimits = 0.005...0.40
+    public static let targetLimits = 0.01...1.00
+
+    /// The buy price up or down by 1% of the reference price; never above it.
+    public mutating func moveEntry(up: Bool) {
+        entryDiscount = Self.stepped(entryDiscount + (up ? -0.01 : 0.01), per: 100, within: Self.entryDiscountLimits)
+    }
+
+    /// The stop up (closer to the entry) or down by half a percent.
+    public mutating func moveStop(up: Bool) {
+        stop = Self.stepped(stop + (up ? -0.005 : 0.005), per: 200, within: Self.stopLimits)
+    }
+
+    /// The target up (further from the entry) or down by 1%.
+    public mutating func moveTarget(up: Bool) {
+        target = Self.stepped(target + (up ? 0.01 : -0.01), per: 100, within: Self.targetLimits)
+    }
+
+    /// Whether each price can move further that way, so a button at its
+    /// limit can be switched off rather than do nothing.
+    public func canMoveEntry(up: Bool) -> Bool {
+        up ? entryDiscount > Self.entryDiscountLimits.lowerBound + 1e-9 : entryDiscount < Self.entryDiscountLimits.upperBound - 1e-9
+    }
+
+    public func canMoveStop(up: Bool) -> Bool {
+        up ? stop > Self.stopLimits.lowerBound + 1e-9 : stop < Self.stopLimits.upperBound - 1e-9
+    }
+
+    public func canMoveTarget(up: Bool) -> Bool {
+        up ? target < Self.targetLimits.upperBound - 1e-9 : target > Self.targetLimits.lowerBound + 1e-9
+    }
+
+    /// Rounded to whole steps (`per` steps to 1) and kept within `limits`.
+    private static func stepped(_ value: Double, per: Double, within limits: ClosedRange<Double>) -> Double {
+        min(max((value * per).rounded() / per, limits.lowerBound), limits.upperBound)
+    }
+
     /// A starting plan sized to how much the stock moves: a stop two typical
     /// days away, a target twice as far.
     public static func sized(to levels: PriceLevels?) -> BracketPlan {
