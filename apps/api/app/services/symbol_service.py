@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.symbol import SymbolCache
@@ -15,21 +15,63 @@ class SymbolService:
     def __init__(self, client: AlphaVantageClient) -> None:
         self.client = client
 
+    # How many rows the search returns, and how many it reads per kind of
+    # match before ranking them.
+    _LIMIT = 10
+
     async def search(self, db: Session, query: str) -> list[SymbolSearchItem]:
-        query_upper = query.upper()
-        local = db.execute(
+        """Symbols for a search box, best match first.
+
+        Ranked in four tiers, each read with its own small query so a broad
+        tier cannot crowd out a better one:
+
+          1. the ticker itself ("ANT" → ANT);
+          2. tickers that start with the query, shortest first (ANTE, ANTX);
+          3. companies whose name has a word starting with it ("Anthropic");
+          4. any other company whose name contains it.
+
+        Until 2026-11-23 this was one unordered query capped at 10 rows that
+        also matched the query anywhere inside a name, so "ANT" returned ten
+        warrants ("Warr*ant*s") and never ANT itself.
+        """
+        text = query.strip()
+        if not text:
+            return []
+        ticker = text.upper()
+        limit = self._LIMIT
+
+        exact = db.get(SymbolCache, ticker)
+        by_prefix = db.execute(
             select(SymbolCache)
-            .where(
-                or_(
-                    SymbolCache.symbol.ilike(f"{query_upper}%"),
-                    SymbolCache.name.ilike(f"%{query}%"),
-                )
-            )
-            .limit(10)
+            .where(SymbolCache.symbol.ilike(f"{ticker}%"), SymbolCache.symbol != ticker)
+            .order_by(func.length(SymbolCache.symbol), SymbolCache.symbol)
+            .limit(limit)
+        ).scalars().all()
+        by_word = db.execute(
+            select(SymbolCache)
+            .where(or_(SymbolCache.name.ilike(f"{text}%"), SymbolCache.name.ilike(f"% {text}%")))
+            .order_by(func.length(SymbolCache.name), SymbolCache.symbol)
+            .limit(limit)
+        ).scalars().all()
+        by_part = db.execute(
+            select(SymbolCache)
+            .where(SymbolCache.name.ilike(f"%{text}%"))
+            .order_by(func.length(SymbolCache.name), SymbolCache.symbol)
+            .limit(limit)
         ).scalars().all()
 
-        if local:
-            return [_to_search_item(row) for row in local]
+        ranked: list[SymbolCache] = []
+        seen: set[str] = set()
+        for row in ([exact] if exact else []) + list(by_prefix) + list(by_word) + list(by_part):
+            if row.symbol in seen:
+                continue
+            seen.add(row.symbol)
+            ranked.append(row)
+            if len(ranked) == limit:
+                break
+
+        if ranked:
+            return [_to_search_item(row) for row in ranked]
 
         remote = await self.client.search_symbols(query)
         for match in remote:

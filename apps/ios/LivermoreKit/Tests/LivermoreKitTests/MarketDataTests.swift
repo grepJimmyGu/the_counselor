@@ -115,6 +115,28 @@ struct MarketDataTests {
         #expect(series.excessReturn == nil)
     }
 
+    /// 2026-11-23. Anthropic (ANT) listed on Nov 19; its year chart was
+    /// titled "Past year −9.8%" over three closes. A history that starts
+    /// inside the period says so, so the page can title it by its real days.
+    @Test("a stock whose prices begin inside the period is marked as shorter than it")
+    func shorterThanRange() {
+        let ant = closes([("2026-11-19", 97.17), ("2026-11-20", 88.91), ("2026-11-23", 87.64)])
+        let year = PerformanceSeries(stock: ant, benchmark: [], range: .oneYear)
+        #expect(year.isShorterThanRange)
+        #expect(year.tradingDays == 3)
+        #expect(year.points.map(\.price) == [97.17, 88.91, 87.64])
+        #expect(PerformanceSeries(stock: ant, benchmark: [], range: .yearToDate).isShorterThanRange)
+
+        let stock = closes([("2026-08-14", 90), ("2026-10-16", 100), ("2026-10-30", 110), ("2026-11-16", 125)])
+        let month = PerformanceSeries(stock: stock, benchmark: [], range: .oneMonth)
+        #expect(!month.isShorterThanRange)
+        #expect(month.tradingDays == 3)
+        #expect(PerformanceSeries(stock: stock, benchmark: [], range: .oneYear).isShorterThanRange)
+
+        let ytd = closes([("2025-12-31", 100), ("2026-01-02", 104), ("2026-11-16", 130)])
+        #expect(!PerformanceSeries(stock: ytd, benchmark: [], range: .yearToDate).isShorterThanRange)
+    }
+
     @Test("a long history is thinned for the chart but keeps its first and last day")
     func thinned() {
         let start = day("2021-11-16")

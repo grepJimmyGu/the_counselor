@@ -8,6 +8,37 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-11-23 — Typing "ANT" finds Anthropic, and a three-day-old stock's chart says so
+
+**Symptom.** Jimmy could not find Anthropic (ANT) on his phone and could not
+see its daily prices.
+
+**Cause, search.** `SymbolService.search` read the first 10 rows whose ticker
+started with the query OR whose name contained it anywhere, with no order.
+"Warr*ant*s" contains "ant", so ten warrants filled the list and ANT never
+appeared. Searching "Anthropic" worked.
+
+**Cause, chart.** ANT listed on Nov 19; production has its three daily
+closes. The Price tab titled them "Past year −9.8%", smoothed three points
+into one curve, and labelled the axis "Nov Nov Nov Nov".
+
+**Fix.** Search ranks the exact ticker first, then tickers starting with the
+query (shortest first), then names with a word starting with it, then other
+name matches, each tier read separately so a broad one cannot crowd out a
+better one. The chart knows when a stock's prices begin inside the chosen
+period: it is titled "Since Nov 19 · 3 trading days", draws each day as a
+point joined by straight lines, and labels each day. Axis labels now follow
+the span drawn (not the range picked) and are formatted in UTC, the zone
+trading days are stored in.
+
+**Verified.** Backend tests for the ranking (the regression reproduces ten
+warrants ahead of ANT), app tests for short histories, and ANT's chart on the
+simulator against production data. Search waits on the deploy.
+
+**Noticed, not fixed.** NVDA's stored closes are $145.98 (Nov 19), $125.53
+(Nov 20), $165.05 (Nov 23): a 14% drop and a 31% jump that look like a bad
+Nov 20 bar. Backlog.
+
 ## 2026-11-23 — The Actions tab's notices: grouped by source, read in bulk, muted per source
 
 **Why.** Jimmy: "too many notices and they trace back to screen and

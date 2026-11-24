@@ -45,6 +45,19 @@ enum Fmt {
     /// Trading dates are parsed as midnight UTC, so they must be printed in
     /// UTC too — in the device's own zone, anyone west of Greenwich sees the
     /// day before.
+    /// A trading day's date as an axis or title label: "Nov 19". Trading
+    /// days are stored as midnight UTC, so they are formatted in UTC; in the
+    /// phone's own zone anyone west of Greenwich would see the day before.
+    static func shortTradingDay(_ date: Date) -> String {
+        date.formatted(utc(.dateTime.month(.abbreviated).day()))
+    }
+
+    static func utc(_ style: Date.FormatStyle) -> Date.FormatStyle {
+        var style = style
+        style.timeZone = TimeZone(identifier: "UTC")!
+        return style
+    }
+
     static func tradingDay(_ date: Date) -> String {
         var style = Date.FormatStyle.dateTime.month(.abbreviated).day().year()
         style.timeZone = TimeZone(identifier: "UTC")!
