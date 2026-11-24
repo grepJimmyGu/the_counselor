@@ -108,7 +108,11 @@ CALLS = [
      {"user_id", "user_secret", "account_id", "start_date", "end_date",
       "limit", "offset"}),
     ("account_information", "get_user_account_orders",
-     {"user_id", "user_secret", "account_id", "days"}),
+     {"user_id", "user_secret", "account_id", "days", "state"}),
+    # The read-back of an order the user typed in at their broker.
+    # `only_executed=False` is what makes a resting order visible at all.
+    ("account_information", "get_user_account_recent_orders",
+     {"user_id", "user_secret", "account_id", "only_executed"}),
     ("account_information", "get_user_account_return_rates",
      {"user_id", "user_secret", "account_id"}),
     ("account_information", "get_account_balance_history",

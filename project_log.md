@@ -8,6 +8,59 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-11-23 — An order typed in at Schwab is read back: the hand-off gets its last step
+
+**Why.** With #386 live, Jimmy priced an order on his Schwab account. The
+ticket now offered "Turn on trading for this account", and SnapTrade's page
+answered "Trading is not available for Schwab through this connection." He
+does not want to apply for Schwab's trading API for now. His standard instead:
+for a Robinhood or Schwab user, the copy action has to end in an order placed
+at the broker, and he wanted to check that end to end on his own phone.
+
+**What can and cannot be done without a trading API.** Nothing outside the
+broker can create or pre-fill an order there. What was verified:
+
+- Each broker publishes which web addresses open its app. Robinhood's opens
+  only at a stock's page (`robinhood.com/stocks/NVDA`); Schwab's opens the
+  trade ticket and the order-status page. Neither takes an order or a symbol.
+  Jimmy tapped the links on his phone: they opened Safari, on a screen with no
+  clear buy, nothing filled in. So opening the broker is a convenience, never
+  a step the flow depends on.
+- A read-only link can list an account's orders, pending ones and option
+  orders included. That is the one way Livermore can know an order entered by
+  hand exists.
+
+**What was built** (iOS + backend, one PR):
+
+- `GET /api/snaptrade/orders/option?contract=…` looks for one option contract
+  among the user's orders. Each account is read twice: the last 24 hours,
+  which SnapTrade always reads live, and the last week, which on most plans is
+  a once-a-day copy. The answer says which it could read, so "not there" is
+  never claimed off a stale list, and a read that failed everywhere is a 502,
+  not an empty answer (the `SnapTradeReadFailed` rule).
+- The option ticket gains **"Check my broker for this order"**. It reports
+  placed, filled, partly filled, ended, or an order for the same contract that
+  is not the plan's (wrong side, wrong size, a closing order), in the broker's
+  own figures.
+- **"Copy and open Schwab / Robinhood"** copies the order and asks iOS for
+  the broker's app only. If the phone would open a web page instead, nothing
+  opens and the ticket says the order is copied and to open the broker by hand.
+
+**Not proven yet.** No order of Jimmy's was read through this: it needs the
+backend deployed and an order resting at Schwab. Unknown until then: what
+SnapTrade returns for a pending Schwab option order, how the action is spelled
+(`BUY_OPEN`, `BUY_TO_OPEN`, `BUY`), and whether the 24-hour read works on his
+key. The app handles each spelling and an unknown status without guessing.
+Whether "Copy and open Schwab" lands in the app is also only testable on a
+real phone.
+
+**Found on the way.** The share ticket's "Turn on trading" button dead-ends
+for Schwab, because SnapTrade does not report Schwab as untradeable in
+advance (backlog). And once a Mac has a development certificate, every
+simulator build carries the team's app identifier, so a session saved by an
+earlier build is no longer readable: the simulator copy needs signing in
+again.
+
 ## 2026-11-23 — "Your brokerage didn't answer": it had, and no link could ever trade
 
 Jimmy sent the share ticket on his Schwab account showing "Your brokerage didn't answer. Try again in a

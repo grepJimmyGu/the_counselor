@@ -202,6 +202,25 @@ struct BrokerageServiceTests {
         #expect(try body(transport.requests[1])["trading_account_id"] as? String == "acct-1")
     }
 
+    @Test("an order entered at the broker is looked up by its contract, and a failed read is not an empty answer")
+    func optionOrders() async throws {
+        let (session, transport) = mocked()
+        let op = "snaptrade_option_orders_api_snaptrade_orders_option_get"
+        transport.stub(op, .json(status: 200, #"{"contract":"NVDA270115C00125000","live":false,"orders":[{"account_id":"acct-1","state":"working","status":"ACCEPTED","quantity":1}]}"#))
+
+        let lookup = try await session.brokerage.optionOrders(contract: "NVDA270115C00125000")
+        #expect(lookup.orders.map(\.state) == ["working"])
+        #expect(lookup.live == false)
+        #expect(transport.requests[0].path == "/api/snaptrade/orders/option?contract=NVDA270115C00125000")
+        #expect(transport.requests[0].authorization != nil)
+
+        let line = "Couldn't read your orders from your brokerage."
+        transport.stub(op, .json(status: 502, #"{"detail":"\#(line)"}"#))
+        await #expect(throws: APIFailure.upstream(line)) {
+            try await session.brokerage.optionOrders(contract: "NVDA270115C00125000")
+        }
+    }
+
     @Test("a brokerage link is only followed to an https address")
     func connectionURL() async throws {
         let (session, transport) = mocked()
