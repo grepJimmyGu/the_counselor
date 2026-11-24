@@ -1,11 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import date
-from typing import Optional
+from typing import Optional, Tuple
 
 from sqlalchemy import text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.core.concurrency import PerLoop, TTLCache
 
 logger = logging.getLogger(__name__)
 
@@ -20,7 +23,7 @@ from app.schemas.company_overview import (
     SegmentYearSchema,
     SupplyChainEntry,
 )
-from app.services.financial_validation_service import FinancialValidationService
+from app.services.financial_validation_service import FinancialCheckMetrics, FinancialValidationService
 from app.services.fmp_client import FMPClient, FMPNotConfiguredError, FMPRateLimitError
 from app.services.fundamental_scoring_service import (
     compute_financial_validation_score,
@@ -33,11 +36,59 @@ from app.services.fundamental_service import FundamentalService
 from app.services.business_intelligence_service import BusinessIntelligenceService
 from app.services.revenue_segment_service import RevenueSegmentService
 from app.services.competitor_group_service import CompetitorGroupService
+from app.services.live_quote_service import live_quote_service
 from app.services.value_chain_classifier import (
     derive_margin_implication,
     get_cyclicality_implication,
     get_value_chain_role,
 )
+
+# ── What is remembered, and for how long ─────────────────────────────────────
+#
+# Measured in production on 2026-11-20, before any of this existed: one view of
+# a company page took 2.9 s, every time, because each view made six FMP calls
+# one after another on six new connections. Twelve people opening twelve
+# different companies at once waited 20 s; twelve opening the SAME company
+# waited 27 s, each view rebuilding what the others were building. At ~300 FMP
+# calls a minute that is also a ceiling of about 45 company views a minute for
+# the whole product.
+#
+# So a finished page is kept for ten minutes and shared by everyone who asks
+# for that company, including the callers who arrive while it is being built.
+# For two hours after that the kept page is still returned at once while a new
+# one is built behind it, so only the first viewer of a company waits at all.
+# The price on a kept page is replaced with the latest live quote on the way
+# out, so it is never older than the quote service's own.
+OVERVIEW_TTL_SECONDS = 10 * 60
+OVERVIEW_STALE_SECONDS = 2 * 60 * 60
+
+# (the page, whether every provider answered). A page built while FMP was
+# failing is returned to whoever was waiting and not kept.
+_OVERVIEWS: "TTLCache[Tuple[CompanyOverviewResponse, bool]]" = TTLCache(
+    ttl=OVERVIEW_TTL_SECONDS, stale_for=OVERVIEW_STALE_SECONDS, max_entries=1500,
+    keep=lambda built: built[1],
+)
+
+# The three financial statements change when a company reports, four times a
+# year, so what is derived from them is kept for six hours; a rebuild of the
+# page then costs one FMP call (key metrics) instead of five.
+_STATEMENT_METRICS: "TTLCache[Optional[FinancialCheckMetrics]]" = TTLCache(
+    ttl=6 * 3600, max_entries=3000, keep=lambda metrics: metrics is not None,
+)
+# FMP's peer list for a symbol. Still read from FMP rather than from the
+# profile cache (whose peers are the stale ones the comment below is about),
+# just not on every single view.
+_PEERS: "TTLCache[list]" = TTLCache(ttl=6 * 3600, max_entries=3000, keep=bool)
+
+# Pages built at once. Each build holds a database connection and makes
+# several FMP calls; a burst of first views queues here instead of draining
+# the pool or tripping FMP's rate limiter.
+_BUILD_SLOTS: "PerLoop[asyncio.Semaphore]" = PerLoop(lambda: asyncio.Semaphore(3))
+
+
+def forget_overview(symbol: str) -> None:
+    """Drop the kept page for a symbol, so the next view rebuilds it."""
+    _OVERVIEWS.invalidate(symbol.upper())
 
 
 def _kf(d: dict, key: str) -> Optional[float]:
@@ -148,28 +199,74 @@ class CompanyOverviewService:
         self._competitors = CompetitorGroupService()
 
     async def get_overview(self, db: Session, symbol: str) -> CompanyOverviewResponse:
+        """The company page for a symbol: from memory when it was built in the
+        last ten minutes, otherwise built once for everyone asking."""
         sym = symbol.upper()
+        # The build runs as its own task and outlives the request that
+        # started it, so it must not use the request's session. It gets one
+        # of its own on the same engine (which is what keeps tests on theirs).
+        bind = db.get_bind()
 
-        # 1. Profile (cached in FundamentalService) + live price from /quote
+        async def build() -> Tuple[CompanyOverviewResponse, bool]:
+            async with _BUILD_SLOTS.get():
+                own = sessionmaker(bind=bind, autoflush=False, autocommit=False, future=True)()
+                try:
+                    return await self._build(own, sym)
+                finally:
+                    own.close()
+
+        response, _complete = await _OVERVIEWS.get(sym, build)
+        live = live_quote_service.cached(sym, max_age=OVERVIEW_TTL_SECONDS + OVERVIEW_STALE_SECONDS)
+        if live is not None and live.price:
+            response = response.model_copy(update={"price": float(live.price)})
+        return response
+
+    async def _build(self, db: Session, sym: str) -> Tuple[CompanyOverviewResponse, bool]:
+        """Build the page from its sources. The second value is False when a
+        provider failed and part of the page is a fallback."""
+        complete = True
+
+        # 1. Profile (cached in FundamentalService)
         profile = await self._fundamental.get_profile(db, sym)
-        try:
-            quote = await self._fmp.get_quote(sym)
-            if quote:
-                live_price = quote.get("price") or quote.get("currentPrice")
-                if live_price:
-                    profile = profile.model_copy(update={"price": float(live_price)})
-        except Exception:
-            pass
 
-        # 2. Key metrics raw dict (for financial validation service)
+        # 2. Everything FMP is asked that does not depend on anything else,
+        #    together: the live price, key metrics, the statements, peers.
+        async def statement_metrics() -> Optional[FinancialCheckMetrics]:
+            return await _STATEMENT_METRICS.get(sym, lambda: self._financial_svc.statement_metrics(sym))
+
+        async def fmp_peer_list() -> list:
+            return await _PEERS.get(sym, lambda: self._fmp.get_peers(sym))
+
+        quote, key_metrics, base_metrics, fmp_peers = await asyncio.gather(
+            live_quote_service.get_quote(sym),
+            self._fmp.get_key_metrics(sym),
+            statement_metrics(),
+            fmp_peer_list(),
+            return_exceptions=True,
+        )
+
+        # Live price, through the quote service so the page and the quote
+        # endpoint share one fetch and one 30-second cache.
+        if isinstance(quote, BaseException) or quote is None or not quote.price:
+            complete = False
+        else:
+            profile = profile.model_copy(update={"price": float(quote.price)})
+
+        # Key metrics raw dict (for the valuation figures)
         key_metrics_raw: dict = {}
-        try:
-            key_metrics_raw = await self._fmp.get_key_metrics(sym)
-        except (FMPNotConfiguredError, FMPRateLimitError, Exception):
-            pass
+        if isinstance(key_metrics, BaseException):
+            complete = False
+        else:
+            key_metrics_raw = key_metrics or {}
 
-        # 3. Financial Check metrics
-        fc = await self._financial_svc.compute(sym, key_metrics_raw)
+        # 3. Financial Check metrics. A statement that could not be read for
+        #    any reason other than FMP being unavailable fails the page, as it
+        #    always has.
+        if isinstance(base_metrics, BaseException):
+            raise base_metrics
+        if base_metrics is None:
+            complete = False
+        fc = self._financial_svc.with_valuation(base_metrics, key_metrics_raw)
 
         # 4. Scoring (used for backward-compat financial_check section)
         fin_score = compute_financial_validation_score(fc)
@@ -226,28 +323,28 @@ class CompanyOverviewService:
         except Exception as exc:
             logger.warning("Business intelligence fetch failed for %s: %s", sym, exc)
 
-        # 9. Peers — always fetch fresh (not cached in SymbolCache)
+        # 9. Peers — from FMP's peer endpoint, not the profile cache
         # Filter to symbols in our screener universe (eliminates garbage FMP peers like RIME, TBCH)
         peers: list[str] = []
-        try:
-            raw_peers = await self._fmp.get_peers(sym)
-            if raw_peers:
-                # Keep only peers that exist in our symbols table (large/mid-cap screener universe)
-                peer_placeholders = ", ".join(f":p{i}" for i in range(len(raw_peers)))
-                peer_params = {f"p{i}": s for i, s in enumerate(raw_peers)}
-                try:
-                    existing = db.execute(
-                        text(f"SELECT symbol FROM symbols WHERE symbol IN ({peer_placeholders})"),
-                        peer_params,
-                    ).fetchall()
-                    known = {r[0] for r in existing}
-                    # Preserve original FMP order; fall back to all raw peers if DB has no matches
-                    filtered = [s for s in raw_peers if s in known]
-                    peers = filtered if filtered else raw_peers
-                except Exception:
-                    peers = raw_peers
-        except Exception:
+        if isinstance(fmp_peers, BaseException):
+            complete = False
             peers = profile.peers or []
+        elif fmp_peers:
+            raw_peers = list(fmp_peers)
+            # Keep only peers that exist in our symbols table (large/mid-cap screener universe)
+            peer_placeholders = ", ".join(f":p{i}" for i in range(len(raw_peers)))
+            peer_params = {f"p{i}": s for i, s in enumerate(raw_peers)}
+            try:
+                existing = db.execute(
+                    text(f"SELECT symbol FROM symbols WHERE symbol IN ({peer_placeholders})"),
+                    peer_params,
+                ).fetchall()
+                known = {r[0] for r in existing}
+                # Preserve original FMP order; fall back to all raw peers if DB has no matches
+                filtered = [s for s in raw_peers if s in known]
+                peers = filtered if filtered else raw_peers
+            except Exception:
+                peers = raw_peers
 
         # 11. Business Map — merge rule-based baseline with 10-K intelligence
         role = get_value_chain_role(profile.sector, profile.industry)
@@ -389,4 +486,4 @@ class CompanyOverviewService:
             business_map=business_map,
             market_position=market_position,
             financial_check=financial_check,
-        )
+        ), complete

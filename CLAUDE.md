@@ -15,21 +15,22 @@ plus a human (Jimmy). That arrangement has specific rules — break them and
 you cause cross-session contamination that has already burned three PRs.
 Don't be the fourth.
 
-> **Session identity:** the master-merger role rotates between sessions —
-> the doc in git is not always current. **On boot, ask Jimmy who's the
-> master merger this session.** The recipe is in
-> `agent-system/PARALLEL_WORK.md` "On session boot."
+> **Who merges** (rewritten 2026-11-20 to match what actually happens): a
+> session merges a PR **only when Jimmy names that PR** in his message
+> ("merge #381"). One named PR is one merge. It does not carry to the next PR,
+> and no session merges on its own judgement, its own docs included.
+> Otherwise: open the PR and stop.
 >
-> **Verbal handshake:** the session acting as master merger addresses Jimmy
-> as **"Mr Gu"** in its first reply each turn (continued use through the
-> turn is fine). Non-master sessions use "Jimmy" or no greeting. This makes
-> the active role visible at a glance — and if a session greets Jimmy as
-> "Mr Gu" but isn't actually master merger, Jimmy can correct it in one line.
+> Jimmy can still appoint one session as standing **master merger** for a
+> stretch (he last did on 2026-08-09). That session merges without per-PR
+> naming and addresses him as **"Mr Gu"**; every other session says "Jimmy".
+> No session holds that role by default, so do not ask about it on boot and do
+> not assume it.
 >
-> Active baseline (until Jimmy says otherwise): `deepseek-main` (on DeepSeek
-> backend, `deepseek/` branch prefix) has been the master merger since
-> 2026-06-01. Other sessions use `claude/` or `codex/` and don't run
-> `gh pr merge`.
+> *What this replaced:* one named session (`claude-main`, later
+> `deepseek-main`) ran every merge. That rule dates from 2026-05-21, when three
+> PRs merged with unrelated files attached. The check it existed for still
+> binds whoever merges: read the diff against the PR's title first.
 
 ---
 
@@ -74,7 +75,8 @@ work already shipped. It does **not** implement.
 
 **Does not:**
 
-- write or edit application code (`apps/api/app/**`, `apps/web/src/**`);
+- write or edit application code (`apps/api/app/**`, `apps/web/src/**`,
+  `apps/ios/**`);
 - open feature PRs;
 - run `gh pr merge` — ever, on anything, including its own docs.
 
@@ -112,9 +114,7 @@ not improvise rules from training-data assumptions.
 
 1. **[`agent-system/PARALLEL_WORK.md`](agent-system/PARALLEL_WORK.md)** —
    branch-naming convention (`<agent>/<type>/<slug>`), worktree-per-session
-   rule, the **master-merger policy** (only `claude-main` runs `gh pr merge`
-   against `main`; everyone else opens PRs and waits), and the Active
-   Sessions table you may need to claim a row in.
+   rule, who merges, and the recovery procedures.
 2. **[`docs/PROJECT_BACKLOG.md`](docs/PROJECT_BACKLOG.md)** — single source
    of every open item. If you finish something here, delete its row in the
    same PR.
@@ -124,21 +124,29 @@ not improvise rules from training-data assumptions.
 4. **[`apps/web/AGENTS.md`](apps/web/AGENTS.md)** — frontend agent rules.
    Notably: *"This is NOT the Next.js you know"* — Next.js 16 has breaking
    API changes; read `node_modules/next/dist/docs/` before writing code.
+5. **[`apps/ios/README.md`](apps/ios/README.md)** — the native iOS app: its
+   layout, how to run it, and how its API client is generated from the
+   backend's schema. Read before any change in `apps/ios/`.
 
 ---
 
 ## Hard rules (do not violate)
 
-- **Don't merge to `main` yourself.** Open a PR; `claude-main` reviews and
-  merges. If `claude-main` is offline and a merge is urgent, escalate to
-  Jimmy. The master-merger gate exists to catch cross-session contamination
-  (see PARALLEL_WORK.md for the failure history that motivated it).
+- **Don't merge to `main` unless Jimmy names the PR.** Open a PR and stop.
+  When he names it, read the diff against the PR's title before merging: the
+  rule exists because three PRs once merged with unrelated files attached
+  (see PARALLEL_WORK.md). His naming one PR never covers another.
 - **Always prefix branches with your agent name.** `deepseek/feat/<slug>`,
   `claude/feat/<slug>`, `codex/feat/<slug>`, `human/feat/<slug>`. No bare
   `feat/<slug>` for new work — that's how branches silently collide.
-- **Work in your own worktree, not the canonical root.** Canonical root
-  (`/Users/jimmygu/the_counselor`) is `claude-main`'s home and stays on
-  `main`. Spin up `git worktree add ../the_counselor-<session-tag> -b <branch> main`.
+- **Work in your own worktree, not the canonical root**
+  (`/Users/jimmygu/the_counselor`). `git fetch origin`, then
+  `git worktree add ../the_counselor-<session-tag> -b <branch> origin/main`.
+  **Branch from `origin/main`, never from local `main`**: on 2026-11-20 the
+  canonical root's `main` was 17 PRs behind and its files older still, so a
+  branch cut from it starts months stale. For the same reason, do not read
+  the canonical root to learn what the code currently says.
+  Remove the worktree once its PR has merged.
 - **Run `git status --short` immediately before every `git add`** to catch
   staging surprises. Don't `git add -A` or `git add .` — explicit pathspecs
   only.
@@ -212,9 +220,9 @@ not improvise rules from training-data assumptions.
   https://github.com/multica-ai/andrej-karpathy-skills.
 - **Branch before main** for any feature work. The `feedback_git_workflow`
   rule is canon.
-- **Python 3.9 compat** for backend — use `Optional[X]`, not `X | None`,
-  because the CI runs on 3.9 even though Railway runs 3.13. The discrepancy
-  is documented in `apps/api/CLAUDE.md`.
+- **Python 3.9 compat** for backend — use `Optional[X]`, not `X | None`.
+  CI and Railway run 3.13, but Jimmy's machine runs the suite on 3.9, and a
+  test run that cannot import the app verifies nothing.
 - **Avoid `until <cond>; do sleep N; done` in `run_in_background`.** The
   shape leaves orphaned entries in the harness's "Background tasks" panel
   even after the underlying process dies — the user has to manually click
@@ -267,6 +275,11 @@ Before any PR ready to merge into `main`:
    was never `git add`'d. CI was red for 38 min; production stayed up
    only because Railway held the prior container. PR #146 fixed it but
    the bug class is preventable with this 2-second check.
+
+7. **iOS**, if you touched `apps/ios`: `cd apps/ios/LivermoreKit && swift test`.
+   If you changed an endpoint the app calls, refresh `openapi.json` with the
+   script, as `apps/ios/README.md` describes. Never edit that file by hand:
+   the generated client takes its argument order from it.
 
 *Why (items 1-5):* 2026-05-07 — a push without this checklist would
 have shipped the multi-asset backtester crash and an empty

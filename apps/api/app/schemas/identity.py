@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Literal, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, EmailStr
 
@@ -83,6 +83,53 @@ class AnonymousEntitlements(BaseModel):
 class TokenResponse(BaseModel):
     user: UserPublic
     session_token: str
+
+
+class GoogleTokenResponse(TokenResponse):
+    # True when this sign-in created the account.
+    is_new: bool
+
+
+class PasswordRejected(BaseModel):
+    """Why a sign-up's password was refused. `detail` is written for the user."""
+    detail: str
+    code: Literal["weak_password", "breached_password"]
+    # The password_policy rule codes that failed; empty for a breached password.
+    failed: List[str] = []
+
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetAccepted(BaseModel):
+    """Always the same, whether or not the address has an account."""
+    detail: str
+
+
+class PasswordResetConfirm(BaseModel):
+    email: EmailStr
+    code: str
+    new_password: str
+
+
+class PasswordResetRejected(BaseModel):
+    """Why a reset did not go through. `detail` is written for the user."""
+    detail: str
+    code: Literal["invalid_code", "weak_password", "breached_password"]
+    failed: List[str] = []
+
+
+class PasswordChangeRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class PasswordChangeRejected(BaseModel):
+    """Why a password change did not go through. `detail` is written for the user."""
+    detail: str
+    code: Literal["wrong_password", "no_password", "same_password", "weak_password", "breached_password"]
+    failed: List[str] = []
 
 
 class SignupRequest(BaseModel):

@@ -8,6 +8,7 @@ from typing import Any, Optional
 
 import httpx
 
+from app.core.concurrency import on_main_loop
 from app.core.config import get_settings
 
 logger = logging.getLogger("livermore.fmp")
@@ -30,6 +31,52 @@ def _to_fmp_symbol(symbol: str) -> str:
     return _CLASS_SHARE_RX.sub(r"\1-\2", symbol.upper())
 
 
+# One connection pool to FMP for the loop that serves requests.
+#
+# Measured 2026-11-20 from outside: a call on a new connection takes ~0.44 s,
+# the same call on a kept-alive one ~0.09 s. Opening a client per call, as
+# this module did, paid the TCP and TLS handshake every time, and a company
+# page makes six calls.
+#
+# Only the main loop gets the shared client. An httpx client belongs to the
+# loop that created it (trap 22), and the worker-thread loops behind the
+# startup warmups come and go; they keep the client-per-call behaviour.
+_shared: Optional[httpx.AsyncClient] = None
+_shared_loop: Optional[asyncio.AbstractEventLoop] = None
+
+# Also the ceiling on simultaneous FMP calls from request handling; a call
+# beyond it waits for a connection rather than adding to a burst. Ten is the
+# bound `CONCURRENT_QUOTE_LIMIT` already established as safe under FMP's
+# rate limiter.
+_MAX_CONNECTIONS = 10
+
+
+def _shared_client(timeout: float) -> Optional[httpx.AsyncClient]:
+    global _shared, _shared_loop
+    if not on_main_loop():
+        return None
+    loop = asyncio.get_running_loop()
+    if _shared is None or _shared.is_closed or _shared_loop is not loop:
+        # Every connection may be kept. With fewer kept than allowed, a burst
+        # opens the extra ones, drops them afterwards and pays the handshake
+        # again on the next burst.
+        limits = httpx.Limits(
+            max_connections=_MAX_CONNECTIONS, max_keepalive_connections=_MAX_CONNECTIONS,
+            keepalive_expiry=20.0,
+        )
+        _shared = httpx.AsyncClient(timeout=timeout, limits=limits)
+        _shared_loop = loop
+    return _shared
+
+
+async def close_shared_client() -> None:
+    """Close the pool at shutdown. Safe to call when it was never opened."""
+    global _shared, _shared_loop
+    client, _shared, _shared_loop = _shared, None, None
+    if client is not None and not client.is_closed:
+        await client.aclose()
+
+
 class FMPError(RuntimeError):
     pass
 
@@ -40,6 +87,11 @@ class FMPRateLimitError(FMPError):
 
 class FMPNotConfiguredError(FMPError):
     pass
+
+
+class FMPNoDataError(FMPError):
+    """FMP answered, with nothing for this symbol: an unknown ticker, not an
+    outage. Still an `FMPError`, so existing handlers catch it unchanged."""
 
 
 class FMPClient:
@@ -73,19 +125,36 @@ class FMPClient:
             params["symbol"] = _to_fmp_symbol(params["symbol"])
         all_params = {"apikey": self._api_key(), **params}
         url = f"{self.BASE_URL}{path}"
+        shared = _shared_client(self.settings.api_timeout_seconds)
+        if shared is not None:
+            return await self._request(shared, url, all_params, reused=True)
         async with httpx.AsyncClient(timeout=self.settings.api_timeout_seconds) as client:
-            for attempt in range(3):
-                response = await client.get(url, params=all_params)
-                if response.status_code == 429:
-                    if attempt < 2:
-                        await asyncio.sleep(1.5 * (attempt + 1))
-                        continue
-                    raise FMPRateLimitError("FMP rate limit exceeded.")
-                response.raise_for_status()
-                data = response.json()
-                if isinstance(data, dict) and data.get("Error Message"):
-                    raise FMPError(data["Error Message"])
-                return data
+            return await self._request(client, url, all_params, reused=False)
+
+    @staticmethod
+    async def _request(client: httpx.AsyncClient, url: str, params: dict[str, Any], *, reused: bool) -> Any:
+        dropped = 0
+        for attempt in range(3):
+            try:
+                response = await client.get(url, params=params)
+            except (httpx.RemoteProtocolError, httpx.ReadError, httpx.WriteError):
+                # A kept-alive connection the far end closed while it sat idle
+                # fails on first use. That is the connection's fault, not the
+                # request's, so try once more on a new one.
+                if not reused or dropped:
+                    raise
+                dropped += 1
+                continue
+            if response.status_code == 429:
+                if attempt < 2:
+                    await asyncio.sleep(1.5 * (attempt + 1))
+                    continue
+                raise FMPRateLimitError("FMP rate limit exceeded.")
+            response.raise_for_status()
+            data = response.json()
+            if isinstance(data, dict) and data.get("Error Message"):
+                raise FMPError(data["Error Message"])
+            return data
         raise FMPError("FMP request failed after retries.")
 
     # ── Intraday bars (PRD-16c live tracking) ────────────────────────────────
@@ -104,12 +173,17 @@ class FMPClient:
         symbol: str,
         interval: str = "15min",
         outputsize: str = "compact",
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
     ) -> list[dict]:
         """Fetch intraday OHLCV bars from `/stable/historical-chart/{interval}`.
 
         interval: '5min' | '15min' | '30min' | '60min' (60min → FMP '1hour').
         outputsize: 'compact' caps to the most recent ~120 bars (live cron);
                     'full' keeps ~800 (intraday backtests).
+        from_date / to_date: optional ISO dates (inclusive) bounding the days
+                    asked for — the company page's 1D/1W charts. Omitted, FMP
+                    picks the window, as before.
 
         Returns a list of {"bar_time": datetime, "open", "high", "low",
         "close", "volume"} dicts sorted oldest→newest. FMP's `date` is naive
@@ -121,11 +195,14 @@ class FMPClient:
                 f"Invalid intraday interval '{interval}'. "
                 "Must be 5min, 15min, 30min, or 60min."
             )
-        data = await self._get(
-            f"/historical-chart/{fmp_iv}", {"symbol": symbol.upper()}
-        )
+        params: dict[str, Any] = {"symbol": symbol.upper()}
+        if from_date:
+            params["from"] = from_date
+        if to_date:
+            params["to"] = to_date
+        data = await self._get(f"/historical-chart/{fmp_iv}", params)
         if not isinstance(data, list) or not data:
-            raise FMPError(f"No intraday data returned for {symbol} @ {interval}.")
+            raise FMPNoDataError(f"No intraday data returned for {symbol} @ {interval}.")
         cap = 120 if outputsize == "compact" else 800
         bars: list[dict] = []
         for row in data[:cap]:  # FMP returns newest-first

@@ -13,6 +13,8 @@ from app.api.routes.backtest import router as backtest_router
 from app.api.routes.cn_company import router as cn_company_router
 from app.api.routes.cn_market import router as cn_market_router
 from app.api.routes.company_overview import router as company_overview_router
+from app.api.routes.agent import router as agent_router
+from app.api.routes.filings import router as filings_router
 from app.api.routes.fundamental import router as fundamental_router
 from app.api.routes.insights import router as insights_router
 from app.api.routes.mirror import router as mirror_router
@@ -50,6 +52,7 @@ from app.api.routes.saved_strategies import router as saved_strategies_router
 from app.api.routes.snaptrade import router as snaptrade_router
 from app.api.routes.signals import router as signals_router
 from app.api.routes.notifications import router as notifications_router
+from app.api.routes.options import router as options_router
 from app.api.routes.signal_primitives import router as signal_primitives_router
 from app.api.routes.signals_card import router as signals_card_router  # PRD-25 — unified signal card
 from app.api.routes.search import router as search_router  # PRD-27 — unified smart search
@@ -111,6 +114,28 @@ async def _warmup_market_etfs() -> None:
         logger.warning("Market ETF warmup task failed: %s", exc)
 
 
+def _gspc_refresh_start(latest, today):
+    """The first day the ^GSPC refresh should ask FMP for.
+
+    The refresh used to ask for the last 30 days, whatever was stored. That
+    is right while it runs often, and wrong the first time it does not: after
+    a quiet stretch longer than 30 days it leaves a hole between the last
+    stored bar and the 30-day window, and nothing ever fills it — the chart
+    that aligns on shared dates then drops those weeks without saying so.
+
+    So: from the last stored bar when that is further back than 30 days.
+    `latest` is the newest stored trading date, or None when there are none
+    (the backfill script owns the full history; the refresh still takes 30
+    days so a fresh database is not left empty).
+    """
+    from datetime import timedelta
+
+    window_start = today - timedelta(days=30)
+    if latest is None or latest >= window_start:
+        return window_start
+    return latest
+
+
 async def _warmup_gspc() -> None:
     """Refresh ^GSPC price data via FMP. Alpha Vantage doesn't serve index
     symbols; FMP's /historical-price-eod/full does. Uses the same format as
@@ -125,9 +150,21 @@ async def _warmup_gspc() -> None:
     try:
         fmp = FMPClient()
         today = date.today()
-        from_date = (today - timedelta(days=30))  # date object, not string
+        _latest_db = _Db()
+        try:
+            latest = _latest_db.execute(
+                select(PriceBar.trading_date)
+                .where(PriceBar.symbol == "^GSPC")
+                .order_by(PriceBar.trading_date.desc())
+                .limit(1)
+            ).scalar()
+        finally:
+            _latest_db.close()
+        from_date = _gspc_refresh_start(latest, today)  # date object, not string
         rows = await fmp.get_historical_eod("^GSPC", from_date.isoformat(), today.isoformat())
         if not rows:
+            # Not silent: an empty answer is how a stopped refresh looks.
+            logger.warning("^GSPC refresh: FMP returned no bars for %s..%s", from_date, today)
             return
 
         db = _Db()
@@ -161,8 +198,32 @@ async def _warmup_gspc() -> None:
             db.commit()
         finally:
             db.close()
-    except Exception as exc:
-        logger.warning("^GSPC warmup failed: %s", exc)
+    except Exception:
+        logger.exception("^GSPC warmup failed")  # trap #20: keep the traceback
+
+
+async def _refresh_market_data() -> None:
+    """Bring the market-level series up to date: the Market Pulse ETFs and
+    the S&P 500 index."""
+    await _warmup_market_etfs()
+    await _warmup_gspc()
+
+
+def refresh_market_data_job() -> None:
+    """Daily refresh of the market-level price series (scheduled).
+
+    These series were refreshed only by the startup warmups, so their
+    freshness was a side effect of how often the service was deployed. With
+    no deploy between 2026-09-10 and 2026-11-17 the index sat on 2026-09-10
+    and the sector ETFs on whatever day somebody last opened them, and
+    `/api/market/data-latency` reported 1,680 hours stale.
+
+    Runs on the scheduler's worker thread with its own event loop
+    (`_run_async_in_thread`, trap #21) — the same way, and touching the same
+    code, as the startup warmups. Neither warmup uses `live_quote_service`
+    or any other singleton holding asyncio primitives (trap #22).
+    """
+    _run_async_in_thread(_refresh_market_data())
 
 
 async def _warmup_commodity_spots() -> None:
@@ -491,6 +552,30 @@ def _start_scheduler() -> None:
             # fire-once guard makes a late run idempotent.
             misfire_grace_time=3600,
         )
+        # Market-level price series (index + Market Pulse ETFs), after the US
+        # close, every trading day — so their freshness no longer depends on
+        # a deploy having happened. See `refresh_market_data_job`.
+        scheduler.add_job(
+            refresh_market_data_job, "cron",
+            day_of_week="mon-fri", hour=17, minute=40,
+            timezone="America/New_York",
+            id="market_data_refresh",
+            max_instances=1,
+            # Worth catching up on after a restart; the refresh is idempotent.
+            misfire_grace_time=3600,
+        )
+        # The portfolio agent, for users who have turned it on: every half
+        # hour through the US session, and once after the close. The job
+        # hands each scan to the main event loop (see agent_monitor_job).
+        from app.jobs.agent_monitor_job import agent_monitor_job
+        scheduler.add_job(
+            agent_monitor_job, "cron",
+            day_of_week="mon-fri", hour="9-16", minute="5,35",
+            timezone="America/New_York",
+            id="agent_monitor",
+            max_instances=1,
+            coalesce=True,
+        )
         scheduler.start()
     except Exception as exc:
         logger.warning("APScheduler failed to start: %s", exc)
@@ -699,6 +784,11 @@ async def lifespan(_: FastAPI):
         "feature_flags gating_enabled=%s app_env=%s",
         _s.gating_enabled, _s.app_env,
     )
+    # Record the loop that serves requests. The agent's scheduled scans are
+    # handed to it from the scheduler's thread, and the FMP client keeps its
+    # shared connection pool on it and on no other loop (trap 22).
+    from app.core import concurrency as _concurrency
+    _concurrency.set_main_loop(asyncio.get_running_loop())
     _start_scheduler()
     # Warmups run on dedicated threads (see `_run_async_in_thread` above) so
     # their internal SYNCHRONOUS DB calls can't block the main event loop —
@@ -715,7 +805,12 @@ async def lifespan(_: FastAPI):
     # 80-second cold-cache cost. Its own thread + event loop (trap #21); gates
     # its first tick on `_db_ready` + the one-shots so it can't race boot writes.
     asyncio.create_task(asyncio.to_thread(_run_async_in_thread, _warmup_market_pulse_loop()))
-    yield
+    try:
+        yield
+    finally:
+        from app.services.fmp_client import close_shared_client
+        await close_shared_client()
+        _concurrency.set_main_loop(None)
 
 
 settings = get_settings()
@@ -747,6 +842,9 @@ app.include_router(fundamental_router)
 app.include_router(screener_router)
 app.include_router(screen_router)
 app.include_router(company_overview_router)
+app.include_router(filings_router)
+app.include_router(agent_router)
+app.include_router(options_router)  # PRD-44 — options builder
 app.include_router(insights_router)
 app.include_router(mirror_router)
 app.include_router(rules_router)

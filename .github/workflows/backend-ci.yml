@@ -10,6 +10,10 @@ jobs:
   postgres-migration-smoke:
     name: Postgres migration smoke test
     runs-on: ubuntu-latest
+    # The whole job takes about 3 minutes. Since July (#254) it took 22, because
+    # one test file sat through 20 minutes of timeouts and nothing flagged it.
+    # A hang now fails the job instead of quietly lengthening it.
+    timeout-minutes: 15
 
     services:
       postgres:
@@ -54,4 +58,6 @@ jobs:
       - name: Run SQLite test suite
         env:
           NEXTAUTH_SECRET: ci-test-secret-not-used-for-anything-real
-        run: pytest -x --ignore=tests/test_postgres_migrations.py
+        # --durations: the slowest tests are printed on every run, so the next
+        # slow one is visible in the log the day it lands.
+        run: pytest -x --durations=10 --ignore=tests/test_postgres_migrations.py

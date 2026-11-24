@@ -1,0 +1,536 @@
+#if DEBUG
+import Foundation
+import HTTPTypes
+import OpenAPIRuntime
+import OpenAPIURLSession
+
+/// Sample responses for the signed-in endpoints, for debug builds only.
+///
+/// The Strategies screens need an account to show anything, which makes their
+/// layout impossible to check without real credentials. Launching a debug
+/// build with `-demo` signs in a made-up user and answers the account
+/// endpoints from the fixtures below; everything else (research, quotes) still
+/// goes to the real API. None of this is compiled into release builds.
+///
+/// The fixtures double as decoding tests: `StrategyServiceTests` runs them
+/// through the generated client, so they cannot drift from the schema.
+public enum DemoData {
+    public static let session = StoredSession(
+        token: "demo-token", userID: "demo-user", email: "demo@example.com", displayName: "Sample account"
+    )
+
+    public static let entitlements = """
+    {"tier":"strategist","status":"active","week_start":"2026-11-16","template_runs_unlimited":false,"universe_size_max_custom":50,"history_window_years_custom":10,"asset_classes":["equities"],"robustness_tests":[],"market_pulse_ticker_scope":"top_250","business_model_section":"full","commodity_framework":false,"saved_strategies_max":10,"saved_strategies_always_public":false}
+    """
+
+    public static let strategies = """
+    [{"id":"s-trend","user_id":"demo-user","title":"NVDA 200-day trend","is_public":false,
+      "created_at":"2026-10-02T14:03:11.120000Z","updated_at":"2026-11-10T09:00:00Z",
+      "strategy_json":{"strategy_name":"NVDA 200-day trend","strategy_type":"moving_average_filter","universe":["NVDA"],
+        "benchmark":"SPY","start_date":"2021-10-02","end_date":"2026-10-02","initial_capital":10000,
+        "rebalance_frequency":"daily","bar_resolution":"daily","transaction_cost_bps":10,"slippage_bps":5,
+        "position_sizing":{"method":"equal_weight","max_positions":1},"rules":[{"lookback_days":200}],
+        "risk_management":{"exit_ladder":[{"trigger_pct":-0.08,"action":"sell_all","label":"Stop"},
+          {"trigger_pct":0.15,"action":"sell_fraction","fraction":0.5,"label":"Target 1"},
+          {"trigger_pct":0.30,"action":"sell_all","label":"Target 2"}]}}},
+     {"id":"s-rotation","user_id":"demo-user","title":"Magnificent Seven momentum rotation","is_public":true,
+      "created_at":"2026-09-18T20:41:00Z","updated_at":"2026-09-18T20:41:00Z",
+      "strategy_json":{"strategy_type":"momentum_rotation","universe":["AAPL","MSFT","NVDA","GOOGL","AMZN","META","TSLA"],
+        "risk_management":{"exit_ladder":[]}}},
+     {"id":"s-intraday","user_id":"demo-user","title":"AAPL opening-range breakout","is_public":false,
+      "created_at":"2026-11-05T15:30:00Z","updated_at":"2026-11-05T15:30:00Z",
+      "strategy_json":{"strategy_type":"custom_build","universe":["AAPL"],"bar_resolution":"15min",
+        "risk_management":{"exit_ladder":[{"type":"stop","trigger_pct":-0.02}]}}}]
+    """
+
+    public static let openPositions = """
+    [{"strategy_id":"s-trend","strategy_title":"NVDA 200-day trend","position_id":"p-1","symbol":"NVDA",
+      "entered_at":"2026-10-06T14:31:00Z","entry_price":142.50,"shares_initial":40,"shares_remaining":40,
+      "latest_price":156.14,"pct_change_from_entry":0.0957,"price_source":"live_quote","bar_resolution":"daily",
+      "stop":{"trigger_pct":-0.08,"price":131.10,"distance_pct":-0.1604,"label":"Stop"},
+      "next_target":{"trigger_pct":0.15,"price":163.88,"distance_pct":0.0496,"label":"Target 1"},"unresolved_count":0},
+     {"strategy_id":"s-intraday","strategy_title":"AAPL opening-range breakout","position_id":"p-2","symbol":"AAPL",
+      "entered_at":"2026-11-16T14:45:00Z","entry_price":358.20,"shares_initial":25,"shares_remaining":25,
+      "latest_price":352.78,"pct_change_from_entry":-0.0151,"price_source":"live_quote","bar_resolution":"15min",
+      "stop":{"trigger_pct":-0.02,"price":351.04,"distance_pct":-0.0049,"label":"Stop"},
+      "next_target":null,"unresolved_count":1},
+     {"strategy_id":"s-trend","strategy_title":"NVDA 200-day trend","position_id":"p-3","symbol":"MSFT",
+      "entered_at":"2026-08-20T13:35:00Z","entry_price":498.00,"shares_initial":12,"shares_remaining":6,
+      "latest_price":517.99,"pct_change_from_entry":0.0401,"price_source":"daily_close","bar_resolution":"daily",
+      "stop":null,"next_target":null,"unresolved_count":1}]
+    """
+
+    public static let signal = """
+    {"saved_strategy_id":"s-trend","subscription_active":true,"as_of_date":"2026-11-16",
+     "current_signal":{"NVDA":"long"},"current_signal_display":"Long NVDA — price is above its 200-day average",
+     "last_changed_at":"2026-10-05T21:10:00Z",
+     "recent_events":[
+       {"id":"e-2","as_of_date":"2026-10-05","change_type":"entered","new_signal_display":"Long NVDA","previous_signal_display":"Cash","reference_price_snapshot":{"NVDA":141.9}},
+       {"id":"e-1","as_of_date":"2026-08-11","change_type":"exited","new_signal_display":"Cash","previous_signal_display":"Long NVDA","reference_price_snapshot":null}]}
+    """
+
+    public static let positions = """
+    {"strategy_id":"s-trend","open_count":1,"closed_count":1,"positions":[
+      {"id":"p-1","symbol":"NVDA","entered_at":"2026-10-06T14:31:00Z","entry_price":142.50,"shares_initial":40,"shares_remaining":40,
+       "is_open":true,"latest_price":156.14,"pct_change_from_entry":0.0957,"trade_log":[]},
+      {"id":"p-0","symbol":"NVDA","entered_at":"2026-06-02T14:31:00Z","closed_at":"2026-08-11T20:00:00Z","entry_price":118.00,
+       "shares_initial":30,"shares_remaining":0,"is_open":false,"final_pnl":412.50,"trade_log":[]}]}
+    """
+
+    /// Exits waiting on a decision. One intraday stop and one daily target,
+    /// so both price caveats and both order sizes are on screen.
+    nonisolated(unsafe) static let unresolvedExits: [[String: Any]] = [
+        ["strategy_id": "s-intraday", "strategy_title": "AAPL opening-range breakout", "position_id": "p-2",
+         "symbol": "AAPL", "trigger_type": "stop_hit", "tier_label": "Stop", "signaled_at": "2026-11-16T15:30:00Z",
+         "price": 351.04, "pct_change": -0.02, "action": "sell_all", "shares": 25, "shares_remaining": 25,
+         "shares_initial": 25, "entry_price": 358.20, "bar_resolution": "15min"],
+        ["strategy_id": "s-trend", "strategy_title": "NVDA 200-day trend", "position_id": "p-3",
+         "symbol": "MSFT", "trigger_type": "tp2_hit", "tier_label": "Target 2", "signaled_at": "2026-11-13T21:10:00Z",
+         "price": 522.90, "pct_change": 0.05, "action": "sell_all", "shares": 6, "shares_remaining": 6,
+         "shares_initial": 12, "entry_price": 498.00, "bar_resolution": "daily", "bar_date": "2026-11-13"],
+    ]
+
+    nonisolated(unsafe) static let notices: [[String: Any]] = [
+        ["id": 41, "title": "NVDA 200-day trend — signal unchanged",
+         "body": "Still long NVDA: the price closed above its 200-day average on Friday.",
+         "created_at": "2026-11-14T21:15:00Z"],
+    ]
+
+    /// The sample account's notices, grouped on the Actions tab by the
+    /// strategy or screen that sent them. `s-trend` is the sample strategy;
+    /// the two screens exist only here.
+    nonisolated(unsafe) static let noticeFeed: [[String: Any]] = [
+        ["id": 52, "source_id": "scr-breakouts", "source_title": "52-week breakouts", "source_group": "screen",
+         "title": "⚡ 52-week breakouts — PLTR entered '52-week breakouts'",
+         "body": "A new name entered your '52-week breakouts' screen.", "symbol": "PLTR",
+         "source_kind": "screen", "level": "fyi", "created_at": "2026-11-23T21:10:00Z"],
+        ["id": 51, "source_id": "scr-breakouts", "source_title": "52-week breakouts", "source_group": "screen",
+         "title": "⚡ 52-week breakouts — CRWD entered '52-week breakouts'",
+         "body": "A new name entered your '52-week breakouts' screen.", "symbol": "CRWD",
+         "source_kind": "screen", "level": "fyi", "created_at": "2026-11-22T21:10:00Z"],
+        ["id": 50, "source_id": "s-trend", "source_title": "NVDA 200-day trend", "source_group": "strategy",
+         "title": "⚡ NVDA 200-day trend — LONG NVDA",
+         "body": "The price closed above its 200-day average on Friday.", "symbol": "NVDA",
+         "source_kind": "strategy", "level": "changed", "created_at": "2026-11-21T21:15:00Z"],
+        ["id": 49, "source_id": "scr-quality", "source_title": "Cash-rich quality", "source_group": "screen",
+         "title": "⚡ Cash-rich quality — AVGO no longer passes",
+         "body": "AVGO no longer passes your 'Cash-rich quality' reading.", "symbol": "AVGO",
+         "source_kind": "stock_alert", "level": "fyi", "created_at": "2026-11-20T21:05:00Z"],
+        ["id": 41, "source_id": "s-trend", "source_title": "NVDA 200-day trend", "source_group": "strategy",
+         "title": "⚡ NVDA 200-day trend — LONG NVDA",
+         "body": "Still long NVDA: the price closed above its 200-day average.", "symbol": "NVDA",
+         "source_kind": "strategy", "level": "changed", "created_at": "2026-11-14T21:15:00Z", "read": true],
+    ]
+
+    public static let brokerageStatus = """
+    {"configured":true,"registered":true,"connected_accounts":1,"last_synced_at":"2026-11-16T21:00:00+00:00","trading_enabled":true}
+    """
+
+    public static let brokerageAccounts = """
+    [{"id":"acct-1","name":"Individual","number":"30014821","institution_name":"Sample Brokerage"}]
+    """
+
+    public static let brokerageHoldings = """
+    [{"account_id":"acct-1","symbol":"NVDA","units":40,"average_purchase_price":142.50,"last_price":156.14,"open_pnl":545.60,"cash_equivalent":false},
+     {"account_id":"acct-1","symbol":"AAPL","units":25,"average_purchase_price":358.20,"last_price":352.78,"open_pnl":-135.50,"cash_equivalent":false},
+     {"account_id":"acct-1","symbol":"MSFT","units":6,"average_purchase_price":498.00,"last_price":517.99,"open_pnl":119.94,"cash_equivalent":false},
+     {"account_id":"acct-1","symbol":"SPAXX","units":1520.33,"average_purchase_price":1.0,"last_price":1.0,"open_pnl":0,"cash_equivalent":true}]
+    """
+
+    // The agent's findings for the sample account, worked from its holdings
+    // above with the backend's own arithmetic: AAPL is 25 x $352.78 = $8,819.50
+    // of $18,173.04 held, 48.5%, and (8,819.50 - 25% x 18,173.04) / 75% =
+    // $5,701.65, which is 16 whole shares.
+    nonisolated(unsafe) static let agentInsights: [[String: Any]] = [
+        ["id": "demo-insight-1", "kind": "concentration", "severity": "watch", "symbol": "AAPL",
+         "title": "AAPL is 49% of your holdings, over your 25% limit",
+         "body": "AAPL is worth $8,820 of $18,173 held. Selling about $5,702 (16 shares at $352.78) would bring it to 25%.",
+         "facts": ["weight_pct": 48.53, "limit_pct": 25.0, "units_to_limit": 16],
+         "action": ["type": "review_order", "symbol": "AAPL", "side": "sell", "units": 16],
+         "created_at": "2026-11-20T15:05:00", "dismissed": false],
+        ["id": "demo-insight-2", "kind": "exits_waiting", "severity": "watch",
+         "title": "2 exits are waiting on your decision",
+         "body": "Your strategies signalled an exit on AMD, NVDA. Each stays open until you sell or choose to hold.",
+         "facts": ["count": 2], "action": ["type": "open_actions"],
+         "created_at": "2026-11-20T15:05:00", "dismissed": false],
+        ["id": "demo-insight-3", "kind": "filing", "severity": "watch", "symbol": "NVDA",
+         "title": "NVDA's Q3 FY2027 filing has 1 thing to check",
+         "body": "Inventory changed +22.4% in the quarter while cost of revenue changed +9.1%.",
+         "facts": ["period": "Q3 FY2027"], "action": ["type": "open_company", "symbol": "NVDA"],
+         "created_at": "2026-11-20T14:35:00", "dismissed": false],
+    ]
+
+    static let replies: [String: String] = [
+        "get_my_entitlements_api_me_entitlements_get": entitlements,
+        "list_saved_strategies_api_saved_strategies_get": strategies,
+        "list_open_positions_api_saved_strategies_open_positions_get": openPositions,
+        "get_signal_api_saved_strategies__strategy_id__signal_get": signal,
+        "get_strategy_positions_api_saved_strategies__strategy_id__positions_get": positions,
+        "snaptrade_status_api_snaptrade_status_get": brokerageStatus,
+        "snaptrade_accounts_api_snaptrade_accounts_get": brokerageAccounts,
+        "snaptrade_positions_api_snaptrade_positions_get": brokerageHoldings,
+        "snaptrade_connect_api_snaptrade_connect_post": #"{"redirect_uri":"https://livermorealpha.com/account/brokerage"}"#,
+        "place_order_api_snaptrade_orders_place_post": #"{"status":"ACCEPTED (sample — nothing was sent)","brokerage_order_id":"SAMPLE-0001"}"#,
+        "snaptrade_option_orders_api_snaptrade_orders_option_get": #"{"contract":"SAMPLE","live":true,"orders":[{"account_id":"acct-1","status":"ACCEPTED","state":"working","action":"BUY_OPEN","quantity":1,"filled_quantity":0,"limit_price":9.5,"order_type":"Limit","time_in_force":"Day","time_placed":"2026-11-23T20:31:00Z"}]}"#,
+    ]
+
+    /// Public, read-only calls the sample account still makes for real, so
+    /// research and prices are live. Everything else is answered here or
+    /// refused: the sample account never reaches an account endpoint, and can
+    /// never send an order.
+    static let liveOperations: Set<String> = [
+        "get_live_quotes_api_live_quotes_get",
+        "search_symbols_api_symbols_search_get",
+        "get_company_overview_api_company__symbol__overview_get",
+        "get_company_trend_api_company__symbol__trend_get",
+        "get_sentiment_summary_api_sentiment__symbol__summary_get",
+        "get_summary_api_supply_chain__symbol__summary_get",
+        // Price history: without it the chart falls back to 90 days and the
+        // signals, trend model and entry/exit test have nothing to work on.
+        "get_daily_prices_api_data_daily__symbol__get",
+        // The 1D and 1W charts.
+        "get_intraday_chart_api_data_intraday__symbol__get",
+        "get_market_overview_api_market_overview_get",
+    ]
+}
+
+/// What the sample account has done this launch, so resolving an exit or
+/// dismissing a notice makes it leave the list as it would for real.
+final class DemoState: @unchecked Sendable {
+    private let lock = NSLock()
+    private var resolvedPositions = Set<String>()
+    private var acknowledged = Set<Int>()
+
+    func resolve(position: String) { lock.withLock { _ = resolvedPositions.insert(position) } }
+    func acknowledge(_ id: Int) { lock.withLock { _ = acknowledged.insert(id) } }
+
+    private var dismissedInsights = Set<String>()
+    private var agentProfile: [String: Any] = [
+        "enabled": true, "watchlist": [String](), "move_alert_pct": 4.0, "max_position_pct": 25.0,
+        "notes": "", "email_alerts": true, "last_scan_at": "2026-11-20T15:05:00", "chat_available": true,
+    ]
+
+    func dismissInsight(_ id: String) { lock.withLock { _ = dismissedInsights.insert(id) } }
+
+    private var optionPlans: [[String: Any]] = []
+
+    /// Saved option plans, newest first, as the backend lists them.
+    var plans: [[String: Any]] { lock.withLock { optionPlans } }
+
+    func savePlan(_ sent: [String: Any]) -> [String: Any] {
+        lock.withLock {
+            var plan = sent
+            plan["id"] = "sample-plan-\(optionPlans.count + 1)"
+            plan["created_at"] = "2026-11-20T21:30:00"
+            optionPlans.insert(plan, at: 0)
+            return plan
+        }
+    }
+
+    func deletePlan(_ id: String) {
+        lock.withLock { optionPlans.removeAll { $0["id"] as? String == id } }
+    }
+
+    var insights: [[String: Any]] {
+        let gone = lock.withLock { dismissedInsights }
+        return DemoData.agentInsights.filter { !gone.contains($0["id"] as? String ?? "") }
+    }
+
+    func profile(merging changes: [String: Any] = [:]) -> [String: Any] {
+        lock.withLock {
+            agentProfile.merge(changes) { _, new in new }
+            return agentProfile
+        }
+    }
+
+    var exits: [[String: Any]] {
+        let resolved = lock.withLock { resolvedPositions }
+        return DemoData.unresolvedExits.filter { !resolved.contains($0["position_id"] as? String ?? "") }
+    }
+
+    var notices: [[String: Any]] {
+        let seen = lock.withLock { acknowledged }
+        return DemoData.notices.filter { !seen.contains($0["id"] as? Int ?? -1) }
+    }
+
+    // The notice inbox, worked the way the backend works it: unread notices
+    // grouped by source, the most important group first; a mute reads the
+    // source's notices and lists it as muted.
+    private var mutedSources = Set<String>()
+
+    private func isRead(_ notice: [String: Any]) -> Bool {
+        notice["read"] as? Bool == true || acknowledged.contains(notice["id"] as? Int ?? -1)
+    }
+
+    private func item(_ notice: [String: Any]) -> [String: Any] {
+        var row = notice.filter { ["id", "title", "body", "symbol", "source_kind", "level", "created_at"].contains($0.key) }
+        row["read"] = isRead(notice)
+        return row
+    }
+
+    var noticeInbox: [String: Any] {
+        lock.withLock {
+            let rank = ["act": 3, "changed": 2, "fyi": 1]
+            var order: [String] = []
+            var groups: [String: [String: Any]] = [:]
+            for notice in DemoData.noticeFeed where !isRead(notice) {
+                let source = notice["source_id"] as? String ?? ""
+                var group = groups[source] ?? [
+                    "source_id": source, "source_kind": notice["source_group"] ?? "strategy",
+                    "title": notice["source_title"] ?? "", "level": notice["level"] ?? "fyi",
+                    "unread_count": 0, "latest_at": notice["created_at"] ?? "",
+                    "muted": mutedSources.contains(source), "notices": [[String: Any]](),
+                ]
+                if groups[source] == nil { order.append(source) }
+                group["unread_count"] = (group["unread_count"] as? Int ?? 0) + 1
+                group["notices"] = (group["notices"] as? [[String: Any]] ?? []) + [item(notice)]
+                if rank[notice["level"] as? String ?? ""] ?? 0 > rank[group["level"] as? String ?? ""] ?? 0 {
+                    group["level"] = notice["level"]
+                }
+                groups[source] = group
+            }
+            let ranked = order.compactMap { groups[$0] }.enumerated().sorted { a, b in
+                let ra = rank[a.element["level"] as? String ?? ""] ?? 0, rb = rank[b.element["level"] as? String ?? ""] ?? 0
+                return ra != rb ? ra > rb : a.offset < b.offset
+            }.map(\.element)
+            let muted = mutedSources.sorted().compactMap { id -> [String: Any]? in
+                guard let first = DemoData.noticeFeed.first(where: { $0["source_id"] as? String == id }) else { return nil }
+                return ["source_id": id, "source_kind": first["source_group"] ?? "strategy", "title": first["source_title"] ?? ""]
+            }
+            return ["groups": ranked, "muted": muted]
+        }
+    }
+
+    func noticeSource(_ id: String) -> [String: Any]? {
+        lock.withLock {
+            let rows = DemoData.noticeFeed.filter { $0["source_id"] as? String == id }
+            guard let first = rows.first else { return nil }
+            return [
+                "source_id": id, "source_kind": first["source_group"] ?? "strategy",
+                "title": first["source_title"] ?? "", "muted": mutedSources.contains(id),
+                "notices": rows.map(item),
+            ]
+        }
+    }
+
+    func readNotices(ids: [Int]?, source: String?) -> Int {
+        lock.withLock {
+            let rows = DemoData.noticeFeed.filter { notice in
+                !isRead(notice) && (ids?.contains(notice["id"] as? Int ?? -1) ?? (notice["source_id"] as? String == source))
+            }
+            rows.forEach { acknowledged.insert($0["id"] as? Int ?? -1) }
+            return rows.count
+        }
+    }
+
+    func setMuted(_ id: String, _ muted: Bool) {
+        if muted {
+            _ = readNotices(ids: nil, source: id)
+            lock.withLock { _ = mutedSources.insert(id) }
+        } else {
+            lock.withLock { _ = mutedSources.remove(id) }
+        }
+    }
+}
+
+extension DemoData {
+    /// The sample account's agent conversation: a made-up answer about the
+    /// sample holdings, streamed in the backend's own format so the screen
+    /// behaves as it does for real. It says it is a sample.
+    static let agentChat: AgentChatService.Opener = { request in
+        let asked = (request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })?["content"] as? String ?? ""
+        let wantsOrder = ["trim", "sell", "limit", "order"].contains { asked.lowercased().contains($0) }
+        var lines = [
+            #"data: {"type":"tool_call_start","call_id":"c1","name":"agent_overview","arguments":{}}"#,
+            #"data: {"type":"tool_result","call_id":"c1","name":"agent_overview"}"#,
+        ]
+        let answer: String
+        if wantsOrder {
+            lines.append(#"data: {"type":"tool_call_start","call_id":"c2","name":"agent_draft_order","arguments":{}}"#)
+            lines.append(#"data: {"type":"tool_result","call_id":"c2","name":"agent_draft_order","client":{"type":"review_order","symbol":"AAPL","side":"sell","units":16,"reason":"Brings AAPL back to your 25% limit."}}"#)
+            answer = "Sample answer. AAPL is 49% of your holdings against your 25% limit. Selling 16 shares at $352.78 would bring it to 25%. I have drafted that order below; nothing has been sent, and it is yours to review and confirm."
+        } else {
+            answer = "Sample answer. You hold NVDA, AAPL and MSFT, worth $18,173. AAPL is 49% of that, over your 25% limit. Two exits your strategies signalled are waiting on you in Actions, and NVDA's latest filing has one item to check."
+        }
+        for word in answer.split(separator: " ") {
+            lines.append(#"data: {"type":"token","text":"\#(word) "}"#)
+        }
+        lines.append(#"data: {"type":"done","finish_reason":"stop"}"#)
+        let script = lines
+        let stream = AsyncThrowingStream<String, Error> { continuation in
+            let task = Task {
+                for line in script {
+                    try? await Task.sleep(for: .milliseconds(line.contains("token") ? 35 : 400))
+                    continuation.yield(line)
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+        return (stream, 200)
+    }
+}
+
+extension DemoData {
+    /// NVIDIA's real option chain at the close on 2026-11-20, cut to five
+    /// expiries: one expiry of it as the backend would send it, or the
+    /// default expiry when none is asked for. Nil for an expiry it lacks.
+    public static func optionChain(expiration: String? = nil) -> Data? {
+        guard let url = Bundle.module.url(forResource: "option-chains-nvda", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let all = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let chain = all[expiration ?? "default"]
+        else { return nil }
+        return try? JSONSerialization.data(withJSONObject: chain)
+    }
+}
+
+struct DemoTransport: ClientTransport {
+    let live = URLSessionTransport()
+    let state = DemoState()
+
+    private static func json(_ value: Any, status: HTTPResponse.Status = .ok) -> (HTTPResponse, HTTPBody?) {
+        let data = (try? JSONSerialization.data(withJSONObject: value)) ?? Data("null".utf8)
+        return (HTTPResponse(status: status, headerFields: [.contentType: "application/json"]), HTTPBody(data))
+    }
+
+    /// The path segment after `marker`: the position id in
+    /// `/positions/p-2/hold`, the entry id in `/notifications/41/ack`.
+    private static func segment(after marker: String, in request: HTTPRequest) -> String? {
+        let parts = (request.path ?? "").split(separator: "?").first?.split(separator: "/").map(String.init) ?? []
+        guard let index = parts.firstIndex(of: marker), index + 1 < parts.count else { return nil }
+        return parts[index + 1]
+    }
+
+    private static func position(id: String, symbol: String, shares: Double, entry: Double, open: Bool) -> [String: Any] {
+        ["id": id, "symbol": symbol, "entered_at": "2026-11-16T14:45:00Z", "entry_price": entry,
+         "shares_initial": shares, "shares_remaining": open ? shares : 0, "is_open": open, "trade_log": []]
+    }
+
+    func send(
+        _ request: HTTPRequest,
+        body: HTTPBody?,
+        baseURL: URL,
+        operationID: String
+    ) async throws -> (HTTPResponse, HTTPBody?) {
+        if let reply = DemoData.replies[operationID] {
+            return (HTTPResponse(status: .ok, headerFields: [.contentType: "application/json"]), HTTPBody(reply))
+        }
+        // Filing analysis: NVIDIA's real figures from the SEC, captured
+        // 2026-11-17, so the screen can be seen before the endpoint is live.
+        if operationID == "get_company_filings_api_company__symbol__filings_get" {
+            if (request.path ?? "").uppercased().contains("/NVDA/"),
+               let url = Bundle.module.url(forResource: "filings-nvda", withExtension: "json"),
+               let data = try? Data(contentsOf: url) {
+                return (HTTPResponse(status: .ok, headerFields: [.contentType: "application/json"]), HTTPBody(data))
+            }
+            return try await live.send(request, body: body, baseURL: baseURL, operationID: operationID)
+        }
+        if DemoData.liveOperations.contains(operationID) {
+            return try await live.send(request, body: body, baseURL: baseURL, operationID: operationID)
+        }
+
+        var sent: [String: Any] = [:]
+        if let body, let data = try? await Data(collecting: body, upTo: 1 << 20) {
+            sent = (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+        }
+
+        switch operationID {
+        case "get_profile_api_agent_profile_get":
+            return Self.json(state.profile())
+        case "update_profile_api_agent_profile_put":
+            return Self.json(state.profile(merging: sent))
+        case "list_insights_api_agent_insights_get":
+            return Self.json(state.insights)
+        case "scan_now_api_agent_scan_post":
+            return Self.json([
+                "checked_at": "2026-11-20T15:05:00", "new_insights": 0, "symbols_checked": 10,
+                "brokerage_linked": true, "notes": [String](), "insights": state.insights,
+            ] as [String: Any])
+        case "dismiss_insight_api_agent_insights__insight_id__dismiss_post":
+            let id = Self.segment(after: "insights", in: request) ?? ""
+            state.dismissInsight(id)
+            return Self.json(DemoData.agentInsights.first { $0["id"] as? String == id } ?? [:])
+        case "get_chain_api_options__symbol__chain_get":
+            let symbol = (Self.segment(after: "options", in: request) ?? "").uppercased()
+            let query = (request.path ?? "").split(separator: "?").dropFirst().first.map(String.init) ?? ""
+            let expiration = query.split(separator: "&").first { $0.hasPrefix("expiration=") }?.dropFirst("expiration=".count)
+            guard symbol == "NVDA", let chain = DemoData.optionChain(expiration: expiration.map(String.init)) else {
+                return Self.json(["detail": "The sample account has options for NVDA only."], status: .notFound)
+            }
+            return (HTTPResponse(status: .ok, headerFields: [.contentType: "application/json"]), HTTPBody(chain))
+        case "list_plans_api_options_plans_get":
+            return Self.json(state.plans)
+        case "save_plan_api_options_plans_post":
+            return Self.json(state.savePlan(sent), status: .created)
+        case "delete_plan_api_options_plans__plan_id__delete":
+            state.deletePlan(Self.segment(after: "plans", in: request) ?? "")
+            return (HTTPResponse(status: .noContent), nil)
+        case "list_unresolved_exits_api_saved_strategies_unresolved_exits_get":
+            return Self.json(state.exits)
+        case "notice_inbox_view_api_me_notices_get":
+            return Self.json(state.noticeInbox)
+        case "notice_source_view_api_me_notices_sources__source_id__get":
+            guard let source = state.noticeSource(Self.segment(after: "sources", in: request) ?? "") else {
+                return Self.json(["detail": "That strategy or screen isn't yours."], status: .notFound)
+            }
+            return Self.json(source)
+        case "mark_notices_read_api_me_notices_read_post":
+            let marked = state.readNotices(ids: sent["ids"] as? [Int], source: sent["source_id"] as? String)
+            return Self.json(["marked": marked])
+        case "mute_notice_source_api_me_notices_mutes__source_id__put":
+            state.setMuted(Self.segment(after: "mutes", in: request) ?? "", true)
+            return (HTTPResponse(status: .noContent), nil)
+        case "unmute_notice_source_api_me_notices_mutes__source_id__delete":
+            state.setMuted(Self.segment(after: "mutes", in: request) ?? "", false)
+            return (HTTPResponse(status: .noContent), nil)
+        case "list_pending_banners_api_me_notifications_pending_get":
+            return Self.json(state.notices)
+        case "acknowledge_banner_api_me_notifications__entry_id__ack_post":
+            if let id = Self.segment(after: "notifications", in: request).flatMap(Int.init) { state.acknowledge(id) }
+            return (HTTPResponse(status: .noContent), nil)
+        case "confirm_position_exit_api_saved_strategies__strategy_id__positions__position_id__confirm_exit_post",
+             "hold_position_through_exit_api_saved_strategies__strategy_id__positions__position_id__hold_post":
+            let id = Self.segment(after: "positions", in: request) ?? ""
+            state.resolve(position: id)
+            let exit = DemoData.unresolvedExits.first { $0["position_id"] as? String == id }
+            return Self.json(Self.position(
+                id: id, symbol: exit?["symbol"] as? String ?? "", shares: exit?["shares_initial"] as? Double ?? 0,
+                entry: exit?["entry_price"] as? Double ?? 0, open: operationID.hasSuffix("hold_post")
+            ))
+        case "declare_position_api_saved_strategies__strategy_id__positions_post":
+            return Self.json(Self.position(
+                id: "p-new", symbol: sent["symbol"] as? String ?? "", shares: sent["shares"] as? Double ?? 0,
+                entry: sent["entry_price"] as? Double ?? 0, open: true
+            ), status: .created)
+        case "preview_order_api_snaptrade_orders_preview_post":
+            var preview: [String: Any] = [
+                "trade_id": "sample-trade", "symbol": sent["symbol"] as? String ?? "",
+                "action": sent["action"] as? String ?? "", "estimated_commission": 0.0, "remaining_cash": 4812.07,
+            ]
+            if let units = sent["units"] as? Double { preview["units"] = units }
+            return Self.json(preview)
+        default:
+            return Self.json(["detail": "The sample account can't do this. Sign in to your own account."], status: .badRequest)
+        }
+    }
+}
+
+extension AppSession {
+    /// A session signed in as a made-up user, answering account calls from
+    /// `DemoData`. Debug builds only.
+    /// - Parameter serverURL: where the sample account's live research calls
+    ///   go; a backend on this Mac shows an endpoint before it is deployed.
+    public static func demo(serverURL: URL = APIEnvironment.production) -> AppSession {
+        let session = AppSession(
+            serverURL: serverURL,
+            store: InMemorySessionStore(DemoData.session),
+            biometrics: InMemoryBiometricStore(),
+            transport: DemoTransport()
+        )
+        session.isDemo = true
+        session.agentChatOpener = DemoData.agentChat
+        return session
+    }
+}
+#endif

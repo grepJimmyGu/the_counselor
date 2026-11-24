@@ -32,6 +32,10 @@ async def get_company_overview(
 
     Gated: Scout + anonymous → S&P 500 only. Strategist+ → all US tickers.
     """
+    # The gate above has finished with the database. Give the connection back
+    # before waiting on a page that may be being built (apps/api/CLAUDE.md,
+    # trap 13); the service opens its own session for the build.
+    db.close()
     try:
         return await _service.get_overview(db, symbol.upper())
     except Exception as exc:

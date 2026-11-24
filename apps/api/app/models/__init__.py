@@ -1,3 +1,4 @@
+from app.models.agent import AgentInsight, AgentProfile  # noqa: F401
 from app.models.anonymous_session import AnonymousSession  # noqa: F401
 from app.models.attribution_visit import AttributionVisit  # noqa: F401
 from app.models.backtest import BacktestRecord
@@ -9,6 +10,9 @@ from app.models.data_fetch_log import DataFetchLog
 from app.models.intraday_bar import IntradayBar  # noqa: F401
 from app.models.mark_as_executed_event import MarkAsExecutedEvent  # noqa: F401
 from app.models.notification_banner import NotificationBannerEntry  # noqa: F401
+from app.models.notice_mute import NoticeMute  # noqa: F401
+from app.models.option_plan import OptionPlan  # noqa: F401
+from app.models.password_reset import PasswordResetCode  # noqa: F401
 from app.models.position_state import PositionState  # noqa: F401
 from app.models.rule import Rule  # noqa: F401
 from app.models.price_bar import PriceBar
@@ -43,6 +47,7 @@ __all__ = [
     "IntradayBar",
     "MonthlyUsage",
     "NotificationBannerEntry",
+    "OptionPlan",
     "Plan",
     "PositionState",
     "PriceBar",

@@ -25,10 +25,11 @@ at boot — a missing key must not take production down (trap #11).
 
 from __future__ import annotations
 
+import json
 import logging
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -223,9 +224,14 @@ def connection_portal_url(
     user_id: str,
     *,
     return_path: Optional[str] = None,
+    trading_account_id: Optional[str] = None,
     client: Any = None,
 ) -> str:
     """A one-time URL where the user authorises their own broker.
+
+    With `trading_account_id`, the URL re-authorises the connection that
+    account belongs to, this time asking the broker for permission to place
+    orders. Without it the connection is read-only, as it always was.
 
     The authorisation happens on SnapTrade's portal against the broker's own
     login — Livermore never sees the user's brokerage credentials, which is
@@ -238,16 +244,139 @@ def connection_portal_url(
     """
     reg = get_registration(db, user_id) or register_user(db, user_id, client=client)
     api = client or _client()
+    permission: Dict[str, str] = {}
+    if trading_account_id:
+        # SnapTrade creates every connection READ-ONLY unless asked otherwise
+        # (`connectionType` "Defaults to read"). A read-only connection can
+        # list holdings and refuses every order with error 3007. Its documented
+        # upgrade is to re-authorise the SAME connection with trading asked
+        # for: `reconnect=<connection id>` plus `connection_type="trade"`.
+        # A new connection instead would duplicate the user's accounts.
+        _require_trading()
+        connection_id = connection_id_for_account(
+            db, user_id, trading_account_id, client=api
+        )
+        if not connection_id:
+            raise ValueError("That account isn't one of your linked accounts.")
+        allows, broker = trading_support(db, user_id, trading_account_id, client=api)
+        if allows is False:
+            raise ValueError(trading_unsupported_message(broker))
+        permission = {"connection_type": "trade", "reconnect": connection_id}
     resp = api.authentication.login_snap_trade_user(
         user_id=reg.user_id,
         user_secret=decrypt_secret(reg.user_secret_encrypted),
         custom_redirect=return_url_for(return_path),
+        **permission,
     )
     body = _body(resp)
     url = body.get("redirectURI") or body.get("redirect_uri")
     if not url:
         raise RuntimeError("SnapTrade login returned no redirect URI")
     return str(url)
+
+
+def connection_id_for_account(
+    db: Session, user_id: str, account_id: str, *, client: Any = None
+) -> Optional[str]:
+    """The brokerage connection an account of THIS user belongs to.
+
+    Looked up in the user's own account list rather than taken from the
+    caller, so nobody can point the re-authorisation at a connection that is
+    not theirs.
+    """
+    for account in list_accounts(db, user_id, client=client):
+        if str(account.get("id") or "") != str(account_id):
+            continue
+        connection = account.get("brokerage_authorization")
+        if isinstance(connection, dict):
+            connection = connection.get("id")
+        return str(connection) if connection else None
+    return None
+
+
+def trading_support(
+    db: Session, user_id: str, account_id: str, *, client: Any = None
+) -> "tuple[Optional[bool], Optional[str]]":
+    """(whether this account's broker takes orders through SnapTrade, its name).
+
+    The first is None when it could not be established. It matters because
+    "read-only" has two different meanings to a user: a link that can be
+    re-authorised for trading, and a broker that does not offer trading here
+    at all. Schwab, Fidelity, Robinhood and Interactive Brokers are read-only
+    on a commercial key (SnapTrade's broker access guide, 2026-11-23); Schwab
+    trades only after the app itself is approved by Schwab. Offering "turn on
+    trading" for those would send someone to their broker's login for nothing.
+    """
+    reg = get_registration(db, user_id)
+    if reg is None:
+        return None, None
+    api = client or _client()
+    connection_id = connection_id_for_account(db, user_id, account_id, client=api)
+    if not connection_id:
+        return None, None
+    resp = api.connections.detail_brokerage_authorization(
+        authorization_id=connection_id,
+        user_id=reg.user_id,
+        user_secret=decrypt_secret(reg.user_secret_encrypted),
+    )
+    body = _body(resp)
+    brokerage = body.get("brokerage") if isinstance(body, dict) else None
+    if not isinstance(brokerage, dict):
+        return None, None
+    name = brokerage.get("display_name") or brokerage.get("name")
+    allows = brokerage.get("allows_trading")
+    return (
+        allows if isinstance(allows, bool) else None,
+        str(name) if isinstance(name, str) and name else None,
+    )
+
+
+def trading_unsupported_message(broker: Optional[str]) -> str:
+    name = broker or "This broker"
+    return (
+        f"{name} doesn't take orders from Livermore. "
+        f"Plan the order here, then enter it at {broker or 'your broker'}."
+    )
+
+
+# ── what the aggregator said when it refused ───────────────────────────────
+
+# SnapTrade's code for "this connection may read the account but not trade".
+_TRADING_NOT_PERMITTED = "3007"
+
+
+def _refusal(exc: BaseException) -> Dict[str, Any]:
+    """The JSON body of an SDK `ApiException`, or {} for anything else."""
+    body = getattr(exc, "body", None)
+    if isinstance(body, (bytes, bytearray)):
+        body = body.decode("utf-8", "replace")
+    if isinstance(body, str):
+        try:
+            body = json.loads(body)
+        except ValueError:
+            return {}
+    return body if isinstance(body, dict) else {}
+
+
+def is_trading_not_permitted(exc: BaseException) -> bool:
+    """True when an order was refused because the connection is read-only."""
+    return str(_refusal(exc).get("code") or "") == _TRADING_NOT_PERMITTED
+
+
+def broker_reason(exc: BaseException) -> Optional[str]:
+    """The sentence the broker or aggregator gave for refusing, if it gave one.
+
+    `str(exc)` on an SDK error is the status line, every response header and
+    the body. That is right for a log and wrong for a person, and the app
+    correctly refuses to show it, which left "your brokerage didn't answer"
+    on screen for a brokerage that had answered. This is the one line of it
+    written for a reader.
+    """
+    detail = _refusal(exc).get("detail")
+    if not isinstance(detail, str):
+        return None
+    detail = " ".join(detail.split())
+    return detail[:200] if detail else None
 
 
 # ── reading ─────────────────────────────────────────────────────────────────
@@ -538,6 +667,141 @@ def list_recent_orders(
         except Exception:  # noqa: BLE001
             _log.exception("snaptrade: orders read failed for %s", account_id)
     return out
+
+
+# How an order's broker status reads to someone asking "is my order in?".
+# SnapTrade maps each broker's own words onto its list on a best-effort
+# basis, so anything not named here is passed on as "unknown" rather than
+# guessed at.
+_ORDER_STATES: Dict[str, str] = {
+    **dict.fromkeys(
+        ("PENDING", "ACCEPTED", "QUEUED", "TRIGGERED", "ACTIVATED",
+         "REPLACE_PENDING", "REPLACED", "CANCEL_PENDING",
+         "PENDING_RISK_REVIEW", "CONTINGENT_ORDER"),
+        "working",
+    ),
+    "EXECUTED": "filled",
+    "PARTIAL": "partly_filled",
+    **dict.fromkeys(
+        ("CANCELED", "PARTIAL_CANCELED", "REJECTED", "FAILED", "EXPIRED",
+         "STOPPED", "SUSPENDED"),
+        "ended",
+    ),
+}
+
+# How far back the once-a-day order list is searched for a contract. A week
+# covers "I placed it on Friday and checked on Monday".
+_OPTION_ORDER_DAYS = 7
+
+
+def option_contract_key(symbol: Any) -> str:
+    """An option contract's symbol with the padding taken out.
+
+    The exchanges write "NVDA  270115C00125000", padded to 21 characters; a
+    plan carries "NVDA270115C00125000". Both name the same contract.
+    """
+    return "".join(str(symbol or "").split()).upper()
+
+
+@dataclass
+class OptionOrder:
+    """One order for an option contract, as the broker has it."""
+    account_id: str
+    order_id: Optional[str]
+    status: Optional[str]         # the broker's status as SnapTrade mapped it
+    state: str                    # working | filled | partly_filled | ended | unknown
+    action: Optional[str]         # BUY, SELL, BUY_OPEN, … varies by broker
+    quantity: Optional[float]     # contracts
+    filled_quantity: Optional[float]
+    limit_price: Optional[float]  # per share
+    order_type: Optional[str]
+    time_in_force: Optional[str]
+    time_placed: Optional[str]
+
+
+def _option_order(row: Dict[str, Any], account_id: str) -> OptionOrder:
+    status = str(row.get("status") or "").upper() or None
+    placed = row.get("time_placed")
+    return OptionOrder(
+        account_id=account_id,
+        order_id=str(row["brokerage_order_id"]) if row.get("brokerage_order_id") else None,
+        status=status,
+        state=_ORDER_STATES.get(status or "", "unknown"),
+        action=str(row.get("action") or "").upper() or None,
+        quantity=_maybe_float(row.get("total_quantity")),
+        filled_quantity=_maybe_float(row.get("filled_quantity")),
+        limit_price=_maybe_float(row.get("limit_price")),
+        order_type=row.get("order_type"),
+        time_in_force=row.get("time_in_force"),
+        time_placed=placed.isoformat() if hasattr(placed, "isoformat") else (str(placed) if placed else None),
+    )
+
+
+def find_option_orders(
+    db: Session, user_id: str, contract_symbol: str, *, client: Any = None,
+) -> Tuple[List[OptionOrder], bool]:
+    """Orders for one option contract across the user's linked accounts.
+
+    This is how an order the user typed in at their own broker gets
+    confirmed: the link can read an account's orders even where it cannot
+    place one.
+
+    Returns `(orders, live)`, newest first. Each account is asked twice:
+
+      - its last 24 hours of orders, which SnapTrade always reads from the
+        broker at that moment; and
+      - its last week, which on most plans is a copy refreshed once a day.
+
+    `live` is False when any account's 24-hour read failed, so the caller
+    can say that a just-placed order may not show yet instead of saying it
+    is not there.
+
+    Raises `SnapTradeReadFailed` when no account could be read at all — "we
+    could not look" must never be reported as "no such order".
+    """
+    wanted = option_contract_key(contract_symbol)
+    found: Dict[Tuple[str, str], OptionOrder] = {}
+    accounts = answered = 0
+    live = True
+    for api, st_user, secret, account_id in _each_account(db, user_id, client):
+        accounts += 1
+        rows: List[Dict[str, Any]] = []
+        ok = False
+        try:
+            resp = api.account_information.get_user_account_recent_orders(
+                user_id=st_user, user_secret=secret,
+                account_id=account_id, only_executed=False,
+            )
+            body = _body(resp) or {}
+            rows += list((body.get("orders") if isinstance(body, dict) else body) or [])
+            ok = True
+        except Exception:  # noqa: BLE001
+            live = False
+            _log.exception("snaptrade: live orders read failed for %s", account_id)
+        try:
+            resp = api.account_information.get_user_account_orders(
+                user_id=st_user, user_secret=secret, account_id=account_id,
+                state="all", days=_OPTION_ORDER_DAYS,
+            )
+            rows += list(_body(resp) or [])
+            ok = True
+        except Exception:  # noqa: BLE001
+            _log.exception("snaptrade: orders read failed for %s", account_id)
+        answered += ok
+        for index, raw in enumerate(rows):
+            row = dict(raw)
+            option = row.get("option_symbol") or {}
+            ticker = option.get("ticker") if isinstance(option, dict) else None
+            if option_contract_key(ticker) != wanted:
+                continue
+            order = _option_order(row, account_id)
+            # The live list comes first, so its copy of an order wins over
+            # the day-old one.
+            found.setdefault((account_id, order.order_id or f"row-{index}"), order)
+    if accounts and not answered:
+        raise SnapTradeReadFailed(f"all {accounts} account order read(s) failed")
+    orders = sorted(found.values(), key=lambda o: o.time_placed or "", reverse=True)
+    return orders, live
 
 
 def get_return_rates(

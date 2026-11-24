@@ -12,6 +12,9 @@ from app.models.daily_card import DailyCard
 from app.schemas.data_quality import DataQualityReport
 from app.schemas.market_data import (
     DataStatusResponse,
+    IntradayBarView,
+    IntradayChartView,
+    IntradaySessionView,
     MarketSnapshotItem,
     PriceBarResponse,
     SymbolDetailResponse,
@@ -24,6 +27,11 @@ from sqlalchemy import select
 from app.models.price_bar import PriceBar
 from app.services.alpha_vantage import AlphaVantageClient
 from app.services.data_quality_service import DataQualityService
+from app.services.intraday_chart_service import (
+    IntradayUnavailable,
+    NoIntradayPrices,
+    intraday_chart_service,
+)
 from app.services.market_data import MarketDataService
 from app.services.price_data_service import PriceDataService
 from app.services.symbol_service import SymbolService
@@ -64,7 +72,42 @@ async def get_daily_prices(
     db: Session = Depends(get_db),
 ) -> list[PriceBarResponse]:
     end_date = end or date.today()
-    return await market_data_service.get_cached_bars(db, symbol.upper(), end_date)
+    return await market_data_service.get_cached_bars(db, symbol.upper(), end_date, start_date=start)
+
+
+@router.get("/data/intraday/{symbol}", response_model=IntradayChartView)
+async def get_intraday_chart(
+    symbol: str,
+    range_key: str = Query(default="1d", alias="range", pattern="^(1d|1w)$"),
+) -> IntradayChartView:
+    """A stock's regular-session prices through the day: `1d` is the latest
+    session in 5-minute bars, `1w` the latest five in 30-minute bars, each
+    with the close they are measured from. No auth gate, like the daily
+    prices above. Takes no database session: nothing here reads the DB, and
+    the FMP call must not hold a connection (trap 13)."""
+    try:
+        chart = await intraday_chart_service.chart(symbol, range_key)
+    except NoIntradayPrices:
+        raise HTTPException(status_code=404, detail=f"No intraday prices for {symbol.upper()}.")
+    except IntradayUnavailable:
+        raise HTTPException(status_code=502, detail="Couldn't load intraday prices right now.")
+    return IntradayChartView(
+        symbol=chart.symbol,
+        range=chart.range,
+        interval_minutes=chart.interval_minutes,
+        sessions=[
+            IntradaySessionView(
+                date=s.date,
+                bars=[IntradayBarView(time=b.time, open=b.open, close=b.close) for b in s.bars],
+                close=s.close,
+            )
+            for s in chart.sessions
+        ],
+        previous_close=chart.previous_close,
+        previous_close_date=chart.previous_close_date,
+        previous_close_source=chart.previous_close_source,
+        as_of=chart.as_of,
+    )
 
 
 @router.post("/data/warmup", response_model=WarmupResponse)

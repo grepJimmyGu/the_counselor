@@ -76,6 +76,10 @@ async def refresh_business_intelligence(
         )
         db.commit()
         deleted = result.rowcount
+        # The company page is also kept in memory for a while; without this
+        # the "next page load" would be served the page built before the wipe.
+        from app.services.company_overview_service import forget_overview
+        forget_overview(sym)
         return {"symbol": sym, "deleted_rows": deleted, "status": "cache cleared — re-extraction will happen on next page load"}
     except Exception as exc:
         db.rollback()

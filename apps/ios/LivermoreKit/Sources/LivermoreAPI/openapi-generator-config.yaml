@@ -1,0 +1,66 @@
+generate:
+  - types
+  - client
+accessModifier: public
+namingStrategy: idiomatic
+# Only the endpoints the app calls. The schema has 157 paths; generating all of
+# them would triple build time for code nothing uses. Add a path here when a
+# screen starts calling it.
+filter:
+  paths:
+    - /api/auth/password/login
+    - /api/auth/password/signup
+    - /api/auth/oauth/google/callback
+    - /api/auth/password/reset/request
+    - /api/auth/password/reset/confirm
+    - /api/auth/password/change
+    # The portfolio agent
+    - /api/agent/profile
+    - /api/agent/insights
+    - /api/agent/insights/{insight_id}/dismiss
+    - /api/agent/scan
+    - /api/me/entitlements
+    - /api/live/quotes
+    # Research (slice 2)
+    - /api/symbols/search
+    - /api/company/{symbol}/overview
+    - /api/company/{symbol}/trend
+    - /api/sentiment/{symbol}/summary
+    - /api/supply-chain/{symbol}/summary
+    # Strategies (slice 3)
+    - /api/saved-strategies
+    - /api/saved-strategies/open-positions
+    - /api/saved-strategies/{strategy_id}/signal
+    - /api/saved-strategies/{strategy_id}/positions
+    # Strategy builder (slice 6)
+    - /api/backtest/run
+    - /api/anonymous/backtest/run
+    # Actions and brokerage (slice 4)
+    - /api/saved-strategies/unresolved-exits
+    - /api/saved-strategies/{strategy_id}/positions/{position_id}/confirm-exit
+    - /api/saved-strategies/{strategy_id}/positions/{position_id}/hold
+    - /api/me/notifications/pending
+    - /api/me/notifications/{entry_id}/ack
+    # The notice inbox: grouped by source, read in bulk, muted per source
+    - /api/me/notices
+    - /api/me/notices/read
+    - /api/me/notices/mutes/{source_id}
+    - /api/me/notices/sources/{source_id}
+    - /api/snaptrade/status
+    - /api/snaptrade/connect
+    - /api/snaptrade/accounts
+    - /api/snaptrade/positions
+    - /api/snaptrade/orders/preview
+    - /api/snaptrade/orders/place
+    # An order entered at the broker by hand, read back (PRD-44)
+    - /api/snaptrade/orders/option
+    # Market strip and sparklines; daily history for the price chart
+    - /api/market/overview
+    - /api/data/daily/{symbol}
+    - /api/data/intraday/{symbol}
+    # Quarterly filing analysis (10-Q / 10-K)
+    - /api/company/{symbol}/filings
+    # Options builder (PRD-44)
+    - /api/options/{symbol}/chain
+    - /api/options/plans
+    - /api/options/plans/{plan_id}
