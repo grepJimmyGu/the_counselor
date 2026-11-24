@@ -512,9 +512,18 @@ export function QueryResults({
 
   // Any change to the result set or its ordering invalidates the page index;
   // staying on page 8 of a now 2-page result shows an empty table.
-  useEffect(() => {
+  //
+  // Reset while rendering, not in an effect. An effect runs after the new
+  // results are already on screen, so a "Next page" click in that gap was
+  // applied first and then undone by the reset. web-ci on main caught it on
+  // 2026-11-24: "returns to page 1 when the sort changes" read 1 / 3 after
+  // Next. This is React's pattern for adjusting state when its inputs change.
+  const pageInputs = [query, universeId, sortBy, sortDir, scan, metricFilters] as const;
+  const [pageInputsSeen, setPageInputsSeen] = useState(pageInputs);
+  if (pageInputs.some((value, i) => value !== pageInputsSeen[i])) {
+    setPageInputsSeen(pageInputs);
     setPage(0);
-  }, [query, universeId, sortBy, sortDir, scan, metricFilters]);
+  }
 
   const toggleMetric = useCallback(
     (key: string) => {
