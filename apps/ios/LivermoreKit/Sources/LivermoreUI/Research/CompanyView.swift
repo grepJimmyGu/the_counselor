@@ -404,6 +404,8 @@ struct PerformanceCard: View {
     let historyFailed: Bool
 
     @State private var range: PerformanceRange = .oneYear
+    /// 1D or 1W: prices through the day instead of daily closes.
+    @State private var intraday: IntradayRange?
     @State private var selectedDate: Date?
 
     private struct PricePoint: Identifiable {
@@ -425,6 +427,25 @@ struct PerformanceCard: View {
         return (trend?.pricePoints ?? []).map { PricePoint(date: $0.date, price: $0.price) }
     }
 
+    /// "Past year", or — when the stock's prices begin inside the period —
+    /// the days the chart really covers: "Since Nov 19 · 3 trading days".
+    private func chartTitle(_ series: PerformanceSeries?, usesHistory: Bool, first: Date?) -> String {
+        guard usesHistory, let series else { return "Last 90 days" }
+        guard series.isShorterThanRange, let first else { return range.title }
+        let days = series.tradingDays
+        return "Since \(Fmt.shortTradingDay(first)) · \(days) trading day\(days == 1 ? "" : "s")"
+    }
+
+    /// Axis labels for what is drawn, not for the range picked: a year chart
+    /// of a stock that listed last week labels days, not "Nov Nov Nov".
+    private static func axisFormat(spanning points: [PricePoint]) -> Date.FormatStyle {
+        guard let first = points.first?.date, let last = points.last?.date else { return Fmt.utc(.dateTime.month(.abbreviated)) }
+        let days = last.timeIntervalSince(first) / 86_400
+        if days <= 100 { return Fmt.utc(.dateTime.month(.abbreviated).day()) }
+        if days <= 800 { return Fmt.utc(.dateTime.month(.abbreviated)) }
+        return Fmt.utc(.dateTime.year())
+    }
+
     var body: some View {
         let series = series
         let points = pricePoints(series)
@@ -436,101 +457,136 @@ struct PerformanceCard: View {
         let change = (shown?.price).flatMap { last in first.map { last / $0 - 1 } }
         let color = (change ?? 0).changeColor
         let usesHistory = (series?.points.count ?? 0) > 1
+        let title = chartTitle(series, usesHistory: usesHistory, first: points.first?.date)
+        // A few days of prices: draw each day as a point joined by straight
+        // lines, and label the days themselves. A smoothed curve through
+        // three closes invents a path between them.
+        let isShort = points.count < 40
 
         Card {
-            VStack(alignment: .leading, spacing: 2) {
-                if let selected {
-                    Text(Fmt.tradingDay(selected.date)).eyebrowStyle()
-                    Text(Fmt.price(selected.price)).font(.title3.weight(.semibold).monospacedDigit())
-                } else {
-                    Text(usesHistory ? range.title : "Last 90 days").eyebrowStyle()
-                    HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Text(Fmt.percent(change, signed: true))
-                            .font(.title3.weight(.semibold).monospacedDigit()).foregroundStyle(color)
-                        if let excess = series?.excessReturn {
-                            Text("\(Fmt.percent(excess, signed: true)) vs S&P 500")
-                                .font(.subheadline.monospacedDigit()).foregroundStyle(.inkSecondary)
-                        }
-                    }
-                }
-            }
-            .frame(height: 44, alignment: .topLeading)
-
-            if points.count > 1 {
-                let low = points.map(\.price).min() ?? 0
-                let high = points.map(\.price).max() ?? 1
-                let pad = max((high - low) * 0.08, high * 0.002)
-                Chart {
-                    ForEach(points) { point in
-                        AreaMark(
-                            x: .value("Date", point.date),
-                            yStart: .value("Floor", low - pad),
-                            yEnd: .value("Price", point.price)
-                        )
-                        .foregroundStyle(LinearGradient(colors: [color.opacity(0.22), color.opacity(0)], startPoint: .top, endPoint: .bottom))
-                        .interpolationMethod(.monotone)
-                        LineMark(x: .value("Date", point.date), y: .value("Price", point.price))
-                            .foregroundStyle(color)
-                            .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
-                            .interpolationMethod(.monotone)
-                    }
-                    if let first {
-                        RuleMark(y: .value("Start", first))
-                            .foregroundStyle(Color.inkSecondary.opacity(0.5))
-                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
-                    }
-                    if let selected {
-                        RuleMark(x: .value("Date", selected.date)).foregroundStyle(Color.inkSecondary.opacity(0.6))
-                        PointMark(x: .value("Date", selected.date), y: .value("Price", selected.price))
-                            .foregroundStyle(color).symbolSize(70)
-                    }
-                }
-                .chartYScale(domain: (low - pad)...(high + pad))
-                .chartYAxis {
-                    AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { value in
-                        AxisGridLine().foregroundStyle(Color.hairline.opacity(0.5))
-                        AxisValueLabel {
-                            if let amount = value.as(Double.self) { Text(Fmt.axisPrice(amount)) }
-                        }
-                    }
-                }
-                .chartXAxis {
-                    AxisMarks(values: .automatic(desiredCount: 4)) { _ in
-                        AxisValueLabel(format: range.axisFormat)
-                    }
-                }
-                .chartXSelection(value: $selectedDate)
-                .frame(height: 200)
-                .sensoryFeedback(.selection, trigger: selected?.date)
-                .accessibilityLabel("\(symbol) price, \(range.title.lowercased())")
-            } else if historyFailed {
-                Notice(text: "The price history for this period isn't available right now.", systemImage: "chart.line.downtrend.xyaxis")
-                    .frame(height: 200, alignment: .center)
+            if let intraday {
+                IntradayChartSection(symbol: symbol, range: intraday)
             } else {
-                SkeletonBlock(height: 200)
+                VStack(alignment: .leading, spacing: 2) {
+                    if let selected {
+                        Text(Fmt.tradingDay(selected.date)).eyebrowStyle()
+                        Text(Fmt.price(selected.price)).font(.title3.weight(.semibold).monospacedDigit())
+                    } else {
+                        Text(title).eyebrowStyle()
+                        HStack(alignment: .firstTextBaseline, spacing: 8) {
+                            Text(Fmt.percent(change, signed: true))
+                                .font(.title3.weight(.semibold).monospacedDigit()).foregroundStyle(color)
+                            if let excess = series?.excessReturn {
+                                Text("\(Fmt.percent(excess, signed: true)) vs S&P 500")
+                                    .font(.subheadline.monospacedDigit()).foregroundStyle(.inkSecondary)
+                            }
+                        }
+                    }
+                }
+                .frame(height: 44, alignment: .topLeading)
+
+                if points.count > 1 {
+                    let low = points.map(\.price).min() ?? 0
+                    let high = points.map(\.price).max() ?? 1
+                    let pad = max((high - low) * 0.08, high * 0.002)
+                    Chart {
+                        ForEach(points) { point in
+                            AreaMark(
+                                x: .value("Date", point.date),
+                                yStart: .value("Floor", low - pad),
+                                yEnd: .value("Price", point.price)
+                            )
+                            .foregroundStyle(LinearGradient(colors: [color.opacity(0.22), color.opacity(0)], startPoint: .top, endPoint: .bottom))
+                            .interpolationMethod(isShort ? .linear : .monotone)
+                            LineMark(x: .value("Date", point.date), y: .value("Price", point.price))
+                                .foregroundStyle(color)
+                                .lineStyle(StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+                                .interpolationMethod(isShort ? .linear : .monotone)
+                            if points.count <= 12 {
+                                PointMark(x: .value("Date", point.date), y: .value("Price", point.price))
+                                    .foregroundStyle(color).symbolSize(28)
+                            }
+                        }
+                        if let first {
+                            RuleMark(y: .value("Start", first))
+                                .foregroundStyle(Color.inkSecondary.opacity(0.5))
+                                .lineStyle(StrokeStyle(lineWidth: 1, dash: [3, 3]))
+                        }
+                        if let selected {
+                            RuleMark(x: .value("Date", selected.date)).foregroundStyle(Color.inkSecondary.opacity(0.6))
+                            PointMark(x: .value("Date", selected.date), y: .value("Price", selected.price))
+                                .foregroundStyle(color).symbolSize(70)
+                        }
+                    }
+                    .chartYScale(domain: (low - pad)...(high + pad))
+                    // Room either side so the first and last day's labels are
+                    // not clipped at the plot's edge.
+                    .chartXScale(range: .plotDimension(padding: points.count <= 6 ? 24 : 0))
+                    .chartYAxis {
+                        AxisMarks(position: .trailing, values: .automatic(desiredCount: 3)) { value in
+                            AxisGridLine().foregroundStyle(Color.hairline.opacity(0.5))
+                            AxisValueLabel {
+                                if let amount = value.as(Double.self) { Text(Fmt.axisPrice(amount)) }
+                            }
+                        }
+                    }
+                    .chartXAxis {
+                        if points.count <= 6 {
+                            // One label per trading day.
+                            AxisMarks(values: points.map(\.date)) { _ in
+                                AxisValueLabel(format: Fmt.utc(.dateTime.month(.abbreviated).day()))
+                            }
+                        } else {
+                            AxisMarks(values: .automatic(desiredCount: 4)) { _ in
+                                AxisValueLabel(format: Self.axisFormat(spanning: points))
+                            }
+                        }
+                    }
+                    .chartXSelection(value: $selectedDate)
+                    .frame(height: 200)
+                    .sensoryFeedback(.selection, trigger: selected?.date)
+                    .accessibilityLabel("\(symbol) price, \(title.lowercased())")
+                } else if historyFailed {
+                    Notice(text: "The price history for this period isn't available right now.", systemImage: "chart.line.downtrend.xyaxis")
+                        .frame(height: 200, alignment: .center)
+                } else {
+                    SkeletonBlock(height: 200)
+                }
             }
 
-            HStack(spacing: 6) {
-                ForEach(PerformanceRange.allCases) { option in
-                    Button {
+            HStack(spacing: 4) {
+                ForEach(IntradayRange.allCases) { option in
+                    rangeButton(option.rawValue, isSelected: intraday == option) {
                         selectedDate = nil
-                        range = option
-                    } label: {
-                        Text(option.rawValue)
-                            .font(.footnote.weight(.semibold))
-                            .frame(maxWidth: .infinity, minHeight: 32)
-                            .foregroundStyle(option == range ? Color.white : .inkSecondary)
-                            .background(option == range ? Color.brand : Color.clear, in: Capsule())
+                        intraday = option
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("range-\(option.rawValue)")
-                    .accessibilityAddTraits(option == range ? .isSelected : [])
+                }
+                ForEach(PerformanceRange.allCases) { option in
+                    rangeButton(option.rawValue, isSelected: intraday == nil && option == range) {
+                        selectedDate = nil
+                        intraday = nil
+                        range = option
+                    }
                 }
             }
             .padding(3)
             .background(Color.well, in: Capsule())
             .sensoryFeedback(.selection, trigger: range)
+            .sensoryFeedback(.selection, trigger: intraday)
         }
+    }
+
+    private func rangeButton(_ label: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(label)
+                .font(.footnote.weight(.semibold))
+                .frame(maxWidth: .infinity, minHeight: 32)
+                .foregroundStyle(isSelected ? Color.white : .inkSecondary)
+                .background(isSelected ? Color.brand : Color.clear, in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityIdentifier("range-\(label)")
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 }
 
@@ -546,13 +602,6 @@ private extension PerformanceRange {
         }
     }
 
-    var axisFormat: Date.FormatStyle {
-        switch self {
-        case .oneMonth, .threeMonths: .dateTime.month(.abbreviated).day()
-        case .sixMonths, .yearToDate, .oneYear: .dateTime.month(.abbreviated)
-        case .fiveYears: .dateTime.year()
-        }
-    }
 }
 
 // MARK: - Valuation

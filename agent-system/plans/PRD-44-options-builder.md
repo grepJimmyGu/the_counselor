@@ -265,6 +265,62 @@ Planned as three PRs; built as one, because each depended on the one before
 and this session does not merge, so they could not land in turn, and stacked
 PRs lose backend CI.
 
+## 12a. What step 2 (send it through the linked broker) has to deal with
+
+Found on 2026-11-23 while tracing a failed share order on a real Schwab
+link. All of it is from SnapTrade's own docs and the installed SDK
+(13.0.3); none of it has run against a live trading connection.
+
+- **Links are read-only unless trading is asked for.** `connectionType`
+  defaults to `read`, and Livermore never set it, so no link made through the
+  app could place any order. The share ticket now offers to re-authorise the
+  account's link for trading (`reconnect` + `connectionType=trade`), which is
+  SnapTrade's documented upgrade. Option orders need the same thing.
+- **Which brokers can trade at all is narrower than which can connect.** On
+  a commercial key (SnapTrade's broker access guide): E*TRADE, Moomoo,
+  Public, tastytrade, Webull, Wealthsimple and Trading 212 are read and
+  trade. **Schwab, Fidelity, Robinhood, Interactive Brokers and Vanguard are
+  read-only.** Schwab trades only after Livermore itself is approved for
+  Schwab's commercial Trader API ("case-by-case") and its keys are handed to
+  SnapTrade. For those brokers the copy-out ticket is not a stopgap; it is
+  the way an order gets placed.
+- **The calls.** Preview is `trading.get_option_impact` (up to four legs).
+  Placing is `trading.place_mleg_order`, with one leg for a single option:
+  `instrument.symbol` is the OCC symbol **padded to 21 characters**
+  (`NVDA  270115C00125000`; ours is stored unpadded), the action is
+  `BUY_TO_OPEN` / `SELL_TO_OPEN`, `units` is contracts.
+- **The preview is not bound to the order.** Shares go preview → trade id →
+  `place_order(trade_id)`, so what is sent is what was priced.
+  `place_mleg_order` takes the order itself, not an id. To keep the rule in
+  `test_snaptrade_readonly_guard.py` (no order the user did not see priced)
+  the backend has to hold the previewed option order and place exactly that.
+- **Preview support and trading support are separate per broker**, so some
+  option orders will have to be confirmed on our own arithmetic, labelled as
+  an estimate.
+- **The ticket's limit is the last close.** On 2026-11-23 NVDA was at $166
+  against a $125.53 close; a $125 call carried a $14.23 limit that could
+  never fill. The ticket says to check the live price; step 2 has to fetch
+  one (`trading.get_user_account_option_quotes`) before it prices anything.
+
+### 12b. Brokers that take no orders: the hand-off, confirmed (built 2026-11-23)
+
+Jimmy decided not to apply for Schwab's trading API for now, so for Schwab,
+Robinhood, Fidelity, Interactive Brokers and Vanguard the ticket is how an
+order gets placed. Two additions close the loop without any trading
+permission:
+
+- **Copy and open the broker** (`BrokerApp`): Schwab's trade ticket or
+  Robinhood's stock page, opened only if the broker's app takes it. Neither
+  address accepts an order or, for Schwab, a symbol.
+- **Check my broker for this order** (`PlacedOrderReading`, backend
+  `find_option_orders`, `GET /api/snaptrade/orders/option`): matches on the
+  contract symbol with the padding removed, reads the live 24-hour list and
+  the week-long daily copy, and says which it could read.
+
+Nothing is stored: a plan is not marked "placed", the ticket asks the broker
+each time. Persisting it (and showing it on a saved plan) is the next step if
+the read proves reliable on real accounts.
+
 ## 13. Decisions
 
 Answered by Jimmy, 2026-11-20: a premium Alpha Vantage plan (so last-close

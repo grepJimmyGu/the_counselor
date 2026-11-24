@@ -70,6 +70,12 @@ public struct PerformanceSeries: Equatable, Sendable {
 
     public let range: PerformanceRange
     public let points: [Point]
+    /// The stock's prices begin after the period does — a new listing, or a
+    /// history shorter than the range. The chart then shows all of it and
+    /// must not be titled "past year".
+    public let isShorterThanRange: Bool
+    /// Trading days in the period (before thinning for the chart).
+    public let tradingDays: Int
 
     /// Charts read no more detail than this on a phone.
     static let maxPoints = 260
@@ -81,17 +87,23 @@ public struct PerformanceSeries: Equatable, Sendable {
         self.range = range
         guard let end = stock.last?.date else {
             points = []
+            isShorterThanRange = false
+            tradingDays = 0
             return
         }
         let start = range.start(endingOn: end, calendar: calendar)
         var window = stock.filter { $0.date >= start && $0.close > 0 }
+        var shorter = (stock.first { $0.close > 0 }?.date ?? end) > start
         // Year to date starts from last year's final close, not the first
         // one found after 25 December.
         if range == .yearToDate {
             let year = calendar.component(.year, from: end)
             let previous = window.last { calendar.component(.year, from: $0.date) < year }
             window = (previous.map { [$0] } ?? []) + window.filter { calendar.component(.year, from: $0.date) == year }
+            shorter = previous == nil
         }
+        isShorterThanRange = shorter
+        tradingDays = window.count
         guard let first = window.first else {
             points = []
             return

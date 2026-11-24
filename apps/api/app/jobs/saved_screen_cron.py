@@ -153,7 +153,9 @@ def monitor_saved_screens() -> dict:
                 # In-app banner always fires (the durable record); email is
                 # best-effort (the renderer falls back to a generic verb for an
                 # unknown change_type, so this can't crash the run).
-                dispatch_in_app_banner(channel_event)
+                dispatch_in_app_banner(
+                    channel_event, source_kind="screen", level="fyi", symbol=symbol,
+                )
                 if user is not None:
                     try:
                         dispatch_signal_change_email(channel_event, db, user)
