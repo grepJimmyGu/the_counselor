@@ -163,15 +163,22 @@ struct EntryExitCard: View {
             PlanRow(
                 title: "Buy at", price: entry,
                 detail: plan.entryDiscount == 0 ? reference : "\(Fmt.percent(plan.entryDiscount)) below \(reference)",
-                tint: .brand
-            ) { step in
-                plan.entryDiscount = min(max(((plan.entryDiscount + 0.01 * step) * 100).rounded() / 100, 0), 0.20)
+                tint: .brand,
+                canMove: plan.canMoveEntry(up:)
+            ) { up in
+                plan.moveEntry(up: up)
             }
-            PlanRow(title: "Stop", price: entry * (1 - plan.stop), detail: "\(Fmt.percent(plan.stop)) below entry", tint: .loss) { step in
-                plan.stop = min(max(((plan.stop + 0.005 * step) * 200).rounded() / 200, 0.005), 0.40)
+            PlanRow(
+                title: "Stop", price: entry * (1 - plan.stop), detail: "\(Fmt.percent(plan.stop)) below entry", tint: .loss,
+                canMove: plan.canMoveStop(up:)
+            ) { up in
+                plan.moveStop(up: up)
             }
-            PlanRow(title: "Target", price: entry * (1 + plan.target), detail: "\(Fmt.percent(plan.target)) above entry", tint: .gain) { step in
-                plan.target = min(max(((plan.target + 0.01 * step) * 100).rounded() / 100, 0.01), 1.00)
+            PlanRow(
+                title: "Target", price: entry * (1 + plan.target), detail: "\(Fmt.percent(plan.target)) above entry", tint: .gain,
+                canMove: plan.canMoveTarget(up:)
+            ) { up in
+                plan.moveTarget(up: up)
             }
             Picker("Give it", selection: $plan.maxDays) {
                 Text("1 month").tag(21)
@@ -227,8 +234,10 @@ private struct PlanRow: View {
     let price: Double
     let detail: String
     let tint: Color
-    /// Called with +1 or −1.
-    let step: (Double) -> Void
+    /// Whether the price can go up (true) or down (false) from here.
+    let canMove: (Bool) -> Bool
+    /// Called with true for + and false for −: + always raises the price shown.
+    let move: (Bool) -> Void
 
     var body: some View {
         HStack(spacing: 10) {
@@ -239,8 +248,12 @@ private struct PlanRow: View {
             }
             Spacer(minLength: 8)
             Text(Fmt.price(price)).font(.body.weight(.semibold).monospacedDigit())
-            Stepper(title) { step(1) } onDecrement: { step(-1) }
-                .labelsHidden()
+            Stepper(
+                title,
+                onIncrement: canMove(true) ? { move(true) } : nil,
+                onDecrement: canMove(false) ? { move(false) } : nil
+            )
+            .labelsHidden()
         }
         .accessibilityElement(children: .combine)
     }

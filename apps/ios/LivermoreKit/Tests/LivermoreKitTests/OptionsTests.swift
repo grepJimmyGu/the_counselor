@@ -235,10 +235,13 @@ struct OptionPlanTests {
 
     @Test("what happens at a price the user picks on the chart")
     func outcome() throws {
+        // Changed 2026-11-24: the sentence now shows what the call is worth
+        // and what was paid, not only the result (see OptionMathAuditTests).
+        // The results are the same as before.
         let plan = try draft(.longCall).plan
-        #expect(plan.outcome(at: 160) == "If NVDA is at $160.00 on Jan 15, you make $2,077.")
-        #expect(plan.outcome(at: 120) == "If NVDA is at $120.00 on Jan 15, you lose $1,423.")
-        #expect(plan.outcome(at: 139.23) == "If NVDA is at $139.23 on Jan 15, you break even.")
+        #expect(plan.outcome(at: 160) == "If NVDA is at $160.00 on Jan 15, the call is worth $3,500. You paid $1,423, so you make $2,077.")
+        #expect(plan.outcome(at: 120) == "If NVDA is at $120.00 on Jan 15, the call expires worthless. You paid $1,423, so you lose $1,423.")
+        #expect(plan.outcome(at: 139.23) == "If NVDA is at $139.23 on Jan 15, the call is worth $1,423. You paid $1,423, so you break even.")
     }
 
     @Test("moving the strike and the size changes the plan")

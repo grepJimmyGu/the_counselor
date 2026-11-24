@@ -8,6 +8,32 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-11-24 — "+" raises the price on the entry/exit test; the option "what if" shows its arithmetic
+
+**Symptom 1.** On the company page's "Test an entry and exit", + lowered the
+"Buy at" and "Stop" prices. **Cause:** each row's stepper changed the stored
+distance (below the close, below the entry), not the price; only "Target"
+measures upward. **Fix:** `BracketPlan.moveEntry/moveStop/moveTarget(up:)`
+move the price shown, and a button at its limit is switched off (buying at
+the price now has no +). Regression tests pin the direction on every row.
+
+**Symptom 2.** On the options builder, with REGN's Jan 15 $950 call chosen,
+"If REGN is at $995 on Jan 15, you lose $185" looked wrong. **It was right:**
+the call's price is $46.85 a share (between $43.00 bid and $50.70 ask), so
+$4,685; at $995 it is worth $45 a share, $4,500; breakeven $996.85. The
+sentence gave the result without its parts. **Fix:** it now says them: "the
+call is worth $4,500. You paid $4,685, so you lose $185", with the shares'
+part spelled out for covered calls and protective puts.
+
+**The check Jimmy asked for.** `OptionMathAuditTests` runs the app's own plan
+code over REGN's real Jan 15, 2027 chain (fetched through the backend's chain
+service; fixture in `Tests/LivermoreKitTests/Fixtures`) for all four
+strategies, every strike as the slider reaches it, 1 and 3 contracts: cost,
+most you can lose and make, breakeven, profit at a grid of prices, the
+chart's points and the sentence's total, against the textbook formulas.
+Over 5,000 points, no differences. On the simulator, moving the strike with
+the "what if" price held kept the chart and the sentence in step.
+
 ## 2026-11-24 — 1D/1W on production: the bar still in progress ran the line into the future
 
 **Symptom.** Checked on production after #390 deployed, at 15:07 ET: the 1W
