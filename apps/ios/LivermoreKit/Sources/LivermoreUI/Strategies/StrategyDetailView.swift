@@ -29,7 +29,10 @@ struct StrategyDetailView: View {
             if session.isDemo { SampleDataNotice() }
             Section("Today's signal") {
                 if let signal {
-                    SignalSummary(signal: signal)
+                    SignalSummary(
+                        signal: signal,
+                        isMuted: session.inbox.muted.contains { $0.sourceId == strategy.id }
+                    )
                 } else if let signalError {
                     Text(signalError.message).font(.subheadline).foregroundStyle(.secondary)
                 } else {
@@ -185,6 +188,8 @@ extension StrategyDetailView {
 
 private struct SignalSummary: View {
     let signal: SignalState
+    /// Muted from the Actions tab: no updates there and no emails.
+    var isMuted = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -197,11 +202,18 @@ private struct SignalSummary: View {
                 Text("Last changed \(changed.formatted(date: .abbreviated, time: .omitted))")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            Label(
-                signal.subscriptionActive ? "Email alerts are on" : "Email alerts are off",
-                systemImage: signal.subscriptionActive ? "bell.fill" : "bell.slash"
-            )
-            .font(.caption).foregroundStyle(.secondary)
+            // A mute stops its emails whatever the subscription says, so the
+            // line must not claim they are on.
+            if isMuted {
+                Label("Muted: no updates or emails", systemImage: "speaker.slash")
+                    .font(.caption).foregroundStyle(.secondary)
+            } else {
+                Label(
+                    signal.subscriptionActive ? "Email alerts are on" : "Email alerts are off",
+                    systemImage: signal.subscriptionActive ? "bell.fill" : "bell.slash"
+                )
+                .font(.caption).foregroundStyle(.secondary)
+            }
         }
     }
 }

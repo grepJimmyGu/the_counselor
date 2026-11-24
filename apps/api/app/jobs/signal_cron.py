@@ -246,7 +246,9 @@ async def _compute_all_signals_async() -> dict:
                             # In-app banner — fires regardless of email
                             # delivery so the user has a record next time
                             # they open the site.
-                            dispatch_in_app_banner(channel_event)
+                            dispatch_in_app_banner(
+                                channel_event, source_kind="strategy", level="changed",
+                            )
 
                             # Email — only when we resolved a User.
                             email_sent = False

@@ -41,6 +41,11 @@ filter:
     - /api/saved-strategies/{strategy_id}/positions/{position_id}/hold
     - /api/me/notifications/pending
     - /api/me/notifications/{entry_id}/ack
+    # The notice inbox: grouped by source, read in bulk, muted per source
+    - /api/me/notices
+    - /api/me/notices/read
+    - /api/me/notices/mutes/{source_id}
+    - /api/me/notices/sources/{source_id}
     - /api/snaptrade/status
     - /api/snaptrade/connect
     - /api/snaptrade/accounts

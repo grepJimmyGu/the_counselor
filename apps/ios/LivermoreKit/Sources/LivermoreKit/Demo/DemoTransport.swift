@@ -96,6 +96,32 @@ public enum DemoData {
          "created_at": "2026-11-14T21:15:00Z"],
     ]
 
+    /// The sample account's notices, grouped on the Actions tab by the
+    /// strategy or screen that sent them. `s-trend` is the sample strategy;
+    /// the two screens exist only here.
+    nonisolated(unsafe) static let noticeFeed: [[String: Any]] = [
+        ["id": 52, "source_id": "scr-breakouts", "source_title": "52-week breakouts", "source_group": "screen",
+         "title": "⚡ 52-week breakouts — PLTR entered '52-week breakouts'",
+         "body": "A new name entered your '52-week breakouts' screen.", "symbol": "PLTR",
+         "source_kind": "screen", "level": "fyi", "created_at": "2026-11-23T21:10:00Z"],
+        ["id": 51, "source_id": "scr-breakouts", "source_title": "52-week breakouts", "source_group": "screen",
+         "title": "⚡ 52-week breakouts — CRWD entered '52-week breakouts'",
+         "body": "A new name entered your '52-week breakouts' screen.", "symbol": "CRWD",
+         "source_kind": "screen", "level": "fyi", "created_at": "2026-11-22T21:10:00Z"],
+        ["id": 50, "source_id": "s-trend", "source_title": "NVDA 200-day trend", "source_group": "strategy",
+         "title": "⚡ NVDA 200-day trend — LONG NVDA",
+         "body": "The price closed above its 200-day average on Friday.", "symbol": "NVDA",
+         "source_kind": "strategy", "level": "changed", "created_at": "2026-11-21T21:15:00Z"],
+        ["id": 49, "source_id": "scr-quality", "source_title": "Cash-rich quality", "source_group": "screen",
+         "title": "⚡ Cash-rich quality — AVGO no longer passes",
+         "body": "AVGO no longer passes your 'Cash-rich quality' reading.", "symbol": "AVGO",
+         "source_kind": "stock_alert", "level": "fyi", "created_at": "2026-11-20T21:05:00Z"],
+        ["id": 41, "source_id": "s-trend", "source_title": "NVDA 200-day trend", "source_group": "strategy",
+         "title": "⚡ NVDA 200-day trend — LONG NVDA",
+         "body": "Still long NVDA: the price closed above its 200-day average.", "symbol": "NVDA",
+         "source_kind": "strategy", "level": "changed", "created_at": "2026-11-14T21:15:00Z", "read": true],
+    ]
+
     public static let brokerageStatus = """
     {"configured":true,"registered":true,"connected_accounts":1,"last_synced_at":"2026-11-16T21:00:00+00:00","trading_enabled":true}
     """
@@ -223,6 +249,85 @@ final class DemoState: @unchecked Sendable {
     var notices: [[String: Any]] {
         let seen = lock.withLock { acknowledged }
         return DemoData.notices.filter { !seen.contains($0["id"] as? Int ?? -1) }
+    }
+
+    // The notice inbox, worked the way the backend works it: unread notices
+    // grouped by source, the most important group first; a mute reads the
+    // source's notices and lists it as muted.
+    private var mutedSources = Set<String>()
+
+    private func isRead(_ notice: [String: Any]) -> Bool {
+        notice["read"] as? Bool == true || acknowledged.contains(notice["id"] as? Int ?? -1)
+    }
+
+    private func item(_ notice: [String: Any]) -> [String: Any] {
+        var row = notice.filter { ["id", "title", "body", "symbol", "source_kind", "level", "created_at"].contains($0.key) }
+        row["read"] = isRead(notice)
+        return row
+    }
+
+    var noticeInbox: [String: Any] {
+        lock.withLock {
+            let rank = ["act": 3, "changed": 2, "fyi": 1]
+            var order: [String] = []
+            var groups: [String: [String: Any]] = [:]
+            for notice in DemoData.noticeFeed where !isRead(notice) {
+                let source = notice["source_id"] as? String ?? ""
+                var group = groups[source] ?? [
+                    "source_id": source, "source_kind": notice["source_group"] ?? "strategy",
+                    "title": notice["source_title"] ?? "", "level": notice["level"] ?? "fyi",
+                    "unread_count": 0, "latest_at": notice["created_at"] ?? "",
+                    "muted": mutedSources.contains(source), "notices": [[String: Any]](),
+                ]
+                if groups[source] == nil { order.append(source) }
+                group["unread_count"] = (group["unread_count"] as? Int ?? 0) + 1
+                group["notices"] = (group["notices"] as? [[String: Any]] ?? []) + [item(notice)]
+                if rank[notice["level"] as? String ?? ""] ?? 0 > rank[group["level"] as? String ?? ""] ?? 0 {
+                    group["level"] = notice["level"]
+                }
+                groups[source] = group
+            }
+            let ranked = order.compactMap { groups[$0] }.enumerated().sorted { a, b in
+                let ra = rank[a.element["level"] as? String ?? ""] ?? 0, rb = rank[b.element["level"] as? String ?? ""] ?? 0
+                return ra != rb ? ra > rb : a.offset < b.offset
+            }.map(\.element)
+            let muted = mutedSources.sorted().compactMap { id -> [String: Any]? in
+                guard let first = DemoData.noticeFeed.first(where: { $0["source_id"] as? String == id }) else { return nil }
+                return ["source_id": id, "source_kind": first["source_group"] ?? "strategy", "title": first["source_title"] ?? ""]
+            }
+            return ["groups": ranked, "muted": muted]
+        }
+    }
+
+    func noticeSource(_ id: String) -> [String: Any]? {
+        lock.withLock {
+            let rows = DemoData.noticeFeed.filter { $0["source_id"] as? String == id }
+            guard let first = rows.first else { return nil }
+            return [
+                "source_id": id, "source_kind": first["source_group"] ?? "strategy",
+                "title": first["source_title"] ?? "", "muted": mutedSources.contains(id),
+                "notices": rows.map(item),
+            ]
+        }
+    }
+
+    func readNotices(ids: [Int]?, source: String?) -> Int {
+        lock.withLock {
+            let rows = DemoData.noticeFeed.filter { notice in
+                !isRead(notice) && (ids?.contains(notice["id"] as? Int ?? -1) ?? (notice["source_id"] as? String == source))
+            }
+            rows.forEach { acknowledged.insert($0["id"] as? Int ?? -1) }
+            return rows.count
+        }
+    }
+
+    func setMuted(_ id: String, _ muted: Bool) {
+        if muted {
+            _ = readNotices(ids: nil, source: id)
+            lock.withLock { _ = mutedSources.insert(id) }
+        } else {
+            lock.withLock { _ = mutedSources.remove(id) }
+        }
     }
 }
 
@@ -361,6 +466,22 @@ struct DemoTransport: ClientTransport {
             return (HTTPResponse(status: .noContent), nil)
         case "list_unresolved_exits_api_saved_strategies_unresolved_exits_get":
             return Self.json(state.exits)
+        case "notice_inbox_view_api_me_notices_get":
+            return Self.json(state.noticeInbox)
+        case "notice_source_view_api_me_notices_sources__source_id__get":
+            guard let source = state.noticeSource(Self.segment(after: "sources", in: request) ?? "") else {
+                return Self.json(["detail": "That strategy or screen isn't yours."], status: .notFound)
+            }
+            return Self.json(source)
+        case "mark_notices_read_api_me_notices_read_post":
+            let marked = state.readNotices(ids: sent["ids"] as? [Int], source: sent["source_id"] as? String)
+            return Self.json(["marked": marked])
+        case "mute_notice_source_api_me_notices_mutes__source_id__put":
+            state.setMuted(Self.segment(after: "mutes", in: request) ?? "", true)
+            return (HTTPResponse(status: .noContent), nil)
+        case "unmute_notice_source_api_me_notices_mutes__source_id__delete":
+            state.setMuted(Self.segment(after: "mutes", in: request) ?? "", false)
+            return (HTTPResponse(status: .noContent), nil)
         case "list_pending_banners_api_me_notifications_pending_get":
             return Self.json(state.notices)
         case "acknowledge_banner_api_me_notifications__entry_id__ack_post":

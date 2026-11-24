@@ -82,6 +82,16 @@ def dispatch_signal_change_email(event: SignalChangeEvent, db, user) -> bool:
     bypasses the marketing unsubscribe flag in `_prefs_allow` while still
     honoring the per-category flags Step 4 will add."""
     from app.emails.signal_change import render_signal_change, SignalChangePayload
+    from app.services.notice_inbox import is_muted
+
+    # The user silenced this strategy or screen (2026-11-23): its notices
+    # arrive read and its signal-change emails stop. Checked here, in the one
+    # function every signal-change email goes through, so no caller can miss it.
+    try:
+        if is_muted(db, user.id, event.strategy_slug):
+            return False
+    except Exception:
+        _log.exception("mute lookup failed for %s/%s; sending", user.id, event.strategy_slug)
 
     payload = SignalChangePayload(
         strategy_name=event.strategy_name,
@@ -141,20 +151,41 @@ def dispatch_digest_email(event: DigestEvent, db, user) -> bool:
         return False
 
 
-def dispatch_in_app_banner(event: SignalChangeEvent) -> bool:
+def dispatch_in_app_banner(
+    event: SignalChangeEvent,
+    *,
+    source_kind: Optional[str] = None,
+    level: Optional[str] = None,
+    symbol: Optional[str] = None,
+) -> bool:
     """Write a NotificationBannerEntry row for the in-app banner.
     Returns True even if the import fails (AKShare-style: lazy import,
-    graceful fallback). The cron catches up on the next run."""
+    graceful fallback). The cron catches up on the next run.
+
+    `source_kind` / `level` / `symbol` let the inbox group and rank it
+    (`app/services/notice_inbox.py`). A notice from a strategy or screen the
+    user has muted is still written, already read, so the source's history
+    keeps it."""
     try:
         from app.models.notification_banner import NotificationBannerEntry
         from app.db.session import SessionLocal
+        from app.services.notice_inbox import is_muted
         db = SessionLocal()
         try:
+            muted = False
+            try:
+                muted = is_muted(db, event.user_id, event.strategy_slug)
+            except Exception:
+                _log.exception("mute lookup failed for %s/%s", event.user_id, event.strategy_slug)
             db.add(NotificationBannerEntry(
                 user_id=event.user_id,
                 title=f"⚡ {event.strategy_name} — {event.new_signal_display}",
                 body=event.rule_context,
                 strategy_slug=event.strategy_slug,
+                source_kind=source_kind,
+                level=level,
+                symbol=symbol,
+                acknowledged_at=datetime.utcnow() if muted else None,
             ))
             db.commit()
             return True

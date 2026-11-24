@@ -381,6 +381,10 @@ def _write_position_banner(
                     "Nothing has been sold — no order goes out unless you send it."
                 ),
                 strategy_slug=strat.id,
+                # An exit: never silenced by a mute (notice_inbox).
+                source_kind="position",
+                level="act",
+                symbol=symbol,
             ))
             banner_db.commit()
     except Exception:

@@ -3716,6 +3716,36 @@
     "title": "MarkAsExecutedResponse",
     "type": "object"
    },
+   "MarkReadRequest": {
+    "properties": {
+     "ids": {
+      "items": {
+       "type": "integer"
+      },
+      "title": "Ids",
+      "type": "array"
+     },
+     "source_id": {
+      "title": "Source Id",
+      "type": "string"
+     }
+    },
+    "title": "MarkReadRequest",
+    "type": "object"
+   },
+   "MarkReadResponse": {
+    "properties": {
+     "marked": {
+      "title": "Marked",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "marked"
+    ],
+    "title": "MarkReadResponse",
+    "type": "object"
+   },
    "MarketNewsResponse": {
     "properties": {
      "age_seconds": {
@@ -4042,6 +4072,29 @@
     "title": "MonthlyReturnItem",
     "type": "object"
    },
+   "MutedSourceView": {
+    "properties": {
+     "source_id": {
+      "title": "Source Id",
+      "type": "string"
+     },
+     "source_kind": {
+      "title": "Source Kind",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     }
+    },
+    "required": [
+     "source_id",
+     "source_kind",
+     "title"
+    ],
+    "title": "MutedSourceView",
+    "type": "object"
+   },
    "NewsArticle": {
     "properties": {
      "provider": {
@@ -4219,6 +4272,165 @@
      }
     },
     "title": "NewsSentimentSection",
+    "type": "object"
+   },
+   "NoticeGroupView": {
+    "properties": {
+     "latest_at": {
+      "format": "date-time",
+      "title": "Latest At",
+      "type": "string"
+     },
+     "level": {
+      "title": "Level",
+      "type": "string"
+     },
+     "muted": {
+      "title": "Muted",
+      "type": "boolean"
+     },
+     "notices": {
+      "items": {
+       "$ref": "#/components/schemas/NoticeView"
+      },
+      "title": "Notices",
+      "type": "array"
+     },
+     "source_id": {
+      "title": "Source Id",
+      "type": "string"
+     },
+     "source_kind": {
+      "title": "Source Kind",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "unread_count": {
+      "title": "Unread Count",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "source_kind",
+     "title",
+     "level",
+     "unread_count",
+     "latest_at",
+     "muted",
+     "notices"
+    ],
+    "title": "NoticeGroupView",
+    "type": "object"
+   },
+   "NoticeInboxView": {
+    "properties": {
+     "groups": {
+      "items": {
+       "$ref": "#/components/schemas/NoticeGroupView"
+      },
+      "title": "Groups",
+      "type": "array"
+     },
+     "muted": {
+      "items": {
+       "$ref": "#/components/schemas/MutedSourceView"
+      },
+      "title": "Muted",
+      "type": "array"
+     }
+    },
+    "required": [
+     "groups",
+     "muted"
+    ],
+    "title": "NoticeInboxView",
+    "type": "object"
+   },
+   "NoticeSourceView": {
+    "properties": {
+     "muted": {
+      "title": "Muted",
+      "type": "boolean"
+     },
+     "notices": {
+      "items": {
+       "$ref": "#/components/schemas/NoticeView"
+      },
+      "title": "Notices",
+      "type": "array"
+     },
+     "source_id": {
+      "title": "Source Id",
+      "type": "string"
+     },
+     "source_kind": {
+      "title": "Source Kind",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     }
+    },
+    "required": [
+     "source_id",
+     "source_kind",
+     "title",
+     "muted",
+     "notices"
+    ],
+    "title": "NoticeSourceView",
+    "type": "object"
+   },
+   "NoticeView": {
+    "properties": {
+     "body": {
+      "title": "Body",
+      "type": "string"
+     },
+     "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+     },
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "level": {
+      "title": "Level",
+      "type": "string"
+     },
+     "read": {
+      "title": "Read",
+      "type": "boolean"
+     },
+     "source_kind": {
+      "title": "Source Kind",
+      "type": "string"
+     },
+     "symbol": {
+      "title": "Symbol",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "title",
+     "body",
+     "source_kind",
+     "level",
+     "created_at",
+     "read"
+    ],
+    "title": "NoticeView",
     "type": "object"
    },
    "OAuthGoogleRequest": {
@@ -15626,6 +15838,182 @@
     "summary": "Get My Entitlements",
     "tags": [
      "me"
+    ]
+   }
+  },
+  "/api/me/notices": {
+   "get": {
+    "description": "Unread notices, one group per strategy or screen, most important first.\n\nExits on held positions are not here: they are listed as decisions on\ntheir own. Nothing here changes a position or sends an order.",
+    "operationId": "notice_inbox_view_api_me_notices_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/NoticeInboxView"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Notice Inbox View",
+    "tags": [
+     "notifications"
+    ]
+   }
+  },
+  "/api/me/notices/mutes/{source_id}": {
+   "delete": {
+    "operationId": "unmute_notice_source_api_me_notices_mutes__source_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "source_id",
+      "required": true,
+      "schema": {
+       "title": "Source Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Unmute Notice Source",
+    "tags": [
+     "notifications"
+    ]
+   },
+   "put": {
+    "description": "Silence a strategy or screen: no new notices in the inbox and no\nsignal-change emails from it. Its unread notices are marked read. Exits\non held positions still come through.",
+    "operationId": "mute_notice_source_api_me_notices_mutes__source_id__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "source_id",
+      "required": true,
+      "schema": {
+       "title": "Source Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Mute Notice Source",
+    "tags": [
+     "notifications"
+    ]
+   }
+  },
+  "/api/me/notices/read": {
+   "post": {
+    "description": "Mark notices read: the ones named, or every unread one from a source.",
+    "operationId": "mark_notices_read_api_me_notices_read_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/MarkReadRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MarkReadResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Mark Notices Read",
+    "tags": [
+     "notifications"
+    ]
+   }
+  },
+  "/api/me/notices/sources/{source_id}": {
+   "get": {
+    "description": "What one strategy or screen has sent, read or not, newest first.",
+    "operationId": "notice_source_view_api_me_notices_sources__source_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "source_id",
+      "required": true,
+      "schema": {
+       "title": "Source Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/NoticeSourceView"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Notice Source View",
+    "tags": [
+     "notifications"
     ]
    }
   },
