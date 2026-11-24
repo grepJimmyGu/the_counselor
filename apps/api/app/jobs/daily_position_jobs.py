@@ -359,6 +359,10 @@ def _write_banner(
                     "Nothing has been sold — no order goes out unless you send it."
                 ),
                 strategy_slug=strat.id,
+                # An exit: never silenced by a mute (notice_inbox).
+                source_kind="position",
+                level="act",
+                symbol=pos.symbol,
             ))
             banner_db.commit()
     except Exception:  # noqa: BLE001

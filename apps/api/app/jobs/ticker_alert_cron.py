@@ -211,7 +211,9 @@ def monitor_ticker_subscriptions() -> dict:
                 # Banner is the durable record and always fires; email is
                 # best-effort and must never break the run (the renderer falls
                 # back to a generic verb for an unknown change_type).
-                dispatch_in_app_banner(channel_event)
+                dispatch_in_app_banner(
+                    channel_event, source_kind="stock_alert", level="fyi", symbol=symbol,
+                )
                 if user is not None and email_enabled:
                     try:
                         dispatch_signal_change_email(channel_event, db, user)

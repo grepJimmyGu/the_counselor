@@ -1734,6 +1734,10 @@
      "return_path": {
       "title": "Return Path",
       "type": "string"
+     },
+     "trading_account_id": {
+      "title": "Trading Account Id",
+      "type": "string"
      }
     },
     "title": "ConnectRequest",
@@ -3712,6 +3716,36 @@
     "title": "MarkAsExecutedResponse",
     "type": "object"
    },
+   "MarkReadRequest": {
+    "properties": {
+     "ids": {
+      "items": {
+       "type": "integer"
+      },
+      "title": "Ids",
+      "type": "array"
+     },
+     "source_id": {
+      "title": "Source Id",
+      "type": "string"
+     }
+    },
+    "title": "MarkReadRequest",
+    "type": "object"
+   },
+   "MarkReadResponse": {
+    "properties": {
+     "marked": {
+      "title": "Marked",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "marked"
+    ],
+    "title": "MarkReadResponse",
+    "type": "object"
+   },
    "MarketNewsResponse": {
     "properties": {
      "age_seconds": {
@@ -4038,6 +4072,29 @@
     "title": "MonthlyReturnItem",
     "type": "object"
    },
+   "MutedSourceView": {
+    "properties": {
+     "source_id": {
+      "title": "Source Id",
+      "type": "string"
+     },
+     "source_kind": {
+      "title": "Source Kind",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     }
+    },
+    "required": [
+     "source_id",
+     "source_kind",
+     "title"
+    ],
+    "title": "MutedSourceView",
+    "type": "object"
+   },
    "NewsArticle": {
     "properties": {
      "provider": {
@@ -4217,6 +4274,165 @@
     "title": "NewsSentimentSection",
     "type": "object"
    },
+   "NoticeGroupView": {
+    "properties": {
+     "latest_at": {
+      "format": "date-time",
+      "title": "Latest At",
+      "type": "string"
+     },
+     "level": {
+      "title": "Level",
+      "type": "string"
+     },
+     "muted": {
+      "title": "Muted",
+      "type": "boolean"
+     },
+     "notices": {
+      "items": {
+       "$ref": "#/components/schemas/NoticeView"
+      },
+      "title": "Notices",
+      "type": "array"
+     },
+     "source_id": {
+      "title": "Source Id",
+      "type": "string"
+     },
+     "source_kind": {
+      "title": "Source Kind",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     },
+     "unread_count": {
+      "title": "Unread Count",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "source_kind",
+     "title",
+     "level",
+     "unread_count",
+     "latest_at",
+     "muted",
+     "notices"
+    ],
+    "title": "NoticeGroupView",
+    "type": "object"
+   },
+   "NoticeInboxView": {
+    "properties": {
+     "groups": {
+      "items": {
+       "$ref": "#/components/schemas/NoticeGroupView"
+      },
+      "title": "Groups",
+      "type": "array"
+     },
+     "muted": {
+      "items": {
+       "$ref": "#/components/schemas/MutedSourceView"
+      },
+      "title": "Muted",
+      "type": "array"
+     }
+    },
+    "required": [
+     "groups",
+     "muted"
+    ],
+    "title": "NoticeInboxView",
+    "type": "object"
+   },
+   "NoticeSourceView": {
+    "properties": {
+     "muted": {
+      "title": "Muted",
+      "type": "boolean"
+     },
+     "notices": {
+      "items": {
+       "$ref": "#/components/schemas/NoticeView"
+      },
+      "title": "Notices",
+      "type": "array"
+     },
+     "source_id": {
+      "title": "Source Id",
+      "type": "string"
+     },
+     "source_kind": {
+      "title": "Source Kind",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     }
+    },
+    "required": [
+     "source_id",
+     "source_kind",
+     "title",
+     "muted",
+     "notices"
+    ],
+    "title": "NoticeSourceView",
+    "type": "object"
+   },
+   "NoticeView": {
+    "properties": {
+     "body": {
+      "title": "Body",
+      "type": "string"
+     },
+     "created_at": {
+      "format": "date-time",
+      "title": "Created At",
+      "type": "string"
+     },
+     "id": {
+      "title": "Id",
+      "type": "integer"
+     },
+     "level": {
+      "title": "Level",
+      "type": "string"
+     },
+     "read": {
+      "title": "Read",
+      "type": "boolean"
+     },
+     "source_kind": {
+      "title": "Source Kind",
+      "type": "string"
+     },
+     "symbol": {
+      "title": "Symbol",
+      "type": "string"
+     },
+     "title": {
+      "title": "Title",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "title",
+     "body",
+     "source_kind",
+     "level",
+     "created_at",
+     "read"
+    ],
+    "title": "NoticeView",
+    "type": "object"
+   },
    "OAuthGoogleRequest": {
     "properties": {
      "id_token": {
@@ -4229,6 +4445,84 @@
      "id_token"
     ],
     "title": "OAuthGoogleRequest"
+   },
+   "OptionOrderLookup": {
+    "description": "What the user's brokers have on file for one option contract.",
+    "properties": {
+     "contract": {
+      "title": "Contract",
+      "type": "string"
+     },
+     "live": {
+      "title": "Live",
+      "type": "boolean"
+     },
+     "orders": {
+      "items": {
+       "$ref": "#/components/schemas/OptionOrderView"
+      },
+      "title": "Orders",
+      "type": "array"
+     }
+    },
+    "required": [
+     "contract",
+     "orders",
+     "live"
+    ],
+    "title": "OptionOrderLookup",
+    "type": "object"
+   },
+   "OptionOrderView": {
+    "description": "One order for an option contract, as the broker has it.",
+    "properties": {
+     "account_id": {
+      "title": "Account Id",
+      "type": "string"
+     },
+     "action": {
+      "title": "Action",
+      "type": "string"
+     },
+     "filled_quantity": {
+      "title": "Filled Quantity",
+      "type": "number"
+     },
+     "limit_price": {
+      "title": "Limit Price",
+      "type": "number"
+     },
+     "order_type": {
+      "title": "Order Type",
+      "type": "string"
+     },
+     "quantity": {
+      "title": "Quantity",
+      "type": "number"
+     },
+     "state": {
+      "title": "State",
+      "type": "string"
+     },
+     "status": {
+      "title": "Status",
+      "type": "string"
+     },
+     "time_in_force": {
+      "title": "Time In Force",
+      "type": "string"
+     },
+     "time_placed": {
+      "title": "Time Placed",
+      "type": "string"
+     }
+    },
+    "required": [
+     "account_id",
+     "state"
+    ],
+    "title": "OptionOrderView",
+    "type": "object"
    },
    "OutputKind": {
     "description": "Semantic shape of the signal a primitive emits at each timestep.\n\nPRD-22a. Drives the composer rule-builder dispatch (PRD-22c) and the\nKB-lookup Jaccard enrichment (PRD-22b). Defaults to VALUE so every v1\nprimitive stays backward-compatible \u2014 the composer's existing\n`[primitive] [< | >] [threshold]` widget is the VALUE widget.\n\n`str, Enum` (matching `SignalCategory`) so it JSON-serializes to its\nstring value in the catalog payload.",
@@ -11605,6 +11899,111 @@
     ],
     "title": "OptionPlanView",
     "type": "object"
+   },
+   "IntradayBarView": {
+    "description": "One bar of a regular session: when it started (UTC) and its prices.",
+    "properties": {
+     "close": {
+      "title": "Close",
+      "type": "number"
+     },
+     "open": {
+      "title": "Open",
+      "type": "number"
+     },
+     "time": {
+      "format": "date-time",
+      "title": "Time",
+      "type": "string"
+     }
+    },
+    "required": [
+     "time",
+     "open",
+     "close"
+    ],
+    "title": "IntradayBarView",
+    "type": "object"
+   },
+   "IntradaySessionView": {
+    "properties": {
+     "bars": {
+      "items": {
+       "$ref": "#/components/schemas/IntradayBarView"
+      },
+      "title": "Bars",
+      "type": "array"
+     },
+     "close": {
+      "description": "The exchange's close for a session that has ended; null for today's.",
+      "title": "Close",
+      "type": "number"
+     },
+     "date": {
+      "format": "date",
+      "title": "Date",
+      "type": "string"
+     }
+    },
+    "required": [
+     "date",
+     "bars"
+    ],
+    "title": "IntradaySessionView",
+    "type": "object"
+   },
+   "IntradayChartView": {
+    "description": "The company page's 1D (5-minute) and 1W (30-minute) chart.",
+    "properties": {
+     "as_of": {
+      "description": "The end of the newest bar.",
+      "format": "date-time",
+      "title": "As Of",
+      "type": "string"
+     },
+     "interval_minutes": {
+      "title": "Interval Minutes",
+      "type": "integer"
+     },
+     "previous_close": {
+      "description": "The close of the session before the first one shown; changes are measured from it.",
+      "title": "Previous Close",
+      "type": "number"
+     },
+     "previous_close_date": {
+      "format": "date",
+      "title": "Previous Close Date",
+      "type": "string"
+     },
+     "previous_close_source": {
+      "description": "'official' (the exchange's close) or 'last_bar' (that day's last bar, when the close isn't available).",
+      "title": "Previous Close Source",
+      "type": "string"
+     },
+     "range": {
+      "title": "Range",
+      "type": "string"
+     },
+     "sessions": {
+      "items": {
+       "$ref": "#/components/schemas/IntradaySessionView"
+      },
+      "title": "Sessions",
+      "type": "array"
+     },
+     "symbol": {
+      "title": "Symbol",
+      "type": "string"
+     }
+    },
+    "required": [
+     "symbol",
+     "range",
+     "interval_minutes",
+     "sessions"
+    ],
+    "title": "IntradayChartView",
+    "type": "object"
    }
   }
  },
@@ -14604,6 +15003,60 @@
     ]
    }
   },
+  "/api/data/intraday/{symbol}": {
+   "get": {
+    "description": "A stock's regular-session prices through the day: `1d` is the latest\nsession in 5-minute bars, `1w` the latest five in 30-minute bars, each\nwith the close they are measured from. No auth gate, like the daily\nprices above. Takes no database session: nothing here reads the DB, and\nthe FMP call must not hold a connection (trap 13).",
+    "operationId": "get_intraday_chart_api_data_intraday__symbol__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "symbol",
+      "required": true,
+      "schema": {
+       "title": "Symbol",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "range",
+      "required": false,
+      "schema": {
+       "default": "1d",
+       "pattern": "^(1d|1w)$",
+       "title": "Range",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/IntradayChartView"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Intraday Chart",
+    "tags": [
+     "market-data"
+    ]
+   }
+  },
   "/api/data/quality/{symbol}": {
    "get": {
     "operationId": "get_data_quality_api_data_quality__symbol__get",
@@ -15544,6 +15997,182 @@
     "summary": "Get My Entitlements",
     "tags": [
      "me"
+    ]
+   }
+  },
+  "/api/me/notices": {
+   "get": {
+    "description": "Unread notices, one group per strategy or screen, most important first.\n\nExits on held positions are not here: they are listed as decisions on\ntheir own. Nothing here changes a position or sends an order.",
+    "operationId": "notice_inbox_view_api_me_notices_get",
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/NoticeInboxView"
+        }
+       }
+      },
+      "description": "Successful Response"
+     }
+    },
+    "summary": "Notice Inbox View",
+    "tags": [
+     "notifications"
+    ]
+   }
+  },
+  "/api/me/notices/mutes/{source_id}": {
+   "delete": {
+    "operationId": "unmute_notice_source_api_me_notices_mutes__source_id__delete",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "source_id",
+      "required": true,
+      "schema": {
+       "title": "Source Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Unmute Notice Source",
+    "tags": [
+     "notifications"
+    ]
+   },
+   "put": {
+    "description": "Silence a strategy or screen: no new notices in the inbox and no\nsignal-change emails from it. Its unread notices are marked read. Exits\non held positions still come through.",
+    "operationId": "mute_notice_source_api_me_notices_mutes__source_id__put",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "source_id",
+      "required": true,
+      "schema": {
+       "title": "Source Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "204": {
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Mute Notice Source",
+    "tags": [
+     "notifications"
+    ]
+   }
+  },
+  "/api/me/notices/read": {
+   "post": {
+    "description": "Mark notices read: the ones named, or every unread one from a source.",
+    "operationId": "mark_notices_read_api_me_notices_read_post",
+    "requestBody": {
+     "content": {
+      "application/json": {
+       "schema": {
+        "$ref": "#/components/schemas/MarkReadRequest"
+       }
+      }
+     },
+     "required": true
+    },
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/MarkReadResponse"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Mark Notices Read",
+    "tags": [
+     "notifications"
+    ]
+   }
+  },
+  "/api/me/notices/sources/{source_id}": {
+   "get": {
+    "description": "What one strategy or screen has sent, read or not, newest first.",
+    "operationId": "notice_source_view_api_me_notices_sources__source_id__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "source_id",
+      "required": true,
+      "schema": {
+       "title": "Source Id",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/NoticeSourceView"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Notice Source View",
+    "tags": [
+     "notifications"
     ]
    }
   },
@@ -18431,6 +19060,49 @@
      }
     },
     "summary": "Snaptrade Orders",
+    "tags": [
+     "snaptrade"
+    ]
+   }
+  },
+  "/api/snaptrade/orders/option": {
+   "get": {
+    "description": "Has an order for this option contract reached the user's broker?\n\nFor an order the user entered at the broker themselves. Reading orders\nneeds only the read access every link has, so this works at brokers\nthat take no orders from Livermore. It places nothing.",
+    "operationId": "snaptrade_option_orders_api_snaptrade_orders_option_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "contract",
+      "required": true,
+      "schema": {
+       "title": "Contract",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/OptionOrderLookup"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Snaptrade Option Orders",
     "tags": [
      "snaptrade"
     ]

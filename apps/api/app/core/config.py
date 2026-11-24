@@ -14,6 +14,25 @@ class Settings(BaseSettings):
     app_env: str = "development"
     alpha_vantage_api_key: str = ""
     financial_modeling_prep_api_key: str = ""
+    # Live quotes behind GET /api/live/quotes (app/services/live_quote_service.py).
+    #
+    # `live_quote_provider`: "fmp" (default) or "alpha_vantage". The latter
+    # asks Alpha Vantage's REALTIME_BULK_QUOTES first and falls back to FMP
+    # for any symbol it does not return — including when the key turns out
+    # not to be entitled, which AV answers with ARTIFICIAL sample data that
+    # must never be shown as a price. Needs a plan that includes "Realtime
+    # US Market Data"; serving those prices to users is commercial use, which
+    # AV licenses separately — settle that before turning it on.
+    #
+    # `live_quote_ttl_seconds`: how old a cached quote may be when served
+    # from /api/live/quotes. Other callers (Market Pulse asks for ~500
+    # symbols at a time) keep the 30 s default regardless.
+    #
+    # `alpha_vantage_quote_entitlement`: "realtime", "delayed", or empty to
+    # let AV pick from the plan.
+    live_quote_provider: str = "fmp"
+    live_quote_ttl_seconds: float = 30.0
+    alpha_vantage_quote_entitlement: str = ""
     # FRED (Federal Reserve Economic Data) — free API used by Macro Pulse to
     # source Growth (Chicago Fed National Activity Index — CFNAI) and Stress
     # (ICE BofA HY OAS — BAMLH0A0HYM2) signals. Falls back to mock data when

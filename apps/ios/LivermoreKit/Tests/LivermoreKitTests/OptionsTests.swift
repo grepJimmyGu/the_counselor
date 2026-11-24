@@ -511,3 +511,111 @@ struct OptionsServiceTests {
         #expect(try await options.plans().isEmpty)
     }
 }
+
+/// Schwab, Robinhood and others take no orders from Livermore, so an option
+/// plan is typed in at the broker by hand. The linked account's order list
+/// is then the only way the app can say the order is in.
+@Suite("an order entered at the broker, read back")
+struct PlacedOrderTests {
+    private static let pacific = TimeZone(identifier: "America/Los_Angeles")!
+
+    /// One order as the backend sends it; `fields` overrides the defaults.
+    private func order(_ fields: String = "") -> String {
+        let base = #"{"account_id":"acct-1","status":"ACCEPTED","state":"working","action":"BUY_OPEN","quantity":1,"filled_quantity":0,"limit_price":9.5,"order_type":"Limit","time_in_force":"Day","time_placed":"2026-11-24T04:31:00Z"}"#
+        var row = try! JSONSerialization.jsonObject(with: Data(base.utf8)) as! [String: Any]
+        let extra = try! JSONSerialization.jsonObject(with: Data("{\(fields)}".utf8)) as! [String: Any]
+        row.merge(extra) { _, new in new }
+        return String(decoding: try! JSONSerialization.data(withJSONObject: row), as: UTF8.self)
+    }
+
+    private func reading(_ orders: [String], live: Bool = true, contracts: Int = 1) throws -> PlacedOrderReading {
+        let json = #"{"contract":"NVDA270115C00125000","live":\#(live),"orders":[\#(orders.joined(separator: ","))]}"#
+        let lookup = try JSONDecoder().decode(OptionOrderLookup.self, from: Data(json.utf8))
+        return PlacedOrderReading(
+            plan: try draft(.longCall, contracts: contracts).plan, lookup: lookup,
+            accountName: { $0 == "acct-1" ? "Schwab ···374" : nil }, timeZone: Self.pacific
+        )
+    }
+
+    @Test("a resting order that matches the plan is reported as placed, in the broker's own figures")
+    func placed() throws {
+        let found = try reading([order()])
+        #expect(found.outcome == .placed)
+        #expect(found.headline == "Placed at Schwab ···374. Waiting to fill.")
+        #expect(found.detail == "Buy 1 contract, limit $9.50 per share, good for the day. Placed Nov 23, 8:31 PM.")
+    }
+
+    @Test("filled and partly filled orders say so")
+    func filled() throws {
+        let done = try reading([order(#""state":"filled","status":"EXECUTED","filled_quantity":1"#)])
+        #expect(done.outcome == .filled)
+        #expect(done.headline == "Filled at Schwab ···374.")
+
+        let part = try reading([order(#""state":"partly_filled","status":"PARTIAL","quantity":3,"filled_quantity":1"#)], contracts: 3)
+        #expect(part.outcome == .placed)
+        #expect(part.headline == "Placed at Schwab ···374. Partly filled.")
+        #expect(part.detail.hasPrefix("Buy 3 contracts, 1 filled so far, limit $9.50 per share"))
+    }
+
+    @Test("an order for the same contract that is not the plan's is not called placed")
+    func differs() throws {
+        let size = try reading([order(#""quantity":2"#)])
+        #expect(size.outcome == .differs)
+        #expect(size.headline == "There is an order at Schwab ···374, but it isn't this plan.")
+        #expect(size.detail.hasPrefix("It is for 2 contracts; this plan is for 1 contract."))
+
+        let side = try reading([order(#""action":"SELL_OPEN""#)])
+        #expect(side.outcome == .differs)
+        #expect(side.detail.hasPrefix("It is a sell; this plan buys the contract."))
+
+        let closing = try reading([order(#""action":"BUY_CLOSE""#)])
+        #expect(closing.detail.hasPrefix("It closes a position; this plan opens one."))
+    }
+
+    @Test("an open order is reported ahead of an older cancelled one")
+    func mostRelevant() throws {
+        let found = try reading([
+            order(#""state":"ended","status":"CANCELED","time_placed":"2026-11-24T05:00:00Z""#),
+            order(),
+        ])
+        #expect(found.outcome == .placed)
+
+        let ended = try reading([order(#""state":"ended","status":"PARTIAL_CANCELED""#)])
+        #expect(ended.outcome == .ended)
+        #expect(ended.headline == "The order at Schwab ···374 is no longer open.")
+        #expect(ended.detail.hasPrefix("Schwab ···374 reports it as partial canceled."))
+    }
+
+    @Test("a status the app does not know is passed on, not guessed")
+    func unclear() throws {
+        let found = try reading([order(#""state":"unknown","status":"SOMETHING_NEW""#)])
+        #expect(found.outcome == .unclear)
+        #expect(found.headline == "Schwab ···374 has an order for this contract.")
+        #expect(found.detail.hasPrefix("It reports the status as something new."))
+    }
+
+    @Test("no order is said plainly, and a day-old read is not passed off as a fresh one")
+    func notFound() throws {
+        let fresh = try reading([])
+        #expect(fresh.outcome == .notFound)
+        #expect(fresh.headline == "No order for this contract at your broker yet.")
+        #expect(fresh.detail.contains("Place the order, then check again."))
+
+        let stale = try reading([], live: false)
+        #expect(stale.outcome == .notFound)
+        #expect(stale.detail.contains("An order placed today may not show until tomorrow."))
+    }
+
+    @Test("only a broker whose app address is known gets an open button")
+    func brokerApp() throws {
+        let schwab = try #require(BrokerApp(institution: "Charles Schwab", symbol: "nvda"))
+        #expect(schwab.name == "Schwab")
+        #expect(schwab.url.absoluteString == "https://client.schwab.com/secure/cc/trade/allinone")
+
+        let robinhood = try #require(BrokerApp(institution: "Robinhood", symbol: "nvda"))
+        #expect(robinhood.url.absoluteString == "https://robinhood.com/stocks/NVDA")
+
+        #expect(BrokerApp(institution: "Sample Brokerage", symbol: "NVDA") == nil)
+        #expect(BrokerApp(institution: nil, symbol: "NVDA") == nil)
+    }
+}

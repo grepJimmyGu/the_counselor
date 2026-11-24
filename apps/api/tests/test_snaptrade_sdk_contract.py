@@ -75,8 +75,16 @@ def api():
 # Every SDK call `snaptrade_service` makes, with the kwargs it passes.
 CALLS = [
     ("authentication", "register_snap_trade_user", {"user_id"}),
-    ("authentication", "login_snap_trade_user", {"user_id", "user_secret"}),
+    # `connection_type` and `reconnect` turn trading on for an existing
+    # connection. Both were unsent until 2026-11-23, which left every
+    # connection read-only and every order refused.
+    ("authentication", "login_snap_trade_user",
+     {"user_id", "user_secret", "custom_redirect", "connection_type", "reconnect"}),
     ("account_information", "list_user_accounts", {"user_id", "user_secret"}),
+    # Read when an order is refused, to tell a link that can be upgraded from
+    # a broker that does not trade through SnapTrade at all.
+    ("connections", "detail_brokerage_authorization",
+     {"authorization_id", "user_id", "user_secret"}),
     ("account_information", "get_all_account_positions",
      {"user_id", "user_secret", "account_id"}),
     # `reference_data`, NOT `trading` — see `resolve_symbol_id`. Written as
@@ -100,7 +108,11 @@ CALLS = [
      {"user_id", "user_secret", "account_id", "start_date", "end_date",
       "limit", "offset"}),
     ("account_information", "get_user_account_orders",
-     {"user_id", "user_secret", "account_id", "days"}),
+     {"user_id", "user_secret", "account_id", "days", "state"}),
+    # The read-back of an order the user typed in at their broker.
+    # `only_executed=False` is what makes a resting order visible at all.
+    ("account_information", "get_user_account_recent_orders",
+     {"user_id", "user_secret", "account_id", "only_executed"}),
     ("account_information", "get_user_account_return_rates",
      {"user_id", "user_secret", "account_id"}),
     ("account_information", "get_account_balance_history",
@@ -162,3 +174,20 @@ def test_the_literals_we_send_are_the_ones_the_sdk_defines() -> None:
         "The SDK no longer spells it 'Day'. Read the enum and update "
         "`PreviewOrderRequest`'s default to match exactly."
     )
+
+
+def test_the_connection_type_we_send_is_one_the_sdk_defines() -> None:
+    """`connection_type="trade"` is an exact string in the SDK's own enum.
+
+    A misspelling would be accepted by a mock and rejected by the API on the
+    one screen where the user is being asked to authorise trading.
+    """
+    try:
+        from snaptrade_client.model.snap_trade_login_user_request_body import (
+            SnapTradeLoginUserRequestBody,
+        )
+    except ImportError:  # pragma: no cover - SDK layout changed
+        pytest.skip("SDK request-body module moved; update this test's import")
+
+    values = SnapTradeLoginUserRequestBody.MetaOapg.properties.connectionType.MetaOapg.enum_value_to_name
+    assert "trade" in values, f"The SDK's connection types are {sorted(values)}."

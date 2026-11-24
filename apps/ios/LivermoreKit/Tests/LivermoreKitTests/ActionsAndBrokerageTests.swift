@@ -17,6 +17,12 @@ private enum Op {
     static let exits = "list_unresolved_exits_api_saved_strategies_unresolved_exits_get"
 }
 
+private let isoDecoder: JSONDecoder = {
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    return decoder
+}()
+
 private func body(_ request: MockTransport.Recorded) throws -> [String: Any] {
     try #require(try JSONSerialization.jsonObject(with: Data(request.body.utf8)) as? [String: Any])
 }
@@ -151,7 +157,7 @@ struct BrokerageServiceTests {
             try await session.brokerage.preview(OrderDraft(accountID: "a", symbol: "AAPL", size: .sell(shares: 1)))
         }
 
-        // The preview route forwards the aggregator's raw exception text.
+        // A raw exception in the body is never shown, whoever sent it.
         transport.stub(Op.preview, .json(status: 502, #"{"detail":"(400)\nReason: Bad Request\nHTTP response body: {\"code\":\"1063\"}"}"#))
         await #expect(throws: APIFailure.upstream(nil)) {
             try await session.brokerage.preview(OrderDraft(accountID: "a", symbol: "AAPL", size: .sell(shares: 1)))
@@ -167,6 +173,83 @@ struct BrokerageServiceTests {
             try await session.brokerage.preview(OrderDraft(accountID: "a", symbol: "AAPL", size: .sell(shares: 1)))
         }
         #expect(APIFailure.upstream(nil).message.contains("brokerage"))
+    }
+
+    /// 2026-11-23. Every order preview on Jimmy's Schwab account showed "Your
+    /// brokerage didn't answer". It had answered: the link was read-only
+    /// (SnapTrade 3007). The backend now says so with a 409 and the ticket
+    /// offers to turn trading on, instead of blaming the broker for silence.
+    @Test("a read-only link is its own answer, and carries the backend's sentence")
+    func readOnlyLink() async {
+        let (session, transport) = mocked()
+        let line = "Your link to this account can read it but can't place orders yet. Turn on trading for it to continue."
+        transport.stub(Op.preview, .json(status: 409, #"{"detail":"\#(line)"}"#))
+        await #expect(throws: APIFailure.readOnlyLink(line)) {
+            try await session.brokerage.preview(OrderDraft(accountID: "a", symbol: "NVDA", size: .buy(dollars: 1000)))
+        }
+        #expect(APIFailure.readOnlyLink(line).message == line)
+
+        // A broker's own refusal comes through as its sentence, not as silence.
+        transport.stub(Op.preview, .json(status: 502, #"{"detail":"Insufficient buying power for this order."}"#))
+        await #expect(throws: APIFailure.upstream("Insufficient buying power for this order.")) {
+            try await session.brokerage.preview(OrderDraft(accountID: "a", symbol: "NVDA", size: .buy(dollars: 1000)))
+        }
+    }
+
+    @Test("turning on trading asks for it on one named account, and nothing else changes")
+    func tradingAccessLink() async throws {
+        let (session, transport) = mocked()
+        transport.stub(Op.connect, .json(status: 200, #"{"redirect_uri":"https://app.snaptrade.com/snapTrade/redeemToken?x=1"}"#))
+
+        _ = try await session.brokerage.connectionURL()
+        #expect(try body(transport.requests[0])["trading_account_id"] == nil)
+
+        _ = try await session.brokerage.connectionURL(tradingFor: "acct-1")
+        #expect(try body(transport.requests[1])["trading_account_id"] as? String == "acct-1")
+    }
+
+    @Test("an order entered at the broker is looked up by its contract, and a failed read is not an empty answer")
+    func optionOrders() async throws {
+        let (session, transport) = mocked()
+        let op = "snaptrade_option_orders_api_snaptrade_orders_option_get"
+        transport.stub(op, .json(status: 200, #"{"contract":"NVDA270115C00125000","live":false,"orders":[{"account_id":"acct-1","state":"working","status":"ACCEPTED","quantity":1}]}"#))
+
+        let lookup = try await session.brokerage.optionOrders(contract: "NVDA270115C00125000")
+        #expect(lookup.orders.map(\.state) == ["working"])
+        #expect(lookup.live == false)
+        #expect(transport.requests[0].path == "/api/snaptrade/orders/option?contract=NVDA270115C00125000")
+        #expect(transport.requests[0].authorization != nil)
+
+        let line = "Couldn't read your orders from your brokerage."
+        transport.stub(op, .json(status: 502, #"{"detail":"\#(line)"}"#))
+        await #expect(throws: APIFailure.upstream(line)) {
+            try await session.brokerage.optionOrders(contract: "NVDA270115C00125000")
+        }
+    }
+
+    @Test("notices are read by source, muted and unmuted at their own addresses")
+    func noticeCalls() async throws {
+        let (session, transport) = mocked()
+        transport.stub("mark_notices_read_api_me_notices_read_post", .json(status: 200, #"{"marked":3}"#))
+        transport.stub("mute_notice_source_api_me_notices_mutes__source_id__put", .json(status: 204, ""))
+        transport.stub("unmute_notice_source_api_me_notices_mutes__source_id__delete", .json(status: 204, ""))
+
+        #expect(try await session.actions.markNoticesRead(sourceID: "s-1") == 3)
+        #expect(try body(transport.requests[0])["source_id"] as? String == "s-1")
+        #expect(try body(transport.requests[0])["ids"] == nil)
+
+        _ = try await session.actions.markNoticesRead(ids: [4, 5])
+        #expect(try body(transport.requests[1])["ids"] as? [Int] == [4, 5])
+
+        try await session.actions.muteNotices(from: "s-1")
+        try await session.actions.unmuteNotices(from: "s-1")
+        #expect(transport.requests[2].path == "/api/me/notices/mutes/s-1")
+        #expect(transport.requests[3].path == "/api/me/notices/mutes/s-1")
+
+        transport.stub("mute_notice_source_api_me_notices_mutes__source_id__put", .json(status: 404, #"{"detail":"That strategy or screen isn't yours."}"#))
+        await #expect(throws: APIFailure.unavailable("That strategy or screen isn't yours.")) {
+            try await session.actions.muteNotices(from: "someone-else")
+        }
     }
 
     @Test("a brokerage link is only followed to an https address")
@@ -256,6 +339,46 @@ struct DemoAccountTests {
         #expect(notices.count == 1)
         try await session.actions.acknowledge(notices[0])
         #expect(try await session.actions.notices().isEmpty)
+    }
+
+    /// 2026-11-23. Jimmy: notices should be "simple, clear" — grouped by the
+    /// strategy or screen that sent them, read in bulk, and muted per source.
+    @Test("its notices come grouped by source, the strategy's signal change first")
+    func noticeInbox() async throws {
+        let session = AppSession.demo()
+        await session.inbox.refresh()
+        let inbox = session.inbox
+        #expect(inbox.updates.map(\.title) == ["NVDA 200-day trend", "52-week breakouts", "Cash-rich quality"])
+        #expect(inbox.updates.map(\.unreadCount) == [1, 2, 1])
+        #expect(inbox.updates[0].noticeLevel == .changed && inbox.updates[0].kind == .strategy)
+        #expect(inbox.updates[1].summary == "2 new · For your information")
+        #expect(inbox.updates[1].latestHeadline == "PLTR entered '52-week breakouts'")
+
+        // History includes what was already read.
+        let trend = try await inbox.history(of: "s-trend")
+        #expect(trend.notices.count == 2 && trend.unreadCount == 1)
+
+        try await inbox.readAll(inbox.updates[1])
+        #expect(inbox.updates.map(\.title) == ["NVDA 200-day trend", "Cash-rich quality"])
+
+        try await inbox.mute("scr-quality")
+        #expect(inbox.updates.map(\.title) == ["NVDA 200-day trend"])
+        #expect(inbox.muted.map(\.title) == ["Cash-rich quality"])
+        #expect(try await inbox.history(of: "scr-quality").muted)
+
+        try await inbox.unmute("scr-quality")
+        #expect(inbox.muted.isEmpty)
+    }
+
+    @Test("a notice reads without its source's name in front")
+    func noticeHeadline() throws {
+        let json = #"{"id":1,"title":"⚡ Trend — LONG NVDA","body":"b","source_kind":"strategy","level":"changed","created_at":"2026-11-23T21:10:00Z","read":false}"#
+        let notice = try isoDecoder.decode(NoticeItem.self, from: Data(json.utf8))
+        #expect(notice.headline == "LONG NVDA")
+        let exit = #"{"id":2,"title":"AMD hit your stop","body":"b","source_kind":"position","level":"act","created_at":"2026-11-23T21:10:00Z","read":false}"#
+        #expect(try isoDecoder.decode(NoticeItem.self, from: Data(exit.utf8)).headline == "AMD hit your stop")
+        #expect(NoticeLevel("act") > NoticeLevel("changed") && NoticeLevel("changed") > NoticeLevel("fyi"))
+        #expect(NoticeLevel("something new") == .fyi)
     }
 
     @Test("its brokerage decodes: status, accounts, holdings, a preview and a receipt")
