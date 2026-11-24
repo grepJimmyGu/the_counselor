@@ -15,9 +15,89 @@
 
 ---
 
-## Current state — 2026-09-10
+## Current state — 2026-11-20
 
-**Eleven PRs merged**, #355 → #365. Nothing open.
+**`main` is at #382.** Since the last checkpoint (2026-09-10, #365) these landed:
+
+| PR | What it did |
+|---|---|
+| #366, #370 | Search lands on its answer; a screen can keep the rule or keep the names |
+| #367, #368 | Sessions split by role; one results surface scoped, not built |
+| #375 | Market data had gone two months stale: refreshed on a schedule |
+| #373 | **Native iOS app** (`apps/ios`): research, live prices, strategy builder, brokerage, actions |
+| #376 | Quarterly filing analysis from 10-Q / 10-K data |
+| #377 | Password rules, reset by email, Google sign-in for the iOS app |
+| #378 | Portfolio agent v1: monitor, findings, conversation, the Agent tab |
+| #379 | Faster app loading; the agent holds up under many requests |
+| #381, #382 | Options builder (PRD-44 step 1) and its first fix |
+
+### Open PRs
+
+| PR | State |
+|---|---|
+| #383 | CI: backend run 22 min → ~3, first checks for the iOS app and the site |
+| #384 | iOS API contract generated from the backend code and checked in CI |
+| #380 | Fresher live quotes (rebase of #374). Needs a decision, not work |
+| #372 | Site stops running compute on every request. **The Vercel account is blocked until this or an account fix lands; the site does not deploy** |
+| #371 | Company page 500 on a long country name |
+| #369 | PRD-26b docs, open since 2026-09-10 |
+
+The Vercel check fails on every PR for the reason in #372. Until it is fixed,
+a red Vercel mark carries no information; read the other checks.
+
+### Shipped but not yet proven with a real account
+
+Six features merged on 2026-11-20. The code is tested; these paths have not
+run end to end for a real user, and each is a candidate for "works on the
+sample account only":
+
+- the agent with a real model and its scheduled scan (needs LLM keys on Railway);
+- Google sign-in on the phone (needs `GOOGLE_IOS_CLIENT_ID`);
+- saving an option plan on production, and the broker ticket against a real broker;
+- any order through a connected brokerage.
+
+A dedicated test account on production would let a session check signed-in
+flows itself. Today no session can.
+
+### Next
+
+- **iOS track** (roadmap Jimmy accepted on 2026-11-20): options step 2,
+  preview and place through the connected broker; step 3, the agent proposes
+  plans from holdings; step 4, backtest on historical chains. Plan and
+  as-built notes: `agent-system/plans/PRD-44-options-builder.md`.
+- **Before more surfaces:** the "not yet proven" list above. Recommended by
+  the session that wrote this, not yet decided by Jimmy.
+- **Known slow path, proposed and not started:** the first view of a company
+  nobody opened that week takes 3–8 s, because its competitor ranking is
+  rebuilt inside the request.
+- **Quant Engine track:** unchanged since 2026-09-10; its order is below.
+
+### Needs Jimmy
+
+- Vercel: unblock the account or merge #372.
+- Railway: LLM keys for the agent, `GOOGLE_IOS_CLIENT_ID`; `railway login`
+  so sessions can read logs.
+- A production test account for verification.
+- Decisions on #380, #371 and #369: merge or close.
+
+### Two things about this machine that will mislead you
+
+- **The canonical root is stale.** `/Users/jimmygu/the_counselor` had `main`
+  17 PRs behind `origin/main` on 2026-11-20, with files older than that and
+  about 200 entries in `git status`. Branch from `origin/main` and read code
+  from your own worktree.
+- **The default `python3` is 3.9 with an unpinned FastAPI** (0.128, not the
+  0.115.12 in `requirements.txt`). Tests pass on it, but anything that depends
+  on the schema's exact shape does not match production. Use an environment
+  built from `requirements.txt` for that (`apps/ios/README.md` has the command).
+
+---
+
+## Quant Engine track — as left on 2026-09-10
+
+*Unchanged by the 2026-11-20 checkpoint. The planning session owns this block.*
+
+**Eleven PRs merged**, #355 → #365.
 
 > 📍 **Read [`docs/QUANT_ENGINE_MAP.md`](../docs/QUANT_ENGINE_MAP.md) before
 > planning any 43-series work.** It maps the blueprint's §1–§40 to what ships
@@ -106,7 +186,7 @@ mode is not a broken page, it is a plausible number.**
 
 ### Don't touch without coordinating
 
-Nothing is in flight. All branches through #365 are landed.
+Nothing on this track is in flight. All branches through #365 are landed.
 
 Lane split as of 2026-09-10: the **planning session** owns `docs/`,
 `agent-system/` and the roadmap; **executing sessions** own `apps/`. See
@@ -134,26 +214,6 @@ CLAUDE.md "Session roles".
 
 ---
 
-## Legacy PRD Execution Queue (historical)
-
-| Order | PRD | Status | Notes |
-|---|---|---|---|
-| 1 | PRD-06 | ✅ DONE | `prd-06-complete` — FMP integration |
-| 2 | PRD-07 | ✅ DONE | `prd-07-complete` — stock screener |
-| 3 | PRD-08a | ✅ DONE | `prd-08a-complete` — fundamental analysis |
-| 4 | PRD-08b | ✅ DONE | `prd-08b-complete` — 10-K business intelligence |
-| 5 | PRD-09 | ✅ DONE | `prd-09-complete` — news/sentiment backend |
-| 6 | PRD-10 | ✅ DONE | `prd-10-complete` — news/sentiment frontend |
-| 7 | PRD-11 | ⚠ Superseded by Stage 1 | Early-access auth — rewritten properly with billing |
-| 8 | PRD-12 | ⚠ Superseded by Stage 4a | Watchlists/profiles draft — community redone via publish primitive |
-| 9 | PRD-13 | ⚠ Superseded by Stage 4a | Votes/signals draft — replaced by attribution model |
-| 10 | PRD-14 | ⚠ Superseded by Stage 4b | Community page draft — replaced by discovery feed |
-| — | PRD-05 | In discussion | `not_supported` strategy handling — no Stage equivalent yet |
-
----
-
----
-
 ## Open To-Dos (non-Stage)
 
 | # | Item | Priority | Trigger |
@@ -162,7 +222,7 @@ CLAUDE.md "Session roles".
 | 2 | Set `CAN_SPAM_ADDRESS` on Railway | High | Before scale-marketing (≥100 users) |
 | 3 | Move uncommitted `research-workspace.tsx` to feature branch | High | Git workflow rule — never edit on `main` |
 | 4 | Reddit API credentials | Medium | When approved → add `REDDIT_CLIENT_ID` + `REDDIT_CLIENT_SECRET` |
-| 5 | Frontend lint debt (26 errors across 22 files) | Low | When touching one of the affected files for a real feature |
+| 5 | Frontend lint debt (92 errors on 2026-11-20; it was 26) | Medium | Clear it, then add lint to `web-ci.yml`; until then lint is not a CI gate |
 | 6 | PRD-05: `not_supported` strategy handling | Low | Redirect UX — needs design decision |
 | 7 | Market snapshot staleness bug | Low | `fix/market-snapshot-staleness` branch |
 | 8 | Sentiment pre-warmer background job | Low | Top-100 S&P 500 every 3h via APScheduler |
@@ -176,20 +236,13 @@ See [docs/DEFERRED.md](../docs/DEFERRED.md) for the ~30 trigger-gated items spli
 ## Rollback Reference
 
 ```bash
-# Platform rollback (fastest):
 # Railway: Deployments tab → previous deploy → Redeploy
 # Vercel:  Deployments → previous deploy → Instant Rollback
-
-# Code rollback to last stable tag:
-git revert --no-commit prd-11-complete..HEAD
-git commit -m "revert: roll back to prd-11-complete"
-git push origin main
-
-# Stable rollback points:
-# prd-11-complete — Auth + all Phase 1+2 features
-# prd-10-complete — Phase 1+2 only (no auth)
-# prd-09-complete — Phase 1 only
+# Code:    git revert <the squash commit of the PR> on a branch, then a PR
 ```
+
+The `prd-NN-complete` tags stop at `prd-14-complete` (May 2026) and are not a
+usable rollback point for anything since.
 
 ---
 
@@ -203,7 +256,7 @@ exact sequence. It takes ~3 minutes and bootstraps the full project state.
 ```bash
 # 1. From the canonical root, see what shipped recently and what's open
 cd /Users/jimmygu/the_counselor
-git log --oneline -15                  # last 15 PRs to land on main
+git fetch origin && git log --oneline -15 origin/main   # last 15 PRs to land (local main may be stale)
 gh pr list --state open                # in-flight work from sibling sessions
 git worktree list                      # other sessions' active worktrees
 ```
@@ -214,7 +267,7 @@ git worktree list                      # other sessions' active worktrees
 cat agent-system/WORK_LOG.md           # ← THIS file: current state + next action (read first)
 head -120 project_log.md               # latest day's shipped work (chronological)
 cat docs/PROJECT_BACKLOG.md            # every open item with trigger conditions
-cat apps/api/CLAUDE.md                 # all 16 backend traps (auto-loads when editing apps/api/)
+cat apps/api/CLAUDE.md                 # the backend traps (auto-loads when editing apps/api/)
 ```
 
 ```bash
@@ -242,25 +295,8 @@ curl -s https://thecounselor-production.up.railway.app/health
 
 **Pre-existing hard rules** (from CLAUDE.md, restated for emphasis):
 
-- Work in a `git worktree`, not the canonical root (which stays on `main` for `claude-main`)
-- Never `gh pr merge` — open the PR and stop; `claude-main` is sole master merger
+- Work in a `git worktree` cut from `origin/main`, not in the canonical root
+- Merge a PR only when Jimmy names it; otherwise open the PR and stop
 - Branch prefix `<agent>/<type>/<slug>` (e.g. `claude/feat/<slug>`)
 - Backend tests pass + frontend build clean before any PR opens for merge
 - Disambiguate suspect hashes with `git cat-file -t <hash>` before treating as a git SHA — the Railway-deploy-ID confusion cost 16 hours on 2026-05-26
-
----
-
----
-
-## Autonomous Development Rules
-
-1. **One PRD at a time** — complete current PRD fully before starting the next
-2. **Commit at every logical checkpoint** — after each service, each route, each component
-3. **Run build + tests before every commit** — `npm run build` and `pytest` must pass
-4. **Update WORK_LOG.md at session end** — keep "Next action" accurate
-5. **Never push to main** — push requires user confirmation
-6. **Never `git reset --hard`** — use `git revert` to undo
-7. **Stop and note a blocker if:** API key missing, dependency install fails, tests fail 3+ times
-8. **Tag main after every PRD merge** — `git tag prd-XX-complete`
-
----

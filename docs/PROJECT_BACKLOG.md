@@ -91,10 +91,16 @@ actively blocking development; all are gates on going-live activities.
 
 ## 3. Git / branch hygiene
 
+Cleaned on 2026-11-20: 44 remote branches, 135 local branches and 14 worktrees
+whose PRs had merged were removed, and GitHub now deletes a branch when its PR
+merges. What is left needs a decision, not a sweep:
+
 | Item | Why it's here | Disposition |
 |---|---|---|
-| Stale `railway/fix-deploy-b1c14b` on remote | Auto-PR from Railway, merged but not deleted | Delete: `gh api -X DELETE repos/grepJimmyGu/the_counselor/git/refs/heads/railway/fix-deploy-b1c14b` |
-| Stale `railway/fix-deploy-bce8d1` on remote | Same | Same |
+| **The canonical root is stale** (`/Users/jimmygu/the_counselor`) | Its `main` was 17 PRs behind `origin/main`, its files older than that, with about 200 entries in `git status` (26 untracked). Sessions still land there and link its `node_modules` | Jimmy: look at the untracked files, then reset it to `origin/main` and reinstall. Nothing was touched |
+| 8 remote branches whose PRs were closed without merging (#41, #247, #292, #308, #335, #345, #358, #374) | Each may hold work that never landed. #374 is superseded by #380 | Jimmy: delete, or say which to revive |
+| 5 worktrees left on purpose | `leaktrades` and `render` (merged PRs, but uncommitted files), `mark-executed` and `bl2` (closed PRs), `livequotes` (superseded by #380) | Check the uncommitted files, then remove |
+| 6 local branches whose tip differs from their merged PR (#131, #161, #190, #215, #221, #223) | Something was committed after the PR's head | Compare with `main` before deleting |
 | `codex/improve-chat-builder` branch (local worktree) | Codex agent's parallel chat-builder work from May 19-20 (Episode 17), never merged | Decide: merge, rebase + merge, or close. Likely superseded by [build_specs/research_chat_v2.md](../build_specs/research_chat_v2.md) — review before discarding. |
 
 ---
@@ -234,7 +240,7 @@ Phase 1 is essentially done — only 1g and the LLM prompt rewrite remain.
 | The share ticket's "Turn on trading" button dead-ends at Schwab | Seen on Jimmy's account 2026-11-23: the ticket offers it, SnapTrade's page then says "Trading is not available for Schwab through this connection." `trading_support` does not come back `False` for Schwab, so the app cannot tell in advance. Fix: decide from a source that is right for the key in use (ask SnapTrade which field that is, or keep a dated list from their broker access guide), then show the hand-off instead of the button. | ~0.5 day | Before the share ticket is shown to anyone with a Schwab, Robinhood, Fidelity, IBKR or Vanguard link |
 | Remember that a plan's order was placed | The option ticket reads the broker's order list on demand and stores nothing (2026-11-23). Saving the result on the plan needs a column on `option_plans` and a refresh rule. | ~1 day | Once the read-back is proven on real accounts |
 | Whether a first-time link should ask for trading | Links are read-only and trading is turned on per account from the order ticket (2026-11-23). Asking at first connect saves a second broker login for people who came to trade and asks more of people who only wanted to see holdings. `connection_type="trade-if-available"` is the one-line switch | Decision, then minutes | Jimmy's call |
-| Frontend lint debt (26 errors across 22 files) | [DEFERRED.md](DEFERRED.md) | ~1-2h batch | When touching one of the affected files for a real feature |
+| Frontend lint debt (**92 errors** on 2026-11-20, up from 26) | `npm run lint` on `main`; mostly render-purity and `no-explicit-any` | half a day | Clear it, then add lint to `web-ci.yml`. Until then lint is not a CI gate, which is how it grew |
 | Rate-limit the public `POST /api/search/parse` | Unauthenticated and LLM-backed on the fallback path — real cost/abuse exposure. Noted repeatedly since 2026-07-30. | ~1h | Before any public launch push, or on the first anomalous spend |
 | Chinese queries silently fall through to the LLM | The 中文 toggle switches UI copy only; `screen_rule_parser`/`screen_filter_parser` are English-only regex, so 均线多头排列 extracts nothing. **Jimmy explicitly declined to invest in Chinese parsing 2026-08-07.** `tests/test_query_vocabulary.py` documents the gap. | Own project | Only if CN becomes a priority — do NOT start this as a "fix" |
 | Sentiment pre-warmer background job (Top-100 S&P 500 every 3h via APScheduler) | Was a "low" priority in WORK_LOG.md | ~2h | When sentiment dashboards show staleness in user-facing pages |
