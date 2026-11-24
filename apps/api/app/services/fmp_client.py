@@ -89,6 +89,11 @@ class FMPNotConfiguredError(FMPError):
     pass
 
 
+class FMPNoDataError(FMPError):
+    """FMP answered, with nothing for this symbol: an unknown ticker, not an
+    outage. Still an `FMPError`, so existing handlers catch it unchanged."""
+
+
 class FMPClient:
     # FMP deprecated /api/v3 for new subscribers after Aug 2025; all calls now use /stable
     BASE_URL = "https://financialmodelingprep.com/stable"
@@ -168,12 +173,17 @@ class FMPClient:
         symbol: str,
         interval: str = "15min",
         outputsize: str = "compact",
+        from_date: Optional[str] = None,
+        to_date: Optional[str] = None,
     ) -> list[dict]:
         """Fetch intraday OHLCV bars from `/stable/historical-chart/{interval}`.
 
         interval: '5min' | '15min' | '30min' | '60min' (60min → FMP '1hour').
         outputsize: 'compact' caps to the most recent ~120 bars (live cron);
                     'full' keeps ~800 (intraday backtests).
+        from_date / to_date: optional ISO dates (inclusive) bounding the days
+                    asked for — the company page's 1D/1W charts. Omitted, FMP
+                    picks the window, as before.
 
         Returns a list of {"bar_time": datetime, "open", "high", "low",
         "close", "volume"} dicts sorted oldest→newest. FMP's `date` is naive
@@ -185,11 +195,14 @@ class FMPClient:
                 f"Invalid intraday interval '{interval}'. "
                 "Must be 5min, 15min, 30min, or 60min."
             )
-        data = await self._get(
-            f"/historical-chart/{fmp_iv}", {"symbol": symbol.upper()}
-        )
+        params: dict[str, Any] = {"symbol": symbol.upper()}
+        if from_date:
+            params["from"] = from_date
+        if to_date:
+            params["to"] = to_date
+        data = await self._get(f"/historical-chart/{fmp_iv}", params)
         if not isinstance(data, list) or not data:
-            raise FMPError(f"No intraday data returned for {symbol} @ {interval}.")
+            raise FMPNoDataError(f"No intraday data returned for {symbol} @ {interval}.")
         cap = 120 if outputsize == "compact" else 800
         bars: list[dict] = []
         for row in data[:cap]:  # FMP returns newest-first

@@ -188,6 +188,8 @@ public enum DemoData {
         // Price history: without it the chart falls back to 90 days and the
         // signals, trend model and entry/exit test have nothing to work on.
         "get_daily_prices_api_data_daily__symbol__get",
+        // The 1D and 1W charts.
+        "get_intraday_chart_api_data_intraday__symbol__get",
         "get_market_overview_api_market_overview_get",
     ]
 }
@@ -517,8 +519,11 @@ struct DemoTransport: ClientTransport {
 extension AppSession {
     /// A session signed in as a made-up user, answering account calls from
     /// `DemoData`. Debug builds only.
-    public static func demo() -> AppSession {
+    /// - Parameter serverURL: where the sample account's live research calls
+    ///   go; a backend on this Mac shows an endpoint before it is deployed.
+    public static func demo(serverURL: URL = APIEnvironment.production) -> AppSession {
         let session = AppSession(
+            serverURL: serverURL,
             store: InMemorySessionStore(DemoData.session),
             biometrics: InMemoryBiometricStore(),
             transport: DemoTransport()

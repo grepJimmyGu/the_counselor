@@ -58,6 +58,19 @@ enum Fmt {
         return style
     }
 
+    /// A time of day in the market's own zone: "11:35 AM". The 1D and 1W
+    /// charts label their times "ET", so they read the same anywhere.
+    static func marketTime(_ date: Date) -> String {
+        var style = Date.FormatStyle.dateTime.hour().minute()
+        style.timeZone = TimeZone(identifier: "America/New_York")!
+        return date.formatted(style)
+    }
+
+    /// A trading day with its weekday: "Wed, Nov 18" (midnight UTC, as above).
+    static func weekdayTradingDay(_ date: Date) -> String {
+        date.formatted(utc(.dateTime.weekday(.abbreviated).month(.abbreviated).day()))
+    }
+
     static func tradingDay(_ date: Date) -> String {
         var style = Date.FormatStyle.dateTime.month(.abbreviated).day().year()
         style.timeZone = TimeZone(identifier: "UTC")!

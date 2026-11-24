@@ -11899,6 +11899,111 @@
     ],
     "title": "OptionPlanView",
     "type": "object"
+   },
+   "IntradayBarView": {
+    "description": "One bar of a regular session: when it started (UTC) and its prices.",
+    "properties": {
+     "close": {
+      "title": "Close",
+      "type": "number"
+     },
+     "open": {
+      "title": "Open",
+      "type": "number"
+     },
+     "time": {
+      "format": "date-time",
+      "title": "Time",
+      "type": "string"
+     }
+    },
+    "required": [
+     "time",
+     "open",
+     "close"
+    ],
+    "title": "IntradayBarView",
+    "type": "object"
+   },
+   "IntradaySessionView": {
+    "properties": {
+     "bars": {
+      "items": {
+       "$ref": "#/components/schemas/IntradayBarView"
+      },
+      "title": "Bars",
+      "type": "array"
+     },
+     "close": {
+      "description": "The exchange's close for a session that has ended; null for today's.",
+      "title": "Close",
+      "type": "number"
+     },
+     "date": {
+      "format": "date",
+      "title": "Date",
+      "type": "string"
+     }
+    },
+    "required": [
+     "date",
+     "bars"
+    ],
+    "title": "IntradaySessionView",
+    "type": "object"
+   },
+   "IntradayChartView": {
+    "description": "The company page's 1D (5-minute) and 1W (30-minute) chart.",
+    "properties": {
+     "as_of": {
+      "description": "The end of the newest bar.",
+      "format": "date-time",
+      "title": "As Of",
+      "type": "string"
+     },
+     "interval_minutes": {
+      "title": "Interval Minutes",
+      "type": "integer"
+     },
+     "previous_close": {
+      "description": "The close of the session before the first one shown; changes are measured from it.",
+      "title": "Previous Close",
+      "type": "number"
+     },
+     "previous_close_date": {
+      "format": "date",
+      "title": "Previous Close Date",
+      "type": "string"
+     },
+     "previous_close_source": {
+      "description": "'official' (the exchange's close) or 'last_bar' (that day's last bar, when the close isn't available).",
+      "title": "Previous Close Source",
+      "type": "string"
+     },
+     "range": {
+      "title": "Range",
+      "type": "string"
+     },
+     "sessions": {
+      "items": {
+       "$ref": "#/components/schemas/IntradaySessionView"
+      },
+      "title": "Sessions",
+      "type": "array"
+     },
+     "symbol": {
+      "title": "Symbol",
+      "type": "string"
+     }
+    },
+    "required": [
+     "symbol",
+     "range",
+     "interval_minutes",
+     "sessions"
+    ],
+    "title": "IntradayChartView",
+    "type": "object"
    }
   }
  },
@@ -14893,6 +14998,60 @@
      }
     },
     "summary": "Get Daily Prices",
+    "tags": [
+     "market-data"
+    ]
+   }
+  },
+  "/api/data/intraday/{symbol}": {
+   "get": {
+    "description": "A stock's regular-session prices through the day: `1d` is the latest\nsession in 5-minute bars, `1w` the latest five in 30-minute bars, each\nwith the close they are measured from. No auth gate, like the daily\nprices above. Takes no database session: nothing here reads the DB, and\nthe FMP call must not hold a connection (trap 13).",
+    "operationId": "get_intraday_chart_api_data_intraday__symbol__get",
+    "parameters": [
+     {
+      "in": "path",
+      "name": "symbol",
+      "required": true,
+      "schema": {
+       "title": "Symbol",
+       "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "range",
+      "required": false,
+      "schema": {
+       "default": "1d",
+       "pattern": "^(1d|1w)$",
+       "title": "Range",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/IntradayChartView"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Get Intraday Chart",
     "tags": [
      "market-data"
     ]
