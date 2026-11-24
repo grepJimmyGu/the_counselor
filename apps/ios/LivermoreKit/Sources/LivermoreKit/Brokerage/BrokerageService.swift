@@ -124,6 +124,24 @@ public struct BrokerageService: Sendable {
         }
     }
 
+    /// What the user's brokers have on file for one option contract
+    /// ("NVDA270115C00125000"). For an order entered at the broker by hand:
+    /// it needs only the read access every link has, and places nothing.
+    public func optionOrders(contract: String) async throws(APIFailure) -> OptionOrderLookup {
+        let output = try await APIFailure.perform {
+            try await client.snaptradeOptionOrdersApiSnaptradeOrdersOptionGet(query: .init(contract: contract))
+        }
+        switch output {
+        case .ok(let ok):
+            guard case .json(let lookup) = ok.body else { throw .server(status: 200) }
+            return lookup
+        case .unprocessableContent:
+            throw .rejected("Livermore couldn't look for this contract.")
+        case .undocumented(let status, let payload):
+            throw await APIFailure.from(status: status, payload: payload)
+        }
+    }
+
     /// Asks the broker to price an order. Nothing is sent to the market.
     public func preview(_ draft: OrderDraft) async throws(APIFailure) -> OrderPreview {
         if let problem = draft.problem { throw .rejected(problem) }

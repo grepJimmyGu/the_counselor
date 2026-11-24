@@ -302,6 +302,25 @@ link. All of it is from SnapTrade's own docs and the installed SDK
   never fill. The ticket says to check the live price; step 2 has to fetch
   one (`trading.get_user_account_option_quotes`) before it prices anything.
 
+### 12b. Brokers that take no orders: the hand-off, confirmed (built 2026-11-23)
+
+Jimmy decided not to apply for Schwab's trading API for now, so for Schwab,
+Robinhood, Fidelity, Interactive Brokers and Vanguard the ticket is how an
+order gets placed. Two additions close the loop without any trading
+permission:
+
+- **Copy and open the broker** (`BrokerApp`): Schwab's trade ticket or
+  Robinhood's stock page, opened only if the broker's app takes it. Neither
+  address accepts an order or, for Schwab, a symbol.
+- **Check my broker for this order** (`PlacedOrderReading`, backend
+  `find_option_orders`, `GET /api/snaptrade/orders/option`): matches on the
+  contract symbol with the padding removed, reads the live 24-hour list and
+  the week-long daily copy, and says which it could read.
+
+Nothing is stored: a plan is not marked "placed", the ticket asks the broker
+each time. Persisting it (and showing it on a saved plan) is the next step if
+the read proves reliable on real accounts.
+
 ## 13. Decisions
 
 Answered by Jimmy, 2026-11-20: a premium Alpha Vantage plan (so last-close

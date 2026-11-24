@@ -1583,3 +1583,163 @@ def test_no_trading_link_is_made_for_a_broker_that_does_not_trade_here(
     with pytest.raises(ValueError, match="Schwab doesn't take orders from Livermore"):
         st.connection_portal_url(db, user.id, trading_account_id="acct-1", client=api)
     api.authentication.login_snap_trade_user.assert_not_called()
+
+
+# ── an order the user entered at their own broker, read back ────────────────
+#
+# Brokers such as Schwab and Robinhood take no orders from Livermore, so an
+# option plan is typed in at the broker by hand. Reading the account's orders
+# is the only way the app can then say "it is in".
+
+
+_NVDA_CALL = "NVDA270115C00125000"
+
+
+def _option_row(order_id: str, *, ticker: str = "NVDA  270115C00125000", **over) -> dict:
+    row = {
+        "brokerage_order_id": order_id, "status": "ACCEPTED", "action": "BUY_OPEN",
+        "universal_symbol": None,
+        "option_symbol": {"ticker": ticker, "option_type": "CALL", "strike_price": 125},
+        "total_quantity": "1", "filled_quantity": "0", "limit_price": "9.50",
+        "order_type": "Limit", "time_in_force": "Day",
+        "time_placed": "2026-11-23T20:31:00Z",
+    }
+    row.update(over)
+    return row
+
+
+def _orders_api(*, recent=None, daily=None) -> MagicMock:
+    api = _api()
+    info = api.account_information
+    info.get_user_account_recent_orders.return_value = {"orders": recent or []}
+    info.get_user_account_orders.return_value = daily or []
+    return api
+
+
+def test_an_order_typed_in_at_the_broker_is_found_by_its_contract(
+    make_user, db: Session, configured,
+) -> None:
+    user = make_user(email="opt-found@test.com")
+    api = _orders_api(recent=[
+        {"brokerage_order_id": "s1", "status": "EXECUTED", "universal_symbol": {"symbol": "NVDA"},
+         "option_symbol": None, "total_quantity": "5"},
+        _option_row("o1"),
+        _option_row("o2", ticker="NVDA  270115P00125000"),
+    ])
+    st.register_user(db, user.id, client=api)
+
+    orders, live = st.find_option_orders(db, user.id, _NVDA_CALL, client=api)
+
+    assert live is True
+    assert [o.order_id for o in orders] == ["o1"]
+    order = orders[0]
+    assert (order.state, order.status, order.action) == ("working", "ACCEPTED", "BUY_OPEN")
+    assert (order.quantity, order.filled_quantity, order.limit_price) == (1.0, 0.0, 9.5)
+    assert order.account_id == "acct-1"
+    # Pending orders are the point, and they are not in the default answer.
+    kwargs = api.account_information.get_user_account_recent_orders.call_args.kwargs
+    assert kwargs["only_executed"] is False
+
+
+def test_the_padded_and_the_plain_contract_symbol_are_the_same_contract() -> None:
+    assert st.option_contract_key("NVDA  270115C00125000") == _NVDA_CALL
+    assert st.option_contract_key(" nvda270115c00125000 ") == _NVDA_CALL
+    assert st.option_contract_key(None) == ""
+
+
+def test_an_order_in_both_lists_is_reported_once_from_the_live_one(
+    make_user, db: Session, configured,
+) -> None:
+    user = make_user(email="opt-dedupe@test.com")
+    api = _orders_api(
+        recent=[_option_row("o1", status="EXECUTED", filled_quantity="1")],
+        daily=[_option_row("o1"), _option_row("o0", status="CANCELED", time_placed="2026-11-20T15:00:00Z")],
+    )
+    st.register_user(db, user.id, client=api)
+
+    orders, _ = st.find_option_orders(db, user.id, _NVDA_CALL, client=api)
+
+    assert [(o.order_id, o.state) for o in orders] == [("o1", "filled"), ("o0", "ended")]
+
+
+def test_a_failed_live_read_falls_back_to_the_daily_list_and_says_so(
+    make_user, db: Session, configured,
+) -> None:
+    user = make_user(email="opt-daily@test.com")
+    api = _orders_api(daily=[_option_row("o1")])
+    api.account_information.get_user_account_recent_orders.side_effect = RuntimeError("403")
+    st.register_user(db, user.id, client=api)
+
+    orders, live = st.find_option_orders(db, user.id, _NVDA_CALL, client=api)
+
+    assert live is False
+    assert [o.order_id for o in orders] == ["o1"]
+
+
+def test_REGRESSION_orders_that_could_not_be_read_are_not_reported_as_no_order(
+    make_user, db: Session, configured,
+) -> None:
+    """Same rule as `SnapTradeReadFailed` everywhere else: "we could not
+    look" must never come back as an empty list, which the ticket would
+    print as "no order at your broker yet"."""
+    user = make_user(email="opt-unread@test.com")
+    api = _orders_api()
+    api.account_information.get_user_account_recent_orders.side_effect = RuntimeError("down")
+    api.account_information.get_user_account_orders.side_effect = RuntimeError("down")
+    st.register_user(db, user.id, client=api)
+
+    with pytest.raises(st.SnapTradeReadFailed):
+        st.find_option_orders(db, user.id, _NVDA_CALL, client=api)
+
+
+def test_a_status_this_code_does_not_know_is_passed_on_not_guessed(
+    make_user, db: Session, configured,
+) -> None:
+    user = make_user(email="opt-unknown@test.com")
+    api = _orders_api(recent=[_option_row("o1", status="SOMETHING_NEW")])
+    st.register_user(db, user.id, client=api)
+
+    orders, _ = st.find_option_orders(db, user.id, _NVDA_CALL, client=api)
+
+    assert (orders[0].state, orders[0].status) == ("unknown", "SOMETHING_NEW")
+
+
+def test_the_route_answers_for_the_contract_and_never_exposes_the_order_id(
+    make_user, db: Session, configured,
+) -> None:
+    from app.api.routes.snaptrade import snaptrade_option_orders
+
+    user = make_user(email="opt-route@test.com")
+    api = _orders_api(recent=[_option_row("o1")])
+    st.register_user(db, user.id, client=api)
+
+    with patch.object(st, "_client", return_value=api):
+        found = snaptrade_option_orders(contract="NVDA  270115C00125000", current_user=user, db=db)
+
+    assert found.contract == _NVDA_CALL and found.live is True
+    assert found.orders[0].state == "working"
+    assert "order_id" not in found.orders[0].model_dump()
+
+
+def test_the_route_says_it_could_not_read_rather_than_answering_empty(
+    make_user, db: Session, configured,
+) -> None:
+    from fastapi import HTTPException
+
+    from app.api.routes.snaptrade import snaptrade_option_orders
+
+    user = make_user(email="opt-route-502@test.com")
+    api = _orders_api()
+    api.account_information.get_user_account_recent_orders.side_effect = RuntimeError("down")
+    api.account_information.get_user_account_orders.side_effect = RuntimeError("down")
+    st.register_user(db, user.id, client=api)
+
+    with patch.object(st, "_client", return_value=api):
+        with pytest.raises(HTTPException) as caught:
+            snaptrade_option_orders(contract=_NVDA_CALL, current_user=user, db=db)
+        with pytest.raises(HTTPException) as blank:
+            snaptrade_option_orders(contract="  ", current_user=user, db=db)
+
+    assert caught.value.status_code == 502
+    assert caught.value.detail == "Couldn't read your orders from your brokerage."
+    assert blank.value.status_code == 400

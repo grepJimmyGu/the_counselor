@@ -4234,6 +4234,84 @@
     ],
     "title": "OAuthGoogleRequest"
    },
+   "OptionOrderLookup": {
+    "description": "What the user's brokers have on file for one option contract.",
+    "properties": {
+     "contract": {
+      "title": "Contract",
+      "type": "string"
+     },
+     "live": {
+      "title": "Live",
+      "type": "boolean"
+     },
+     "orders": {
+      "items": {
+       "$ref": "#/components/schemas/OptionOrderView"
+      },
+      "title": "Orders",
+      "type": "array"
+     }
+    },
+    "required": [
+     "contract",
+     "orders",
+     "live"
+    ],
+    "title": "OptionOrderLookup",
+    "type": "object"
+   },
+   "OptionOrderView": {
+    "description": "One order for an option contract, as the broker has it.",
+    "properties": {
+     "account_id": {
+      "title": "Account Id",
+      "type": "string"
+     },
+     "action": {
+      "title": "Action",
+      "type": "string"
+     },
+     "filled_quantity": {
+      "title": "Filled Quantity",
+      "type": "number"
+     },
+     "limit_price": {
+      "title": "Limit Price",
+      "type": "number"
+     },
+     "order_type": {
+      "title": "Order Type",
+      "type": "string"
+     },
+     "quantity": {
+      "title": "Quantity",
+      "type": "number"
+     },
+     "state": {
+      "title": "State",
+      "type": "string"
+     },
+     "status": {
+      "title": "Status",
+      "type": "string"
+     },
+     "time_in_force": {
+      "title": "Time In Force",
+      "type": "string"
+     },
+     "time_placed": {
+      "title": "Time Placed",
+      "type": "string"
+     }
+    },
+    "required": [
+     "account_id",
+     "state"
+    ],
+    "title": "OptionOrderView",
+    "type": "object"
+   },
    "OutputKind": {
     "description": "Semantic shape of the signal a primitive emits at each timestep.\n\nPRD-22a. Drives the composer rule-builder dispatch (PRD-22c) and the\nKB-lookup Jaccard enrichment (PRD-22b). Defaults to VALUE so every v1\nprimitive stays backward-compatible \u2014 the composer's existing\n`[primitive] [< | >] [threshold]` widget is the VALUE widget.\n\n`str, Enum` (matching `SignalCategory`) so it JSON-serializes to its\nstring value in the catalog payload.",
     "enum": [
@@ -18435,6 +18513,49 @@
      }
     },
     "summary": "Snaptrade Orders",
+    "tags": [
+     "snaptrade"
+    ]
+   }
+  },
+  "/api/snaptrade/orders/option": {
+   "get": {
+    "description": "Has an order for this option contract reached the user's broker?\n\nFor an order the user entered at the broker themselves. Reading orders\nneeds only the read access every link has, so this works at brokers\nthat take no orders from Livermore. It places nothing.",
+    "operationId": "snaptrade_option_orders_api_snaptrade_orders_option_get",
+    "parameters": [
+     {
+      "in": "query",
+      "name": "contract",
+      "required": true,
+      "schema": {
+       "title": "Contract",
+       "type": "string"
+      }
+     }
+    ],
+    "responses": {
+     "200": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/OptionOrderLookup"
+        }
+       }
+      },
+      "description": "Successful Response"
+     },
+     "422": {
+      "content": {
+       "application/json": {
+        "schema": {
+         "$ref": "#/components/schemas/HTTPValidationError"
+        }
+       }
+      },
+      "description": "Validation Error"
+     }
+    },
+    "summary": "Snaptrade Option Orders",
     "tags": [
      "snaptrade"
     ]

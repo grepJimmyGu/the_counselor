@@ -145,6 +145,7 @@ public enum DemoData {
         "snaptrade_positions_api_snaptrade_positions_get": brokerageHoldings,
         "snaptrade_connect_api_snaptrade_connect_post": #"{"redirect_uri":"https://livermorealpha.com/account/brokerage"}"#,
         "place_order_api_snaptrade_orders_place_post": #"{"status":"ACCEPTED (sample — nothing was sent)","brokerage_order_id":"SAMPLE-0001"}"#,
+        "snaptrade_option_orders_api_snaptrade_orders_option_get": #"{"contract":"SAMPLE","live":true,"orders":[{"account_id":"acct-1","status":"ACCEPTED","state":"working","action":"BUY_OPEN","quantity":1,"filled_quantity":0,"limit_price":9.5,"order_type":"Limit","time_in_force":"Day","time_placed":"2026-11-23T20:31:00Z"}]}"#,
     ]
 
     /// Public, read-only calls the sample account still makes for real, so

@@ -267,6 +267,62 @@ def snaptrade_orders(
         raise HTTPException(status_code=502, detail="Couldn't read your recent orders.") from exc
 
 
+class OptionOrderView(BaseModel):
+    """One order for an option contract, as the broker has it."""
+    account_id: str
+    status: Optional[str] = None          # the broker's status, as mapped by SnapTrade
+    state: str                            # working | filled | partly_filled | ended | unknown
+    action: Optional[str] = None          # BUY, SELL, BUY_OPEN, … varies by broker
+    quantity: Optional[float] = None      # contracts
+    filled_quantity: Optional[float] = None
+    limit_price: Optional[float] = None   # per share
+    order_type: Optional[str] = None
+    time_in_force: Optional[str] = None
+    time_placed: Optional[str] = None
+
+
+class OptionOrderLookup(BaseModel):
+    """What the user's brokers have on file for one option contract."""
+    contract: str
+    orders: List[OptionOrderView]
+    # False when a broker's last-24-hours list could not be read, so only its
+    # once-a-day copy was searched and a just-placed order may be missing.
+    live: bool
+
+
+@router.get("/orders/option", response_model=OptionOrderLookup)
+def snaptrade_option_orders(
+    contract: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> OptionOrderLookup:
+    """Has an order for this option contract reached the user's broker?
+
+    For an order the user entered at the broker themselves. Reading orders
+    needs only the read access every link has, so this works at brokers
+    that take no orders from Livermore. It places nothing.
+    """
+    _require_configured()
+    key = st.option_contract_key(contract)
+    if not key:
+        raise HTTPException(status_code=400, detail="Name the option contract to look for.")
+    try:
+        orders, live = st.find_option_orders(db, current_user.id, key)
+    except st.SnapTradeNotConfigured:
+        raise HTTPException(status_code=503, detail="Brokerage connections aren't available right now.")
+    except Exception as exc:  # noqa: BLE001
+        _log.exception("snaptrade: option orders failed user=%s", current_user.id)
+        raise HTTPException(status_code=502, detail="Couldn't read your orders from your brokerage.") from exc
+    return OptionOrderLookup(
+        contract=key,
+        orders=[
+            OptionOrderView(**{k: v for k, v in vars(o).items() if k != "order_id"})
+            for o in orders
+        ],
+        live=live,
+    )
+
+
 @router.get("/performance", response_model=List[dict])
 def snaptrade_performance(
     current_user: User = Depends(get_current_user),

@@ -47,6 +47,8 @@ filter:
     - /api/snaptrade/positions
     - /api/snaptrade/orders/preview
     - /api/snaptrade/orders/place
+    # An order entered at the broker by hand, read back (PRD-44)
+    - /api/snaptrade/orders/option
     # Market strip and sparklines; daily history for the price chart
     - /api/market/overview
     - /api/data/daily/{symbol}
