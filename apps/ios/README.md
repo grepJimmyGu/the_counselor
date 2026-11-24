@@ -9,7 +9,7 @@ What the app does, and how far each part has been checked.
 
 | Area | What a user can do | Checked |
 |---|---|---|
-| Research | Market strip and a watchlist with sparklines; search; company page in two tabs — **Financials** (the latest 10-Q or 10-K: what changed, flagged; every metric's nine-quarter trend) and **Price** (chart, signals, trend model, key levels, entry and exit test); news & sentiment; supply chain | Price tab against production. Financials against real SEC data through a local backend — the endpoint is PR #376, not yet deployed |
+| Research | Market strip and a watchlist with sparklines; search; company page in two tabs — **Financials** (the latest 10-Q or 10-K: what changed, flagged; every metric's nine-quarter trend) and **Price** (chart from today in 5-minute steps to five years, signals, trend model, key levels, entry and exit test); news & sentiment; supply chain | Price tab against production. Financials against real SEC data through a local backend — the endpoint is PR #376, not yet deployed |
 | Live prices | Prices on every screen refresh every 10 s while visible, with "Prices checked 9:18:17 PM" beside them | Against production |
 | Build a strategy | Pick one of the website's templates; choose tickers and period; change capital, costs, the rule's numbers, risk level and the stop/targets; run the backtest; change settings and run again | Against production, signed out (one run) |
 | Save and re-test | Save a result; open a saved strategy and test it again with changes, saving the result as a new strategy | Sample data only |
@@ -24,8 +24,8 @@ What the app does, and how far each part has been checked.
 fixtures.** Launching a debug build with `-demo` signs in a made-up user and
 answers every account endpoint from `DemoData`; the screens are marked "Sample
 data". The fixtures are run through the real decoder in the tests, so they
-cannot drift from the schema. The sample account reaches the network for six
-public read-only calls (quotes, search, company data) and nothing else — it
+cannot drift from the schema. The sample account reaches the network only for
+public read-only calls (quotes, search, company data, price history) — it
 cannot send an order.
 
 ```bash
@@ -88,6 +88,14 @@ stock) and the same call for SPY, fetched once per launch and cached
 (`PriceHistory`). Ranges, the period return and "vs S&P 500" are all computed
 from those closes (`PerformanceSeries`), so the three always describe the same
 days and always end on the latest close.
+
+**1D and 1W** come from `/api/data/intraday/{symbol}?range=1d|1w` instead:
+the latest regular session in 5-minute bars, or the latest five in 30-minute
+bars (FMP), with the official close they are measured from
+(`IntradaySeries`). The days sit side by side with no nights or weekends, a
+finished day ends on the exchange's close, and while today's session is open
+the line ends on the live quote, which is newer than the newest bar. The chart
+reloads every minute during the session; times are New York (ET).
 
 `/api/market/sector-comparison/{symbol}` looks like the endpoint for this and
 is not used: for ranges longer than a month its series stops on 2026-09-10,
@@ -159,8 +167,9 @@ is unchanged: five years of free cash flow at one growth rate, a terminal
 value, a discount rate, net cash and a share count, with a sensitivity grid.
 `CashFlowModelTests` reproduces a published model's results from its inputs.
 
-The sample account passes public market data (quotes, daily history, the
-overview) through to the live API, so the Price tab is live in `-demo` too.
+The sample account passes public market data (quotes, daily history, the 1D
+and 1W prices, the overview) through to the live API, so the Price tab is live
+in `-demo` too.
 
 ## The portfolio agent
 
@@ -224,6 +233,9 @@ at a backend on this Mac (debug builds only):
 xcrun simctl launch booted com.livermorealpha.app -googleClientID <id>.apps.googleusercontent.com
 xcrun simctl launch booted com.livermorealpha.app -serverURL http://127.0.0.1:8000
 ```
+
+`-demo -serverURL <url>` sends the sample account's live research calls to that
+backend, so a new public endpoint can be seen in the app before it is deployed.
 
 The password rules exist twice, in `PasswordPolicy.swift` and the backend's
 `password_policy.py`. Their tests check the same list of passwords for the

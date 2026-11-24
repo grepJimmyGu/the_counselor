@@ -13,8 +13,10 @@ public struct RootView: View {
     public init(session: AppSession? = nil) {
         #if DEBUG
         // `-demo` shows the signed-in screens with sample data; see DemoData.
+        // With `-serverURL` (below) its live research calls go there instead.
         if session == nil, ProcessInfo.processInfo.arguments.contains("-demo") {
-            _session = State(initialValue: AppSession.demo())
+            let server = UserDefaults.standard.string(forKey: "serverURL").flatMap(URL.init)
+            _session = State(initialValue: AppSession.demo(serverURL: server ?? APIEnvironment.production))
             return
         }
         // `-serverURL http://127.0.0.1:8000` points the app at a backend on this

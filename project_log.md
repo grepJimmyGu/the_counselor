@@ -8,6 +8,44 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-11-24 — The company chart gets 1D and 1W: today's prices, live
+
+**Why.** Jimmy: the price at the top of a company page is live, but the chart
+under it ended at yesterday's close, so today's move could not be seen. He
+asked for a 1D view and a 1W view.
+
+**What was there.** The quote is real-time: at 12:40 ET our NVDA price was
+$153.56 against Google Finance's $153.36 the same minute, with the same day
+high and low. The chart was daily closes only (1M to 5Y).
+
+**Built.**
+- Backend: `GET /api/data/intraday/{symbol}?range=1d|1w`
+  (`intraday_chart_service.py`). 1D is the latest regular session in
+  5-minute bars, 1W the latest five in 30-minute bars, from FMP's
+  `/historical-chart` (already used by the position monitor; now asked for an
+  explicit date window). Each comes with `previous_close`, the official close
+  of the session before, from FMP's `/historical-price-eod/full`; finished
+  sessions carry their own official close. No database, so no connection is
+  held across the FMP call (trap 13); `TTLCache` of a minute (trap 22).
+  Unknown symbol 404, FMP failure 502. `FMPNoDataError` separates "nothing
+  for this symbol" from an outage.
+- App: 1D and 1W ahead of 1M…5Y on the Price tab (`IntradaySeries`,
+  `IntradayChartSection`). Days sit side by side on a session-time axis; a
+  session under way keeps its full width so the line fills the day; while
+  today's session is open the line ends on the live quote, marked LIVE.
+  Caption says what the change is measured from and how far the bars go.
+- `-demo -serverURL` now points the sample account's live research calls at a
+  local backend, which is how this was seen before deploy.
+
+**Verified.** Backend tests for sessions, hours, UTC times, the close each
+range is measured from, caching and errors; app tests for the layout and when
+the live price is drawn; both ranges on the simulator against a local
+stand-in serving sample bars (the endpoint is not deployed yet).
+
+**Not yet known.** How far behind FMP's bars run on our plan (a code comment
+says ~15 minutes) and whether FMP labels bars by their start, as assumed.
+Both to be checked against production after deploy.
+
 ## 2026-11-23 — Typing "ANT" finds Anthropic, and a three-day-old stock's chart says so
 
 **Symptom.** Jimmy could not find Anthropic (ANT) on his phone and could not
