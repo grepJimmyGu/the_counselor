@@ -34,6 +34,33 @@ chart's points and the sentence's total, against the textbook formulas.
 Over 5,000 points, no differences. On the simulator, moving the strike with
 the "what if" price held kept the chart and the sentence in step.
 
+## 2026-11-24 — 1D/1W on production: the bar still in progress ran the line into the future
+
+**Symptom.** Checked on production after #390 deployed, at 15:07 ET: the 1W
+chart's newest 30-minute bar was the one that started at 15:00. The app drew
+it at its end, 15:30, so today's line ran 23 minutes ahead of the clock, the
+caption said "to 3:30 PM ET", and the live price was never added because it
+looked older than the bars.
+
+**Cause.** FMP sends the bar still being made, and both sides took a bar's
+end as start + interval. `as_of` was therefore in the future, and the app's
+"live price is newer than the bars" test failed.
+
+**Fix.** The backend caps `as_of` at the time it read FMP; the app draws a bar
+no later than `as_of` or now, so it is right even against a backend that
+reports the bar's end. Regression tests on both sides reproduce 15:07.
+
+**What production showed (the two unknowns from #390).** FMP's 5-minute bars
+run about 2 minutes behind on our plan, not 15. Bars are labelled by their
+start: a session is 09:30 to 15:55 in 5-minute bars, 09:30 to 15:30 in
+30-minute bars. 1D's previous close matched the live quote's ($165.05), and
+ten simultaneous requests answered in a second.
+
+**NVDA's Nov 20 close is real.** FMP's 30-minute bars show NVDA opening at
+$143.60 that day and falling all session; its official close is $125.53, the
+same as the stored daily close, and Google lists $124.50 as the 52-week low.
+The option plans priced that day used a real price. Backlog row removed.
+
 ## 2026-11-24 — The company chart gets 1D and 1W: today's prices, live
 
 **Why.** Jimmy: the price at the top of a company page is live, but the chart
