@@ -32,7 +32,7 @@ export default function CommodityPage() {
           <p className="mt-2 text-sm text-muted-foreground">
             Available: {SYMBOLS.join(", ")}
           </p>
-          <Link href={"/commodities/GOLD" as Route} className="mt-4 inline-block text-sm text-primary hover:underline">
+          <Link href={"/commodities/GOLD" as Route} prefetch={false} className="mt-4 inline-block text-sm text-primary hover:underline">
             View Gold →
           </Link>
         </div>
@@ -46,7 +46,7 @@ export default function CommodityPage() {
 
         {/* Breadcrumb */}
         <div className="flex items-center gap-1 text-xs text-muted-foreground">
-          <Link href={"/commodities/GOLD" as Route} className="hover:text-foreground transition-colors">
+          <Link href={"/commodities/GOLD" as Route} prefetch={false} className="hover:text-foreground transition-colors">
             Commodities
           </Link>
           <ChevronRight className="h-3 w-3" />

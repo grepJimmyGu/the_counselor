@@ -415,6 +415,7 @@ export function ScreenResults({
               </p>
               <Link
                 href={`/screens/${savedScreen.saved_strategy_id}` as Route}
+                prefetch={false}
                 data-testid="screen-results-view-link"
                 className="mt-2 inline-flex items-center gap-1 text-[13px] font-semibold text-emerald-900 underline underline-offset-2 hover:text-emerald-700"
               >

@@ -97,6 +97,7 @@ export default function MyStrategiesPage() {
           You haven&rsquo;t saved a live strategy yet. Build one with{" "}
           <Link
             href={"/flow/custom_build_mode" as Route}
+            prefetch={false}
             className="text-primary underline underline-offset-2"
           >
             Build from scratch
@@ -109,6 +110,7 @@ export default function MyStrategiesPage() {
             <li key={s.id}>
               <Link
                 href={`/account/strategies/${s.id}` as Route}
+                prefetch={false}
                 data-testid={`my-strategy-row-${s.id}`}
                 className="group flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-white px-4 py-3 transition-colors hover:border-primary/40 hover:bg-primary/5"
               >

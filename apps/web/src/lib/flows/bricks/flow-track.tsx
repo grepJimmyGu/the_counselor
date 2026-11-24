@@ -517,6 +517,7 @@ function DoneLinks({
       {slug && (
         <Link
           href={`/strategies/${slug}` as Route}
+          prefetch={false}
           data-testid="track-open-strategy"
           className="text-[13px] font-medium text-primary underline-offset-2 hover:underline"
         >

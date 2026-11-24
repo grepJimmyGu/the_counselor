@@ -98,6 +98,7 @@ export function HomeCuratedScreens() {
         <h2 className="font-heading text-base font-semibold">Hot Market Picks</h2>
         <Link
           href={"/flow/custom_build_mode" as Route}
+          prefetch={false}
           className="text-xs text-primary hover:underline"
         >
           Screen the market →
@@ -131,7 +132,7 @@ export function HomeCuratedScreens() {
         <p className="mt-2 text-[11px] text-muted-foreground">
           {shown[4].name}
           {shown.length > 5 ? ` and ${shown.length - 5} more` : ""} ·{" "}
-          <Link href={"/flow/custom_build_mode" as Route} className="text-primary hover:underline">
+          <Link href={"/flow/custom_build_mode" as Route} prefetch={false} className="text-primary hover:underline">
             see all {shown.length}
           </Link>
         </p>

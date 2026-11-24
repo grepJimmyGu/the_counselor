@@ -113,7 +113,7 @@ function CandidateRow({ c, onNavigate }: { c: SentimentCandidateResult; onNaviga
         variant="ghost"
         className="shrink-0"
       >
-        <Link href={`/stocks/${c.symbol}?tab=sentiment` as Route}>
+        <Link href={`/stocks/${c.symbol}?tab=sentiment` as Route} prefetch={false}>
           <ArrowRight className="h-4 w-4" />
         </Link>
       </Button>

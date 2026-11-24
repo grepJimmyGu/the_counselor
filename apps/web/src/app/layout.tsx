@@ -10,6 +10,18 @@ import { TrialBanner } from "@/components/TrialBanner";
 import { UpgradeModal } from "@/components/UpgradeModal";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://livermorealpha.com";
+
+// How often an open, signed-in tab re-reads its session.
+//
+// next-auth's default is "on every tab re-focus", and each read is a Vercel
+// function run. We turn that off (see <SessionProvider> below) and poll slowly
+// instead, because the read is also what re-mints an ageing backend token
+// (apps/api/CLAUDE.md trap #23) — a tab left open across the token's expiry
+// must still get a fresh one without a reload. The token is re-minted once it
+// is within 24h of `exp` (BACKEND_TOKEN_REFRESH_WINDOW_SECONDS), so 4h gives
+// six chances inside that window. Anonymous visitors never poll: next-auth
+// skips the read when there is no session.
+const SESSION_REFETCH_INTERVAL_SECONDS = 4 * 60 * 60;
 const SITE_DESCRIPTION =
   "AI-powered investment strategy research and backtesting workspace. " +
   "Run 22+ quant strategy templates on real market data. Free Scout tier.";
@@ -60,7 +72,10 @@ export default function RootLayout({
   return (
     <html lang="en" className="h-full">
       <body className="min-h-full bg-background font-sans text-foreground antialiased overscroll-y-none">
-        <SessionProvider>
+        <SessionProvider
+          refetchOnWindowFocus={false}
+          refetchInterval={SESSION_REFETCH_INTERVAL_SECONDS}
+        >
         <LocaleProvider>
           {/* Skip to main content — keyboard navigation accessibility */}
           <a

@@ -2,6 +2,36 @@
 # Public surfaces: home, marketing, community feed, template gallery, /s/[slug] shares.
 # Private surfaces: workspace, account, admin, creator dashboards.
 
+# Bulk crawlers that do not run JavaScript.
+#
+# A ticker page's HTML is an empty shell — every number on it loads in the
+# browser — so these crawlers get nothing from /stocks/<ticker>, while each new
+# ticker one of them requests costs a server render. Search engines are not in
+# this group and keep full access. /stocks (Market Pulse) and /stocks/screener
+# stay open to everyone.
+#
+# A crawler obeys only its most specific group, so the private-surface rules
+# from the `*` group are repeated here.
+User-agent: GPTBot
+User-agent: ClaudeBot
+User-agent: CCBot
+User-agent: Bytespider
+User-agent: Amazonbot
+User-agent: PerplexityBot
+User-agent: meta-externalagent
+User-agent: AhrefsBot
+User-agent: SemrushBot
+User-agent: MJ12bot
+User-agent: DotBot
+Allow: /stocks/screener
+Disallow: /stocks/
+Disallow: /workspace
+Disallow: /account
+Disallow: /api/
+Disallow: /admin
+Disallow: /creators/dashboard
+Disallow: /creators/apply
+
 User-agent: *
 Allow: /
 

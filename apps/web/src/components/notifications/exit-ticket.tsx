@@ -210,6 +210,7 @@ export function ExitTicket({ item }: { item: UnresolvedExit }) {
 
       <Link
         href={`/strategies/${encodeURIComponent(item.strategy_id)}?action=executed` as Route}
+        prefetch={false}
         className="mt-2 inline-block text-[12px] font-medium text-primary hover:underline"
       >
         Open the position in Livermore →

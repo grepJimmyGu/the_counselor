@@ -221,6 +221,7 @@ function IndexTickerCell({
   return (
     <Link
       href={`/stocks/${config.clickTarget}` as Route}
+      prefetch={false}
       className="block rounded-lg border border-border/60 bg-white/60 px-3 py-2 transition-colors hover:bg-white"
     >
       <div className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
@@ -265,7 +266,7 @@ function Pill({ pill }: { pill: PillStat }) {
 
   if (pill.href) {
     return (
-      <Link href={pill.href as Route} className="hover:opacity-80 transition-opacity">
+      <Link href={pill.href as Route} prefetch={false} className="hover:opacity-80 transition-opacity">
         {content}
       </Link>
     );

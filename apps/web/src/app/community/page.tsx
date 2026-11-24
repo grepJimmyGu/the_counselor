@@ -322,6 +322,7 @@ function StrategyRow({
       <div className="min-w-0 flex-1">
         <Link
           href={`/strategies/${s.slug}` as Route}
+          prefetch={false}
           className="block truncate text-sm font-semibold transition-colors hover:text-primary"
         >
           {s.name}
@@ -354,7 +355,7 @@ function ThesisCard({ thesis }: { thesis: StockThesis }) {
         <Badge variant="outline" className={cn("h-6 rounded-md px-2 text-[10px] uppercase", stanceClass(thesis.stance))}>
           {thesis.stance}
         </Badge>
-        <Link href={`/stocks/${thesis.symbol}` as Route} className="font-mono text-xs font-bold hover:text-primary">
+        <Link href={`/stocks/${thesis.symbol}` as Route} prefetch={false} className="font-mono text-xs font-bold hover:text-primary">
           {thesis.symbol}
         </Link>
         <span className="ml-auto flex items-center gap-1 text-[10px] text-muted-foreground">
@@ -411,7 +412,7 @@ function EvidencePanel({
           </div>
           <p className="mt-1 text-xs text-muted-foreground">Community attention, not a buy signal.</p>
         </div>
-        <Link href={`/stocks/${selected.symbol}` as Route} className="text-xs font-medium text-primary hover:underline">
+        <Link href={`/stocks/${selected.symbol}` as Route} prefetch={false} className="text-xs font-medium text-primary hover:underline">
           Stock page
         </Link>
       </div>

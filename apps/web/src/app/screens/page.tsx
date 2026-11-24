@@ -86,6 +86,7 @@ export default function MyScreensPage() {
           You aren&rsquo;t tracking a screen yet. Compose a reading with{" "}
           <Link
             href={"/flow/custom_build_mode" as Route}
+            prefetch={false}
             className="text-primary underline underline-offset-2"
           >
             Screen the market
@@ -98,6 +99,7 @@ export default function MyScreensPage() {
             <li key={s.saved_strategy_id}>
               <Link
                 href={`/screens/${s.saved_strategy_id}` as Route}
+                prefetch={false}
                 data-testid={`my-screen-row-${s.saved_strategy_id}`}
                 className="group flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-white px-4 py-3 transition-colors hover:border-primary/40 hover:bg-primary/5"
               >

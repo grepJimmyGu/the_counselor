@@ -48,7 +48,7 @@ function SectorRow({ sector, rank }: { sector: SectorCard; rank: number }) {
   const volElevated = sector.volume_ratio != null && sector.volume_ratio > 1.15;
 
   return (
-    <Link href={`/stocks/${sector.symbol}` as Route} className="block">
+    <Link href={`/stocks/${sector.symbol}` as Route} prefetch={false} className="block">
       {/* Desktop */}
       <div className="hidden sm:grid grid-cols-[2rem_1fr_5rem_4rem_4rem_7rem] items-center gap-3 px-3 py-2.5 min-h-[44px] transition-colors hover:bg-muted/40">
         <span className="text-[10px] font-mono text-muted-foreground text-right">

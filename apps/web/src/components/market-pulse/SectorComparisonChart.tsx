@@ -258,6 +258,7 @@ export function SectorComparisonChart({
       <div className="mt-3 flex items-center justify-end">
         <Link
           href={`/stocks/${sector.symbol}` as Route}
+          prefetch={false}
           className="inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
         >
           View {sector.symbol} sector detail

@@ -41,6 +41,7 @@ function IndexPill({ item }: { item: MarketSnapshotItem }) {
   return (
     <Link
       href={`/stocks/${item.symbol}` as Route}
+      prefetch={false}
       data-testid={`home-market-strip-${item.symbol}`}
       className="group inline-flex items-center gap-2 rounded-full border border-border/50 bg-white/70 px-3 py-1.5 text-xs shadow-sm backdrop-blur-sm transition-all hover:border-primary/40 hover:shadow"
     >

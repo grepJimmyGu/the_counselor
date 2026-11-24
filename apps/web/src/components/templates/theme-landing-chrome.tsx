@@ -76,6 +76,7 @@ export function TryOtherThemes({ currentId }: { currentId: string }) {
           <Link
             key={t.id}
             href={recommendedTemplateHref(t)}
+            prefetch={false}
             data-testid={`try-theme-${t.id}`}
             className="group inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-white px-3 py-1.5 text-xs font-medium shadow-sm transition-all hover:border-primary/40 hover:shadow"
           >
