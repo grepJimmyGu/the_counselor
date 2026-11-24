@@ -24,6 +24,7 @@ struct ActionsView: View {
             .screenBackground()
             .navigationTitle("Actions")
             .navigationDestination(for: UnresolvedExit.self) { ExitDecisionView(exit: $0) }
+            .navigationDestination(for: NoticeGroup.self) { NoticeSourceView(group: $0) }
         }
         .task(id: session.isSignedIn) {
             guard session.isSignedIn else { return }
@@ -79,16 +80,7 @@ struct ActionsView: View {
                 .accessibilityIdentifier("open-brokerage")
             }
 
-            if !inbox.notices.isEmpty {
-                Section("Notices") {
-                    ForEach(inbox.notices, id: \.id) { notice in
-                        NoticeRow(notice: notice)
-                            .swipeActions {
-                                Button("Read") { acknowledge(notice) }.tint(.brand)
-                            }
-                    }
-                }
-            }
+            updatesSection
         }
         .refreshable {
             await inbox.refresh()
@@ -104,8 +96,81 @@ struct ActionsView: View {
         return "\(count) account\(count == 1 ? "" : "s")" + (status.canTrade ? "" : " · view only")
     }
 
-    private func acknowledge(_ notice: PendingNotice) {
-        Task { try? await inbox.acknowledge(notice) }
+    /// What strategies and screens have said since the user last looked,
+    /// one row per source, most important first.
+    @ViewBuilder
+    private var updatesSection: some View {
+        if inbox.loadedAt != nil {
+            Section {
+                if inbox.updates.isEmpty {
+                    Label("No new updates from your strategies and screens.", systemImage: "tray")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(inbox.updates, id: \.id) { group in
+                        NavigationLink(value: group) { NoticeGroupRow(group: group) }
+                            .swipeActions(edge: .trailing) {
+                                Button("Read") { readAll(group) }.tint(.brand)
+                                if let source = group.sourceId, !group.muted {
+                                    Button("Mute") { mute(source) }.tint(.gray)
+                                }
+                            }
+                            .accessibilityIdentifier("notice-group")
+                    }
+                }
+                if !inbox.muted.isEmpty {
+                    NavigationLink {
+                        MutedSourcesView()
+                    } label: {
+                        LabeledContent {
+                            Text("\(inbox.muted.count)")
+                        } label: {
+                            Label("Muted", systemImage: "speaker.slash")
+                        }
+                    }
+                    .accessibilityIdentifier("muted-sources")
+                }
+            } header: {
+                Text("Updates")
+            } footer: {
+                Text("Swipe a row to mark it read or mute it. Stops and targets on positions you hold always come through.")
+            }
+        }
+    }
+
+    private func readAll(_ group: NoticeGroup) {
+        Task { try? await inbox.readAll(group) }
+    }
+
+    private func mute(_ source: String) {
+        Task { try? await inbox.mute(source) }
+    }
+}
+
+/// One strategy or screen with unread updates.
+private struct NoticeGroupRow: View {
+    let group: NoticeGroup
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            NoticeSourceIcon(kind: group.kind, level: group.noticeLevel)
+            VStack(alignment: .leading, spacing: 3) {
+                HStack(alignment: .firstTextBaseline) {
+                    Text(group.title).font(.subheadline.weight(.semibold)).lineLimit(1)
+                    Spacer(minLength: 8)
+                    Text(group.latestAt, format: .relative(presentation: .named))
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                Text(group.latestHeadline).font(.subheadline).lineLimit(2)
+                HStack(spacing: 6) {
+                    Text(group.summary)
+                    if group.muted { Image(systemName: "speaker.slash").accessibilityLabel("Muted") }
+                }
+                .font(.caption.weight(.medium))
+                .foregroundStyle(group.noticeLevel == .changed ? Color.brand : Color.inkSecondary)
+            }
+        }
+        .padding(.vertical, 2)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -132,25 +197,5 @@ private struct ExitRow: View {
         }
         .padding(.vertical, 2)
         .accessibilityElement(children: .combine)
-    }
-}
-
-private struct NoticeRow: View {
-    @Environment(AppSession.self) private var session
-    let notice: PendingNotice
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(notice.createdAt.formatted(date: .abbreviated, time: .shortened).uppercased())
-                .font(.caption2.weight(.semibold)).tracking(0.8).foregroundStyle(.secondary)
-            Text(notice.title).font(.subheadline.weight(.semibold))
-            Text(notice.body).font(.subheadline).foregroundStyle(.secondary)
-            Button("Mark as read") {
-                Task { try? await session.inbox.acknowledge(notice) }
-            }
-            .font(.caption.weight(.medium))
-            .buttonStyle(.borderless)
-        }
-        .padding(.vertical, 2)
     }
 }

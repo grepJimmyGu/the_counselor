@@ -8,6 +8,37 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-11-23 — The Actions tab's notices: grouped by source, read in bulk, muted per source
+
+**Why.** Jimmy: "too many notices and they trace back to screen and
+strategies we set up before". He wanted users to silence, read or avoid
+messages, trace each one to the strategy or screen behind it, and build it end
+to end (data → backend → UI). Decisions: mute covers email too; a page for
+saved screens comes later.
+
+**Found.** Five jobs write notices (strategy signal changes, screen entrants,
+followed-stock alerts, daily and intraday exits) into one table as a title, a
+sentence and the source's id. The app listed the newest 10 flat. No notice in
+the app could be muted; only emails could.
+
+**Built.** Each notice now records its kind, stock and level (act / changed /
+fyi); older rows are classified on read rather than rewritten in production.
+A per-source mute stops a strategy's or screen's notices and its
+signal-change emails; exits on held positions are never muted. New routes
+return notices grouped by source, one source's history, read by id or source,
+and mute/unmute; the website's banner route is unchanged. On the Actions tab,
+"Notices" becomes "Updates": one row per source, most important first, swipe
+to read or mute, a Muted list, and a page per source with Open strategy.
+Details: `agent-system/plans/PRD-45-notice-inbox.md`.
+
+**Verified.** Backend tests for grouping, legacy rows, read, mute (never an
+exit), mute stopping email, ownership, and the unchanged web route; app tests
+for the calls, the sample inbox and the wording; on the simulator's sample
+account: grouped list, a screen's page, mute, swipe-read, Open strategy.
+**Not verified:** Jimmy's real notices (needs the deploy); the new columns'
+migration on production Postgres runs at startup and is covered only by the
+Postgres CI check.
+
 ## 2026-11-23 — An order typed in at Schwab is read back: the hand-off gets its last step
 
 **Why.** With #386 live, Jimmy priced an order on his Schwab account. The
