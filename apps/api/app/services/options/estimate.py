@@ -38,8 +38,10 @@ if TYPE_CHECKING:
 _ET = ZoneInfo("America/New_York")
 
 # The yearly interest rate the model discounts at. It sits in both terms of
-# the difference, so the estimate barely depends on it: a point either way
-# moves a one-day estimate by less than a cent on a $50 option.
+# the difference, so the estimate depends on it little. Measured on a $150
+# stock at 60% volatility, a point either way moves the estimate by up to 3
+# cents for a 5% move in the stock on options out to four months (5 cents at
+# a year), and up to 15 cents (26 at a year) for a 31% move.
 RATE = 0.04
 _SECONDS_IN_YEAR = 365 * 86_400.0
 # Implied volatilities outside this are the provider's placeholders for a
