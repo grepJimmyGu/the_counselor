@@ -75,12 +75,20 @@ public struct OptionPlan: Equatable, Sendable {
     public let symbol: String
     public let strategy: OptionStrategy
     public let legs: [OptionLeg]
-    /// The stock's price the plan was built on, and the day it is from.
+    /// The stock's price the plan was built on.
     public let underlyingPrice: Double
+    /// The trading day the option quotes are from.
     public let asOf: String
+    /// When the stock traded at `underlyingPrice`, for a plan whose option
+    /// price is an estimate for that moment. Nil when every price is the
+    /// close's on `asOf`, and for a saved plan (see `isEstimated`).
+    public let estimatedAt: Date?
 
     /// Nil unless the legs have exactly the one option leg a strategy here has.
-    public init?(symbol: String, strategy: OptionStrategy, legs: [OptionLeg], underlyingPrice: Double, asOf: String) {
+    public init?(
+        symbol: String, strategy: OptionStrategy, legs: [OptionLeg], underlyingPrice: Double, asOf: String,
+        estimatedAt: Date? = nil
+    ) {
         let options = legs.filter { $0.kind != .stock }
         guard options.count == 1, let option = options.first,
               option.strike != nil, option.expiration != nil, underlyingPrice > 0
@@ -90,9 +98,14 @@ public struct OptionPlan: Equatable, Sendable {
         self.legs = legs
         self.underlyingPrice = underlyingPrice
         self.asOf = asOf
+        self.estimatedAt = estimatedAt
     }
 
     public var payoff: OptionPayoff { OptionPayoff(legs: legs) }
+
+    /// The option's price is an estimate for a stock price later than the
+    /// close its quote is from, not a quote.
+    public var isEstimated: Bool { option.quotedPrice != nil }
 
     public var option: OptionLeg { legs.first { $0.kind != .stock }! }
     public var contracts: Int { option.quantity }
@@ -281,6 +294,9 @@ public struct OptionTicket: Equatable, Sendable {
     /// What must already be in the account, if anything.
     public let requirement: String?
     public let asOf: String
+    /// The limit prices are estimates, not quotes, and what they were at the close.
+    public let isEstimated: Bool
+    private let quotedLimit: String?
 
     public init(plan: OptionPlan) {
         lines = plan.legs.filter { $0.kind != .stock }.map { leg in
@@ -293,6 +309,15 @@ public struct OptionTicket: Equatable, Sendable {
         }
         requirement = plan.strategy.ownsShares ? "You need \(plan.shares) \(plan.symbol) shares in the same account." : nil
         asOf = plan.asOf
+        isEstimated = plan.isEstimated
+        quotedLimit = plan.option.quotedPrice.map(OptionText.price)
+    }
+
+    /// Where the limit price comes from, in a sentence.
+    public var priceSource: String {
+        guard isEstimated else { return "Prices from the close on \(OptionText.day(asOf))." }
+        let quoted = quotedLimit.map { " (\($0) then)" } ?? ""
+        return "The limit is an estimate from the stock's price since the close on \(OptionText.day(asOf))\(quoted), not a quote."
     }
 
     /// How to enter it at a broker, one step at a time.
@@ -306,7 +331,7 @@ public struct OptionTicket: Equatable, Sendable {
             "Open your broker's app and look up \(symbol) options. Your account has to be approved for options first; most brokers ask a few questions the first time.",
             "Find the contract: \(rest).",
             "Choose \(line.action), \(OptionText.contracts(count)).",
-            "Set the order type to Limit. Check the price your broker shows now and set your limit near it; \(line.limit.dropFirst("Limit ".count)) was the price at the last close.",
+            "Set the order type to Limit. Check the price your broker shows now and set your limit near it; \(line.limit.dropFirst("Limit ".count)) \(isEstimated ? "is an estimate, not a quote" : "was the price at the last close").",
             "Read the broker's summary of the order, then send it.",
         ]
     }
@@ -315,7 +340,7 @@ public struct OptionTicket: Equatable, Sendable {
     public var text: String {
         var rows = lines.flatMap { ["\($0.action) \($0.contract)", "\($0.limit) per share", "Contract \($0.contractSymbol)"] }
         if let requirement { rows.append(requirement) }
-        rows.append("Prices from the close on \(OptionText.day(asOf)). Check the live price before you send it.")
+        rows.append("\(priceSource) Check the live price before you send it.")
         return rows.joined(separator: "\n")
     }
 }

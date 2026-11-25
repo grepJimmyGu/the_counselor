@@ -5,10 +5,13 @@ from the provider for a busy name. It is fetched once however many people
 ask (apps/api/CLAUDE.md, trap 22: `app.core.concurrency`), kept for half an
 hour, and the phone is sent one expiry near the stock's price, a few KB.
 
-Every price here is from the same close: the contracts' bid and ask, and the
-stock's own closing price that day. Mixing a live stock price with last
+Every price in a chain is from the same close: the contracts' bid and ask, and
+the stock's own closing price that day. Mixing a live stock price with last
 night's option prices would put the wrong contract "at the money" on any day
 the stock has moved.
+
+A caller that wants the chain at the stock's price NOW gets every contract
+re-estimated for that price (`estimate.py`), so the two still agree.
 """
 from __future__ import annotations
 
@@ -22,6 +25,7 @@ from zoneinfo import ZoneInfo
 from app.core.concurrency import TTLCache
 from app.services.alpha_vantage import AlphaVantageClient, AlphaVantageError, option_root
 from app.services.live_quote_service import live_quote_service
+from app.services.options.estimate import estimate_chain, estimate_contract, quoted_at
 
 logger = logging.getLogger(__name__)
 
@@ -70,16 +74,27 @@ class OptionContract(NamedTuple):
     last: Optional[float]
     volume: int
     open_interest: int
+    # The volatility the price at the close implied, as a fraction (0.45 is
+    # 45% a year). None when the provider gave none.
+    implied_volatility: Optional[float] = None
+    # Set when `mid` is an estimate for the stock's price now: the mid at
+    # the close that it was estimated from.
+    quoted_mid: Optional[float] = None
 
 
 @dataclass(frozen=True)
 class OptionChain:
     symbol: str
-    # The trading day every price below is from.
+    # The trading day the quoted prices are from.
     as_of: date
     underlying_price: float
     # Per expiry, sorted by strike, the call before the put at each strike.
     by_expiration: Dict[date, List[OptionContract]]
+    # Set when the contracts are estimates for a later stock price: when that
+    # price traded, and the stock's close the quotes were made against.
+    # `underlying_price` is then the later price.
+    estimated_at: Optional[datetime] = None
+    quoted_underlying_price: Optional[float] = None
 
 
 @dataclass(frozen=True)
@@ -101,6 +116,8 @@ class ChainSlice:
     default_expiration: date
     expiration: date
     contracts: List[OptionContract]
+    estimated_at: Optional[datetime] = None
+    quoted_underlying_price: Optional[float] = None
 
 
 def today_et() -> date:
@@ -150,6 +167,7 @@ def parse_chain(symbol: str, rows: List[dict], underlying_price: float) -> Optio
             continue
         as_of = priced_on if as_of is None else max(as_of, priced_on)
         last = _number(row.get("last"))
+        sigma = _number(row.get("implied_volatility"))
         by_expiration.setdefault(expiration, []).append(
             OptionContract(
                 contract_id=contract_id,
@@ -162,6 +180,7 @@ def parse_chain(symbol: str, rows: List[dict], underlying_price: float) -> Optio
                 last=last if last is not None and last > 0 else None,
                 volume=int(_number(row.get("volume")) or 0),
                 open_interest=int(_number(row.get("open_interest")) or 0),
+                implied_volatility=sigma if sigma is not None and sigma > 0 else None,
             )
         )
     if as_of is None:
@@ -253,6 +272,8 @@ def slice_chain(chain: OptionChain, expiration: Optional[date], today: date) -> 
         default_expiration=default_expiration(expirations),
         expiration=chosen,
         contracts=_near(chain.by_expiration[chosen], chain.underlying_price),
+        estimated_at=chain.estimated_at,
+        quoted_underlying_price=chain.quoted_underlying_price,
     )
 
 
@@ -279,8 +300,15 @@ class OptionChainService:
             raise OptionsUnavailable(NO_OPTIONS, message)
         return await self._chains.get(sym, lambda: self._load(sym))
 
-    async def slice(self, symbol: str, expiration: Optional[date], today: date) -> ChainSlice:
+    async def slice(
+        self, symbol: str, expiration: Optional[date], today: date,
+        stock_now: Optional[float] = None, traded_at: Optional[datetime] = None,
+    ) -> ChainSlice:
         """One expiry near the stock's price, with every expiry to choose from.
+
+        With `stock_now` (and when it traded), every contract is estimated
+        for that price and the slice is cut around it. Without, or when that
+        price is from the chain's own day, the prices are the close's.
 
         The provider's full chain sometimes arrives with one side missing:
         on 2026-11-20 AAPL and SPY came back with every call and no puts,
@@ -288,18 +316,24 @@ class OptionChainService:
         both sides, so a one-sided expiry is fetched again on its own. If
         that does not help, what there is gets sent.
         """
-        chain = await self.get(symbol)
+        quoted = await self.get(symbol)
+        chain = estimate_chain(quoted, stock_now, traded_at) if stock_now is not None else quoted
         part = slice_chain(chain, expiration, today)
         if _two_sided(chain.by_expiration[part.expiration]):
             return part
         key: Tuple[str, date] = (chain.symbol, part.expiration)
         try:
-            contracts = await self._expiries.get(key, lambda: self._load_expiry(chain, part.expiration))
+            contracts = await self._expiries.get(key, lambda: self._load_expiry(quoted, part.expiration))
         except Exception as exc:  # noqa: BLE001 — the one-sided expiry is still worth sending
             logger.warning("refetch of %s %s failed: %s", chain.symbol, part.expiration, type(exc).__name__)
             return part
         if not _two_sided(contracts):
             return part
+        if chain.estimated_at is not None:
+            contracts = [
+                estimate_contract(c, quoted.underlying_price, chain.underlying_price, quoted_at(quoted.as_of), chain.estimated_at)
+                for c in contracts
+            ]
         move = implied_move_pct(contracts, chain.underlying_price)
         return replace(
             part,

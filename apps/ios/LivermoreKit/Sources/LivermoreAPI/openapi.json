@@ -5017,6 +5017,11 @@
       "title": "Default Expiration",
       "type": "string"
      },
+     "estimated_at": {
+      "format": "date-time",
+      "title": "Estimated At",
+      "type": "string"
+     },
      "expiration": {
       "format": "date",
       "title": "Expiration",
@@ -5028,6 +5033,10 @@
       },
       "title": "Expirations",
       "type": "array"
+     },
+     "quoted_underlying_price": {
+      "title": "Quoted Underlying Price",
+      "type": "number"
      },
      "symbol": {
       "title": "Symbol",
@@ -5083,6 +5092,10 @@
      "open_interest": {
       "title": "Open Interest",
       "type": "integer"
+     },
+     "quoted_mid": {
+      "title": "Quoted Mid",
+      "type": "number"
      },
      "strike": {
       "title": "Strike",
@@ -5167,6 +5180,12 @@
       "minimum": 1.0,
       "title": "Quantity",
       "type": "integer"
+     },
+     "quoted_price": {
+      "maximum": 1000000.0,
+      "minimum": 0.0,
+      "title": "Quoted Price",
+      "type": "number"
      },
      "side": {
       "enum": [
@@ -16874,7 +16893,7 @@
   },
   "/api/options/{symbol}/chain": {
    "get": {
-    "description": "One expiry of `symbol`'s option chain, and the list of every expiry.\n\nWithout `expiration` it is the default one: the first monthly expiry at\nleast 30 days out. 404 when the stock has no listed options, 503 when the\nprices cannot be fetched right now.",
+    "description": "One expiry of `symbol`'s option chain, and the list of every expiry.\n\nWithout `expiration` it is the default one: the first monthly expiry at\nleast 30 days out. 404 when the stock has no listed options, 503 when the\nprices cannot be fetched right now.\n\nThe prices are the last close's. With `estimate=true`, and a stock price\nfrom a later session, every contract is estimated for that price and\n`estimated_at` says so; when the live price cannot be had, the close's\nprices come back as they would without it. Off by default: a client that\ndoes not ask has no way to say the prices are estimates.",
     "operationId": "get_chain_api_options__symbol__chain_get",
     "parameters": [
      {
@@ -16894,6 +16913,16 @@
        "format": "date",
        "title": "Expiration",
        "type": "string"
+      }
+     },
+     {
+      "in": "query",
+      "name": "estimate",
+      "required": false,
+      "schema": {
+       "default": false,
+       "title": "Estimate",
+       "type": "boolean"
       }
      }
     ],

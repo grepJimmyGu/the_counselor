@@ -79,10 +79,10 @@ public enum OptionStrategy: String, CaseIterable, Identifiable, Sendable {
     /// The plan's legs: the option, and the shares it is written against.
     public func legs(
         strike: Double, expiration: String, contractID: String, premium: Double,
-        contracts: Int, underlyingPrice: Double
+        quotedPremium: Double? = nil, contracts: Int, underlyingPrice: Double
     ) -> [OptionLeg] {
         let option = OptionLeg(
-            kind: optionKind, side: optionSide, quantity: contracts, price: premium,
+            kind: optionKind, side: optionSide, quantity: contracts, price: premium, quotedPrice: quotedPremium,
             strike: strike, expiration: expiration, contractID: contractID
         )
         guard ownsShares else { return [option] }

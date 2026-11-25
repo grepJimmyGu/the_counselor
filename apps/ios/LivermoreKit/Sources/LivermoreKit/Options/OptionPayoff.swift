@@ -9,21 +9,25 @@ public struct OptionLeg: Equatable, Sendable {
     public var side: Side
     /// Shares for a stock leg, contracts (of 100 shares) for an option leg.
     public var quantity: Int
-    /// Per share, as quoted.
+    /// Per share: as quoted at the close, or an estimate for the stock's
+    /// price now (`quotedPrice` is then set).
     public var price: Double
+    /// Only when `price` is an estimate: the quote at the close it came from.
+    public var quotedPrice: Double?
     public var strike: Double?
     /// "2027-01-15".
     public var expiration: String?
     public var contractID: String?
 
     public init(
-        kind: Kind, side: Side, quantity: Int, price: Double,
+        kind: Kind, side: Side, quantity: Int, price: Double, quotedPrice: Double? = nil,
         strike: Double? = nil, expiration: String? = nil, contractID: String? = nil
     ) {
         self.kind = kind
         self.side = side
         self.quantity = quantity
         self.price = price
+        self.quotedPrice = quotedPrice
         self.strike = strike
         self.expiration = expiration
         self.contractID = contractID

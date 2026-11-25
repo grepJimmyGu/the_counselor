@@ -51,7 +51,10 @@ struct OptionPlanView: View {
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-        .task { if draft == nil { await start() } }
+        .task {
+            if draft == nil { await start() }
+            await keepCurrent()
+        }
         .sheet(isPresented: $isShowingTicket) {
             if let draft { OptionTicketView(plan: draft.plan) }
         }
@@ -98,6 +101,28 @@ struct OptionPlanView: View {
         }
     }
 
+    /// How often the plan on screen is priced again.
+    static let refreshEvery: Duration = .seconds(300)
+
+    /// Prices the plan again every five minutes while the screen is open, so
+    /// the estimate follows the stock. The strike, the expiry and the number
+    /// of contracts stay as chosen. A look that fails keeps what is there.
+    private func keepCurrent() async {
+        while !Task.isCancelled {
+            try? await Task.sleep(for: Self.refreshEvery)
+            // Not under an order ticket, whose limit the user may be copying,
+            // and not across an expiry change already under way.
+            guard !Task.isCancelled, !isShowingTicket, loadingExpiration == nil, let current = draft else { continue }
+            guard let chain = try? await session.options.chain(symbol, expiration: current.chain.expiration),
+                  self.draft?.chain.expiration == chain.expiration, !isShowingTicket,
+                  let next = OptionPlanDraft(
+                      strategy: strategy, chain: chain, near: self.draft?.strike, contracts: self.draft?.contracts ?? 1
+                  )
+            else { continue }
+            self.draft = next
+        }
+    }
+
     // MARK: The plan
 
     private func content(_ draft: OptionPlanDraft) -> some View {
@@ -105,7 +130,7 @@ struct OptionPlanView: View {
         return ScrollView {
             LazyVStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
                 if session.isDemo { SampleDataNotice().padding(.horizontal, 4) }
-                OptionPricesDate(asOf: plan.asOf).padding(.horizontal, 4)
+                OptionPricesDate(plan: plan).padding(.horizontal, 4)
                 OptionHeadlineCard(plan: plan)
                 OptionFiguresGrid(plan: plan)
                 // The controls sit between the numbers and the chart, so both
@@ -261,6 +286,7 @@ struct OptionPlanView: View {
 
     private func quoteCard(_ draft: OptionPlanDraft, _ plan: OptionPlan) -> some View {
         let quote = draft.quote
+        let estimated = plan.isEstimated
         return Card("This contract at the close") {
             HStack {
                 TermButton(term: .bidAsk).font(.subheadline).foregroundStyle(.inkSecondary)
@@ -268,7 +294,16 @@ struct OptionPlanView: View {
                 Text("\(OptionText.price(quote.bid)) / \(OptionText.price(quote.ask))")
                     .font(.subheadline.weight(.medium).monospacedDigit())
             }
-            DetailRow("Price used, halfway between", OptionText.price(quote.mid))
+            if estimated, let quoted = quote.quotedMid, let stockThen = draft.chain.quotedUnderlyingPrice {
+                DetailRow("Halfway between, at the close", OptionText.price(quoted))
+                DetailRow("Estimate now, used in this plan", OptionText.price(quote.mid))
+                Notice(
+                    text: "\(symbol) closed at \(OptionText.price(stockThen)) and is \(OptionText.price(plan.underlyingPrice)) now. The estimate moves the close's price by what that change, and the time gone, are worth at the volatility the close implied. It is not a quote: a sharp move usually changes volatility too, which this cannot see.",
+                    systemImage: "function"
+                )
+            } else {
+                DetailRow("Price used, halfway between", OptionText.price(quote.mid))
+            }
             HStack {
                 TermButton(term: .openContracts).font(.subheadline).foregroundStyle(.inkSecondary)
                 Spacer()
