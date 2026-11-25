@@ -97,6 +97,33 @@ class PriceCacheService:
             duration_ms = int((time.monotonic() - start_ms) * 1000)
             self._log(db, symbol, fetch_status, bars_upserted, error_msg, duration_ms)
 
+    async def top_up(self, db: Session, symbol: str, through: date, outputsize: str = "compact") -> int:
+        """Add the provider's newest bars, up to and including `through`.
+
+        A bar dated after `through` is a session that has not closed. Rows are
+        never updated once written, so a half-finished day stored now would
+        stay half-finished; it is left out.
+        """
+        start_ms = time.monotonic()
+        status = "success"
+        error_msg: Optional[str] = None
+        upserted = 0
+        try:
+            bars = await self.client.fetch_daily_adjusted(symbol, outputsize=outputsize)
+            upserted = self._upsert_bars(db, symbol, [b for b in bars if b["trading_date"] <= through])
+            db.commit()
+            return upserted
+        except Exception as exc:
+            status = "rate_limited" if isinstance(exc, AlphaVantageRateLimitError) else "error"
+            # Only a provider message is safe to keep: an httpx error's text
+            # holds the request URL, and with it the API key.
+            error_msg = str(exc) if isinstance(exc, AlphaVantageError) else type(exc).__name__
+            db.rollback()
+            raise
+        finally:
+            duration_ms = int((time.monotonic() - start_ms) * 1000)
+            self._log(db, symbol, status, upserted, error_msg, duration_ms, fetch_type=f"daily_{outputsize}")
+
     # PostgreSQL caps query parameters at 65535; 12 columns per row → 5461 rows max per batch.
     _UPSERT_CHUNK_SIZE = 1000
 
@@ -151,12 +178,13 @@ class PriceCacheService:
         bars_upserted: int,
         error_message: Optional[str],
         duration_ms: int,
+        fetch_type: str = "daily_full",
     ) -> None:
         try:
             db.add(
                 DataFetchLog(
                     symbol=symbol,
-                    fetch_type="daily_full",
+                    fetch_type=fetch_type,
                     status=status,
                     bars_upserted=bars_upserted,
                     error_message=error_message,

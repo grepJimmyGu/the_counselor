@@ -8,6 +8,50 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-11-25 — Charts, signals and tests end at the price now (latest-price work, part 1 of 3)
+
+Jimmy, with the market falling hard: every chart and simulation should use
+the latest price, and backtests should run over a flexible range. This is the
+first of three parts; the flexible backtest range and estimated option prices
+follow in their own PRs.
+
+**Symptom.** Production at 12:58 New York time on Wednesday the 25th: the
+newest daily bar for NVDA, AAPL, MSFT, SPY and REGN was Monday the 23rd. NVDA's
+1M to 5Y charts, trend model, signals and entry/exit test ended at $165.05
+while the stock traded at $145.72. The live quote in the page header was right
+(it refreshes every 10 seconds); everything built on daily bars was not.
+
+**Cause.** Two things. `ensure_history` refetches a symbol only once its
+newest bar is three to four days old, a rule shared with sweeps over thousands
+of symbols, so the provider's Tuesday close sat unfetched. And daily bars by
+definition stop at a finished session: nothing added the session under way,
+and the app kept the history it loaded for as long as it stayed open.
+
+**Fix.**
+- *Backend.* `PriceDataService.ensure_last_close` brings one symbol up to the
+  last completed close with the provider's short answer (100 days, 246 ms
+  against 1.3 s for the full history when measured), shared by everyone
+  waiting and asked at most every ten minutes per symbol. The daily-prices
+  endpoint and a backtest of up to 30 symbols use it; the shared staleness
+  rule is unchanged, so no sweep refetches. A bar for a session that has not
+  closed is never stored (rows are never updated once written).
+- *App.* `[DailyClose].ending(at:)` adds the session under way from the live
+  quote, dated by the quote's own trade time. The company page's charts,
+  signals, trend model, levels and entry/exit test all read that history, and
+  the S&P 500 comparison ends on the same moment. The chart title says which
+  price the period runs to ("to the price now" or "to the Nov 24 close").
+  A history that has fallen behind is brought up to date every five minutes
+  with only the days since, without reopening the app.
+
+**Checked.** Backend 3,182 passed; the top-up against the real provider on a
+scratch database (cache set back to Monday, Tuesday's close restored in one
+short request). App 271 tests passed; in the simulator on production data
+NVDA's 1Y and 1M charts, setup and signals ended at the live $147.22.
+
+**Not done here.** Old rows are never rewritten, so a dividend or split after
+a symbol was first loaded leaves its older adjusted closes on the old basis.
+That is checked in part 2, with the backtest's arithmetic.
+
 ## 2026-11-24 — The screen results pager: a quick "Next" was undone
 
 **Symptom.** web-ci failed on `main` after #372

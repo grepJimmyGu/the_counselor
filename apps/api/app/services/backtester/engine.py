@@ -57,6 +57,9 @@ def compute_rsi(series: pd.Series, window: int = 14) -> pd.Series:
     rs = gains / losses.replace(0, np.nan)
     return 100 - (100 / (1 + rs))
 
+# Symbols a single test will bring up to the last close before it runs.
+_TOP_UP_AT_MOST = 30
+
 
 class BacktestEngine:
     def __init__(self) -> None:
@@ -159,6 +162,15 @@ class BacktestEngine:
 
     async def _load_prices(self, db: Session, strategy: StrategyJSON) -> tuple[dict[str, pd.DataFrame], pd.DataFrame]:
         lookback = self._compute_lookback(strategy)
+        # A test someone runs today ends on the last completed close, not on
+        # whichever day the cache last happened to be filled (up to four days
+        # back). Each symbol behind costs one short provider request, so a
+        # universe of hundreds is left on what is cached: at the provider's
+        # 75 requests a minute it would hold the test up for minutes.
+        symbols = list(dict.fromkeys([*strategy.universe, strategy.benchmark]))
+        if len(symbols) <= _TOP_UP_AT_MOST:
+            for symbol in symbols:
+                await self.market_data.ensure_last_close(db, symbol)
         universe_frames: dict[str, pd.DataFrame] = {}
         for symbol in strategy.universe:
             universe_frames[symbol] = await self.market_data.get_price_frame(

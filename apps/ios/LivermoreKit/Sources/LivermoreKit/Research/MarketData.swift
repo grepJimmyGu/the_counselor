@@ -54,7 +54,8 @@ public enum PerformanceRange: String, CaseIterable, Identifiable, Sendable {
 ///
 /// Built on the device from daily closes, so the chart, the period return
 /// and the comparison all describe exactly the same days — and all end on
-/// the stock's latest close.
+/// the stock's last day, which is the price now when the closes were given
+/// the session under way (`ending(at:)`).
 public struct PerformanceSeries: Equatable, Sendable {
     public struct Point: Equatable, Sendable, Identifiable {
         public let date: Date
@@ -153,8 +154,17 @@ public struct PerformanceSeries: Equatable, Sendable {
 /// Daily price histories, fetched once per symbol and kept while the app
 /// runs: cheap to hold for the handful a session looks at, and expensive to
 /// refetch on every range change.
+///
+/// A history that has fallen behind (a close has passed since its last day)
+/// is brought up to date with the days after it, not downloaded again, and
+/// not more often than every five minutes: after a close the new day can
+/// take a while to be published.
 @MainActor
 public final class PriceHistory {
+    /// The closes for a symbol: all that are kept when `since` is nil,
+    /// otherwise the days from `since` on.
+    public typealias Fetch = @Sendable (_ symbol: String, _ since: Date?) async throws -> [DailyClose]
+
     public static let benchmarkSymbol = "SPY"
     static let capacity = 8
     /// How far back a history is asked for. The longest chart range and the
@@ -163,12 +173,17 @@ public final class PriceHistory {
     /// years of bars (1.2 MB of JSON), which the app was downloading and
     /// decoding for every company page, twice, with the benchmark.
     public nonisolated static let yearsKept = 6
+    /// How often a history that is behind is looked up again.
+    public nonisolated static let recheckEvery: TimeInterval = 300
 
-    private let fetch: @Sendable (String) async throws -> [DailyClose]
+    private let fetch: Fetch
+    private let now: @Sendable () -> Date
     private var cache: [String: [DailyClose]] = [:]
     private var order: [String] = []
+    private var checked: [String: Date] = [:]
 
-    public init(fetch: @escaping @Sendable (String) async throws -> [DailyClose]) {
+    public init(now: @escaping @Sendable () -> Date = { .now }, fetch: @escaping Fetch) {
+        self.now = now
         self.fetch = fetch
     }
 
@@ -177,17 +192,35 @@ public final class PriceHistory {
         if let cached = cache[symbol] {
             order.removeAll { $0 == symbol }
             order.append(symbol)
-            return cached
+            return await caughtUp(symbol, cached)
         }
-        let loaded = try await fetch(symbol)
+        let loaded = try await fetch(symbol, nil)
         cache[symbol] = loaded
+        checked[symbol] = now()
         order.append(symbol)
         // The benchmark is on every chart; never evict it.
         while order.count > Self.capacity, let oldest = order.first(where: { $0 != Self.benchmarkSymbol }) {
             order.removeAll { $0 == oldest }
             cache[oldest] = nil
+            checked[oldest] = nil
         }
         return loaded
+    }
+
+    /// `cached`, with any closes that have passed since its last day. A
+    /// failed look leaves what there is.
+    private func caughtUp(_ symbol: String, _ cached: [DailyClose]) async -> [DailyClose] {
+        let moment = now()
+        guard let last = cached.last, last.date < MarketHours.lastCompletedSession(at: moment),
+              moment.timeIntervalSince(checked[symbol] ?? .distantPast) >= Self.recheckEvery
+        else { return cached }
+        checked[symbol] = moment
+        // From the last day held, so a day that was corrected is replaced.
+        guard let newer = try? await fetch(symbol, last.date), let firstNew = newer.first else { return cached }
+        let merged = cached.filter { $0.date < firstNew.date } + newer
+        // Evicted while the request was out: hand back the answer, keep nothing.
+        if cache[symbol] != nil { cache[symbol] = merged }
+        return merged
     }
 }
 
@@ -226,11 +259,18 @@ extension ResearchService {
         return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 1, parts.day ?? 1)
     }
 
-    /// The daily closes for `symbol` over the last `years` years, oldest first.
+    /// A `DailyClose` date as the backend reads dates.
+    static func isoDay(_ day: Date) -> String {
+        let parts = PerformanceSeries.utc.dateComponents([.year, .month, .day], from: day)
+        return String(format: "%04d-%02d-%02d", parts.year ?? 0, parts.month ?? 1, parts.day ?? 1)
+    }
+
+    /// The daily closes for `symbol`, oldest first: over the last `years`
+    /// years, or from `since` on when a history is only being brought up to date.
     public func dailyCloses(
-        _ symbol: String, years: Int = PriceHistory.yearsKept, now: Date = .now
+        _ symbol: String, years: Int = PriceHistory.yearsKept, since: Date? = nil, now: Date = .now
     ) async throws(ResearchError) -> [DailyClose] {
-        let start = Self.historyStart(years: years, now: now)
+        let start = since.map(Self.isoDay) ?? Self.historyStart(years: years, now: now)
         let output = try await APIFailure.perform {
             try await client.getDailyPricesApiDataDailySymbolGet(
                 path: .init(symbol: symbol), query: .init(start: start)
