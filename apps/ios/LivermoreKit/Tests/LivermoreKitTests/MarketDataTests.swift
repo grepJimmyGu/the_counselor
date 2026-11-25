@@ -151,7 +151,7 @@ struct MarketDataTests {
     @Test("a price history is fetched once per symbol, and the benchmark is never evicted")
     func historyCache() async throws {
         let counter = FetchCounter()
-        let history = PriceHistory { symbol in
+        let history = PriceHistory { symbol, _ in
             await counter.record(symbol)
             return [DailyClose(date: .now, close: 1)]
         }
@@ -162,6 +162,137 @@ struct MarketDataTests {
         _ = try await history.closes(for: "S0")
         #expect(await counter.count("SPY") == 1)
         #expect(await counter.count("S0") == 2)
+    }
+
+    // MARK: Ending at the price now
+    //
+    // Production, 2026-11-25 at 12:58 New York time: NVDA's newest close in
+    // the app was Monday's $165.05, the last real close was Tuesday's $155.38
+    // and the stock was trading at $145.72. Every chart and model on the
+    // company page stopped at a close.
+
+    /// A moment given as New York wall-clock time.
+    private func newYork(_ text: String) -> Date {
+        let formatter = DateFormatter()
+        formatter.calendar = Calendar(identifier: .gregorian)
+        formatter.timeZone = TimeZone(identifier: "America/New_York")
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter.date(from: text)!
+    }
+
+    private func quote(_ price: Double, at moment: Date?, high: Double? = nil, low: Double? = nil) -> LiveQuote {
+        LiveQuote(
+            asOf: moment?.timeIntervalSince1970, change: 0, changePercent: 0,
+            dayHigh: high, dayLow: low, fetchedAt: 0, price: price, symbol: "NVDA"
+        )
+    }
+
+    @Test("the last completed session is the most recent weekday whose close has passed")
+    func lastCompletedSession() {
+        #expect(MarketHours.lastCompletedSession(at: newYork("2026-11-25 12:58")) == day("2026-11-24"))
+        #expect(MarketHours.lastCompletedSession(at: newYork("2026-11-25 15:59")) == day("2026-11-24"))
+        #expect(MarketHours.lastCompletedSession(at: newYork("2026-11-25 16:00")) == day("2026-11-25"))
+        // Monday morning, Saturday and Sunday all look back to Friday.
+        #expect(MarketHours.lastCompletedSession(at: newYork("2026-11-23 09:00")) == day("2026-11-20"))
+        #expect(MarketHours.lastCompletedSession(at: newYork("2026-11-21 17:00")) == day("2026-11-20"))
+        #expect(MarketHours.lastCompletedSession(at: newYork("2026-11-22 23:00")) == day("2026-11-20"))
+        // Late evening in New York is already tomorrow in UTC; the trading
+        // day is New York's.
+        #expect(MarketHours.tradingDay(of: newYork("2026-11-25 21:30")) == day("2026-11-25"))
+    }
+
+    @Test("REGRESSION: with a live quote the history ends at the price now, not at the last close")
+    func historyEndsAtTheLivePrice() {
+        let history = closes([("2026-11-20", 125.53), ("2026-11-23", 165.05), ("2026-11-24", 155.38)])
+        let live = quote(145.72, at: newYork("2026-11-25 12:58"), high: 146.42, low: 141.17)
+
+        let ended = history.ending(at: live)
+        #expect(ended.count == 4)
+        #expect(ended.last == DailyClose(date: day("2026-11-25"), close: 145.72, high: 146.42, low: 141.17))
+        #expect(ended.endsLive(at: newYork("2026-11-25 12:58")))
+        #expect(!history.endsLive(at: newYork("2026-11-25 12:58")))
+
+        // What is built on it ends there too: the period's return is to
+        // $145.72, the price a person could trade at.
+        let series = PerformanceSeries(stock: ended, benchmark: [], range: .oneMonth)
+        #expect(series.points.last?.price == 145.72)
+        #expect(abs((series.stockReturn ?? 0) - (145.72 / 125.53 - 1)) < 1e-12)
+    }
+
+    @Test("a quote from a day that already has its close adds nothing")
+    func quoteFromAFinishedDay() {
+        let history = closes([("2026-11-23", 165.05), ("2026-11-24", 155.38)])
+        // Before Wednesday's open the quote is still Tuesday's last trade.
+        #expect(history.ending(at: quote(155.40, at: newYork("2026-11-24 16:00"))) == history)
+        // Older than the history, no trade time, no price, no quote, no history.
+        #expect(history.ending(at: quote(150, at: newYork("2026-11-20 12:00"))) == history)
+        #expect(history.ending(at: quote(150, at: nil)) == history)
+        #expect(history.ending(at: quote(0, at: newYork("2026-11-25 12:58"))) == history)
+        #expect(history.ending(at: nil) == history)
+        #expect([DailyClose]().ending(at: quote(150, at: newYork("2026-11-25 12:58"))).isEmpty)
+    }
+
+    @Test("a quote without the day's range still makes a day, at the price")
+    func quoteWithoutARange() {
+        let history = closes([("2026-11-24", 155.38)])
+        let last = history.ending(at: quote(145.72, at: newYork("2026-11-25 12:58"))).last
+        #expect(last?.high == 145.72 && last?.low == 145.72)
+    }
+
+    @Test("REGRESSION: a history that has fallen behind is brought up to date, with only the days since")
+    func historyCatchesUp() async throws {
+        let clock = Clock(newYork("2026-11-25 12:58"))
+        let asked = Asked()
+        let monday = closes([("2026-11-20", 125.53), ("2026-11-23", 165.05)])
+        let tuesday = closes([("2026-11-23", 165.05), ("2026-11-24", 155.38)])
+        let history = PriceHistory(now: { clock.now }) { _, since in
+            await asked.record(since)
+            return since == nil ? monday : tuesday
+        }
+
+        // First look: everything. The backend had not yet loaded Tuesday.
+        #expect(try await history.closes(for: "NVDA") == monday)
+        // Looked at again inside five minutes: from memory.
+        clock.advance(299)
+        #expect(try await history.closes(for: "NVDA") == monday)
+        #expect(await asked.all == [nil])
+
+        // Five minutes on, still behind Tuesday's close: the days since Monday.
+        clock.advance(2)
+        let caught = try await history.closes(for: "NVDA")
+        #expect(caught.map(\.close) == [125.53, 165.05, 155.38])
+        #expect(await asked.all == [nil, day("2026-11-23")])
+
+        // Up to the last completed close: nothing more to ask, however long.
+        clock.advance(3_600)
+        #expect(try await history.closes(for: "NVDA") == caught)
+        #expect(await asked.all.count == 2)
+
+        // Wednesday's close passes: asked again, from Tuesday.
+        clock.set(newYork("2026-11-25 16:05"))
+        _ = try await history.closes(for: "NVDA")
+        #expect(await asked.all.last == day("2026-11-24"))
+    }
+
+    @Test("a failed look for newer days keeps the history already held")
+    func historyCatchUpFails() async throws {
+        let clock = Clock(newYork("2026-11-25 12:58"))
+        let monday = closes([("2026-11-23", 165.05)])
+        let history = PriceHistory(now: { clock.now }) { _, since in
+            if since != nil { throw URLError(.notConnectedToInternet) }
+            return monday
+        }
+        _ = try await history.closes(for: "NVDA")
+        clock.advance(600)
+        #expect(try await history.closes(for: "NVDA") == monday)
+    }
+
+    @Test("bringing a history up to date asks for the days from its last one")
+    func dailyClosesSince() async throws {
+        let (service, transport) = make()
+        transport.stub("get_daily_prices_api_data_daily__symbol__get", .json(status: 200, "[]"))
+        _ = try await service.dailyCloses("NVDA", since: day("2026-11-23"))
+        #expect(transport.requests.last?.path == "/api/data/daily/NVDA?start=2026-11-23")
     }
 
     @Test("snapshots are asked for twelve at a time and keyed by symbol")
@@ -234,4 +365,20 @@ struct WatchlistTests {
         #expect(list.recents.first?.symbol == "S5")
         #expect(list.recents.filter { $0.symbol == "S5" }.count == 1)
     }
+}
+
+/// A clock a test moves by hand.
+private final class Clock: @unchecked Sendable {
+    private let lock = NSLock()
+    private var moment: Date
+    init(_ start: Date) { moment = start }
+    var now: Date { lock.withLock { moment } }
+    func advance(_ seconds: TimeInterval) { lock.withLock { moment += seconds } }
+    func set(_ date: Date) { lock.withLock { moment = date } }
+}
+
+/// The `since` of each request a history made.
+private actor Asked {
+    private(set) var all: [Date?] = []
+    func record(_ since: Date?) { all.append(since) }
 }

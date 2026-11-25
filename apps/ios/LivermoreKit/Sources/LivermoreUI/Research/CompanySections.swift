@@ -90,6 +90,8 @@ struct RivalChips: View {
 /// The setup in a headline, a tally and a sentence.
 struct SetupCard: View {
     let read: TechnicalRead
+    /// The read ends on the session under way, at the price now.
+    var isLive = false
 
     private var tint: Color {
         switch read.trend {
@@ -101,7 +103,7 @@ struct SetupCard: View {
 
     var body: some View {
         Card {
-            Text("The setup · close of \(Fmt.tradingDay(read.asOf))").eyebrowStyle()
+            Text(isLive ? "The setup · price now, \(Fmt.tradingDay(read.asOf))" : "The setup · close of \(Fmt.tradingDay(read.asOf))").eyebrowStyle()
             HStack(spacing: 10) {
                 Image(systemName: read.trend == .up ? "arrow.up.right" : read.trend == .down ? "arrow.down.right" : "arrow.left.and.right")
                     .font(.title3.weight(.bold)).foregroundStyle(.white)

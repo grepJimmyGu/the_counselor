@@ -155,8 +155,8 @@ public final class AppSession {
         self.quotes = QuoteStore { symbols in
             try await ResearchService(client: client).quotes(symbols)
         }
-        self.priceHistory = PriceHistory { symbol in
-            try await ResearchService(client: client).dailyCloses(symbol)
+        self.priceHistory = PriceHistory { symbol, since in
+            try await ResearchService(client: client).dailyCloses(symbol, since: since)
         }
         self.inbox = ActionInbox(service: ActionService(client: client))
         self.brokerageLink = BrokerageLink(service: BrokerageService(client: client))

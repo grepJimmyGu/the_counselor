@@ -1,22 +1,107 @@
 from __future__ import annotations
 
-from datetime import date, timedelta
-from typing import Optional
+import logging
+import time
+from datetime import date, datetime, timedelta
+from typing import Dict, Optional
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 from sqlalchemy import desc, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
+from app.core.concurrency import SingleFlight
 from app.models.data_fetch_log import DataFetchLog
 from app.models.price_bar import PriceBar
 from app.schemas.market_data import DataStatusResponse
 from app.services.alpha_vantage import AlphaVantageClient
 from app.services.price_cache_service import PriceCacheService
 
+logger = logging.getLogger(__name__)
+
+_ET = ZoneInfo("America/New_York")
+
+# `ensure_history` only refetches a symbol once its newest bar is three to four
+# days old: right for a universe of thousands, wrong for the one stock a person
+# is looking at. On 2026-11-25 at 12:58 ET the newest bar for NVDA, AAPL, MSFT,
+# SPY and REGN was Monday the 23rd, while the provider already had Tuesday's
+# close: NVDA's chart ended at $165.05 with the stock at $145.72.
+#
+# A top-up asks for the provider's last 100 days, not the whole history. One is
+# shared by everyone waiting on the symbol, and a symbol is not asked for again
+# for ten minutes: on a market holiday, and in the minutes after a close before
+# the provider has published it, no request can bring the symbol up to date.
+_TOP_UP_EVERY_SECONDS = 600.0
+# The provider's short answer is its last 100 trading days, about 145 on the
+# calendar. A symbol further behind than this needs the whole history.
+_TOP_UP_REACH_DAYS = 120
+_top_up_attempts: Dict[str, float] = {}
+_top_ups = SingleFlight()
+
+
+def _now() -> float:
+    return time.monotonic()
+
+
+def last_completed_session(now: Optional[datetime] = None) -> date:
+    """The most recent weekday whose 4 pm New York close has passed.
+
+    Market holidays are not known here, so on one this names a day that has
+    no bar. That costs one short request per symbol every ten minutes while
+    someone is looking, and nothing else.
+    """
+    at = (now or datetime.now(_ET)).astimezone(_ET)
+    day = at.date() if at.hour >= 16 else at.date() - timedelta(days=1)
+    while day.weekday() >= 5:
+        day -= timedelta(days=1)
+    return day
+
 
 class PriceDataService:
     def __init__(self) -> None:
         self.cache_svc = PriceCacheService(AlphaVantageClient())
+
+    async def ensure_last_close(self, db: Session, symbol: str) -> None:
+        """Bring a symbol that already has history up to the last completed close.
+
+        Never raises: when the provider cannot be reached, what is cached is
+        served. A symbol with no bars at all is `ensure_history`'s job.
+        """
+        sym = symbol.upper()
+        try:
+            await self._top_up_if_behind(db, sym)
+        except Exception as exc:  # noqa: BLE001 — serve the cached bars
+            # An httpx error's text holds the request URL, and with it the key.
+            logger.info("top-up of %s failed: %s", sym, type(exc).__name__)
+
+    async def _top_up_if_behind(self, db: Session, sym: str) -> None:
+        cache_svc = self.cache_svc
+        latest = cache_svc.get_latest_date(db, sym)
+        expected = last_completed_session()
+        if latest is None or latest >= expected:
+            return
+
+        key = ("top_up", sym)
+        if not _top_ups.is_running(key):
+            last = _top_up_attempts.get(sym)
+            if last is not None and _now() - last < _TOP_UP_EVERY_SECONDS:
+                return  # asked recently; serve what is cached
+            # Stamped before the request, so one that hangs still counts.
+            _top_up_attempts[sym] = _now()
+
+        outputsize = "compact" if (expected - latest).days <= _TOP_UP_REACH_DAYS else "full"
+        # The shared top-up outlives the request that started it, so it
+        # writes through its own session on the caller's engine.
+        bind = db.get_bind()
+
+        async def top_up() -> None:
+            own = sessionmaker(bind=bind, autoflush=False, autocommit=False, future=True)()
+            try:
+                await cache_svc.top_up(own, sym, through=expected, outputsize=outputsize)
+            finally:
+                own.close()
+
+        await _top_ups.run(key, top_up)
 
     async def get_price_frame(
         self,

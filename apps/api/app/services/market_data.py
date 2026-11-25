@@ -100,6 +100,10 @@ class MarketDataService:
             db, symbol, start_date, end_date, lookback_days=lookback_days
         )
 
+    async def ensure_last_close(self, db: Session, symbol: str) -> None:
+        """Bring `symbol` up to the last completed close; never raises."""
+        await self._price_data.ensure_last_close(db, symbol)
+
     async def search_symbols(self, db: Session, query: str) -> list[SymbolSearchItem]:
         return await self._symbol_svc.search(db, query)
 
@@ -110,6 +114,8 @@ class MarketDataService:
         one is given. A long-listed stock has 27 years of them (1.2 MB of
         JSON), and a phone chart reads five."""
         await self._price_data.cache_svc.ensure_history(db, symbol.upper(), end_date)
+        # A chart someone is looking at ends on the last completed close.
+        await self._price_data.ensure_last_close(db, symbol)
         query = select(PriceBar).where(PriceBar.symbol == symbol.upper())
         if start_date is not None:
             query = query.where(PriceBar.trading_date >= start_date)

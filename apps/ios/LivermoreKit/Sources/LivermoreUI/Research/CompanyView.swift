@@ -36,6 +36,18 @@ struct CompanyView: View {
 
     private var quote: LiveQuote? { session.quotes.quotes[symbol.uppercased()] }
 
+    /// The closes with the session under way added from the live quotes, so
+    /// the chart, the signals, the models and the test all end at the price
+    /// now. Without a quote they end at the last close, as before.
+    private var liveHistory: (stock: [DailyClose], benchmark: [DailyClose])? {
+        history.map {
+            (
+                $0.stock.ending(at: quote),
+                $0.benchmark.ending(at: session.quotes.quotes[PriceHistory.benchmarkSymbol])
+            )
+        }
+    }
+
     var body: some View {
         Group {
             switch phase {
@@ -68,14 +80,15 @@ struct CompanyView: View {
                 }
             }
         }
-        .liveQuotes([symbol])
+        // The benchmark too: the comparison has to end on the same moment.
+        .liveQuotes([symbol, PriceHistory.benchmarkSymbol])
         .sheet(isPresented: $isTrading) { tradeSheet }
         .task(id: session.isSignedIn) {
             // Whether to offer a trade depends on the brokerage link, which a
             // signed-in user may never have opened the Actions tab to load.
             if session.isSignedIn, session.brokerageLink.status == nil { await session.brokerageLink.refresh() }
         }
-        .task(id: symbol) { await loadHistory() }
+        .task(id: symbol) { await keepHistoryCurrent() }
         .task(id: symbol) { await loadFilings() }
         .task(id: symbol) {
             // `.task` runs again every time this screen reappears — including
@@ -139,17 +152,29 @@ struct CompanyView: View {
         }
     }
 
+    /// Loads the closes, then looks again every five minutes while the page
+    /// is open: a close that passes (or is published late) joins the history
+    /// without the app being reopened. Each look after the first is answered
+    /// from memory unless the history has fallen behind.
+    private func keepHistoryCurrent() async {
+        while !Task.isCancelled {
+            await loadHistory()
+            try? await Task.sleep(for: .seconds(PriceHistory.recheckEvery))
+        }
+    }
+
     private func loadHistory() async {
-        guard history == nil else { return }
         do {
             // The benchmark is shared by every chart and fetched once per
             // launch; if only it fails the price still shows.
             async let benchmark = try? session.priceHistory.closes(for: PriceHistory.benchmarkSymbol)
             let stock = try await session.priceHistory.closes(for: symbol)
-            history = (stock, await benchmark ?? [])
+            let market = await benchmark ?? history?.benchmark ?? []
+            if history?.stock != stock || history?.benchmark != market { history = (stock, market) }
             historyFailed = false
         } catch {
-            historyFailed = true
+            // A failed look keeps the history already on screen.
+            historyFailed = history == nil
         }
     }
 
@@ -269,6 +294,8 @@ struct CompanyView: View {
 
     private func content(_ overview: CompanyOverview) -> some View {
         let price = quote?.price ?? trend?.latestPrice ?? overview.price
+        let history = liveHistory
+        let endsLive = history?.stock.endsLive(at: .now) ?? false
         let read = history.flatMap { TechnicalRead(closes: $0.stock, benchmark: $0.benchmark) }
         let levels = history.flatMap { PriceLevels(closes: $0.stock, price: quote?.price) }
         return ScrollView {
@@ -280,9 +307,9 @@ struct CompanyView: View {
                 case .financials:
                     financials(overview, price)
                 case .price:
-                    PerformanceCard(symbol: symbol, trend: trend, history: history, historyFailed: historyFailed)
+                    PerformanceCard(symbol: symbol, trend: trend, history: history, historyFailed: historyFailed, endsLive: endsLive)
                     if let history, let read {
-                        SetupCard(read: read)
+                        SetupCard(read: read, isLive: endsLive)
                         SignalsCard(read: read)
                         TrendModelCard(closes: history.stock)
                         if let levels { LevelsCard(levels: levels, isLive: quote != nil) }
@@ -402,6 +429,8 @@ struct PerformanceCard: View {
     /// The stock's and the benchmark's daily closes, once the page has them.
     let history: (stock: [DailyClose], benchmark: [DailyClose])?
     let historyFailed: Bool
+    /// The last day of `history` is the session under way, at the price now.
+    var endsLive = false
 
     @State private var range: PerformanceRange = .oneYear
     /// 1D or 1W: prices through the day instead of daily closes.
@@ -431,7 +460,11 @@ struct PerformanceCard: View {
     /// the days the chart really covers: "Since Nov 19 · 3 trading days".
     private func chartTitle(_ series: PerformanceSeries?, usesHistory: Bool, first: Date?) -> String {
         guard usesHistory, let series else { return "Last 90 days" }
-        guard series.isShorterThanRange, let first else { return range.title }
+        guard series.isShorterThanRange, let first else {
+            // Which price the period runs to, in view with the number.
+            guard let last = series.points.last?.date else { return range.title }
+            return "\(range.title) · \(endsLive ? "to the price now" : "to the \(Fmt.shortTradingDay(last)) close")"
+        }
         let days = series.tradingDays
         return "Since \(Fmt.shortTradingDay(first)) · \(days) trading day\(days == 1 ? "" : "s")"
     }
@@ -469,7 +502,8 @@ struct PerformanceCard: View {
             } else {
                 VStack(alignment: .leading, spacing: 2) {
                     if let selected {
-                        Text(Fmt.tradingDay(selected.date)).eyebrowStyle()
+                        let isNow = endsLive && usesHistory && selected.date == points.last?.date
+                        Text(isNow ? "\(Fmt.tradingDay(selected.date)) · price now" : Fmt.tradingDay(selected.date)).eyebrowStyle()
                         Text(Fmt.price(selected.price)).font(.title3.weight(.semibold).monospacedDigit())
                     } else {
                         Text(title).eyebrowStyle()
