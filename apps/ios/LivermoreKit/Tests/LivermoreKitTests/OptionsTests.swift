@@ -320,6 +320,99 @@ struct OptionPlanTests {
     }
 }
 
+/// NVIDIA's January 15, 2027 chain as this branch's backend sent it on
+/// 2026-11-25 at 13:58 New York time: quotes from the close on the 24th
+/// (stock $155.38), every price estimated for the stock at $148.05.
+private func estimatedChain() throws -> OptionChain {
+    let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent()
+        .appendingPathComponent("Fixtures/option-chain-nvda-estimated.json")
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    return try decoder.decode(OptionChain.self, from: Data(contentsOf: url))
+}
+
+// Jimmy, 2026-11-25: option prices are the last close's, and the stock had
+// moved 12% since. Estimate today's price from the stock's price now, and
+// say it is an estimate.
+@Suite("a plan built on estimated option prices")
+struct OptionEstimateTests {
+    @Test("an estimated chain says when, at what stock price, and what each contract was quoted at")
+    func chainIsMarked() throws {
+        let chain = try estimatedChain()
+        #expect(chain.asOf == "2026-11-24")
+        #expect(chain.underlyingPrice == 148.05 && chain.quotedUnderlyingPrice == 155.38)
+        #expect(chain.estimatedAt == ISO8601DateFormatter().date(from: "2026-11-25T18:58:43Z"))
+        #expect(chain.contracts.allSatisfy { $0.quotedMid != nil })
+        // The stock fell 4.7%: every call is estimated below its quote, every put above.
+        for quote in chain.contracts {
+            let quoted = try #require(quote.quotedMid)
+            if quote.legKind == .call { #expect(quote.mid < quoted) } else { #expect(quote.mid > quoted) }
+            // Never below what exercising is worth at the price now.
+            let exercise = quote.legKind == .call ? max(148.05 - quote.strike, 0) : max(quote.strike - 148.05, 0)
+            #expect(quote.mid >= exercise - 0.005)
+        }
+        let call = try #require(chain.quotes(.call).first { $0.strike == 140 })
+        #expect(call.quotedMid == 23.90 && call.mid == 18.78 && call.bid == 23.75 && call.ask == 24.05)
+    }
+
+    @Test("REGRESSION: the plan is built on the stock's price now and the estimate, and says it is one")
+    func planUsesTheEstimate() throws {
+        let chain = try estimatedChain()
+        var draft = try #require(OptionPlanDraft(strategy: .longCall, chain: chain))
+        draft.strikeIndex = try #require(draft.quotes.firstIndex { $0.strike == 140 })
+        let plan = draft.plan
+
+        #expect(plan.isEstimated)
+        #expect(plan.estimatedAt == chain.estimatedAt)
+        #expect(plan.underlyingPrice == 148.05)            // not the close's 155.38
+        #expect(plan.option.price == 18.78 && plan.option.quotedPrice == 23.90)
+        // The arithmetic is the same arithmetic, on the estimate.
+        #expect(plan.cashNow == 1_878)
+        #expect(abs((plan.breakeven ?? 0) - 158.78) < 1e-9)
+        #expect(plan.payoff.profit(at: 160).rounded() == 122)
+    }
+
+    @Test("where a plan starts is measured from the price now")
+    func defaultsFollowThePriceNow() throws {
+        let chain = try estimatedChain()
+        let call = try #require(OptionPlanDraft(strategy: .longCall, chain: chain))
+        let strikes = call.quotes.map(\.strike)
+        // The strike nearest $148.05, not the one nearest the close's $155.38.
+        #expect(call.strike == strikes.min { abs($0 - 148.05) < abs($1 - 148.05) })
+        #expect(abs(call.strike - 148.05) < abs(call.strike - 155.38))
+    }
+
+    @Test("the ticket calls an estimated limit an estimate")
+    func ticket() throws {
+        var draft = try #require(OptionPlanDraft(strategy: .longCall, chain: try estimatedChain()))
+        draft.strikeIndex = try #require(draft.quotes.firstIndex { $0.strike == 140 })
+        let ticket = OptionTicket(plan: draft.plan)
+        #expect(ticket.isEstimated)
+        #expect(ticket.lines[0].limit == "Limit $18.78")
+        #expect(ticket.priceSource == "The limit is an estimate from the stock's price since the close on Nov 24, 2026 ($23.90 then), not a quote.")
+        #expect(ticket.text.hasSuffix("The limit is an estimate from the stock's price since the close on Nov 24, 2026 ($23.90 then), not a quote. Check the live price before you send it."))
+        #expect(ticket.steps[3].contains("$18.78 is an estimate, not a quote"))
+        #expect(!ticket.steps[3].contains("was the price at the last close"))
+    }
+
+    @Test("a chain at the close's own prices is not called an estimate")
+    func quotedChainIsUnchanged() throws {
+        let plan = try draft(.longCall).plan
+        #expect(!plan.isEstimated && plan.estimatedAt == nil && plan.option.quotedPrice == nil)
+        #expect(OptionTicket(plan: plan).priceSource == "Prices from the close on Nov 20, 2026.")
+    }
+
+    @Test("how thinly a contract trades is judged against its quote, not the estimate")
+    func thinlyTradedUsesTheQuote() throws {
+        let chain = try estimatedChain()
+        for quote in chain.contracts {
+            let quoted = try #require(quote.quotedMid)
+            let wide = quoted > 0 && (quote.ask - quote.bid) / quoted > 0.10
+            #expect((quote.thinlyTraded != nil) == (quote.openInterest < 100 || wide))
+        }
+    }
+}
+
 @Suite("the words a first-time user meets")
 struct OptionTermTests {
     @Test("every term has a one-sentence meaning in plain words")
@@ -389,15 +482,48 @@ struct OptionsServiceTests {
         AppSession(serverURL: server, store: InMemorySessionStore(), biometrics: InMemoryBiometricStore(), transport: transport).options
     }
 
-    @Test("the chain is asked for by symbol, and by expiry when one is chosen")
+    // Changed on 2026-11-25, openly: this test pinned the two request paths
+    // without `estimate=true`. The app now always asks for the chain at the
+    // stock's price now (Jimmy: "estimate today's option price"), so both
+    // paths carry it. The backend sends the close's prices when it has no
+    // later stock price, which is what this fixture is.
+    @Test("the chain is asked for by symbol, by expiry when one is chosen, and always at the price now")
     func chainRequests() async throws {
         let transport = MockTransport()
         transport.stub(OptionOp.chain, .json(status: 200, chainJSON()))
         let options = service(transport)
         let first = try await options.chain("NVDA")
         #expect(first.underlyingPrice == 125.53 && first.contracts.count == 21)
+        #expect(first.estimatedAt == nil)
         _ = try await options.chain("NVDA", expiration: "2026-12-18")
-        #expect(transport.requests.map(\.path) == ["/api/options/NVDA/chain", "/api/options/NVDA/chain?expiration=2026-12-18"])
+        #expect(transport.requests.map(\.path) == [
+            "/api/options/NVDA/chain?estimate=true", "/api/options/NVDA/chain?expiration=2026-12-18&estimate=true",
+        ])
+    }
+
+    @Test("a plan built on estimates is saved saying so, and reads back saying so")
+    func saveAndReadAnEstimate() async throws {
+        let plan = try #require(OptionPlanDraft(strategy: .longCall, chain: try estimatedChain())).plan
+        #expect(plan.isEstimated)
+        let leg = plan.option
+        let transport = MockTransport()
+        let saved = """
+        {"id":"p-2","symbol":"NVDA","strategy":"long_call","underlying_price":\(plan.underlyingPrice),"as_of":"2026-11-24","created_at":"2026-11-25T19:02:00",
+         "legs":[{"kind":"call","side":"buy","quantity":1,"price":\(leg.price),"quoted_price":\(leg.quotedPrice ?? 0),"strike":\(plan.strike),"expiration":"2027-01-15","contract_id":"\(leg.contractID ?? "")"}]}
+        """
+        transport.stub(OptionOp.save, .json(status: 201, saved))
+        let row = try await service(transport).save(plan)
+
+        let sent = try #require(transport.requests.first?.body.data(using: .utf8))
+        let body = try #require(try JSONSerialization.jsonObject(with: sent) as? [String: Any])
+        let legs = try #require(body["legs"] as? [[String: Any]])
+        #expect(legs[0]["price"] as? Double == leg.price && legs[0]["quoted_price"] as? Double == leg.quotedPrice)
+
+        // Read back: the same numbers, still marked as an estimate. The
+        // minute it was estimated at is not kept.
+        let back = try #require(row.plan)
+        #expect(back.isEstimated && back.estimatedAt == nil)
+        #expect(back.figures.map(\.value) == plan.figures.map(\.value))
     }
 
     @Test("a stock with no options says so in the backend's words")

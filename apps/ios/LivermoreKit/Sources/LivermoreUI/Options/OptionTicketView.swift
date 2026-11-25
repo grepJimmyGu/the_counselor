@@ -36,14 +36,14 @@ struct OptionTicketView: View {
         NavigationStack {
             ScrollView {
                 LazyVStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
-                    OptionPricesDate(asOf: plan.asOf).padding(.horizontal, 4)
+                    OptionPricesDate(plan: plan).padding(.horizontal, 4)
                     Card("Your order") {
                         ForEach(ticket.lines) { line in
                             VStack(alignment: .leading, spacing: 4) {
                                 Text(line.action).eyebrowStyle()
                                 Text(line.contract).font(.title3.weight(.semibold))
                                     .fixedSize(horizontal: false, vertical: true)
-                                Text("\(line.limit) per share").font(.subheadline.monospacedDigit())
+                                Text("\(line.limit) per share\(ticket.isEstimated ? " (estimate)" : "")").font(.subheadline.monospacedDigit())
                                 Text(line.contractSymbol).font(.caption.monospaced()).foregroundStyle(.inkSecondary)
                                     .textSelection(.enabled)
                             }
@@ -51,6 +51,9 @@ struct OptionTicketView: View {
                         }
                         if let requirement = ticket.requirement {
                             Notice(text: requirement, systemImage: "checklist")
+                        }
+                        if ticket.isEstimated {
+                            Notice(text: "\(ticket.priceSource) Set your limit from the price your broker shows.", systemImage: "function")
                         }
                         #if os(iOS)
                         Button {
@@ -102,7 +105,7 @@ struct OptionTicketView: View {
                         }
                     }
 
-                    Text("Livermore has not sent anything to your broker. The numbers are from the last close and will have moved; the broker's own order screen shows today's.")
+                    Text("Livermore has not sent anything to your broker. \(plan.isEstimated ? "The option price is an estimate, not a quote" : "The numbers are from the last close and will have moved"); the broker's own order screen shows today's.")
                         .font(.footnote).foregroundStyle(.inkSecondary)
                         .padding(.horizontal, 4)
                 }

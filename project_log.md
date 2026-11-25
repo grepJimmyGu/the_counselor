@@ -8,6 +8,70 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-11-25 — Option plans are built on an estimate for the stock's price now (latest-price work, part 3 of 3)
+
+**The problem.** Option prices come from the provider's last close; real-time
+option prices are not on the plan (checked again today: the call still
+answers with a notice and sample rows). The plan screen paired them with the
+stock's close that day, so on 2026-11-25 an NVDA plan was built for a $155.38
+stock while it traded at $145.72.
+
+**Jimmy's choice** (offered: upgrade the data plan, estimate, or keep the
+close): estimate today's option price, labelled as an estimate.
+
+**How.** `app/services/options/estimate.py`. Each contract starts from its own
+price at the close, and Black-Scholes supplies only the change since:
+`estimate = close price + model(stock now, time now) - model(stock at close,
+time then)`, with the contract's implied volatility from the close in both
+terms, floored at what exercising is worth. Using the model for the change and
+not the level means its errors about a given contract mostly cancel. It cannot
+see implied volatility moving with the stock, and the screen says so.
+
+**How close it is**, measured on real chains: price day D from day D-1's chain
+and D's stock close, compare with D's real chain (strikes within 20%, 20 to
+200 days out, two-sided quotes).
+
+| Day | Stock | Estimate off by (median) | Last close off by (median) |
+|---|---|---|---|
+| NVDA 11-23 to 11-24 | −5.9% | 3.4% | 29.5% |
+| NVDA 11-20 to 11-23 | +31.5% | 9.1% | 93.0% |
+| AAPL 11-23 to 11-24 | +1.4% | 1.1% | 12.7% |
+| REGN 11-23 to 11-24 | +4.8% | 1.0% | 31.3% |
+| SPY 11-23 to 11-24 | −0.5% | 2.0% | 6.6% |
+| MSFT 11-19 to 11-20 | −2.8% | 7.6% | 20.4% |
+
+**Backend.** `GET /api/options/{symbol}/chain?estimate=true` returns the chain
+at the stock's live price when that price is from a later session than the
+quotes: `underlying_price` is the live price, each contract's `mid` the
+estimate, with `quoted_mid`, `quoted_underlying_price` and `estimated_at`
+beside them, and the strikes cut around the live price. `bid` and `ask` stay
+the close's. Without the parameter nothing changes, so an older app is never
+handed estimates it would label as quotes. With no live price (provider down,
+or a price from the chain's own day) the close's chain comes back. A saved
+plan's option leg keeps `quoted_price`, inside the existing JSON column, so a
+plan read back still says its price was an estimate; no table change.
+
+**App.** The plan asks for the estimate and is priced again every five
+minutes while open (strike, expiry and size kept; not under an open order
+ticket). The line above the plan reads "Estimated for NVDA at $147.87, 2:00 PM
+ET · quotes from the Nov 24, 2026 close". The contract card shows the close's
+bid and ask, the close's midpoint, and the estimate used, with one paragraph
+on what the estimate is and is not. The order ticket marks its limit
+"(estimate)" and tells the user to set the limit from the broker's price.
+
+**Checked.** Backend 3,174 passed (the model against textbook values and
+put-call parity, the reported case worked by hand, the fallbacks, the
+endpoint with and without the parameter). App 271 passed, on a real estimated
+NVDA chain kept as a fixture. In the simulator against this branch's backend:
+the $145 call quoted $20.53 at the close showed $15.68 with NVDA at $147.87.
+
+**An existing test changed, openly.** `OptionsServiceTests.chainRequests`
+pinned the request paths without `estimate=true`; the app now always sends
+it, so the two paths in that test carry it.
+
+**Not done.** Saved plans keep that the price was an estimate, not the minute
+it was made. The website does not use the options endpoints.
+
 ## 2026-11-24 — The screen results pager: a quick "Next" was undone
 
 **Symptom.** web-ci failed on `main` after #372

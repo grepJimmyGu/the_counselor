@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from types import SimpleNamespace
 from typing import List, Optional
@@ -18,6 +18,7 @@ from app.api.routes import options as options_routes
 from app.schemas.options import OptionLeg, OptionPlanCreate
 from app.services.alpha_vantage import AlphaVantageClient, AlphaVantageError, option_root
 from app.services.options import chain_service
+from app.services.options.estimate import black_scholes, estimate_chain, years_to_expiry
 from app.services.options.chain_service import (
     NO_OPTIONS,
     NOT_AVAILABLE,
@@ -399,6 +400,188 @@ def test_the_chain_endpoint_says_why_there_is_nothing(monkeypatch, make_user, db
     with pytest.raises(HTTPException) as junk:
         asyncio.run(options_routes.get_chain("not a ticker!", None, _user=user, db=db))
     assert junk.value.status_code == 404
+
+
+# ── Estimates for the stock's price now ──────────────────────────────────────
+#
+# Jimmy, 2026-11-25: the chain is the last close's (real-time option prices are
+# not on the plan), and on a day the stock moves 12% it describes a different
+# stock. Estimate each contract for the price now, and say it is an estimate.
+#
+# Measured against real chains (price day D from day D-1's chain and D's
+# stock close, compare with D's chain; strikes within 20%, 20 to 200 days out):
+#
+#                      stock    estimate off by   last close off by
+#   NVDA 11-23 > 24    -5.9%         3.4%              29.5%
+#   NVDA 11-20 > 23   +31.5%         9.1%              93.0%
+#   AAPL 11-23 > 24    +1.4%         1.1%              12.7%
+#   REGN 11-23 > 24    +4.8%         1.0%              31.3%
+#   SPY  11-23 > 24    -0.5%         2.0%               6.6%
+#   MSFT 11-19 > 20    -2.8%         7.6%              20.4%
+
+NEW_YORK = chain_service._ET
+MONDAY_MIDDAY = datetime(2026, 11, 23, 12, 58, tzinfo=NEW_YORK)   # the session after the chain's
+JANUARY = date(2027, 1, 15)
+
+
+def test_the_pricing_model_gives_the_textbook_values() -> None:
+    # Hull's standard example: stock 100, strike 100, a year, 20% volatility, 5%.
+    assert black_scholes("call", 100, 100, 1.0, 0.20, 0.05) == pytest.approx(10.4506, abs=1e-4)
+    assert black_scholes("put", 100, 100, 1.0, 0.20, 0.05) == pytest.approx(5.5735, abs=1e-4)
+    # A call less a put is the stock less the discounted strike, at any strike.
+    for strike in (60, 100, 140):
+        gap = black_scholes("call", 100, strike, 0.5, 0.35) - black_scholes("put", 100, strike, 0.5, 0.35)
+        assert gap == pytest.approx(100 - strike * 2.718281828459045 ** (-0.04 * 0.5), abs=1e-9)
+    # At expiry, or with nothing left to vary, it is what exercising is worth.
+    assert black_scholes("call", 110, 100, 0, 0.3) == 10 and black_scholes("put", 110, 100, 0, 0.3) == 0
+    assert black_scholes("put", 90, 100, 0.5, 0) == 10
+
+
+def test_time_to_expiry_runs_to_the_close_on_the_expiry_day() -> None:
+    at = datetime(2027, 1, 14, 16, 0, tzinfo=NEW_YORK)
+    assert years_to_expiry(JANUARY, at) == pytest.approx(1 / 365)
+    assert years_to_expiry(JANUARY, datetime(2027, 1, 16, 9, 0, tzinfo=NEW_YORK)) == 0
+
+
+def test_regression_a_chain_is_estimated_for_the_stock_price_now() -> None:
+    """The reported shape: the stock has fallen since the close the chain is from."""
+    quoted = parse_chain("NVDA", ROWS, CLOSE)
+    fallen = round(CLOSE * 0.88, 2)  # 12% lower, as NVDA was on 2026-11-25
+    chain = estimate_chain(quoted, fallen, MONDAY_MIDDAY)
+
+    assert chain.underlying_price == fallen
+    assert chain.quoted_underlying_price == CLOSE and chain.estimated_at == MONDAY_MIDDAY
+    assert chain.as_of == TODAY  # still says which close the quotes are from
+
+    before = {(c.kind, c.strike): c for c in quoted.by_expiration[JANUARY]}
+    after = {(c.kind, c.strike): c for c in chain.by_expiration[JANUARY]}
+    for key, contract in after.items():
+        kind, strike = key
+        # The quote it came from is kept, and bid and ask are still the close's.
+        assert contract.quoted_mid == before[key].mid
+        assert (contract.bid, contract.ask) == (before[key].bid, before[key].ask)
+        # A fall takes calls down and puts up, and nothing below what exercising is worth.
+        if kind == "call":
+            assert contract.mid < before[key].mid
+            assert contract.mid >= max(fallen - strike, 0)
+        else:
+            assert contract.mid > before[key].mid
+            assert contract.mid >= round(max(strike - fallen, 0), 2)
+        assert contract.mid >= 0.01
+
+    # Worked by hand for the $120 call: quoted 17.00 at 71.73% volatility,
+    # 56 days from the Friday close and 53.127 from Monday 12:58.
+    then = black_scholes("call", CLOSE, 120, 56 / 365, 0.7173)
+    now = black_scholes("call", fallen, 120, years_to_expiry(JANUARY, MONDAY_MIDDAY), 0.7173)
+    assert after[("call", 120.0)].mid == pytest.approx(round(17.00 + now - then, 2), abs=0.005)
+    assert 7.0 < after[("call", 120.0)].mid < 10.0
+
+
+def test_a_stock_that_has_not_moved_keeps_its_quotes_less_the_time_gone() -> None:
+    quoted = parse_chain("NVDA", ROWS, CLOSE)
+    chain = estimate_chain(quoted, CLOSE, MONDAY_MIDDAY)
+    before = {(c.kind, c.strike): c.mid for c in quoted.by_expiration[JANUARY]}
+    for contract in chain.by_expiration[JANUARY]:
+        was = before[(contract.kind, contract.strike)]
+        # Nearly three days of time value, and no more than that.
+        assert was - 0.60 <= contract.mid <= was
+
+
+def test_a_price_from_the_chains_own_day_changes_nothing() -> None:
+    """The evening after the close, or before the next open, the live quote is
+    the last trade of the day the chain is already priced on."""
+    quoted = parse_chain("NVDA", ROWS, CLOSE)
+    friday_close = datetime(2026, 11, 20, 16, 0, tzinfo=NEW_YORK)
+    assert estimate_chain(quoted, 125.60, friday_close) is quoted
+    assert estimate_chain(quoted, 125.60, None) is quoted
+    assert estimate_chain(quoted, 0, MONDAY_MIDDAY) is quoted
+
+
+def test_a_contract_with_no_usable_volatility_keeps_its_quote_or_its_exercise_value() -> None:
+    rows = [
+        row("NVDA261218C00100000", strike="100.00", bid="27.00", ask="27.40", implied_volatility="0.00000"),
+        row("NVDA261218P00140000", strike="140.00", type="put", bid="15.00", ask="15.40", implied_volatility="-"),
+    ]
+    chain = estimate_chain(parse_chain("NVDA", rows, CLOSE), 110.00, MONDAY_MIDDAY)
+    call, put = chain.by_expiration[date(2026, 12, 18)]
+    assert call.mid == 27.20            # no model for it: the quote stands
+    assert put.mid == 30.00             # the quote, 15.20, is below 140 - 110
+
+
+async def test_a_screen_asking_for_the_price_now_is_sent_estimates_around_it() -> None:
+    service = OptionChainService(client=FakeProvider())
+    quoted = await service.slice("NVDA", None, TODAY)
+    part = await service.slice("NVDA", None, TODAY, stock_now=110.00, traded_at=MONDAY_MIDDAY)
+
+    assert (part.underlying_price, part.quoted_underlying_price, part.estimated_at) == (110.00, CLOSE, MONDAY_MIDDAY)
+    assert all(c.quoted_mid is not None for c in part.contracts)
+    # Cut around the price now, not the close.
+    assert all(110 * 0.65 <= c.strike <= 110 * 1.35 for c in part.contracts)
+    # The plain chain is untouched by having been estimated.
+    assert quoted.estimated_at is None and all(c.quoted_mid is None for c in quoted.contracts)
+    assert (await service.slice("NVDA", None, TODAY)).underlying_price == CLOSE
+
+
+async def test_a_repaired_expiry_is_estimated_too() -> None:
+    calls_only = [r for r in ROWS if r["type"] == "call"]
+    service = OptionChainService(client=FakeProvider(rows=calls_only))
+    part = await service.slice("NVDA", None, TODAY, stock_now=110.00, traded_at=MONDAY_MIDDAY)
+    assert {c.kind for c in part.contracts} == {"call", "put"}
+    assert all(c.quoted_mid is not None for c in part.contracts)
+
+
+def _quote(price: float, at: Optional[datetime]) -> SimpleNamespace:
+    return SimpleNamespace(price=price, as_of=at.timestamp() if at else None)
+
+
+def test_the_endpoint_estimates_only_when_asked(chains, monkeypatch, make_user, db: Session) -> None:
+    user = make_user(email="estimate@example.com")
+    asked: List[str] = []
+
+    async def live(symbol: str):
+        asked.append(symbol)
+        return _quote(110.00, MONDAY_MIDDAY)
+
+    monkeypatch.setattr(options_routes.live_quote_service, "get_quote", live)
+
+    # An app that does not ask gets the close's prices and no live lookup:
+    # it has no way to say the prices are estimates.
+    plain = asyncio.run(options_routes.get_chain("NVDA", None, _user=user, db=db))
+    assert (plain.underlying_price, plain.estimated_at, plain.quoted_underlying_price) == (CLOSE, None, None)
+    assert all(c.quoted_mid is None for c in plain.contracts) and asked == []
+
+    view = asyncio.run(options_routes.get_chain("NVDA", None, estimate=True, _user=user, db=db))
+    assert asked == ["NVDA"]
+    assert (view.underlying_price, view.quoted_underlying_price, view.as_of) == (110.00, CLOSE, TODAY)
+    assert view.estimated_at == MONDAY_MIDDAY
+    call = next(c for c in view.contracts if c.kind == "call" and c.strike == 120.0)
+    assert call.quoted_mid == 17.00 and call.mid < 17.00 and (call.bid, call.ask) == (16.60, 17.40)
+    assert chains.chain_calls == 1
+
+
+def test_without_a_live_price_the_endpoint_sends_the_close(chains, monkeypatch, make_user, db: Session) -> None:
+    user = make_user(email="nolive@example.com")
+
+    async def down(symbol: str):
+        raise RuntimeError("quote provider is down")
+
+    monkeypatch.setattr(options_routes.live_quote_service, "get_quote", down)
+    view = asyncio.run(options_routes.get_chain("NVDA", None, estimate=True, _user=user, db=db))
+    assert (view.underlying_price, view.estimated_at) == (CLOSE, None)
+
+    async def stale(symbol: str):
+        return _quote(125.60, datetime(2026, 11, 20, 16, 0, tzinfo=NEW_YORK))  # the chain's own day
+
+    monkeypatch.setattr(options_routes.live_quote_service, "get_quote", stale)
+    view = asyncio.run(options_routes.get_chain("NVDA", None, estimate=True, _user=user, db=db))
+    assert (view.underlying_price, view.estimated_at) == (CLOSE, None)
+
+    async def untimed(symbol: str):
+        return _quote(110.00, None)  # a price with no trade time cannot be placed
+
+    monkeypatch.setattr(options_routes.live_quote_service, "get_quote", untimed)
+    view = asyncio.run(options_routes.get_chain("NVDA", None, estimate=True, _user=user, db=db))
+    assert (view.underlying_price, view.estimated_at) == (CLOSE, None)
 
 
 def test_the_option_endpoints_are_for_signed_in_users() -> None:

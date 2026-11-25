@@ -13,7 +13,9 @@ extension OptionQuote {
     /// Said when the price shown may not be the price the user gets: few
     /// contracts exist, or buyers and sellers are far apart. Nil otherwise.
     public var thinlyTraded: String? {
-        let gap = mid > 0 ? (ask - bid) / mid : 0
+        // Against the quote the bid and ask belong to, not an estimate made since.
+        let quoted = quotedMid ?? mid
+        let gap = quoted > 0 ? (ask - bid) / quoted : 0
         guard openInterest < 100 || gap > 0.10 else { return nil }
         let open = openInterest == 1 ? "1 contract is open" : "\(openInterest) contracts are open"
         return "Thinly traded: \(open), buyers bid \(OptionText.price(bid)) and sellers ask \(OptionText.price(ask)). You may not get the price shown."
@@ -114,10 +116,12 @@ public struct OptionPlanDraft: Equatable, Sendable {
             strategy: strategy,
             legs: strategy.legs(
                 strike: quote.strike, expiration: chain.expiration, contractID: quote.contractId,
-                premium: quote.mid, contracts: contracts, underlyingPrice: chain.underlyingPrice
+                premium: quote.mid, quotedPremium: chain.estimatedAt == nil ? nil : quote.quotedMid,
+                contracts: contracts, underlyingPrice: chain.underlyingPrice
             ),
             underlyingPrice: chain.underlyingPrice,
-            asOf: chain.asOf
+            asOf: chain.asOf,
+            estimatedAt: chain.estimatedAt
         )!
     }
 }
@@ -131,7 +135,7 @@ extension SavedOptionPlan {
             OptionLeg(
                 kind: OptionLeg.Kind(rawValue: leg.kind.rawValue) ?? .stock,
                 side: leg.side == .buy ? .buy : .sell,
-                quantity: leg.quantity, price: leg.price,
+                quantity: leg.quantity, price: leg.price, quotedPrice: leg.quotedPrice,
                 strike: leg.strike, expiration: leg.expiration, contractID: leg.contractId
             )
         }
@@ -148,10 +152,14 @@ public struct OptionsService: Sendable {
     }
 
     /// One expiry of `symbol`'s chain: the default one, or `expiration` ("2027-01-15").
+    ///
+    /// Asked for at the stock's price now: when that is from a later session
+    /// than the option quotes, every contract's price comes back as an
+    /// estimate for it, and `estimatedAt` says so.
     public func chain(_ symbol: String, expiration: String? = nil) async throws(APIFailure) -> OptionChain {
         let output = try await APIFailure.perform {
             try await client.getChainApiOptionsSymbolChainGet(
-                path: .init(symbol: symbol), query: .init(expiration: expiration)
+                path: .init(symbol: symbol), query: .init(expiration: expiration, estimate: true)
             )
         }
         switch output {
@@ -182,7 +190,7 @@ public struct OptionsService: Sendable {
             Components.Schemas.OptionLeg(
                 contractId: leg.contractID, expiration: leg.expiration,
                 kind: .init(rawValue: leg.kind.rawValue) ?? .stock,
-                price: leg.price, quantity: leg.quantity,
+                price: leg.price, quantity: leg.quantity, quotedPrice: leg.quotedPrice,
                 side: leg.side == .buy ? .buy : .sell, strike: leg.strike
             )
         }

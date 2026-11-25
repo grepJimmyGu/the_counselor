@@ -220,7 +220,7 @@ struct PayoffCard: View {
             .sensoryFeedback(.selection, trigger: picked)
 
             VStack(alignment: .leading, spacing: 6) {
-                legend(line: true, dashed: true, color: .inkSecondary, text: "\(plan.symbol) closed at \(OptionText.price(plan.underlyingPrice))")
+                legend(line: true, dashed: true, color: .inkSecondary, text: "\(plan.symbol) \(plan.isEstimated ? (plan.estimatedAt == nil ? "was at" : "is at") : "closed at") \(OptionText.price(plan.underlyingPrice))")
                 if let breakeven = plan.breakeven {
                     legend(line: false, dashed: false, color: .brand, text: "Breakeven \(OptionText.price(breakeven))")
                 }
@@ -252,13 +252,23 @@ struct PayoffCard: View {
     }
 }
 
-/// The date a plan's prices are from, where it cannot be missed.
+/// What a plan's prices are, where it cannot be missed: quotes from a close,
+/// or estimates made since from the stock's price.
 struct OptionPricesDate: View {
-    let asOf: String
+    let plan: OptionPlan
+
+    private var text: String {
+        let close = OptionText.day(plan.asOf)
+        guard plan.isEstimated else { return "Prices from the close on \(close)" }
+        // A saved plan keeps that its price was an estimate, not the minute.
+        guard let at = plan.estimatedAt else { return "Option price estimated when saved · quotes from the \(close) close" }
+        return "Estimated for \(plan.symbol) at \(OptionText.price(plan.underlyingPrice)), \(Fmt.marketTime(at)) ET · quotes from the \(close) close"
+    }
 
     var body: some View {
-        Label("Prices from the close on \(OptionText.day(asOf))", systemImage: "calendar")
+        Label(text, systemImage: plan.isEstimated ? "function" : "calendar")
             .font(.eyebrow).tracking(0.6).textCase(.uppercase).foregroundStyle(.inkSecondary)
+            .fixedSize(horizontal: false, vertical: true)
             .accessibilityIdentifier("option-prices-date")
     }
 }

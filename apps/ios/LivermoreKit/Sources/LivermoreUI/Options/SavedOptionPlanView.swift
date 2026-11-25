@@ -51,7 +51,7 @@ struct SavedOptionPlanView: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: Metrics.sectionSpacing) {
                         if session.isDemo { SampleDataNotice().padding(.horizontal, 4) }
-                        OptionPricesDate(asOf: plan.asOf).padding(.horizontal, 4)
+                        OptionPricesDate(plan: plan).padding(.horizontal, 4)
                         OptionHeadlineCard(plan: plan)
                         OptionFiguresGrid(plan: plan)
                         PayoffCard(plan: plan)
