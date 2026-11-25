@@ -281,13 +281,35 @@ public struct BracketResult: Equatable, Sendable {
     public var timeoutRate: Double { entered > 0 ? Double(timedOut) / Double(entered) : 0 }
 }
 
-/// Tries an entry / stop / target plan on each day of a price history.
+/// The tries whose waiting period has not finished: the days so near the end
+/// of the prices that the stop, the target or the time limit may still be
+/// ahead. They are kept out of the main counts, where a trade that simply
+/// has not had its time yet would read as "reached neither".
+public struct BracketRecent: Equatable, Sendable {
+    /// Days tried: every one of them whose bid, if it had one, has either
+    /// filled or run out of time to.
+    public let tried: Int
+    public let entered: Int
+    public let reachedTarget: Int
+    public let stopped: Int
+    /// Entered, with the time limit up and neither level reached.
+    public let timedOut: Int
+    /// Entered, and neither level reached by the last price.
+    public let stillOpen: Int
+    /// Mean return of the still-open trades, valued at the last price.
+    public let openAverageReturn: Double
+    public let from: Date?
+    public let to: Date?
+}
+
+/// Tries an entry / stop / target plan on each day of a period.
 ///
 /// A count of what happened, not a forecast of what will. Three things make
 /// it conservative rather than flattering: a day that touches both the stop
 /// and the target is counted as stopped; a bid below the close fills at the
-/// bid, never better; and only days with the full waiting period after them
-/// are tried, so no trade is cut short by the end of the data.
+/// bid, never better; and the main counts take only days with the full
+/// waiting period after them, so no trade is cut short by the end of the
+/// data. The days after that are counted on their own (`recent`).
 ///
 /// The tries overlap — each day starts one — so they are not independent
 /// trades, and the counts say how often, not how reliably.
@@ -298,17 +320,29 @@ public enum BracketTest {
         /// meant. Nil when there are too few such days to count.
         public let similar: BracketResult?
         public let similarity: String?
+        /// The days in the period whose waiting time is still running. Nil
+        /// when there are none: a period that ended long enough ago.
+        public let recent: BracketRecent?
     }
 
+    /// The longest period there are prices for (`PriceHistory.yearsKept` is one more).
     public static let years = 5
     static let minimumSimilar = 60
 
-    public static func run(closes: [DailyClose], plan: BracketPlan) -> Outcome? {
+    /// Tries `plan` on every day of `period`. The period is measured from
+    /// `today`, or from the last day of prices when that is not given.
+    public static func run(
+        closes: [DailyClose], plan: BracketPlan, period: BacktestPeriod = .fiveYears, today: Date? = nil
+    ) -> Outcome? {
         let bars = closes.filter { $0.close > 0 }
-        guard bars.count > plan.maxDays + plan.fillDays + 60, plan.stop > 0, plan.target > 0 else { return nil }
-        let lastStart = bars.count - 1 - plan.maxDays - plan.fillDays
-        let firstStart = max(0, bars.count - years * 252)
-        guard lastStart > firstStart else { return nil }
+        guard bars.count > plan.maxDays + plan.fillDays + 60, plan.stop > 0, plan.target > 0, let last = bars.last else { return nil }
+        let anchor = today ?? last.date
+        let periodStart = period.start(today: anchor), periodEnd = period.end(today: anchor)
+        guard let firstStart = bars.firstIndex(where: { $0.date >= periodStart }),
+              let lastInPeriod = bars.lastIndex(where: { $0.date <= periodEnd }), lastInPeriod >= firstStart
+        else { return nil }
+        // The last day with the whole wait (to fill, then to finish) after it.
+        let lastComplete = min(lastInPeriod, bars.count - 1 - plan.maxDays - plan.fillDays)
 
         // Which side of its 200-day average the price was on, each day.
         var prefix = [0.0]
@@ -320,67 +354,97 @@ public enum BracketTest {
         let todayAbove = aboveAverage(bars.count - 1)
 
         var everyDay = Tally(), similarDays = Tally()
-        for start in firstStart...lastStart {
-            let trade = simulate(bars, from: start, plan: plan)
-            everyDay.add(trade, date: bars[start].date)
-            if let todayAbove, aboveAverage(start) == todayAbove {
-                similarDays.add(trade, date: bars[start].date)
+        if lastComplete >= firstStart {
+            for start in firstStart...lastComplete {
+                let trade = simulate(bars, from: start, plan: plan)
+                everyDay.add(trade, date: bars[start].date)
+                if let todayAbove, aboveAverage(start) == todayAbove {
+                    similarDays.add(trade, date: bars[start].date)
+                }
+            }
+        }
+        var unfinished = Tally()
+        let firstUnfinished = max(firstStart, lastComplete + 1)
+        if firstUnfinished <= lastInPeriod {
+            for start in firstUnfinished...lastInPeriod {
+                unfinished.add(simulate(bars, from: start, plan: plan), date: bars[start].date)
             }
         }
         let similar = similarDays.tried >= minimumSimilar && todayAbove != nil ? similarDays.result : nil
         return Outcome(
             all: everyDay.result, similar: similar,
             similarity: similar == nil ? nil
-                : "days when the price was \(todayAbove == true ? "above" : "below") its 200-day average, as it is now"
+                : "days when the price was \(todayAbove == true ? "above" : "below") its 200-day average, as it is now",
+            recent: unfinished.tried > 0 ? unfinished.recent : nil
         )
     }
 
     private enum Trade {
         case unfilled
+        /// A bid that has not filled and still has days left to.
+        case pending
         case closed(fraction: Double, days: Int, kind: Kind)
+        /// Entered, with neither level reached and the time limit not yet up.
+        case open(fraction: Double)
         enum Kind { case target, stop, timeout }
     }
 
     private static func simulate(_ bars: [DailyClose], from start: Int, plan: BracketPlan) -> Trade {
+        let lastBar = bars.count - 1
         var entryIndex = start
         var entryPrice = bars[start].close
         if plan.entryDiscount > 0 {
             let bid = bars[start].close * (1 - plan.entryDiscount)
-            guard let filled = ((start + 1)...(start + plan.fillDays)).first(where: { bars[$0].low <= bid }) else {
-                return .unfilled
-            }
+            let lastFillDay = min(start + plan.fillDays, lastBar)
+            guard start < lastFillDay,
+                  let filled = ((start + 1)...lastFillDay).first(where: { bars[$0].low <= bid })
+            else { return start + plan.fillDays <= lastBar ? .unfilled : .pending }
             entryIndex = filled
             entryPrice = bid
         }
         let stopPrice = entryPrice * (1 - plan.stop)
         let targetPrice = entryPrice * (1 + plan.target)
-        let end = min(entryIndex + plan.maxDays, bars.count - 1)
-        guard end > entryIndex else { return .unfilled }
-        for index in (entryIndex + 1)...end {
-            if bars[index].low <= stopPrice { return .closed(fraction: -plan.stop, days: index - entryIndex, kind: .stop) }
-            if bars[index].high >= targetPrice { return .closed(fraction: plan.target, days: index - entryIndex, kind: .target) }
+        let timeLimit = entryIndex + plan.maxDays
+        let end = min(timeLimit, lastBar)
+        if end > entryIndex {
+            for index in (entryIndex + 1)...end {
+                if bars[index].low <= stopPrice { return .closed(fraction: -plan.stop, days: index - entryIndex, kind: .stop) }
+                if bars[index].high >= targetPrice { return .closed(fraction: plan.target, days: index - entryIndex, kind: .target) }
+            }
         }
+        // The prices ran out before the time limit: the trade is still on.
+        guard timeLimit <= lastBar else { return .open(fraction: bars[lastBar].close / entryPrice - 1) }
         return .closed(fraction: bars[end].close / entryPrice - 1, days: end - entryIndex, kind: .timeout)
     }
 
     private struct Tally {
-        var tried = 0, entered = 0, target = 0, stop = 0, timeout = 0
-        var total = 0.0
+        var tried = 0, entered = 0, target = 0, stop = 0, timeout = 0, open = 0
+        var total = 0.0, openTotal = 0.0
         var days: [Int] = []
         var from: Date?, to: Date?
 
         mutating func add(_ trade: Trade, date: Date) {
+            // A bid still waiting to fill has not been tried yet.
+            if case .pending = trade { return }
             tried += 1
             if from == nil { from = date }
             to = date
-            guard case .closed(let fraction, let held, let kind) = trade else { return }
-            entered += 1
-            total += fraction
-            days.append(held)
-            switch kind {
-            case .target: target += 1
-            case .stop: stop += 1
-            case .timeout: timeout += 1
+            switch trade {
+            case .unfilled, .pending:
+                return
+            case .open(let fraction):
+                entered += 1
+                open += 1
+                openTotal += fraction
+            case .closed(let fraction, let held, let kind):
+                entered += 1
+                total += fraction
+                days.append(held)
+                switch kind {
+                case .target: target += 1
+                case .stop: stop += 1
+                case .timeout: timeout += 1
+                }
             }
         }
 
@@ -390,6 +454,13 @@ public enum BracketTest {
                 averageReturn: entered > 0 ? total / Double(entered) : 0,
                 medianDays: days.isEmpty ? 0 : days.sorted()[days.count / 2],
                 from: from, to: to
+            )
+        }
+
+        var recent: BracketRecent {
+            BracketRecent(
+                tried: tried, entered: entered, reachedTarget: target, stopped: stop, timedOut: timeout, stillOpen: open,
+                openAverageReturn: open > 0 ? openTotal / Double(open) : 0, from: from, to: to
             )
         }
     }

@@ -8,6 +8,74 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-11-25 — Backtests over any period from three months, and four engine errors found by testing one by hand (latest-price work, part 2 of 3)
+
+Jimmy: let a strategy be tested "at a flexible range with precise
+calculation", three months at the shortest, adjustable a month at a time. The
+app only ever sent 3, 5 or 10 years, so nothing had run the engine on a short
+period. Working one out by hand found four errors, all in the engine since its
+first version.
+
+**1. Indicators started every test empty.** *Symptom:* a 200-day-average
+strategy on SPY over the three months to 2026-11-25 returned 0.00%, invested
+0% of the time, no trades, on production. *Cause:* `run()` loaded the warm-up
+history and then cut the frames to the start date BEFORE `_generate_weights`,
+so every rolling window began with nothing: the first 200 sessions of any
+test sat in cash, and all of a short one. *Fix:* weights are worked out on the
+whole history and cut to the test period afterwards. The warm-up also reaches
+back one more rebalance period, because what is held on the first day was
+decided at the last rebalance before it.
+
+**2. "Monthly" was not monthly.** *Cause:* `_rebalance_mask` asked whether
+the DATE was the 1st of a month, the 1st of a quarter, or a Monday. A period
+that opens on a weekend or a holiday had no rebalance: 7 of 12 months in the
+year to 2026-11-23, 49 of 53 weeks, and never the first quarter (1 January is
+always a holiday). *Fix:* the first SESSION of each week, month or quarter.
+
+**3. The first day's position was free.** With (1) fixed a test can start
+already invested; the first row's turnover read as zero. It is now the
+position itself, so entry is paid for.
+
+**4. Per-year figures compounded over one day too many** (`n` days are `n - 1`
+returns).
+
+`BACKTEST_ENGINE_VERSION` is now `2026.11.25`: results move for every
+strategy with a lookback or a weekly, monthly or quarterly rebalance.
+
+**Checked.** `tests/test_backtest_short_period_audit.py` computes a
+moving-average strategy by hand, with nothing from the engine, for 3, 4, 5,
+7, 12 and 18 months, three window lengths and two price paths (36 cases, equal
+to 1e-12), plus a monthly momentum rotation. Backend 3,207 passed. On real
+prices, same request to production and to this branch (production's first
+three also ended a session earlier, on the stale close part 1 fixes):
+
+| Test | Production | This branch |
+|---|---|---|
+| SPY, 200-day average, 3 months | 0.00%, invested 0% | −6.49%, invested 94% |
+| SPY, 200-day average, 1 year | −4.22%, invested 19% | +2.43%, invested 94% |
+| NVDA, 50-day average, 3 months | 0.00%, invested 0% | +2.15%, invested 51% |
+| Top 1 of SPY/QQQ/TLT/GLD, monthly, 6 months | 0.00%, invested 0% | −13.20%, invested 100% |
+
+**The app.** `BacktestPeriod` replaces the three fixed choices: any length
+from 3 months to 10 years in one-month steps (with 3M / 6M / 1Y / 3Y / 5Y / 10Y
+as one tap), ending today or at the end of any earlier month, with the dates
+it comes to shown. Both strategy screens use it. The result names the days
+actually tested and their number, shows no per-year rate for a test under a
+year (9% over three months is not "41% a year"), and labels its chart by day
+or month for a short period. "Test an entry and exit" takes the same control
+(up to five years, the history the page keeps); days whose waiting time is
+still running are counted apart, with open trades valued at the latest price,
+so a three-month period ending today says what has happened so far and does
+not report unfinished trades as "reached neither". App 275 tests passed;
+checked in the simulator against this branch's backend.
+
+**Found, not fixed here.** Rows in `price_bars` are never rewritten, so
+adjusted closes loaded before a later dividend stay on the old basis. On
+production AAPL's rows before its May, August and November 2026 ex-dates carry
+none of those dividends (about 0.08% each); SPY misses September's (0.25%). A
+split after first load would put a cliff in the series. Needs its own change,
+with care for the database's disk (apps/api/CLAUDE.md trap 10).
+
 ## 2026-11-24 — The screen results pager: a quick "Next" was undone
 
 **Symptom.** web-ci failed on `main` after #372

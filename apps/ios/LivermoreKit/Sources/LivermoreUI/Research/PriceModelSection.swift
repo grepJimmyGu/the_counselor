@@ -127,7 +127,7 @@ private struct LevelRow: View {
 // MARK: - Entry / exit test
 
 /// Set an entry, a stop and a target, and see how often each was reached
-/// when the same plan was tried on every day of the past five years.
+/// when the same plan was tried on every day of a chosen period.
 struct EntryExitCard: View {
     @Environment(AppSession.self) private var session
     let symbol: String
@@ -140,6 +140,7 @@ struct EntryExitCard: View {
 
     @State private var plan: BracketPlan
     @State private var isDefault = true
+    @State private var period = BacktestPeriod.fiveYears
 
     init(symbol: String, closes: [DailyClose], levels: PriceLevels?, livePrice: Double? = nil, onBuy: @escaping () -> Void) {
         self.symbol = symbol
@@ -154,10 +155,10 @@ struct EntryExitCard: View {
         let price = livePrice ?? closes.last?.close ?? 0
         let reference = livePrice == nil ? "the close" : "the price now"
         let entry = price * (1 - plan.entryDiscount)
-        let outcome = BracketTest.run(closes: closes, plan: plan)
+        let outcome = BracketTest.run(closes: closes, plan: plan, period: period, today: .now)
 
         Card("Test an entry and exit") {
-            Text("Choose where you would buy, where you would give up, and where you would take the gain. The test tries that plan on every trading day of the past five years.")
+            Text("Choose where you would buy, where you would give up, and where you would take the gain. The test tries that plan on every trading day of the period you choose.")
                 .font(.footnote).foregroundStyle(.inkSecondary)
 
             PlanRow(
@@ -187,12 +188,24 @@ struct EntryExitCard: View {
             }
             .pickerStyle(.segmented)
 
+            Divider()
+            Text("Period tested").font(.caption.weight(.semibold)).foregroundStyle(.inkSecondary)
+            // The page keeps six years of prices: five to test, ending up to
+            // a year back.
+            BacktestPeriodPicker(period: $period, longestMonths: BracketTest.years * 12, earliestEndMonthsAgo: 12)
+
             if let outcome {
-                Divider()
-                ResultBlock(title: "Every day, \(years(outcome.all))", result: outcome.all, plan: plan)
+                if outcome.all.tried > 0 {
+                    Divider()
+                    ResultBlock(title: "Every day, \(span(outcome.all.from, outcome.all.to))", result: outcome.all, plan: plan)
+                }
                 if let similar = outcome.similar, let similarity = outcome.similarity {
                     Divider()
                     ResultBlock(title: "Only \(similarity)", result: similar, plan: plan)
+                }
+                if let recent = outcome.recent {
+                    Divider()
+                    RecentBlock(recent: recent, plan: plan, title: "Still running, \(span(recent.from, recent.to))", isAll: outcome.all.tried == 0)
                 }
                 Text("To break even, the target has to be reached on \(Fmt.percent(plan.breakevenWinRate)) of trades that end at one or the other. Each day starts its own trial, so these overlap: they count how often, not how reliably. A day that touched both levels is counted as stopped.")
                     .font(.caption2).foregroundStyle(.inkSecondary)
@@ -222,10 +235,53 @@ struct EntryExitCard: View {
         .sensoryFeedback(.selection, trigger: plan)
     }
 
-    private func years(_ result: BracketResult) -> String {
-        guard let from = result.from, let to = result.to else { return "past five years" }
-        let calendar = Calendar(identifier: .gregorian)
-        return "\(calendar.component(.year, from: from))–\(calendar.component(.year, from: to))"
+    /// The days a count covers: "Nov 2021 – Aug 2026", or the days themselves
+    /// when they sit inside one year.
+    private func span(_ from: Date?, _ to: Date?) -> String {
+        guard let from, let to else { return period.lengthText }
+        let calendar = PerformanceSeries.utc
+        if calendar.component(.year, from: from) == calendar.component(.year, from: to) {
+            return "\(Fmt.shortTradingDay(from)) – \(Fmt.tradingDay(to))"
+        }
+        let month = Fmt.utc(.dateTime.month(.abbreviated).year())
+        return "\(from.formatted(month)) – \(to.formatted(month))"
+    }
+}
+
+/// The tries whose time is not up: what has happened to them so far.
+private struct RecentBlock: View {
+    let recent: BracketRecent
+    let plan: BracketPlan
+    let title: String
+    /// No day in the period has had its full wait, so this is all there is.
+    let isAll: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title).eyebrowStyle()
+            Text(isAll
+                 ? "No day in this period has had its full \(plan.maxDays) trading days yet, so these are counts so far, not final ones."
+                 : "These days have not had their full \(plan.maxDays) trading days yet, so they are counted apart.")
+                .font(.caption).foregroundStyle(.inkSecondary)
+            if recent.entered == 0 {
+                Text("The price has not come down to the entry on any of \(recent.tried) tries.").font(.subheadline)
+            } else {
+                DetailRow("Reached the target", "\(recent.reachedTarget) of \(recent.entered)", tint: .gain)
+                DetailRow("Hit the stop", "\(recent.stopped) of \(recent.entered)", tint: .loss)
+                if recent.timedOut > 0 { DetailRow("Reached neither in time", "\(recent.timedOut) of \(recent.entered)") }
+                DetailRow("Still open", "\(recent.stillOpen) of \(recent.entered)")
+                if recent.stillOpen > 0 {
+                    DetailRow(
+                        "Open trades at the latest price", Fmt.percent(recent.openAverageReturn, signed: true),
+                        tint: recent.openAverageReturn.changeColor
+                    )
+                }
+                if plan.entryDiscount > 0 {
+                    DetailRow("Entry price was reached", "\(recent.entered) of \(recent.tried) tries")
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
     }
 }
 

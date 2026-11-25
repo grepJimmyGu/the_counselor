@@ -12,7 +12,7 @@ struct TemplateSetupView: View {
     var presetTickers: [String]?
 
     @State private var tickerText = ""
-    @State private var range: BacktestRange = .fiveYears
+    @State private var range: BacktestPeriod = .fiveYears
     @State private var customization: StrategyCustomization
     @State private var isRunning = false
     @State private var failure: APIFailure?
@@ -215,10 +215,7 @@ struct TemplateSetupView: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 Text("Test period").font(.caption.weight(.semibold)).foregroundStyle(.inkSecondary)
-                Picker("Period", selection: $range) {
-                    ForEach(BacktestRange.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
+                BacktestPeriodPicker(period: $range)
             }
 
             NavigationLink {

@@ -70,6 +70,82 @@ struct StrategyBuilderTests {
         #expect(built.benchmark == trend.strategy.benchmark)
     }
 
+    // MARK: The period tested
+    //
+    // Jimmy, 2026-11-25: any period from three months up, a month at a time,
+    // ending today or in an earlier month. Before, three choices: 3, 5 and
+    // 10 years, all ending today.
+
+    @Test("a period is a number of months ending today or at the end of an earlier month")
+    func periodDates() {
+        func span(_ period: BacktestPeriod) -> String {
+            "\(BacktestPeriod.isoDay(period.start(today: today))) to \(BacktestPeriod.isoDay(period.end(today: today)))"
+        }
+        // today is 2026-11-17.
+        #expect(span(.threeMonths) == "2026-08-17 to 2026-11-17")
+        #expect(span(BacktestPeriod(months: 4)) == "2026-07-17 to 2026-11-17")
+        #expect(span(BacktestPeriod(months: 14)) == "2025-09-17 to 2026-11-17")
+        #expect(span(.tenYears) == "2016-11-17 to 2026-11-17")
+        // Ending earlier: the last day of that month.
+        #expect(span(BacktestPeriod(months: 3, endsMonthsAgo: 1)) == "2026-07-31 to 2026-10-31")
+        #expect(span(BacktestPeriod(months: 3, endsMonthsAgo: 2)) == "2026-06-30 to 2026-09-30")
+        // A month shorter than the day asked for: its own last day.
+        #expect(span(BacktestPeriod(months: 3, endsMonthsAgo: 6)) == "2026-02-28 to 2026-05-31")
+        // The 2022 fall, from here: twelve months ending December 2022.
+        #expect(span(BacktestPeriod(months: 12, endsMonthsAgo: 47)) == "2021-12-31 to 2022-12-31")
+    }
+
+    @Test("a period is never shorter than three months or longer than ten years")
+    func periodLimits() {
+        #expect(BacktestPeriod(months: 1).months == 3)
+        #expect(BacktestPeriod(months: 500).months == 120)
+        #expect(BacktestPeriod(months: 12, endsMonthsAgo: -4).endsToday)
+
+        var period = BacktestPeriod.threeMonths
+        #expect(!period.canShorten && period.canLengthen && !period.canEndLater && period.canEndEarlier)
+        period.months -= 1
+        #expect(period.months == 3)
+        period.months += 1
+        #expect(period.months == 4)
+        period.months = 120
+        #expect(!period.canLengthen)
+        period.endsMonthsAgo = 121
+        #expect(period.endsMonthsAgo == 120 && !period.canEndEarlier)
+    }
+
+    @Test("a period's length reads in years and months")
+    func periodLength() {
+        #expect(BacktestPeriod.threeMonths.lengthText == "3 months")
+        #expect(BacktestPeriod.oneYear.lengthText == "1 year")
+        #expect(BacktestPeriod(months: 13).lengthText == "1 year 1 month")
+        #expect(BacktestPeriod(months: 26).lengthText == "2 years 2 months")
+        #expect(BacktestPeriod.fiveYears.lengthText == "5 years")
+        // Every quick choice is a length the limits allow.
+        #expect(BacktestPeriod.quickLengths.allSatisfy { BacktestPeriod.lengthLimits.contains($0.months) })
+    }
+
+    @Test("a template runs over the period chosen, wherever it ends")
+    func buildsOverAChosenPeriod() {
+        let recent = StrategyBuilder.strategy(from: trend, tickers: ["NVDA"], range: .threeMonths, today: today)
+        #expect(recent.startDate == "2026-08-17" && recent.endDate == "2026-11-17")
+        let past = StrategyBuilder.strategy(
+            from: trend, tickers: ["NVDA"], range: BacktestPeriod(months: 12, endsMonthsAgo: 47), today: today
+        )
+        #expect(past.startDate == "2021-12-31" && past.endDate == "2022-12-31")
+        let again = StrategyBuilder.redated(past, range: BacktestPeriod(months: 7, endsMonthsAgo: 1), today: today)
+        #expect(again.startDate == "2026-03-31" && again.endDate == "2026-10-31")
+    }
+
+    @Test("a result names the days it covers, and a test under a year has no per-year rate")
+    func resultSpan() throws {
+        let result = try JSONDecoder().decode(BacktestResult.self, from: Data(try fixture("backtest-result.json").utf8))
+        let tested = try #require(result.tested)
+        #expect(tested.first == String(result.equityCurve[0].date.prefix(10)))
+        #expect(tested.last == String(result.equityCurve[result.equityCurve.count - 1].date.prefix(10)))
+        #expect(tested.sessions == result.equityCurve.count)
+        #expect(result.isUnderAYear == (result.equityCurve.count - 1 < 252))
+    }
+
     @Test("with no tickers typed, the template's defaults are used")
     func fallsBackToDefaults() {
         let built = StrategyBuilder.strategy(from: trend, tickers: [], range: .fiveYears, today: today)

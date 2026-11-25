@@ -35,7 +35,24 @@ from app.services.exit_ladder import Bar, evaluate_bar, weight_delta_for
 #     * ladder exits fill at the NEXT session's open, carrying the
 #       overnight gap, instead of at the price that triggered the tier
 #     * transaction cost and slippage default to 5 bps each instead of 0
-BACKTEST_ENGINE_VERSION = "2026.08.18"
+#
+# 2026.11.25 — four changes, found by testing a 3-month period by hand:
+#     * indicators are worked out on the warm-up history BEFORE the test is
+#       cut to its start date. The history was loaded and then cut first, so
+#       every test began with its indicators empty: a 200-day-average
+#       strategy held cash for the first 200 sessions of any test, and for
+#       all of a 3-month one. Results move for every strategy with a
+#       lookback, most where the period is short.
+#     * a test that starts already holding a position pays to enter it. The
+#       first day's turnover was read as zero, which the change above would
+#       have turned into a free entry.
+#     * per-year figures are compounded over the number of daily returns,
+#       not that number plus one (the first day has no return).
+#     * weekly, monthly and quarterly strategies rebalance on the first
+#       SESSION of the period. They rebalanced only when the period opened
+#       on a trading day, so a "monthly" strategy skipped about five months
+#       a year and the first quarter always.
+BACKTEST_ENGINE_VERSION = "2026.11.25"
 from app.schemas.backtest import (
     AnnualReturnItem,
     BacktestMetrics,
@@ -56,6 +73,9 @@ def compute_rsi(series: pd.Series, window: int = 14) -> pd.Series:
     losses = (-delta.clip(upper=0)).rolling(window=window).mean()
     rs = gains / losses.replace(0, np.nan)
     return 100 - (100 / (1 + rs))
+
+# Calendar days from a rebalance to the next, with room for a holiday.
+_REBALANCE_REACH_DAYS = {"weekly": 10, "monthly": 35, "quarterly": 95}
 
 
 class BacktestEngine:
@@ -158,7 +178,10 @@ class BacktestEngine:
         return 252
 
     async def _load_prices(self, db: Session, strategy: StrategyJSON) -> tuple[dict[str, pd.DataFrame], pd.DataFrame]:
-        lookback = self._compute_lookback(strategy)
+        # What a strategy holds on its first day was decided at its last
+        # rebalance, up to a period earlier, and the indicator needs its
+        # history as of THAT day.
+        lookback = self._compute_lookback(strategy) + _REBALANCE_REACH_DAYS.get(strategy.rebalance_frequency, 0)
         universe_frames: dict[str, pd.DataFrame] = {}
         for symbol in strategy.universe:
             universe_frames[symbol] = await self.market_data.get_price_frame(
@@ -170,13 +193,22 @@ class BacktestEngine:
         return universe_frames, benchmark_frame
 
     def _rebalance_mask(self, index: pd.DatetimeIndex, frequency: str) -> pd.Series:
+        """True on the first session of each week, month or quarter.
+
+        Until 2026-11-25 this asked whether the DATE was a Monday, the 1st of
+        a month or the 1st of a quarter. A period that opens on a weekend or
+        a holiday then had no rebalance at all: over the year to 2026-11-23 a
+        "monthly" strategy rebalanced 7 times, not 12, and the first quarter
+        never did (1 January is always a holiday).
+
+        The first session in `index` counts as the first of its period, so a
+        strategy with no history before it takes its position that day.
+        """
         if frequency == "daily":
             return pd.Series(True, index=index)
-        if frequency == "weekly":
-            return pd.Series(index.weekday == 0, index=index)
-        if frequency == "quarterly":
-            return pd.Series(index.is_quarter_start, index=index)
-        return pd.Series(index.is_month_start, index=index)
+        period = {"weekly": "W", "quarterly": "Q"}.get(frequency, "M")
+        periods = pd.Series(index.to_period(period), index=index)
+        return ~periods.duplicated()
 
     def _build_price_matrix(self, universe_frames: dict[str, pd.DataFrame]) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
         closes = []
@@ -1472,13 +1504,13 @@ class BacktestEngine:
         if close_matrix.empty:
             raise ValueError("No historical data was available for the requested symbols.")
 
-        # Trim warmup rows before computing P&L (they exist only for indicator seeding)
+        # The frames reach back before the start date so that indicators have
+        # their history on the first day of the test. They are cut to the test
+        # period only AFTER the weights are worked out, below. Until
+        # 2026-11-25 they were cut here, first, which threw the warm-up away:
+        # a 200-day average had nothing to average for the first 200 sessions,
+        # so the strategy sat in cash for that long whatever the price did.
         strategy_start = pd.Timestamp(strategy.start_date)
-        close_matrix = close_matrix[close_matrix.index >= strategy_start]
-        aligned_frames = {
-            sym: frame[frame.index >= strategy_start]
-            for sym, frame in aligned_frames.items()
-        }
 
         benchmark_close = benchmark_frame["adjusted_close"].reindex(close_matrix.index).ffill().dropna()
         close_matrix = close_matrix.reindex(benchmark_close.index).ffill().dropna(how="all")
@@ -1554,6 +1586,19 @@ class BacktestEngine:
 
         weights = self._generate_weights(strategy, close_matrix, aligned_frames, precomputed_signals)
 
+        # Now cut to the test period. The first row of `weights` is what the
+        # strategy, with its indicators warm, holds on the start date.
+        in_test = close_matrix.index >= strategy_start
+        if not in_test.any():
+            raise ValueError("No historical data was available for the requested period.")
+        weights = weights[in_test]
+        close_matrix = close_matrix[in_test]
+        benchmark_close = benchmark_close[in_test]
+        aligned_frames = {
+            sym: frame[frame.index >= strategy_start]
+            for sym, frame in aligned_frames.items()
+        }
+
         # PRD-16c: apply multi-tier exit ladder (if configured) before
         # computing returns. Position-aware: tracks entry price + which
         # tiers have fired per open position. No-op when exit_ladder is
@@ -1587,7 +1632,9 @@ class BacktestEngine:
             ).sum(axis=1)
 
         asset_returns = close_matrix.pct_change().fillna(0.0)
-        turnover = weights.diff().abs().sum(axis=1).fillna(0.0)
+        # The test starts in cash, so whatever is held on the first day was
+        # bought that day: its turnover is the position itself, not zero.
+        turnover = weights.diff().fillna(weights).abs().sum(axis=1).fillna(0.0)
         costs = turnover * ((strategy.transaction_cost_bps + strategy.slippage_bps) / 10000)
         portfolio_returns = (
             (weights.shift(1).fillna(0.0) * asset_returns).sum(axis=1)

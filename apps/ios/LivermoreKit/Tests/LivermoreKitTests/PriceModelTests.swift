@@ -190,6 +190,98 @@ struct BracketTestTests {
         #expect(BracketTest.run(closes: closes, plan: BracketPlan(stop: 0, target: 0.1)) == nil)
     }
 
+    // MARK: A chosen period
+    //
+    // Jimmy, 2026-11-25: test over any period from three months up. A short
+    // period ending today is made of days whose 60-day wait is still running,
+    // so they are counted on their own, valued at the latest price.
+
+    @Test("a three-month period ending today, given six months to work, is all unfinished tries")
+    func shortPeriod() throws {
+        // Flat at 50, then 2% higher on the last day: nothing reaches a level.
+        // (These bars are one a calendar day, so three months is about 92.)
+        let closes = bars(400) { $0 == 399 ? 51 : 50 }
+        let plan = BracketPlan(stop: 0.05, target: 0.10, maxDays: 126, fillDays: 10)
+        let outcome = try #require(BracketTest.run(closes: closes, plan: plan, period: .threeMonths))
+
+        // No day in the period has 136 days after it.
+        #expect(outcome.all.tried == 0)
+        #expect(outcome.similar == nil)
+        let recent = try #require(outcome.recent)
+        let first = try #require(closes.firstIndex { $0.date >= BacktestPeriod.threeMonths.start(today: closes[399].date) })
+        let days = 400 - first
+        #expect(days > 85 && days < 95)
+        #expect(recent.tried == days)
+        #expect(recent.from == closes[first].date && recent.to == closes[399].date)
+        #expect(recent.entered == days)
+        #expect(recent.reachedTarget == 0 && recent.stopped == 0 && recent.timedOut == 0)
+        #expect(recent.stillOpen == days)
+        // Every open trade but the last was entered at 50 and is up 2% at 51;
+        // the one entered today, at 51, is flat.
+        #expect(abs(recent.openAverageReturn - Double(days - 1) * 0.02 / Double(days)) < 1e-12)
+    }
+
+    @Test("an unfinished try that has already hit a level, or run out of time, is counted as that")
+    func unfinishedButDecided() throws {
+        // Flat, then a 20% jump on the last day: every open trade reaches its target there.
+        let closes = bars(400) { $0 == 399 ? 60 : 50 }
+        let plan = BracketPlan(stop: 0.05, target: 0.10, maxDays: 60, fillDays: 10)
+        let recent = try #require(BracketTest.run(closes: closes, plan: plan, period: .threeMonths)?.recent)
+        // The last 70 days. Nine had their 60 days end before the jump and
+        // reached neither; the next 60 (the 60th day after the first of them
+        // is the last day) reach the target on it; the last day's own entry is open.
+        #expect(recent.tried == 70)
+        #expect(recent.timedOut == 9)
+        #expect(recent.reachedTarget == 60)
+        #expect(recent.stillOpen == 1 && recent.openAverageReturn == 0)
+    }
+
+    @Test("a longer period counts the finished days as before and the unfinished ones apart")
+    func periodWithBoth() throws {
+        let closes = bars(500) { _ in 50 }
+        let plan = BracketPlan(stop: 0.05, target: 0.10, maxDays: 60, fillDays: 10)
+        let year = try #require(BracketTest.run(closes: closes, plan: plan, period: .oneYear))
+        let first = try #require(closes.firstIndex { $0.date >= BacktestPeriod.oneYear.start(today: closes[499].date) })
+        #expect(year.all.from == closes[first].date)
+        #expect(year.all.to == closes[500 - 1 - 60 - 10].date)
+        #expect(year.all.tried == (500 - 1 - 70) - first + 1)
+        #expect(year.recent?.tried == 70)
+        #expect(year.all.tried + (year.recent?.tried ?? 0) == 500 - first)
+    }
+
+    @Test("a period that ended long ago has no unfinished tries")
+    func pastPeriod() throws {
+        let closes = bars(900) { _ in 50 }
+        let plan = BracketPlan(stop: 0.05, target: 0.10, maxDays: 60, fillDays: 10)
+        let period = BacktestPeriod(months: 6, endsMonthsAgo: 6)
+        let anchor = closes[899].date
+        let outcome = try #require(BracketTest.run(closes: closes, plan: plan, period: period))
+        #expect(outcome.recent == nil)
+        #expect(outcome.all.from == closes.first { $0.date >= period.start(today: anchor) }?.date)
+        #expect(outcome.all.to == closes.last { $0.date <= period.end(today: anchor) }?.date)
+        #expect(outcome.all.timeoutRate == 1)
+    }
+
+    @Test("a bid still waiting to fill is not a try yet")
+    func pendingBids() throws {
+        // Never dips, so no bid below the close fills.
+        let closes = bars(400) { 100 + Double($0) }
+        let plan = BracketPlan(entryDiscount: 0.03, stop: 0.05, target: 0.10, maxDays: 60, fillDays: 10)
+        let outcome = try #require(BracketTest.run(closes: closes, plan: plan, period: .threeMonths))
+        let recent = try #require(outcome.recent)
+        // Of the last 70 days, the last ten bids still have time to fill:
+        // not counted either way.
+        #expect(recent.tried == 70 - 10)
+        #expect(recent.entered == 0)
+    }
+
+    @Test("a period before the prices begin has nothing to try")
+    func periodBeforeTheData() {
+        let closes = bars(400) { _ in 50 }
+        let plan = BracketPlan(stop: 0.05, target: 0.10)
+        #expect(BracketTest.run(closes: closes, plan: plan, period: BacktestPeriod(months: 3, endsMonthsAgo: 60)) == nil)
+    }
+
     @Test("days like today are counted separately, and only when there are enough of them")
     func similarDays() throws {
         // Rises for 600 days, then falls for 300: today is below the 200-day average.

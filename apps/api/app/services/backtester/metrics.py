@@ -62,7 +62,8 @@ def compute_buy_and_hold(
     if prices.empty:
         return {"buy_and_hold_return": None, "buy_and_hold_annualized_return": None}
     total_return = float(prices.iloc[-1] / prices.iloc[0] - 1.0)
-    n = max(len(prices), 1)
+    # `n` prices are `n - 1` daily returns.
+    n = max(len(prices) - 1, 1)
     annualized = float((1.0 + total_return) ** (252 / n) - 1.0)
     return {
         "buy_and_hold_return": total_return,
@@ -86,7 +87,10 @@ def compute_metrics(
     total_return = equity_curve.iloc[-1] - 1.0
     benchmark_total_return = benchmark_curve.iloc[-1] - 1.0
 
-    annualized_return = equity_curve.iloc[-1] ** (252 / max(len(equity_curve), 1)) - 1.0
+    # The first day of a test has no return (the position is entered at its
+    # close), so a curve of `n` days compounds over `n - 1` daily returns.
+    periods = max(len(equity_curve) - 1, 1)
+    annualized_return = equity_curve.iloc[-1] ** (252 / periods) - 1.0
     annualized_volatility = portfolio_returns.std(ddof=1) * math.sqrt(252)
     downside = portfolio_returns.clip(upper=0)
     sortino_denominator = downside.std(ddof=0) * math.sqrt(252)
