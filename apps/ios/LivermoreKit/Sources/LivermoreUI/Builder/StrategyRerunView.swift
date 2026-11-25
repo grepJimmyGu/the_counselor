@@ -8,7 +8,7 @@ struct StrategyRerunView: View {
     let saved: SavedStrategy
     let original: StrategyJSON
 
-    @State private var range: BacktestRange = .fiveYears
+    @State private var range: BacktestPeriod = .fiveYears
     @State private var customization: StrategyCustomization
     @State private var isRunning = false
     @State private var failure: APIFailure?
@@ -29,14 +29,11 @@ struct StrategyRerunView: View {
         Form {
             Section {
                 LabeledContent("Tickers", value: original.universe.joined(separator: ", "))
-                Picker("Period", selection: $range) {
-                    ForEach(BacktestRange.allCases) { Text($0.rawValue).tag($0) }
-                }
-                .pickerStyle(.segmented)
+                BacktestPeriodPicker(period: $range)
             } header: {
                 Text(saved.title)
             } footer: {
-                Text("The test ends today and looks back over the period you choose.")
+                Text("Choose how far back the test looks and when it ends: today, or the end of an earlier month to test a stretch of the past.")
             }
 
             Section {

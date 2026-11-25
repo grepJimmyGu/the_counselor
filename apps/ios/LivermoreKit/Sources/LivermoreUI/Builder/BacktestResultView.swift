@@ -57,7 +57,13 @@ struct BacktestResultView: View {
     private var hero: some View {
         VStack(alignment: .leading, spacing: 6) {
             // The period first: every number below describes it.
-            Text("\(strategy.startDate) to \(strategy.endDate)").eyebrowStyle()
+            // The days there were prices for, not the dates asked for: a
+            // test run before today's close ends on yesterday's.
+            if let tested = result.tested {
+                Text("\(tested.first) to \(tested.last) · \(tested.sessions) sessions").eyebrowStyle()
+            } else {
+                Text("\(strategy.startDate) to \(strategy.endDate)").eyebrowStyle()
+            }
             Text(strategy.strategyName).font(.title3.weight(.semibold))
             Text(Fmt.percent(metrics.totalReturn, signed: true))
                 .font(.hero).foregroundStyle(metrics.totalReturn.changeColor)
@@ -84,7 +90,12 @@ struct BacktestResultView: View {
     private var numbers: some View {
         Card("The numbers") {
             LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)], spacing: 8) {
-                StatTile(label: "Per year", value: Fmt.percent(metrics.annualizedReturn, signed: true), tint: metrics.annualizedReturn.changeColor)
+                if result.isUnderAYear {
+                    // No per-year figure for a test shorter than a year.
+                    StatTile(label: "Sessions tested", value: "\(result.tested?.sessions ?? 0)", note: "Under a year: no per-year rate")
+                } else {
+                    StatTile(label: "Per year", value: Fmt.percent(metrics.annualizedReturn, signed: true), tint: metrics.annualizedReturn.changeColor)
+                }
                 StatTile(label: "Worst drop", value: Fmt.percent(metrics.maxDrawdown), tint: .loss)
                 StatTile(label: "Sharpe ratio", value: String(format: "%.2f", metrics.sharpeRatio), note: "Return per unit of risk")
                 StatTile(label: "Time invested", value: Fmt.percent(metrics.timeInMarket))
@@ -266,6 +277,17 @@ private struct GrowthChart: View {
         }
     }
 
+    /// Labels for the period drawn: days for a few months, months for a few
+    /// years, years beyond. A three-month test labelled by year reads
+    /// "2026 2026 2026 2026".
+    private static func axisFormat(spanning points: [Point]) -> Date.FormatStyle {
+        guard let first = points.first?.date, let last = points.last?.date else { return Fmt.utc(.dateTime.year()) }
+        let days = last.timeIntervalSince(first) / 86_400
+        if days <= 200 { return Fmt.utc(.dateTime.month(.abbreviated).day()) }
+        if days <= 800 { return Fmt.utc(.dateTime.month(.abbreviated).year(.twoDigits)) }
+        return Fmt.utc(.dateTime.year())
+    }
+
     var body: some View {
         let points = points
         let selected = selectedDate.flatMap { date in
@@ -317,7 +339,7 @@ private struct GrowthChart: View {
                 }
                 .chartXAxis {
                     AxisMarks(values: .automatic(desiredCount: 4)) { _ in
-                        AxisValueLabel(format: .dateTime.year())
+                        AxisValueLabel(format: Self.axisFormat(spanning: points))
                     }
                 }
                 .chartXSelection(value: $selectedDate)

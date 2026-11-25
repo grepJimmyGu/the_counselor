@@ -92,22 +92,6 @@ public enum TemplateCatalog {
     public static var runnable: [StrategyTemplate] { all.filter(\.isRunnable) }
 }
 
-public enum BacktestRange: String, CaseIterable, Identifiable, Sendable {
-    case threeYears = "3Y"
-    case fiveYears = "5Y"
-    case tenYears = "10Y"
-
-    public var id: String { rawValue }
-
-    var years: Int {
-        switch self {
-        case .threeYears: 3
-        case .fiveYears: 5
-        case .tenYears: 10
-        }
-    }
-}
-
 public enum StrategyBuilder {
     private static var utc: Calendar {
         var calendar = Calendar(identifier: .gregorian)
@@ -143,12 +127,12 @@ public enum StrategyBuilder {
         return "\(template.name) — \(suffix)"
     }
 
-    /// A strategy re-dated to end today and start `range` years back — for
-    /// testing a saved strategy again on current data.
-    public static func redated(_ strategy: StrategyJSON, range: BacktestRange, today: Date = .now) -> StrategyJSON {
+    /// A strategy re-dated to the chosen period — for testing a saved
+    /// strategy again, on current data or over a stretch of the past.
+    public static func redated(_ strategy: StrategyJSON, range: BacktestPeriod, today: Date = .now) -> StrategyJSON {
         var next = strategy
-        next.endDate = isoDay(today)
-        next.startDate = isoDay(utc.date(byAdding: .year, value: -range.years, to: today) ?? today)
+        next.endDate = isoDay(range.end(today: today))
+        next.startDate = isoDay(range.start(today: today))
         return next
     }
 
@@ -158,14 +142,14 @@ public enum StrategyBuilder {
     public static func strategy(
         from template: StrategyTemplate,
         tickers: [String],
-        range: BacktestRange,
+        range: BacktestPeriod,
         today: Date = .now
     ) -> StrategyJSON {
         var strategy = template.strategy
         strategy.universe = tickers.isEmpty ? template.defaultTickers : tickers
         strategy.strategyName = name(for: template, tickers: tickers)
-        strategy.endDate = isoDay(today)
-        strategy.startDate = isoDay(utc.date(byAdding: .year, value: -range.years, to: today) ?? today)
+        strategy.endDate = isoDay(range.end(today: today))
+        strategy.startDate = isoDay(range.start(today: today))
         return strategy
     }
 }
