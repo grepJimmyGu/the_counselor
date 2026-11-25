@@ -381,6 +381,34 @@ describe("paging at 25 per screen", () => {
     );
   });
 
+  it("REGRESSION: a Next click the moment the results appear is not undone", async () => {
+    // web-ci on main, 2026-11-24: the page index was reset in an effect, and an
+    // effect runs after the new results are already on screen. A click in that
+    // gap was applied first and then reset to page 1. waitFor can land in the
+    // gap by chance; this clicks in it on purpose, on the first DOM change that
+    // shows the pager.
+    parseMock.mockResolvedValue(parsedOk());
+    scanMock.mockResolvedValue(many(60));
+    countMock.mockResolvedValue({ matched_count: 100 });
+    const pagerShown = new Promise<void>((resolve) => {
+      const observer = new MutationObserver(() => {
+        if (document.querySelector('[data-testid="page-indicator"]')) {
+          observer.disconnect();
+          resolve();
+        }
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+    render(<QueryResults query="q" universeId="sp500" />);
+    await pagerShown;
+
+    fireEvent.click(screen.getByLabelText("Next page"));
+    await waitFor(() => expect(screen.getByTestId("page-indicator").textContent).toBe("2 / 3"));
+    // And it stays there once everything has settled.
+    await new Promise((settle) => setTimeout(settle, 100));
+    expect(screen.getByTestId("page-indicator").textContent).toBe("2 / 3");
+  });
+
   it("returns to page 1 when the sort changes", async () => {
     parseMock.mockResolvedValue(parsedOk());
     scanMock.mockResolvedValue(many(60));

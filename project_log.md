@@ -8,6 +8,26 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-11-24 — The screen results pager: a quick "Next" was undone
+
+**Symptom.** web-ci failed on `main` after #372
+([run 45478456340](https://github.com/grepJimmyGu/the_counselor/actions/runs/45478456340)):
+"returns to page 1 when the sort changes" read `1 / 3` after a click on Next.
+It had passed on #372's own run, and #372 only added `prefetch={false}` to a
+link in that file.
+
+**Cause.** `QueryResults` reset the page to 1 in a `useEffect` keyed on the
+results and the sort. An effect runs after the new results are on screen, so
+a Next click in that gap was applied first and the reset after it. waitFor
+can land in the gap by chance, which is why it failed once and not before. A
+user clicking Next the moment results appear would see the same.
+
+**Fix.** The page resets while rendering when its inputs change (React's
+pattern for adjusting state to new props), so no frame shows the new results
+with a stale page index. A new test clicks Next on the first DOM change that
+shows the pager: it failed 3 of 3 on the old code and passes 5 of 5 with the
+fix. Full web suite 738 passed; production build clean.
+
 ## 2026-11-24 — "+" raises the price on the entry/exit test; the option "what if" shows its arithmetic
 
 **Symptom 1.** On the company page's "Test an entry and exit", + lowered the
