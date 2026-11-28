@@ -35,7 +35,15 @@ from app.services.exit_ladder import Bar, evaluate_bar, weight_delta_for
 #     * ladder exits fill at the NEXT session's open, carrying the
 #       overnight gap, instead of at the price that triggered the tier
 #     * transaction cost and slippage default to 5 bps each instead of 0
-BACKTEST_ENGINE_VERSION = "2026.08.18"
+#
+# 2026.11.28 — no change to the engine; the prices it reads are corrected.
+#   Stored adjusted closes were never rewritten, so rows loaded before a
+#   dividend or split stayed on the old basis and each missed ex-dividend
+#   drop was tested as a loss (about 0.08% per AAPL dividend, 0.25% per SPY
+#   one), with a seam wherever two fetches met. A test's symbols are now put
+#   on today's basis before it runs (`price_basis_service`). Results move
+#   for every strategy holding a dividend payer, generally upward.
+BACKTEST_ENGINE_VERSION = "2026.11.28"
 from app.schemas.backtest import (
     AnnualReturnItem,
     BacktestMetrics,

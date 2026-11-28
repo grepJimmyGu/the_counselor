@@ -150,6 +150,10 @@ class Settings(BaseSettings):
     db_pool_recycle_seconds: int = 1800
     api_timeout_seconds: float = 20.0
     price_cache_stale_hours: int = 24
+    # Rows a day that `price_basis_service` may rewrite to bring adjusted
+    # closes onto today's basis; about 220 bytes of table and index each, so
+    # the default is some 110 MB. Zero turns reconciling off.
+    price_basis_daily_row_budget: int = 500_000
     allowed_origins: Union[str, list[str]] = [
         "http://localhost:3000",
         "http://127.0.0.1:3000",

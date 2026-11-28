@@ -63,3 +63,24 @@ def make_user(db: Session):
         return user
 
     return _factory
+
+
+class _NoPriceProvider:
+    async def fetch_daily_adjusted(self, symbol: str, outputsize: str = "full"):
+        from app.services.alpha_vantage import AlphaVantageError
+
+        raise AlphaVantageError("no price provider in tests")
+
+
+@pytest.fixture(autouse=True)
+def _basis_reconcile_stays_offline(monkeypatch):
+    """Opening a chart or running a backtest preflight starts a reconcile of
+    the symbol's adjusted closes (`price_basis_service`), which downloads its
+    whole history. No test may reach the real provider that way, whatever
+    API key the machine has; a test of the reconcile sets its own client."""
+    import app.services.price_basis_service as pb
+
+    monkeypatch.setattr(pb.price_basis_service, "client", _NoPriceProvider())
+    pb._retry_after.clear()
+    yield
+    pb._retry_after.clear()
