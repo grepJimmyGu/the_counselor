@@ -20,6 +20,7 @@ from datetime import date
 from sqlalchemy.orm import Session
 
 from app.services.alpha_vantage import AlphaVantageClient
+from app.services.price_basis_service import price_basis_service
 from app.services.price_cache_service import PriceCacheService
 from app.services.symbol_service import SymbolService
 
@@ -62,4 +63,8 @@ async def ensure_data_available(
                 await _cache_svc.ensure_history(db, symbol, required_from)
             except Exception as exc:
                 fetch_errors[symbol] = str(exc)
+    # The engine reads adjusted closes: put every symbol on today's basis
+    # first, or each dividend missed since its rows were stored is tested as
+    # a loss. Waits for a small universe; never raises.
+    await price_basis_service.settle(db.get_bind(), symbols)
     return fetch_errors

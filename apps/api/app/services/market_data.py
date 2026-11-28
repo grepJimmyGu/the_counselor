@@ -13,6 +13,7 @@ from app.core.config import get_settings
 from app.models.price_bar import PriceBar
 from app.schemas.market_data import PriceBarResponse, SymbolSearchItem
 from app.services.alpha_vantage import AlphaVantageClient
+from app.services.price_basis_service import price_basis_service
 from app.services.price_data_service import PriceDataService
 from app.services.symbol_service import SymbolService
 
@@ -110,6 +111,9 @@ class MarketDataService:
         one is given. A long-listed stock has 27 years of them (1.2 MB of
         JSON), and a phone chart reads five."""
         await self._price_data.cache_svc.ensure_history(db, symbol.upper(), end_date)
+        # A chart someone is looking at: put its adjusted closes on today's
+        # basis, behind this request. This view serves what is stored.
+        price_basis_service.start(db.get_bind(), symbol)
         query = select(PriceBar).where(PriceBar.symbol == symbol.upper())
         if start_date is not None:
             query = query.where(PriceBar.trading_date >= start_date)

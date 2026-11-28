@@ -8,6 +8,89 @@ Natural-language investment strategy research tool. Users describe trading strat
 
 ---
 
+## 2026-11-28 — Adjusted closes are kept on one basis: a missed dividend is no longer a loss
+
+**Symptom.** Confirmed on production 2026-11-25. A backtest or a chart
+showed each ex-dividend drop as a loss: about 0.08% per AAPL dividend, 0.25%
+per SPY one. `adjusted_close / close` for SPY jumped 0.9943 → 1.0 between
+2025-12-04 and 2025-12-05 with no dividend between them (a +0.57% day that
+never happened), and SPY's December 2025 and March 2026 ex-date rows were
+stored with a dividend of zero. A split after a symbol's first load would
+have been a cliff of the whole split ratio.
+
+**Cause.** The provider's `adjusted_close` is relative to the day it is
+fetched: every later dividend or split restates every earlier day.
+`PriceCacheService._upsert_bars` inserts with ON CONFLICT DO NOTHING, so a
+stored row was never written again. Rows stored before a dividend kept the
+old basis, rows stored after it got the new one, and the stored series was a
+patchwork with a seam wherever two fetches met.
+
+**Fix.** `app/services/price_basis_service.py`. For a symbol a person opens
+or backtests, it downloads the provider's whole series, compares it with the
+stored rows, and rewrites only the days that differ (taking the provider's
+whole row, so `close` and `adjusted_close` stay one answer).
+
+- *When.* A symbol is due when its newest stored bar was written after its
+  last successful reconcile (`data_fetch_logs`, `fetch_type =
+  "basis_reconcile"`). Only a bar that has arrived since can carry a dividend
+  or split, so that is at most once a trading day and never on a weekend.
+- *Where.* Behind the request for the chart endpoint
+  (`MarketDataService.get_cached_bars`); awaited, for up to 26 symbols and 20
+  seconds, in the backtest preflight (signed-in route, anonymous route, chat
+  tool). Not in the startup warmups, the universe sweeps or the screener
+  snapshot job.
+- *Bounds.* One download per symbol however many ask, four at a time, ten
+  minutes' rest after a failure, and a daily allowance of rows
+  (`price_basis_daily_row_budget`, default 500,000; zero turns it off).
+- It never adds a bar newer than the newest stored one, never touches a row
+  from another source (`^GSPC`, spot series), and never raises.
+
+**Why not just DO UPDATE in the shared upsert.** The warmups and sweeps call
+`ensure_history` for about 3,000 symbols. After a dividend every earlier row
+of a symbol changes, so the first cycle would rewrite most of `price_bars`
+(trap 10 is the disk-full outage from a far smaller burst). And comparing
+first matters even on demand: Postgres locks every conflicting row of an
+ON CONFLICT DO UPDATE whose WHERE is false, which was visible on a real
+Postgres 16 as `xmax` set on rows that were not updated.
+
+**Disk.** About 220 bytes per rewritten row (the new row version and its
+four index entries); about 1.5 MB for a long-listed symbol's 6,800 rows,
+each time its basis changes. Assuming 50 distinct symbols opened or
+backtested a day (an assumption; there are no traffic figures here): up to
+340,000 rows, 75 MB, a day at first, then about 3,700 rows, under 1 MB, a
+day. The allowance caps any day at about 110 MB. The space is reusable after
+autovacuum, which by default waits for 20% of the table to be dead.
+
+**Found on the way.** `result.rowcount` is -1 for a multi-row INSERT ... ON
+CONFLICT on Postgres with psycopg 3, so the count of rows written is taken
+from RETURNING. (`_upsert_bars` falls back to the chunk size in that case,
+which is why `bars_upserted` in its log rows is the rows sent, not the rows
+inserted.)
+
+**Engine version** `2026.11.28`: no engine change, corrected prices. Results
+move for every strategy holding a dividend payer.
+
+**Tests.** `tests/test_price_basis_reconcile.py` (16): a symbol is loaded, a
+dividend and a 4-for-1 split follow, more days are stored, and the stored
+series is then the provider's exactly: the factor steps by 1 − dividend /
+previous close on the ex-date, by 1/4 on the split, by nothing elsewhere,
+and the largest one-day adjusted move is under 1% where it was 75%. With the
+rewrite switched off, 11 of the 16 fail. One Postgres test in
+`tests/test_postgres_migrations.py` for the conditional upsert, run locally
+against Postgres 16.2 (13 passed). Full backend suite 3,180 passed, 21 skipped.
+
+**Not covered.** Symbols nobody opens stay on their stored basis, so the
+screener's signals over the 3,000-symbol universe keep small dividend errors
+and would show a split in an unopened symbol as a cliff. A backtest of more
+than 26 symbols may run once on the old basis while the reconcile finishes
+behind it. The chart request that starts a reconcile still serves the old
+rows; the next one is right. Each reconcile is one more full download per
+symbol per new bar.
+
+**Open PRs touching the same lines.** #394 (`market_data.py`,
+`project_log.md`) and #395 (`BACKTEST_ENGINE_VERSION`): keep both sides, and
+the later version number.
+
 ## 2026-11-24 — The screen results pager: a quick "Next" was undone
 
 **Symptom.** web-ci failed on `main` after #372

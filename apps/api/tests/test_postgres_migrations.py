@@ -484,3 +484,103 @@ def test_sqlalchemy_text_bind_with_postgres_cast_uses_CAST_form():
     engine.dispose()
 
 
+
+
+# ── Adjusted closes: the conditional upsert (price_basis_service) ────────────
+
+
+def test_basis_reconcile_rewrites_only_the_rows_that_differ():
+    """`ON CONFLICT DO UPDATE ... WHERE price_bars.x IS DISTINCT FROM
+    excluded.x` on real Postgres (SQLite spells it `IS NOT`).
+
+    Rows of `price_bars` used to be written once and never again, so a
+    dividend or split after a symbol's first load left the earlier rows on
+    the old adjusted basis. The reconcile rewrites them, and must rewrite
+    nothing else: on Railway every rewritten row is disk (trap 10), so a row
+    that already agrees, and a row from another source, have to come through
+    untouched, and the row count the statement reports has to be the number
+    actually written, since the daily allowance is counted from it.
+    """
+    from datetime import date, datetime, timedelta
+
+    from sqlalchemy import select
+    from sqlalchemy.orm import sessionmaker
+
+    from app.models.price_bar import PriceBar
+    from app.services import price_basis_service as pb
+
+    engine = _fresh_engine()
+    Base.metadata.create_all(bind=engine)
+    run_startup_migrations(engine)
+    db = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)()
+
+    first_load = datetime(2026, 1, 2, 12, 0, 0)
+    days = [date(2026, 3, 2) + timedelta(days=i) for i in range(6)]
+    ex_dividend = days[4]
+
+    def bar(day, close, adjusted, dividend=0.0, source="alpha_vantage"):
+        return dict(
+            symbol="ZZZ", trading_date=day, open=close, high=close, low=close,
+            close=close, adjusted_close=adjusted, volume=1000,
+            dividend_amount=dividend, split_coefficient=1.0,
+            source=source, fetched_at=first_load,
+        )
+
+    try:
+        # Stored before the dividend: every day is its own basis. days[2] is
+        # missing, and days[1] belongs to another source.
+        for i in (0, 1, 3, 4, 5):
+            db.add(PriceBar(**bar(
+                days[i], 100.0, 100.0, source="commodity_spot" if i == 1 else "alpha_vantage",
+            )))
+        db.commit()
+
+        # The provider now: a 0.5 dividend on days[4] restates days 0 to 3,
+        # and a sixth day nobody has stored yet.
+        factor = 1 - 0.5 / 100.0
+        provider = [bar(d, 100.0, 100.0 * factor) for d in days[:4]]
+        provider.append(bar(ex_dividend, 100.0, 100.0, dividend=0.5))
+        provider.append(bar(days[5], 100.0, 100.0))
+        provider.append(bar(days[5] + timedelta(days=1), 100.0, 100.0))
+
+        reconciled_at = datetime(2026, 11, 28, 9, 0, 0)
+        written = pb.apply_provider_bars(db, "ZZZ", provider, fetched_at=reconciled_at)
+        db.commit()
+
+        # days[0] and days[3] restated, days[2] filled in, days[4] given its
+        # dividend. Not days[1] (another source), not days[5] (agrees), not
+        # the day after the newest stored one.
+        assert written == 4
+        rows = {
+            r.trading_date: r
+            for r in db.execute(select(PriceBar).where(PriceBar.symbol == "ZZZ")).scalars()
+        }
+        assert sorted(rows) == days
+        for i in (0, 2, 3):
+            assert rows[days[i]].adjusted_close == 100.0 * factor
+            assert rows[days[i]].fetched_at == reconciled_at
+        assert rows[ex_dividend].dividend_amount == 0.5
+        assert rows[ex_dividend].fetched_at == reconciled_at
+        assert (rows[days[1]].source, rows[days[1]].adjusted_close) == ("commodity_spot", 100.0)
+        assert rows[days[1]].fetched_at == first_load
+        assert rows[days[5]].fetched_at == first_load
+
+        # The statement on its own, sent every row: the WHERE alone has to
+        # hold back the ones that agree and the other source's.
+        later = datetime(2026, 11, 29, 9, 0, 0)
+        resent = [dict(r, fetched_at=later) for r in provider[:6]]
+        assert pb.upsert_changed(db, resent) == 0
+        resent[0]["adjusted_close"] = 98.0
+        assert pb.upsert_changed(db, resent) == 1
+        db.commit()
+        db.expire_all()
+        stamps = {
+            r.trading_date: (r.adjusted_close, r.fetched_at)
+            for r in db.execute(select(PriceBar).where(PriceBar.symbol == "ZZZ")).scalars()
+        }
+        assert stamps[days[0]] == (98.0, later)
+        assert stamps[days[3]] == (100.0 * factor, reconciled_at)
+        assert stamps[days[1]] == (100.0, first_load)
+    finally:
+        db.close()
+        engine.dispose()
